@@ -1,3 +1,3 @@
-module server/hello
+module server
 
 go 1.24.12
