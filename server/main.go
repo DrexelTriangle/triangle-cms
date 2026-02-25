@@ -18,7 +18,7 @@ func main() {
 
 	server := http.Server{
 		Addr:    ":8080",
-		Handler: middleware.Logging(mux),
+		Handler: middleware.Chain(mux, middleware.Logging, middleware.Logging2),
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		},
