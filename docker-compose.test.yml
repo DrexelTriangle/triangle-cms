@@ -8,7 +8,7 @@ services:
     ports:
       - "3307:3306" 
     volumes:
-      - ./data/init_schema.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./db/init_schema.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 3s
