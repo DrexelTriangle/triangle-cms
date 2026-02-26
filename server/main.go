@@ -18,14 +18,13 @@ func main() {
 
 	server := http.Server{
 		Addr:    ":8080",
-		Handler: middleware.Chain(mux, middleware.Logging, middleware.Logging2),
+		Handler: middleware.Chain(mux, middleware.Recovery, middleware.Logging),
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		},
 	}
 
-	server.ListenAndServeTLS("", "")
-	if err != nil {
+	if err := server.ListenAndServeTLS("", ""); err != nil {
 		//handle
 	}
 }
