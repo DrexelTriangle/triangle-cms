@@ -16,13 +16,42 @@ func Chain(h http.Handler, middleware ...Middleware) http.Handler {
 	return h
 }
 
+type responseRecord struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (r *responseRecord) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *responseRecord) Write(b []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	n, err := r.ResponseWriter.Write(b)
+	r.bytes += n
+	return n, err
+}
+
 func Logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		rec := &responseRecord{ResponseWriter: w}
+
 		next.ServeHTTP(w, r)
+
+		if rec.status == 0 {
+			rec.status = http.StatusOK
+		}
+
 		slog.Info("http request",
 			"method", r.Method,
 			"path", r.URL.Path,
+			"status", rec.status,
+			"bytes", rec.bytes,
 			"duration_ms", time.Since(start).Milliseconds(),
 		)
 	})
