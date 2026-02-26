@@ -1,0 +1,3 @@
+cover.out
+certs/*.crt
+certs/*.key
