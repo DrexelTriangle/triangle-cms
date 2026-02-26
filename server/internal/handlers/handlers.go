@@ -23,7 +23,7 @@ func Users(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewEncoder(w).Encode(payload)
 	if err != nil {
-		slog.Error("error encoding json: %v\n", "error", err)
+		slog.Error("error encoding json", "error", err)
 		http.Error(w, "500 - Internal Server Error", http.StatusInternalServerError)
 	}
 }

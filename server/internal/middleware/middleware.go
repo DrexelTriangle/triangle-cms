@@ -41,7 +41,7 @@ func Logging(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &responseRecord{ResponseWriter: w}
 
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(rec, r)
 
 		if rec.status == 0 {
 			rec.status = http.StatusOK
