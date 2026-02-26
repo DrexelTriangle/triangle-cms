@@ -2,15 +2,25 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
+	"log/slog"
 	"net/http"
+	"os"
 	"server/internal/middleware"
 	"server/internal/routes"
 )
 
 func main() {
-	cert, err := tls.LoadX509KeyPair("./certs/localhost.crt", "./certs/localhost.key")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	const certFile = "./certs/localhost.crt"
+	const keyFile = "./certs/localhost.key"
+
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		//handle
+		slog.Error("tls certificate load failed", "cert_file", certFile, "key_file", keyFile, "error", err)
+		os.Exit(1)
 	}
 
 	mux := http.NewServeMux()
@@ -22,9 +32,13 @@ func main() {
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		},
+		ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}
 
 	if err := server.ListenAndServeTLS("", ""); err != nil {
-		//handle
+		if !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("https server exited with error", "addr", server.Addr, "error", err)
+			os.Exit(1)
+		}
 	}
 }
