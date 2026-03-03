@@ -68,6 +68,15 @@ func main() {
         panic(err)
     }
 
+	// Just for testing the database
+	row := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?", dbName)
+	var tableCount int
+	if err := row.Scan(&tableCount); err != nil {
+		fmt.Println("Error querying table count:", err)
+	} else {
+		fmt.Println("Number of tables in database:", tableCount)
+	}
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
