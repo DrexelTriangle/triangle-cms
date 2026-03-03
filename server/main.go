@@ -9,10 +9,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	
 	"server/internal/middleware"
 	"server/internal/routes"
+	"server/internal/database"
+
 	"syscall"
+	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 const (
@@ -48,6 +54,20 @@ type runDeps struct {
 }
 
 func main() {
+	godotenv.Load()
+	
+	dbName := os.Getenv("DB_NAME")
+    user := os.Getenv("DB_USER")
+    password := os.Getenv("DB_PASSWORD")
+    host := os.Getenv("DB_HOST")
+    portStr := os.Getenv("DB_PORT")
+    port, _ := strconv.Atoi(portStr)
+
+    db, err := database.InitializeConnection(context.Background(), dbName, user, password, host, port)
+    if err != nil {
+        panic(err)
+    }
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
