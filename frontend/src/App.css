@@ -52,3 +52,12 @@
   top: 0;
   left: 0;
 }
+
+.sidebar {
+  position: fixed;
+  top: 40px;
+  left: 0;
+  width: 220px;
+  height: calc(100vh - 70px);
+  background-color: #1d202c;
+}
