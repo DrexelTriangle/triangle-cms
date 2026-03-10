@@ -34,6 +34,18 @@ func TestRegister_UsersRoute(t *testing.T) {
 			path:       "/unknown",
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name:       "get structs route",
+			method:     http.MethodGet,
+			path:       "/structs",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "post structs not allowed",
+			method:     http.MethodPost,
+			path:       "/structs",
+			wantStatus: http.StatusMethodNotAllowed,
+		},
 	}
 
 	for _, tt := range tests {

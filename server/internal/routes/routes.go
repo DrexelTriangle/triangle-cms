@@ -7,4 +7,5 @@ import (
 
 func Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users", handlers.Users)
+	mux.HandleFunc("GET /structs", handlers.SearchStructs)
 }
