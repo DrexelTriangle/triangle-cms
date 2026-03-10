@@ -7,8 +7,18 @@ import (
 	"strings"
 )
 
-// validSortDir is the whitelist used by buildOrderByClause.
-var validSortDir = map[string]bool{"asc": true, "desc": true}
+var validSortDirections = map[string]bool{"asc": true, "desc": true}
+
+const (
+	paramID            = "id"
+	paramSortBy        = "sort_by"
+	paramSortDirection = "sort_direction"
+	paramLimit         = "limit"
+	paramOffset        = "offset"
+
+	defaultLimit = 20
+	maxLimit     = 100
+)
 
 const (
 	TableAuthors  = "authors"
@@ -42,9 +52,6 @@ var allowedJoinsByTable = map[string]map[string]bool{
 
 var identifierRegex = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
-// ─── Core helpers ─────────────────────────────────────────────────────────────
-
-// HasNonEmptyParam reports whether params contains key with a non-nil, non-blank value.
 func HasNonEmptyParam(params map[string]any, key string) bool {
 	value, ok := params[key]
 	if !ok || value == nil {
@@ -54,6 +61,16 @@ func HasNonEmptyParam(params map[string]any, key string) bool {
 		return strings.TrimSpace(str) != ""
 	}
 	return true
+}
+
+func getStringParam(params map[string]any, key string) string {
+	value, _ := params[key].(string)
+	return strings.TrimSpace(value)
+}
+
+func getIntParam(params map[string]any, key string) int {
+	value, _ := params[key].(int)
+	return value
 }
 
 func normalizeSQL(query string) string {
@@ -75,24 +92,32 @@ func buildWhereClause(conditions []string) string {
 }
 
 func buildOrderByClause(params map[string]any, allowed map[string]bool) string {
-	col, _ := params["sort_by"].(string)
-	dir, _ := params["sort_direction"].(string)
-	if !allowed[strings.ToLower(col)] {
+	column := getStringParam(params, paramSortBy)
+	direction := strings.ToLower(getStringParam(params, paramSortDirection))
+
+	if !allowed[strings.ToLower(column)] {
 		return ""
 	}
-	if !validSortDir[strings.ToLower(dir)] {
-		dir = "ASC"
+	if !validSortDirections[direction] {
+		direction = "asc"
 	}
-	return fmt.Sprintf("ORDER BY %s %s", col, strings.ToUpper(dir))
+
+	return fmt.Sprintf("ORDER BY %s %s", column, strings.ToUpper(direction))
+}
+
+func getPagination(params map[string]any) (int, int) {
+	limit := getIntParam(params, paramLimit)
+	offset := getIntParam(params, paramOffset)
+
+	if limit <= 0 || limit > maxLimit {
+		limit = defaultLimit
+	}
+
+	return limit, offset
 }
 
 func getLimitOffset(params map[string]any) (int, int) {
-	limit, _ := params["limit"].(int)
-	offset, _ := params["offset"].(int)
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	return limit, offset
+	return getPagination(params)
 }
 
 func validateTable(table string) error {
@@ -136,7 +161,6 @@ func requireAllFields(params map[string]any, fields []string) error {
 	return nil
 }
 
-// quoteColumn wraps reserved SQL words in backticks; others pass through.
 var reservedColumns = map[string]bool{"text": true}
 
 func quoteColumn(col string) string {
@@ -146,31 +170,26 @@ func quoteColumn(col string) string {
 	return col
 }
 
-// ─── Generic builders ─────────────────────────────────────────────────────────
-
-// BuildSelectByIDSQL builds a SELECT * for a single row by id.
 func BuildSelectByIDSQL(table string, params map[string]any) (string, []any, error) {
 	if err := validateTable(table); err != nil {
 		return "", nil, err
 	}
-	if err := requireParam(params, "id"); err != nil {
+	if err := requireParam(params, paramID); err != nil {
 		return "", nil, err
 	}
-	return fmt.Sprintf("SELECT * FROM %s WHERE id = ?", table), []any{params["id"]}, nil
+	return fmt.Sprintf("SELECT * FROM %s WHERE id = ?", table), []any{params[paramID]}, nil
 }
 
-// BuildDeleteByIDSQL builds a DELETE for a single row by id.
 func BuildDeleteByIDSQL(table string, params map[string]any) (string, []any, error) {
 	if err := validateTable(table); err != nil {
 		return "", nil, err
 	}
-	if err := requireParam(params, "id"); err != nil {
+	if err := requireParam(params, paramID); err != nil {
 		return "", nil, err
 	}
-	return fmt.Sprintf("DELETE FROM %s WHERE id = ?", table), []any{params["id"]}, nil
+	return fmt.Sprintf("DELETE FROM %s WHERE id = ?", table), []any{params[paramID]}, nil
 }
 
-// BuildInsertSQL builds a full INSERT given an ordered field list.
 func BuildInsertSQL(table string, fields []string, params map[string]any) (string, []any, error) {
 	if err := validateTable(table); err != nil {
 		return "", nil, err
@@ -198,13 +217,11 @@ func BuildInsertSQL(table string, fields []string, params map[string]any) (strin
 	return query, args, nil
 }
 
-// BuildUpdateFullSQL builds a full UPDATE (PUT semantics) given an ordered field list.
-// All fields are required.
 func BuildUpdateFullSQL(table string, fields []string, params map[string]any) (string, []any, error) {
 	if err := validateTable(table); err != nil {
 		return "", nil, err
 	}
-	if err := requireParam(params, "id"); err != nil {
+	if err := requireParam(params, paramID); err != nil {
 		return "", nil, err
 	}
 	if err := requireAllFields(params, fields); err != nil {
@@ -218,7 +235,7 @@ func BuildUpdateFullSQL(table string, fields []string, params map[string]any) (s
 		parts[i] = fmt.Sprintf("%s = ?", quoteColumn(f))
 		args[i] = params[f]
 	}
-	args = append(args, params["id"])
+	args = append(args, params[paramID])
 
 	query := fmt.Sprintf(
 		"UPDATE %s\nSET %s\nWHERE id = ?",
@@ -228,12 +245,11 @@ func BuildUpdateFullSQL(table string, fields []string, params map[string]any) (s
 	return query, args, nil
 }
 
-// BuildUpdatePartialSQL builds a partial UPDATE (PATCH semantics) from whichever fields are present.
 func BuildUpdatePartialSQL(table string, fields []string, params map[string]any) (string, []any, error) {
 	if err := validateTable(table); err != nil {
 		return "", nil, err
 	}
-	if err := requireParam(params, "id"); err != nil {
+	if err := requireParam(params, paramID); err != nil {
 		return "", nil, err
 	}
 
@@ -249,22 +265,20 @@ func BuildUpdatePartialSQL(table string, fields []string, params map[string]any)
 	if len(parts) == 0 {
 		return "", nil, ErrNoPatchFields
 	}
-	args = append(args, params["id"])
+	args = append(args, params[paramID])
 
 	return fmt.Sprintf("UPDATE %s\nSET %s\nWHERE id = ?", table, strings.Join(parts, ", ")), args, nil
 }
 
-// ListSQLOptions captures the variable parts of a paginated list query.
 type ListSQLOptions struct {
-	Alias         string          // table alias used in SELECT and clauses
-	Join          string          // optional JOIN clause (empty = omitted)
-	Conditions    []string        // WHERE conditions (combined with AND)
-	Args          []any           // args corresponding to conditions
-	AllowedSortBy map[string]bool // whitelist for sort_by values
-	Params        map[string]any  // original params map (for ORDER BY + LIMIT/OFFSET)
+	Alias         string
+	Join          string
+	Conditions    []string
+	Args          []any
+	AllowedSortBy map[string]bool
+	Params        map[string]any
 }
 
-// BuildListSQL builds a paginated SELECT with optional JOIN, WHERE, and ORDER BY.
 func BuildListSQL(table string, opts ListSQLOptions) (string, []any, error) {
 	if err := validateTable(table); err != nil {
 		return "", nil, err
@@ -277,23 +291,28 @@ func BuildListSQL(table string, opts ListSQLOptions) (string, []any, error) {
 	}
 
 	args := append([]any{}, opts.Args...)
-	limit, offset := getLimitOffset(opts.Params)
+	limit, offset := getPagination(opts.Params)
 	args = append(args, limit, offset)
 
-	query := fmt.Sprintf(`
-SELECT %s.*
-FROM %s %s
-%s
-%s
-%s
-LIMIT ? OFFSET ?`,
-		opts.Alias,
-		table, opts.Alias,
-		opts.Join,
-		buildWhereClause(opts.Conditions),
-		buildOrderByClause(opts.Params, opts.AllowedSortBy),
-	)
+	clauses := []string{
+		fmt.Sprintf("SELECT %s.*", opts.Alias),
+		fmt.Sprintf("FROM %s %s", table, opts.Alias),
+	}
 
-	return normalizeSQL(query), args, nil
+	if strings.TrimSpace(opts.Join) != "" {
+		clauses = append(clauses, opts.Join)
+	}
+
+	if whereClause := buildWhereClause(opts.Conditions); whereClause != "" {
+		clauses = append(clauses, whereClause)
+	}
+
+	if orderByClause := buildOrderByClause(opts.Params, opts.AllowedSortBy); orderByClause != "" {
+		clauses = append(clauses, orderByClause)
+	}
+
+	clauses = append(clauses, "LIMIT ? OFFSET ?")
+
+	return strings.Join(clauses, "\n"), args, nil
 }
 
