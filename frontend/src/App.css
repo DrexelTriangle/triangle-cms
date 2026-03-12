@@ -2,7 +2,7 @@
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
-  text-align: center;
+
 }
 
 .logo {
@@ -64,6 +64,13 @@ body {
   z-index: 1000;
 }
 
+.header-logo {
+  height: 36px;
+  margin-right: auto;
+  width: auto;
+  padding: 2px 2px 2px 2px
+}
+
 .sidebar {
   position: fixed;
   top: 0;
@@ -80,4 +87,50 @@ body {
   margin-left: 220px;
   padding-top: 80px;
   padding: 20px;
+}
+
+/* css for the dashboard button or any button that needs a space underneath*/
+.dashboard-button {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 10px;
+  color: #b4b9c9;
+  text-decoration: none;
+  font-size: 14px;
+  padding-bottom: 4px;
+  transition: background-color 0.2s, color 0.2s;
+  margin-bottom: 15px;
+  margin-top: 10px
+}
+
+.dashboard-button:hover {
+  color: #5e8fcf
+}
+
+.dashboard-button.active {
+  color: #1d202c;
+  background-color: #5e8fcf
+}
+
+
+/*css for sidebar buttons*/
+.sidebar-button {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 10px;
+  color: #b4b9c9;
+  text-decoration: none;
+  font-size: 14px;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.sidebar-button:hover {
+  color: #5e8fcf
+}
+
+.sidebar-button.active {
+  color: #1d202c;
+  background-color: #5e8fcf
 }
