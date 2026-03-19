@@ -13,6 +13,8 @@ services:
       - ./server/internal/database/wordpress_etl/02-articles.sql:/docker-entrypoint-initdb.d/02-articles.sql:ro,z
       - ./server/internal/database/wordpress_etl/03-articles-authors.sql:/docker-entrypoint-initdb.d/03-articles-authors.sql:ro,z
       - ./server/internal/database/wordpress_etl/04-seo.sql:/docker-entrypoint-initdb.d/04-seo.sql:ro,z
+    ports:
+      - "${MARIADB_PORT_FORWARD:-3306}:3306"
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s

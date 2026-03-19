@@ -104,7 +104,7 @@ func dbConfigFromEnv() (dbName, user, password, host string, port int, err error
 		host = "127.0.0.1"
 	}
 	if portStr == "" {
-		port = 8080
+		port = 3306
 		return dbName, user, password, host, port, nil
 	}
 	port, err = strconv.Atoi(portStr)

@@ -1,8 +1,97 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_DIR="${1:-/home/sachin/Documents/Coding/wordpress-etl/logs/sql}"
-OUT_DIR="${2:-server/internal/database/wordpress_etl}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+is_valid_source_dir() {
+  local dir="$1"
+  [[ -f "$dir/articles.sql" && -f "$dir/articles_authors.sql" ]]
+}
+
+resolve_source_dir() {
+  local base="$1"
+  local candidates=("$base" "$base/logs/sql" "$base/sql")
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ "$candidate" != /* ]]; then
+      candidate="$ROOT_DIR/$candidate"
+    fi
+    if is_valid_source_dir "$candidate"; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+usage_error() {
+  cat >&2 <<'ERR'
+Could not determine WordPress ETL SQL source directory.
+
+Expected one of:
+  - first script argument
+  - WP_ETL_SQL_DIR environment variable
+  - ../wordpress-etl or ../wordpress-etl/logs/sql (relative to triangle-cms)
+  - ./wordpress-etl or ./wordpress-etl/logs/sql (inside triangle-cms)
+
+The resolved source must contain:
+  - articles.sql
+  - articles_authors.sql
+
+Example:
+  ./scripts/generate_wordpress_sql.sh ../wordpress-etl
+  ./scripts/generate_wordpress_sql.sh ../wordpress-etl/logs/sql
+  WP_ETL_SQL_DIR=../wordpress-etl ./scripts/generate_wordpress_sql.sh
+ERR
+}
+
+# Source selection precedence:
+# 1) first CLI arg (repo root or sql dir)
+# 2) WP_ETL_SQL_DIR env var (repo root or sql dir)
+# 3) common relative locations near this repo
+SRC_HINTS=()
+if [[ -n "${1:-}" ]]; then
+  SRC_HINTS+=("$1")
+fi
+if [[ -n "${WP_ETL_SQL_DIR:-}" ]]; then
+  SRC_HINTS+=("$WP_ETL_SQL_DIR")
+fi
+SRC_HINTS+=(
+  "$ROOT_DIR/../wordpress-etl"
+  "$ROOT_DIR/../wordpress-etl/logs/sql"
+  "$ROOT_DIR/wordpress-etl"
+  "$ROOT_DIR/wordpress-etl/logs/sql"
+)
+
+SRC_DIR=""
+for hint in "${SRC_HINTS[@]}"; do
+  if resolved="$(resolve_source_dir "$hint")"; then
+    SRC_DIR="$resolved"
+    break
+  fi
+done
+
+if [[ -z "$SRC_DIR" ]]; then
+  usage_error
+  exit 1
+fi
+
+# Output selection precedence:
+# 1) second CLI arg
+# 2) WP_ETL_OUT_DIR env var
+# 3) repo default
+if [[ -n "${2:-}" ]]; then
+  OUT_DIR="$2"
+elif [[ -n "${WP_ETL_OUT_DIR:-}" ]]; then
+  OUT_DIR="$WP_ETL_OUT_DIR"
+else
+  OUT_DIR="$ROOT_DIR/server/internal/database/wordpress_etl"
+fi
+
+# Normalize relative paths from repo root for consistent behavior.
+if [[ "$OUT_DIR" != /* ]]; then
+  OUT_DIR="$ROOT_DIR/$OUT_DIR"
+fi
 
 mkdir -p "$OUT_DIR"
 
