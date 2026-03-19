@@ -3,19 +3,20 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
-	
+	"server/internal/database"
 	"server/internal/middleware"
 	"server/internal/routes"
-	"server/internal/database"
 
-	"syscall"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -54,36 +55,63 @@ type runDeps struct {
 }
 
 func main() {
-	godotenv.Load()
-	
-	dbName := os.Getenv("DB_NAME")
-    user := os.Getenv("DB_USER")
-    password := os.Getenv("DB_PASSWORD")
-    host := os.Getenv("DB_HOST")
-    portStr := os.Getenv("DB_PORT")
-    port, _ := strconv.Atoi(portStr)
+	godotenv.Load(".env")
 
-    db, err := database.InitializeConnection(context.Background(), dbName, user, password, host, port)
-    if err != nil {
-        panic(err)
-    }
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "cms")
+	slog.SetDefault(logger)
+
+	dbName, user, password, host, port, err := dbConfigFromEnv()
+	if err != nil {
+		slog.Error("invalid database configuration", "error", err)
+		os.Exit(1)
+	}
+
+	db, err := database.InitializeConnection(context.Background(), dbName, user, password, host, port)
+	if err != nil {
+		slog.Error("database initialization failed", "error", err, "host", host, "port", port, "db_name", dbName)
+		os.Exit(1)
+	}
 
 	// Just for testing the database
 	row := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?", dbName)
 	var tableCount int
 	if err := row.Scan(&tableCount); err != nil {
-		fmt.Println("Error querying table count:", err)
+		slog.Error("cms startup", "event", "startup", "stage", "db_table_count", "error", err)
 	} else {
-		fmt.Println("Number of tables in database:", tableCount)
+		slog.Info("cms startup", "event", "startup", "stage", "db_table_count", "table_count", tableCount)
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
-	if err := run(defaultRunDeps()); err != nil {
+	if err := run(defaultRunDeps(), db); err != nil {
 		slog.Error("server terminated", "error", err)
 		os.Exit(1)
 	}
+}
+
+func dbConfigFromEnv() (dbName, user, password, host string, port int, err error) {
+	dbName = strings.TrimSpace(os.Getenv("DB_NAME"))
+	user = strings.TrimSpace(os.Getenv("DB_USER"))
+	password = os.Getenv("DB_PASSWORD")
+	host = strings.TrimSpace(os.Getenv("DB_HOST"))
+	portStr := strings.TrimSpace(os.Getenv("DB_PORT"))
+
+	if dbName == "" {
+		return "", "", "", "", 0, fmt.Errorf("DB_NAME is required")
+	}
+	if user == "" {
+		return "", "", "", "", 0, fmt.Errorf("DB_USER is required")
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if portStr == "" {
+		port = 8080
+		return dbName, user, password, host, port, nil
+	}
+	port, err = strconv.Atoi(portStr)
+	if err != nil || port <= 0 || port > 65535 {
+		return "", "", "", "", 0, fmt.Errorf("DB_PORT must be a valid TCP port, got %q", portStr)
+	}
+	return dbName, user, password, host, port, nil
 }
 
 func defaultRunDeps() runDeps {
@@ -109,7 +137,7 @@ func newDefaultServer(cert tls.Certificate, mux *http.ServeMux, logger *slog.Log
 	}
 }
 
-func run(deps runDeps) error {
+func run(deps runDeps, conn *sql.DB) error {
 	if deps.loadX509KeyPair == nil {
 		deps.loadX509KeyPair = tls.LoadX509KeyPair
 	}
@@ -135,7 +163,7 @@ func run(deps runDeps) error {
 	}
 
 	mux := http.NewServeMux()
-	routes.Register(mux)
+	routes.Register(mux, conn)
 	server := deps.newServer(cert, mux, slog.Default())
 
 	serverErr := make(chan error, 1)

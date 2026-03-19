@@ -1,0 +1,82 @@
+services:
+  mariadb:
+    image: mariadb:11.7
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-rootpassword}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-triangle}
+      MARIADB_USER: ${MARIADB_USER:-triangle_user}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-triangle_password}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./server/internal/database/wordpress_etl/01-authors.sql:/docker-entrypoint-initdb.d/01-authors.sql:ro,z
+      - ./server/internal/database/wordpress_etl/02-articles.sql:/docker-entrypoint-initdb.d/02-articles.sql:ro,z
+      - ./server/internal/database/wordpress_etl/03-articles-authors.sql:/docker-entrypoint-initdb.d/03-articles-authors.sql:ro,z
+      - ./server/internal/database/wordpress_etl/04-seo.sql:/docker-entrypoint-initdb.d/04-seo.sql:ro,z
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  cms:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DB_NAME: ${MARIADB_DATABASE:-triangle}
+      DB_USER: ${MARIADB_USER:-triangle_user}
+      DB_PASSWORD: ${MARIADB_PASSWORD:-triangle_password}
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      TLS_CERT_FILE: /app/certs/localhost.crt
+      TLS_KEY_FILE: /app/certs/localhost.key
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+  loki:
+    image: grafana/loki:3.5.6
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/config.yaml:ro,z
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:3.5.6
+    restart: unless-stopped
+    user: "0:0"
+    command: ["-config.file=/etc/promtail/config.yml"]
+    depends_on:
+      - loki
+    volumes:
+      - ./observability/promtail-config.yml:/etc/promtail/config.yml:ro,z
+      - promtail_positions:/tmp
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro,z
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    restart: unless-stopped
+    depends_on:
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning/datasources/loki.yml:/etc/grafana/provisioning/datasources/loki.yml:ro,z
+
+volumes:
+  mariadb_data:
+  loki_data:
+  promtail_positions:
+  grafana_data:

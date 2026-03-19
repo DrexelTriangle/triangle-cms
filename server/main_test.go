@@ -60,7 +60,7 @@ func TestRun_TLSLoadFailure(t *testing.T) {
 			return &fakeServer{}
 		},
 		signalCh: make(chan os.Signal, 1),
-	})
+	}, nil)
 
 	if err == nil {
 		t.Fatal("expected an error, got nil")
@@ -86,7 +86,7 @@ func TestRun_TLSLoadPathsFromEnv(t *testing.T) {
 			return tls.Certificate{}, errors.New("bad certificate")
 		},
 		signalCh: make(chan os.Signal, 1),
-	})
+	}, nil)
 
 	if err == nil {
 		t.Fatal("expected an error, got nil")
@@ -115,7 +115,7 @@ func TestRun_ServerExitError(t *testing.T) {
 			return srv
 		},
 		signalCh: make(chan os.Signal, 1),
-	})
+	}, nil)
 
 	if err == nil {
 		t.Fatal("expected an error, got nil")
@@ -154,7 +154,7 @@ func TestRun_GracefulShutdownOnSignal(t *testing.T) {
 		},
 		signalCh:        sigCh,
 		shutdownTimeout: time.Second,
-	})
+	}, nil)
 
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -196,7 +196,7 @@ func TestRun_ShutdownFailureCallsClose(t *testing.T) {
 		},
 		signalCh:        sigCh,
 		shutdownTimeout: time.Second,
-	})
+	}, nil)
 
 	if err == nil {
 		t.Fatal("expected an error, got nil")
