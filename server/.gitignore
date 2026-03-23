@@ -3,3 +3,4 @@ certs/*.crt
 certs/*.key
 .env
 *.sql
+report.json
