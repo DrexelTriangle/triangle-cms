@@ -1,6 +1,0 @@
-cover.out
-certs/*.crt
-certs/*.key
-.env
-*.sql
-report.json
