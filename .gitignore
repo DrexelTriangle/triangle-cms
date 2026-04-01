@@ -4,3 +4,4 @@
 /server/.env
 /server/**/*.sql
 /report.json
+.vscode/settings.json

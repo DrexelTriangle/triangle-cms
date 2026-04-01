@@ -17,11 +17,12 @@ var AuthorSortByColumn = map[string]string{
 }
 
 var ArticleSortByColumn = map[string]string{
-	string(models.ArticleSortByTitle):       "title",
-	string(models.ArticleSortBySlug):        "slug",
-	string(models.ArticleSortByCreatedAt):   "created_at",
-	string(models.ArticleSortByPublishedAt): "pub_date",
-	string(models.ArticleSortByStatus):      "comment_status",
+	string(models.ArticleSortByTitle):         "title",
+	string(models.ArticleSortBySlug):          "slug",
+	string(models.ArticleSortByCreatedAt):     "created_at",
+	string(models.ArticleSortByPublishedAt):   "pub_date",
+	string(models.ArticleSortByStatus):        "pub_date",
+	string(models.ArticleSortByCommentStatus): "comment_status",
 }
 
 var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email"}
@@ -105,12 +106,15 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 	if pubDate.Valid {
 		t := pubDate.Time
 		a.PublishedAt = &t
+		a.Status = models.ArticleStatusPublished
+	} else {
+		a.Status = models.ArticleStatusDraft
 	}
 	if priority.Valid {
 		a.IsFeatured = priority.Bool
 	}
 	if commentStatus.Valid {
-		a.Status = models.ArticleStatus(commentStatus.String)
+		a.CommentStatus = strings.TrimSpace(commentStatus.String)
 	}
 	if photoURL.Valid {
 		a.PhotoURL = photoURL.String
@@ -158,21 +162,33 @@ func FormatTags(categories []string) string {
 	return string(buf)
 }
 
-func statusToCommentStatus(status models.ArticleStatus) string {
-	return strings.TrimSpace(string(status))
+func defaultCommentStatus() string {
+	return "open"
+}
+
+func normalizeCommentStatus(commentStatus string) string {
+	if v := strings.TrimSpace(commentStatus); v != "" {
+		return v
+	}
+	return defaultCommentStatus()
 }
 
 func ArticleInputToDBFields(body models.ArticleInput) []any {
+	var publishedAt any
+	if body.Status == models.ArticleStatusPublished {
+		publishedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
+	}
+
 	return []any{
 		body.Title,
 		nil,
 		body.Content,
 		FormatTags(body.Categories),
-		nil,
+		publishedAt,
 		nil,
 		body.IsFeatured,
 		false,
-		statusToCommentStatus(body.Status),
+		normalizeCommentStatus(body.CommentStatus),
 		body.PhotoURL,
 	}
 }
@@ -181,6 +197,8 @@ func ArticleToDBFields(body models.Article) []any {
 	var publishedAt any
 	if body.PublishedAt != nil {
 		publishedAt = body.PublishedAt.UTC().Format("2006-01-02 15:04:05")
+	} else if body.Status == models.ArticleStatusPublished {
+		publishedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
 	}
 	return []any{
 		body.Title,
@@ -191,7 +209,7 @@ func ArticleToDBFields(body models.Article) []any {
 		nil,
 		body.IsFeatured,
 		false,
-		statusToCommentStatus(body.Status),
+		normalizeCommentStatus(body.CommentStatus),
 		body.PhotoURL,
 	}
 }

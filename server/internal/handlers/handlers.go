@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	db "server/internal/database"
 	"server/internal/models"
@@ -212,7 +213,16 @@ func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
 func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		rows, err := queryArticles(r, conn, id)
+		params, err := normalizeAndValidateArticleParams(ArticleParams{
+			AuthorID:   id,
+			Section:    r.URL.Query().Get("section_slug"),
+			Subsection: r.URL.Query().Get("subsection_slug"),
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		rows, err := queryArticles(r, conn, params)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -232,8 +242,70 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 // GET /v1/articles
 func GetArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		authorID := r.URL.Query().Get("author_id")
-		rows, err := queryArticles(r, conn, authorID)
+		params, err := normalizeAndValidateArticleParams(ArticleParams{
+			AuthorID:   r.URL.Query().Get("author_id"),
+			Section:    r.URL.Query().Get("section_slug"),
+			Subsection: r.URL.Query().Get("subsection_slug"),
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		rows, err := queryArticles(r, conn, params)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		defer rows.Close()
+		articles, err := db.CollectArticles(rows)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, articles)
+	}
+}
+
+// GET /v1/sections/{section_slug}/articles
+func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		params, err := normalizeAndValidateArticleParams(ArticleParams{
+			AuthorID:   r.URL.Query().Get("author_id"),
+			Section:    r.PathValue("section_slug"),
+			Subsection: r.URL.Query().Get("subsection_slug"),
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		rows, err := queryArticles(r, conn, params)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		defer rows.Close()
+		articles, err := db.CollectArticles(rows)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, articles)
+	}
+}
+
+// GET /v1/subsections/{subsection_slug}/articles
+func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		params, err := normalizeAndValidateArticleParams(ArticleParams{
+			AuthorID:   r.URL.Query().Get("author_id"),
+			Section:    r.URL.Query().Get("section_slug"),
+			Subsection: r.PathValue("subsection_slug"),
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		rows, err := queryArticles(r, conn, params)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -249,21 +321,70 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 }
 
 // queryArticles is shared by GetArticles and GetAuthorArticles.
-func queryArticles(r *http.Request, conn *sql.DB, authorID string) (*sql.Rows, error) {
+type ArticleParams struct {
+	AuthorID   string
+	Section    string
+	Subsection string
+}
+
+// queryArticles is shared by GetArticles and GetAuthorArticles.
+func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams) (*sql.Rows, error) {
 	q := r.URL.Query()
 	limit := intParam(r, "limit", 20)
 	offset := intParam(r, "offset", 0)
 	var conditions []string
 	var args []any
 
-	if authorID != "" {
+	if params.AuthorID != "" {
 		conditions = append(conditions, "`id` IN (SELECT `articles_id` FROM `articles_authors` WHERE `author_id` = ?)")
-		args = append(args, authorID)
+		args = append(args, params.AuthorID)
+	}
+
+	if params.Section != "" {
+		conditions = append(conditions, "LOWER(`tags`) LIKE ?")
+		args = append(args, "%"+strings.ToLower(params.Section)+"%")
+	}
+
+	if params.Subsection != "" {
+		conditions = append(conditions, "LOWER(`tags`) LIKE ?")
+		args = append(args, "%"+strings.ToLower(params.Subsection)+"%")
+	}
+
+	if status := strings.TrimSpace(q.Get("status")); status != "" {
+		switch strings.ToLower(status) {
+		case string(models.ArticleStatusDraft):
+			conditions = append(conditions, "`pub_date` IS NULL")
+		case string(models.ArticleStatusPublished):
+			conditions = append(conditions, "`pub_date` IS NOT NULL")
+		}
+	}
+
+	if title := strings.TrimSpace(q.Get("title")); title != "" {
+		conditions = append(conditions, "`title` LIKE ?")
+		args = append(args, "%"+title+"%")
+	}
+
+	if pub_date := db.ParsePublishedAt(q.Get("published_at")); pub_date != nil {
+		conditions = append(conditions, "`pub_date` >= ?")
+		args = append(args, pub_date.UTC().Format("2026-03-23 15:04:05"))
+	}
+
+	if creation_date := db.ParsePublishedAt(q.Get("created_at")); creation_date != nil {
+		conditions = append(conditions, "`creation_date` >= ?")
+		args = append(args, creation_date.UTC().Format("2026-03-23 15:04:05"))
+	}
+
+	if slug := strings.TrimSpace(q.Get("slug")); slug != "" {
+		conditions = append(conditions, "`slug` LIKE ?")
+		args = append(args, "%"+slug+"%")
 	}
 
 	query := "SELECT `id`, `title`, `description`, `text`, `tags`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url` FROM `articles`"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	if q.Get("sort_by") == "" {
+		query += " ORDER BY `id` DESC"
 	}
 	query = db.BuildOrderLimit(query, q.Get("sort_by"), q.Get("sort_direction"), db.ArticleSortByColumn, limit, offset)
 
@@ -350,14 +471,15 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		var setCols []string
 		var setArgs []any
 		columnByJSONField := map[string]string{
-			"title":        "title",
-			"excerpt":      "description",
-			"content":      "text",
-			"categories":   "tags",
-			"published_at": "pub_date",
-			"is_featured":  "priority",
-			"status":       "comment_status",
-			"photo_url":    "photo_url",
+			"title":          "title",
+			"excerpt":        "description",
+			"content":        "text",
+			"categories":     "tags",
+			"published_at":   "pub_date",
+			"is_featured":    "priority",
+			"status":         "pub_date",
+			"comment_status": "comment_status",
+			"photo_url":      "photo_url",
 		}
 		for jsonField, column := range columnByJSONField {
 			v, ok := body[jsonField]
@@ -399,6 +521,24 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				s, ok := v.(string)
 				if !ok {
 					writeError(w, http.StatusBadRequest, "status must be a string")
+					return
+				}
+				status := models.ArticleStatus(strings.TrimSpace(s))
+				switch status {
+				case models.ArticleStatusDraft:
+					setCols = append(setCols, column)
+					setArgs = append(setArgs, nil)
+				case models.ArticleStatusPublished:
+					setCols = append(setCols, column)
+					setArgs = append(setArgs, time.Now().UTC().Format("2006-01-02 15:04:05"))
+				default:
+					writeError(w, http.StatusBadRequest, "status must be draft or published")
+					return
+				}
+			case "comment_status":
+				s, ok := v.(string)
+				if !ok {
+					writeError(w, http.StatusBadRequest, "comment_status must be a string")
 					return
 				}
 				setCols = append(setCols, column)

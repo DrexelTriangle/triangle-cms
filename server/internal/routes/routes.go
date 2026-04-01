@@ -1,8 +1,8 @@
 package routes
 
 import (
-	"net/http"
 	"database/sql"
+	"net/http"
 	"server/internal/handlers"
 )
 
@@ -18,26 +18,26 @@ func Register(mux *http.ServeMux, conn *sql.DB) {
 	mux.HandleFunc("GET /v1/authors/{id}/articles", handlers.GetAuthorArticles(conn))
 
 	// Articles
-    mux.HandleFunc("GET /v1/articles", handlers.GetArticles(conn))
-    mux.HandleFunc("GET /v1/articles/{id}", handlers.GetArticle(conn))
-    mux.HandleFunc("POST /v1/articles", handlers.PostArticles(conn))
-    mux.HandleFunc("PUT /v1/articles/{id}", handlers.PutArticle(conn))
-    mux.HandleFunc("PATCH /v1/articles/{id}", handlers.PatchArticle(conn))
-    mux.HandleFunc("DELETE /v1/articles/{id}", handlers.DeleteArticle(conn))
+	mux.HandleFunc("GET /v1/articles", handlers.GetArticles(conn))
+	mux.HandleFunc("GET /v1/articles/{id}", handlers.GetArticle(conn))
+	mux.HandleFunc("POST /v1/articles", handlers.PostArticles(conn))
+	mux.HandleFunc("PUT /v1/articles/{id}", handlers.PutArticle(conn))
+	mux.HandleFunc("PATCH /v1/articles/{id}", handlers.PatchArticle(conn))
+	mux.HandleFunc("DELETE /v1/articles/{id}", handlers.DeleteArticle(conn))
 
 	// Sections
-	mux.HandleFunc("GET /v1/sections/{section_slug}/articles", handlers.Users)
-	mux.HandleFunc("GET /v1/subsections/{subsection_slug}/articles", handlers.Users)
+	mux.HandleFunc("GET /v1/sections/{section_slug}/articles", handlers.GetSectionArticles(conn))
+	mux.HandleFunc("GET /v1/subsections/{subsection_slug}/articles", handlers.GetSubsectionArticles(conn))
 
 	// Media
-    mux.HandleFunc("GET /v1/media", handlers.Users)
-    mux.HandleFunc("POST /v1/media", handlers.Users)
-    mux.HandleFunc("GET /v1/media/{id}", handlers.Users)
-    mux.HandleFunc("PUT /v1/media/{id}", handlers.Users)
-    mux.HandleFunc("PATCH /v1/media/{id}", handlers.Users)
-    mux.HandleFunc("DELETE /v1/media/{id}", handlers.Users)
-    mux.HandleFunc("GET /v1/media/gallery", handlers.Users)
+	mux.HandleFunc("GET /v1/media", handlers.Users)
+	mux.HandleFunc("POST /v1/media", handlers.Users)
+	mux.HandleFunc("GET /v1/media/{id}", handlers.Users)
+	mux.HandleFunc("PUT /v1/media/{id}", handlers.Users)
+	mux.HandleFunc("PATCH /v1/media/{id}", handlers.Users)
+	mux.HandleFunc("DELETE /v1/media/{id}", handlers.Users)
+	mux.HandleFunc("GET /v1/media/gallery", handlers.Users)
 
 	// Homepage
-    mux.HandleFunc("GET /v1/homepage", handlers.Users)
+	mux.HandleFunc("GET /v1/homepage", handlers.Users)
 }

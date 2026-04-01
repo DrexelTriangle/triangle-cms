@@ -20,11 +20,12 @@ const (
 type ArticleSortBy string
 
 const (
-	ArticleSortByTitle       ArticleSortBy = "title"
-	ArticleSortBySlug        ArticleSortBy = "slug"
-	ArticleSortByCreatedAt   ArticleSortBy = "created_at"
-	ArticleSortByPublishedAt ArticleSortBy = "published_at"
-	ArticleSortByStatus      ArticleSortBy = "status"
+	ArticleSortByTitle         ArticleSortBy = "title"
+	ArticleSortBySlug          ArticleSortBy = "slug"
+	ArticleSortByCreatedAt     ArticleSortBy = "created_at"
+	ArticleSortByPublishedAt   ArticleSortBy = "published_at"
+	ArticleSortByStatus        ArticleSortBy = "status"
+	ArticleSortByCommentStatus ArticleSortBy = "comment_status"
 )
 
 type MediaSortBy string
@@ -83,52 +84,56 @@ type AuthorListParams struct {
 }
 
 type Article struct {
-	Title       string           `json:"title"`
-	ID          int64            `json:"id"`
-	Authors     []AuthorOverview `json:"authors"`
-	Content     string           `json:"content"`
-	Categories  []string         `json:"categories"`
-	Excerpt     string           `json:"excerpt"`
-	Slug        string           `json:"slug"`
-	PhotoURL    string           `json:"photo_url"`
-	IsFeatured  bool             `json:"is_featured"`
-	Status      ArticleStatus    `json:"status"`
-	CreatedAt   *time.Time       `json:"created_at,omitempty"`
-	PublishedAt *time.Time       `json:"published_at,omitempty"`
+	Title         string           `json:"title"`
+	ID            int64            `json:"id"`
+	Authors       []AuthorOverview `json:"authors"`
+	Content       string           `json:"content"`
+	Categories    []string         `json:"categories"`
+	Excerpt       string           `json:"excerpt"`
+	Slug          string           `json:"slug"`
+	PhotoURL      string           `json:"photo_url"`
+	IsFeatured    bool             `json:"is_featured"`
+	Status        ArticleStatus    `json:"status"`
+	CommentStatus string           `json:"comment_status"`
+	CreatedAt     *time.Time       `json:"created_at,omitempty"`
+	PublishedAt   *time.Time       `json:"published_at,omitempty"`
 }
 
 type ArticleOverview struct {
-	Title       string           `json:"title"`
-	ID          int64            `json:"id"`
-	Authors     []AuthorOverview `json:"authors"`
-	PublishedAt *time.Time       `json:"published_at,omitempty"`
-	Categories  []string         `json:"categories"`
-	Excerpt     string           `json:"excerpt"`
-	Slug        string           `json:"slug"`
-	Status      ArticleStatus    `json:"status"`
-	PhotoURL    string           `json:"photo_url"`
-	IsFeatured  bool             `json:"is_featured"`
+	Title         string           `json:"title"`
+	ID            int64            `json:"id"`
+	Authors       []AuthorOverview `json:"authors"`
+	PublishedAt   *time.Time       `json:"published_at,omitempty"`
+	Categories    []string         `json:"categories"`
+	Excerpt       string           `json:"excerpt"`
+	Slug          string           `json:"slug"`
+	Status        ArticleStatus    `json:"status"`
+	CommentStatus string           `json:"comment_status"`
+	PhotoURL      string           `json:"photo_url"`
+	IsFeatured    bool             `json:"is_featured"`
 }
 
 type ArticleInput struct {
-	Title      string        `json:"title"`
-	Authors    []int64       `json:"authors"`
-	Content    string        `json:"content"`
-	Categories []string      `json:"categories"`
-	PhotoURL   string        `json:"photo_url"`
-	IsFeatured bool          `json:"is_featured"`
-	Status     ArticleStatus `json:"status"`
+	Title         string        `json:"title"`
+	Authors       []int64       `json:"authors"`
+	Content       string        `json:"content"`
+	Categories    []string      `json:"categories"`
+	PhotoURL      string        `json:"photo_url"`
+	IsFeatured    bool          `json:"is_featured"`
+	Status        ArticleStatus `json:"status"`
+	CommentStatus string        `json:"comment_status,omitempty"`
 }
 
 type ArticlePatch struct {
-	Title      *string        `json:"title,omitempty"`
-	Authors    *[]int64       `json:"authors,omitempty"`
-	Content    *string        `json:"content,omitempty"`
-	Categories *[]string      `json:"categories,omitempty"`
-	Excerpt    *string        `json:"excerpt,omitempty"`
-	PhotoURL   *string        `json:"photo_url,omitempty"`
-	IsFeatured *bool          `json:"is_featured,omitempty"`
-	Status     *ArticleStatus `json:"status,omitempty"`
+	Title         *string        `json:"title,omitempty"`
+	Authors       *[]int64       `json:"authors,omitempty"`
+	Content       *string        `json:"content,omitempty"`
+	Categories    *[]string      `json:"categories,omitempty"`
+	Excerpt       *string        `json:"excerpt,omitempty"`
+	PhotoURL      *string        `json:"photo_url,omitempty"`
+	IsFeatured    *bool          `json:"is_featured,omitempty"`
+	Status        *ArticleStatus `json:"status,omitempty"`
+	CommentStatus *string        `json:"comment_status,omitempty"`
 }
 
 type ArticleListParams struct {
