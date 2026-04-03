@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -52,8 +53,13 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-func parseArticleID(pathValue string) (int64, error) {
-	return strconv.ParseInt(strings.TrimSpace(pathValue), 10, 64)
+func resolveArticleIDBySlug(ctx context.Context, conn *sql.DB, slug string) (int64, error) {
+	var articleID int64
+	err := conn.QueryRowContext(ctx, "SELECT `id` FROM `articles` WHERE `slug` = ?", slug).Scan(&articleID)
+	if err != nil {
+		return 0, err
+	}
+	return articleID, nil
 }
 
 func authorIDsFromOverviews(authors []models.AuthorOverview) []int64 {
@@ -420,12 +426,12 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams) (*sql.Ro
 		args = append(args, "%"+title+"%")
 	}
 
-	if pub_date := db.ParsePublishedAt(q.Get("published_at")); pub_date != nil {
+	if pub_date := db.ParsePublishedAt(q.Get("published_date")); pub_date != nil {
 		conditions = append(conditions, "`pub_date` >= ?")
 		args = append(args, pub_date.UTC().Format("2026-03-23 15:04:05"))
 	}
 
-	if creation_date := db.ParsePublishedAt(q.Get("created_at")); creation_date != nil {
+	if creation_date := db.ParsePublishedAt(q.Get("creation_date")); creation_date != nil {
 		conditions = append(conditions, "`creation_date` >= ?")
 		args = append(args, creation_date.UTC().Format("2026-03-23 15:04:05"))
 	}
@@ -435,7 +441,7 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams) (*sql.Ro
 		args = append(args, "%"+slug+"%")
 	}
 
-	query := "SELECT `id`, `title`, `description`, `text`, `tags`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url` FROM `articles`"
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `tags`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url` FROM `articles`"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -447,11 +453,11 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams) (*sql.Ro
 	return conn.QueryContext(r.Context(), query, args...)
 }
 
-// GET /v1/articles/{id}
+// GET /v1/articles/{slug}
 func GetArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		rows, err := db.Select(r.Context(), conn, "articles", db.ArticleColumns, "`id` = ?", id)
+		slug := strings.TrimSpace(r.PathValue("slug"))
+		rows, err := db.Select(r.Context(), conn, "articles", db.ArticleColumns, "`slug` = ?", slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -486,7 +492,7 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 		}
 		fields := db.ArticleInputToDBFields(body)
 		result, err := db.Insert(r.Context(), conn, "articles",
-			[]string{"title", "description", "text", "tags", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url"},
+			[]string{"title", "slug", "description", "text", "tags", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url"},
 			fields...,
 		)
 		if err != nil {
@@ -506,29 +512,36 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// PUT /v1/articles/{id}
+// PUT /v1/articles/{slug}
 func PutArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
+		slug := strings.TrimSpace(r.PathValue("slug"))
 		var body models.Article
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-		fields := db.ArticleToDBFields(body)
-		fields = append(fields, id)
-		_, err := db.Update(r.Context(), conn, "articles",
-			[]string{"title", "description", "text", "tags", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url"},
-			"`id` = ?",
-			fields...,
-		)
+		articleID, err := resolveArticleIDBySlug(r.Context(), conn, slug)
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, "article not found")
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		articleID, err := parseArticleID(id)
+		if strings.TrimSpace(body.Slug) == "" {
+			body.Slug = slug
+		}
+		fields := db.ArticleToDBFields(body)
+		fields = append(fields, slug)
+		_, err = db.Update(r.Context(), conn, "articles",
+			[]string{"title", "slug", "description", "text", "tags", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url"},
+			"`slug` = ?",
+			fields...,
+		)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid article id")
+			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if err := db.ReplaceArticleAuthors(r.Context(), conn, articleID, authorIDsFromOverviews(body.Authors)); err != nil {
@@ -539,10 +552,10 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// PATCH /v1/articles/{id}
+// PATCH /v1/articles/{slug}
 func PatchArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
+		slug := strings.TrimSpace(r.PathValue("slug"))
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -561,10 +574,11 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		var setArgs []any
 		columnByJSONField := map[string]string{
 			"title":          "title",
+			"slug":           "slug",
 			"excerpt":        "description",
 			"content":        "text",
 			"categories":     "tags",
-			"published_at":   "pub_date",
+			"published_date": "pub_date",
 			"is_featured":    "priority",
 			"status":         "pub_date",
 			"comment_status": "comment_status",
@@ -593,15 +607,15 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				}
 				setCols = append(setCols, column)
 				setArgs = append(setArgs, db.FormatTags(categories))
-			case "published_at":
+			case "published_date":
 				s, ok := v.(string)
 				if !ok {
-					writeError(w, http.StatusBadRequest, "published_at must be an RFC3339 string")
+					writeError(w, http.StatusBadRequest, "published_date must be an RFC3339 string")
 					return
 				}
 				t := db.ParsePublishedAt(s)
 				if t == nil {
-					writeError(w, http.StatusBadRequest, "published_at has invalid format")
+					writeError(w, http.StatusBadRequest, "published_date has invalid format")
 					return
 				}
 				setCols = append(setCols, column)
@@ -641,19 +655,27 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "no valid fields to update")
 			return
 		}
+		var articleID int64
+		if authorIDs != nil {
+			resolvedID, err := resolveArticleIDBySlug(r.Context(), conn, slug)
+			if err == sql.ErrNoRows {
+				writeError(w, http.StatusNotFound, "article not found")
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			articleID = resolvedID
+		}
 		if len(setCols) > 0 {
-			_, err := db.Update(r.Context(), conn, "articles", setCols, "`id` = ?", append(setArgs, id)...)
+			_, err := db.Update(r.Context(), conn, "articles", setCols, "`slug` = ?", append(setArgs, slug)...)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
 		if authorIDs != nil {
-			articleID, err := parseArticleID(id)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "invalid article id")
-				return
-			}
 			if err := db.ReplaceArticleAuthors(r.Context(), conn, articleID, *authorIDs); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
@@ -663,11 +685,11 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// DELETE /v1/articles/{id}
+// DELETE /v1/articles/{slug}
 func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		_, err := db.Delete(r.Context(), conn, "articles", "`id` = ?", id)
+		slug := strings.TrimSpace(r.PathValue("slug"))
+		_, err := db.Delete(r.Context(), conn, "articles", "`slug` = ?", slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

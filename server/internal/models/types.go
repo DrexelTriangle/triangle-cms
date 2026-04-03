@@ -22,8 +22,8 @@ type ArticleSortBy string
 const (
 	ArticleSortByTitle         ArticleSortBy = "title"
 	ArticleSortBySlug          ArticleSortBy = "slug"
-	ArticleSortByCreatedAt     ArticleSortBy = "created_at"
-	ArticleSortByPublishedAt   ArticleSortBy = "published_at"
+	ArticleSortByCreatedAt     ArticleSortBy = "creation_date"
+	ArticleSortByPublishedAt   ArticleSortBy = "published_date"
 	ArticleSortByStatus        ArticleSortBy = "status"
 	ArticleSortByCommentStatus ArticleSortBy = "comment_status"
 )
@@ -93,15 +93,15 @@ type Article struct {
 	IsFeatured    bool             `json:"is_featured"`
 	Status        ArticleStatus    `json:"status"`
 	CommentStatus string           `json:"comment_status"`
-	CreatedAt     *time.Time       `json:"created_at,omitempty"`
-	PublishedAt   *time.Time       `json:"published_at,omitempty"`
+	CreatedAt     *time.Time       `json:"creation_date,omitempty"`
+	PublishedAt   *time.Time       `json:"published_date,omitempty"`
 }
 
 type ArticleOverview struct {
 	Title         string           `json:"title"`
 	ID            int64            `json:"id"`
 	Authors       []AuthorOverview `json:"authors"`
-	PublishedAt   *time.Time       `json:"published_at,omitempty"`
+	PublishedAt   *time.Time       `json:"published_date,omitempty"`
 	Categories    []string         `json:"categories"`
 	Excerpt       string           `json:"excerpt"`
 	Slug          string           `json:"slug"`
@@ -113,6 +113,7 @@ type ArticleOverview struct {
 
 type ArticleInput struct {
 	Title         string        `json:"title"`
+	Slug          string        `json:"slug,omitempty"`
 	Authors       []int64       `json:"authors"`
 	Content       string        `json:"content"`
 	Categories    []string      `json:"categories"`

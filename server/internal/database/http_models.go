@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ var AuthorSortByColumn = map[string]string{
 var ArticleSortByColumn = map[string]string{
 	string(models.ArticleSortByTitle):         "title",
 	string(models.ArticleSortBySlug):          "slug",
-	string(models.ArticleSortByCreatedAt):     "created_at",
+	string(models.ArticleSortByCreatedAt):     "creation_date",
 	string(models.ArticleSortByPublishedAt):   "pub_date",
 	string(models.ArticleSortByStatus):        "pub_date",
 	string(models.ArticleSortByCommentStatus): "comment_status",
@@ -28,7 +29,7 @@ var ArticleSortByColumn = map[string]string{
 var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email"}
 
 var ArticleColumns = []string{
-	"id", "title", "description", "text", "tags",
+	"id", "title", "slug", "description", "text", "tags",
 	"pub_date", "mod_date", "priority", "breaking_news",
 	"comment_status", "photo_url",
 }
@@ -91,6 +92,7 @@ func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 func ScanArticle(rows *sql.Rows) (models.Article, error) {
 	var (
 		a             models.Article
+		slug          sql.NullString
 		description   sql.NullString
 		text          sql.NullString
 		tags          sql.NullString
@@ -102,7 +104,7 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		ignoredBreak  sql.NullBool
 	)
 	err := rows.Scan(
-		&a.ID, &a.Title, &description, &text, &tags,
+		&a.ID, &a.Title, &slug, &description, &text, &tags,
 		&pubDate, &ignoredMod, &priority, &ignoredBreak,
 		&commentStatus, &photoURL,
 	)
@@ -114,6 +116,9 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 	}
 	if description.Valid {
 		a.Excerpt = description.String
+	}
+	if slug.Valid {
+		a.Slug = slug.String
 	}
 	if tags.Valid && strings.TrimSpace(tags.String) != "" {
 		if err := json.Unmarshal([]byte(tags.String), &a.Categories); err != nil {
@@ -314,14 +319,31 @@ func normalizeCommentStatus(commentStatus string) string {
 	return defaultCommentStatus()
 }
 
+var slugDelimiterPattern = regexp.MustCompile(`[^a-z0-9]+`)
+
+func normalizeSlug(value string) string {
+	s := strings.ToLower(strings.TrimSpace(value))
+	if s == "" {
+		return ""
+	}
+	s = slugDelimiterPattern.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	return s
+}
+
 func ArticleInputToDBFields(body models.ArticleInput) []any {
 	var publishedAt any
 	if body.Status == models.ArticleStatusPublished {
 		publishedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
 	}
+	slug := normalizeSlug(body.Slug)
+	if slug == "" {
+		slug = normalizeSlug(body.Title)
+	}
 
 	return []any{
 		body.Title,
+		slug,
 		nil,
 		body.Content,
 		FormatTags(body.Categories),
@@ -343,6 +365,7 @@ func ArticleToDBFields(body models.Article) []any {
 	}
 	return []any{
 		body.Title,
+		normalizeSlug(body.Slug),
 		body.Excerpt,
 		body.Content,
 		FormatTags(body.Categories),

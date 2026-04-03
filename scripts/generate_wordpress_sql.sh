@@ -163,6 +163,7 @@ SQL
 DROP TABLE IF EXISTS articles;
 CREATE TABLE articles (
   id BIGINT PRIMARY KEY,
+  slug LONGTEXT,
   author_ids LONGTEXT,
   authors LONGTEXT,
   breaking_news BOOL,
@@ -202,7 +203,7 @@ SQL
       | map(select(.id != null))
       | sort_by(.id)
       | .[]
-      | "INSERT INTO articles (id, author_ids, authors, breaking_news, comment_status, description, featured_img_id, priority, mod_date, photo_url, pub_date, tags, categories, metadata, `text`, title) VALUES (\(.id), \((.authorIDs // []) | jarr), \((.authors // []) | jarr), \(if .breakingNews then 1 else 0 end), \(.commentStatus | sqlq), \(.description | sqlq), \(.featuredImgID | sqlq), \(if .priority then 1 else 0 end), \(.modDate | dt), \(.photoURL | sqlq), \(.pubDate | dt), \((.tags // []) | jarr), \((.categories // []) | jarr), \((.metadata // {}) | jarr), \(.text | sqlq), \(.title | sqlq));"
+      | "INSERT INTO articles (id, slug, author_ids, authors, breaking_news, comment_status, description, featured_img_id, priority, mod_date, photo_url, pub_date, tags, categories, metadata, `text`, title) VALUES (\(.id), \((.slug // "") | sqlq), \((.authorIDs // []) | jarr), \((.authors // []) | jarr), \(if .breakingNews then 1 else 0 end), \(.commentStatus | sqlq), \(.description | sqlq), \(.featuredImgID | sqlq), \(if .priority then 1 else 0 end), \(.modDate | dt), \(.photoURL | sqlq), \(.pubDate | dt), \((.tags // []) | jarr), \((.categories // []) | jarr), \((.metadata // {}) | jarr), \(.text | sqlq), \(.title | sqlq));"
     ' "$ARTICLES_JSON_FILE"
   else
     echo "-- No articles source found; generated schema only."
