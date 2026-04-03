@@ -57,8 +57,6 @@ type Author struct {
 type AuthorOverview struct {
 	ID          int64  `json:"id"`
 	DisplayName string `json:"display_name"`
-	FirstName   string `json:"first_name,omitempty"`
-	LastName    string `json:"last_name,omitempty"`
 }
 
 type AuthorInput struct {

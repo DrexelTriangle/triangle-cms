@@ -52,6 +52,42 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+func parseArticleID(pathValue string) (int64, error) {
+	return strconv.ParseInt(strings.TrimSpace(pathValue), 10, 64)
+}
+
+func authorIDsFromOverviews(authors []models.AuthorOverview) []int64 {
+	ids := make([]int64, 0, len(authors))
+	for _, author := range authors {
+		ids = append(ids, author.ID)
+	}
+	return ids
+}
+
+func parseAuthorIDs(raw any) ([]int64, error) {
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil, strconv.ErrSyntax
+	}
+
+	authorIDs := make([]int64, 0, len(arr))
+	for _, item := range arr {
+		switch v := item.(type) {
+		case float64:
+			if v != float64(int64(v)) {
+				return nil, strconv.ErrSyntax
+			}
+			authorIDs = append(authorIDs, int64(v))
+		case int64:
+			authorIDs = append(authorIDs, v)
+		default:
+			return nil, strconv.ErrSyntax
+		}
+	}
+
+	return authorIDs, nil
+}
+
 // GET /v1/authors
 func GetAuthors(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +95,10 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 		limit := intParam(r, "limit", 20)
 		offset := intParam(r, "offset", 0)
 		articleID := intParam(r, "article_id", 0)
+		sortBy := q.Get("sort_by")
+		if _, ok := db.AuthorSortByColumn[sortBy]; !ok {
+			sortBy = ""
+		}
 
 		var conditions []string
 		var args []any
@@ -68,14 +108,14 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 			args = append(args, articleID)
 		}
 
-		query := "SELECT `id`, `display_name`, `first_name`, `last_name`, `email` FROM `authors`"
+		query := "SELECT `id`, `display_name` FROM `authors`"
 		if len(conditions) > 0 {
 			query += " WHERE " + strings.Join(conditions, " AND ")
 		}
-		if q.Get("sort_by") == "" {
+		if sortBy == "" {
 			query += " ORDER BY `id` DESC"
 		}
-		query = db.BuildOrderLimit(query, q.Get("sort_by"), q.Get("sort_direction"), db.AuthorSortByColumn, limit, offset)
+		query = db.BuildOrderLimit(query, sortBy, q.Get("sort_direction"), db.AuthorSortByColumn, limit, offset)
 
 		rows, err := conn.QueryContext(r.Context(), query, args...)
 		if err != nil {
@@ -84,9 +124,9 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 		}
 		defer rows.Close()
 
-		var authors []models.Author
+		authors := make([]models.AuthorOverview, 0)
 		for rows.Next() {
-			a, err := db.ScanAuthor(rows)
+			a, err := db.ScanAuthorOverview(rows)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
@@ -233,6 +273,10 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		writeJSON(w, http.StatusOK, articles)
 	}
 }
@@ -259,6 +303,10 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 		defer rows.Close()
 		articles, err := db.CollectArticles(rows)
 		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -289,6 +337,10 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		writeJSON(w, http.StatusOK, articles)
 	}
 }
@@ -313,6 +365,10 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 		defer rows.Close()
 		articles, err := db.CollectArticles(rows)
 		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -410,6 +466,12 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		articles := []models.Article{a}
+		if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		a = articles[0]
 		writeJSON(w, http.StatusOK, a)
 	}
 }
@@ -423,11 +485,20 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 		fields := db.ArticleInputToDBFields(body)
-		_, err := db.Insert(r.Context(), conn, "articles",
+		result, err := db.Insert(r.Context(), conn, "articles",
 			[]string{"title", "description", "text", "tags", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url"},
 			fields...,
 		)
 		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		articleID, err := result.LastInsertId()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := db.ReplaceArticleAuthors(r.Context(), conn, articleID, body.Authors); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -455,6 +526,15 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		articleID, err := parseArticleID(id)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid article id")
+			return
+		}
+		if err := db.ReplaceArticleAuthors(r.Context(), conn, articleID, authorIDsFromOverviews(body.Authors)); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -467,6 +547,15 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
+		}
+		var authorIDs *[]int64
+		if rawAuthors, ok := body["authors"]; ok {
+			parsedIDs, err := parseAuthorIDs(rawAuthors)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "authors must be an array of IDs")
+				return
+			}
+			authorIDs = &parsedIDs
 		}
 		var setCols []string
 		var setArgs []any
@@ -548,14 +637,27 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				setArgs = append(setArgs, v)
 			}
 		}
-		if len(setCols) == 0 {
+		if len(setCols) == 0 && authorIDs == nil {
 			writeError(w, http.StatusBadRequest, "no valid fields to update")
 			return
 		}
-		_, err := db.Update(r.Context(), conn, "articles", setCols, "`id` = ?", append(setArgs, id)...)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
+		if len(setCols) > 0 {
+			_, err := db.Update(r.Context(), conn, "articles", setCols, "`id` = ?", append(setArgs, id)...)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		if authorIDs != nil {
+			articleID, err := parseArticleID(id)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid article id")
+				return
+			}
+			if err := db.ReplaceArticleAuthors(r.Context(), conn, articleID, *authorIDs); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

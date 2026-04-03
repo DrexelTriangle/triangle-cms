@@ -1,8 +1,10 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -12,8 +14,6 @@ import (
 
 var AuthorSortByColumn = map[string]string{
 	string(models.AuthorSortByDisplayName): "display_name",
-	string(models.AuthorSortByCreatedAt):   "created_at",
-	string(models.AuthorSortByUpdatedAt):   "updated_at",
 }
 
 var ArticleSortByColumn = map[string]string{
@@ -52,12 +52,16 @@ func BuildOrderLimit(query, sortBy, sortDir string, sortColumnMap map[string]str
 
 func ScanAuthor(rows *sql.Rows) (models.Author, error) {
 	var a models.Author
+	var displayName sql.NullString
 	var firstName sql.NullString
 	var lastName sql.NullString
 	var email sql.NullString
-	err := rows.Scan(&a.ID, &a.DisplayName, &firstName, &lastName, &email)
+	err := rows.Scan(&a.ID, &displayName, &firstName, &lastName, &email)
 	if err != nil {
 		return models.Author{}, err
+	}
+	if displayName.Valid {
+		a.DisplayName = displayName.String
 	}
 	if firstName.Valid {
 		a.FirstName = firstName.String
@@ -67,6 +71,19 @@ func ScanAuthor(rows *sql.Rows) (models.Author, error) {
 	}
 	if email.Valid {
 		a.Email = email.String
+	}
+	return a, nil
+}
+
+func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
+	var a models.AuthorOverview
+	var displayName sql.NullString
+	err := rows.Scan(&a.ID, &displayName)
+	if err != nil {
+		return models.AuthorOverview{}, err
+	}
+	if displayName.Valid {
+		a.DisplayName = displayName.String
 	}
 	return a, nil
 }
@@ -132,6 +149,130 @@ func CollectArticles(rows *sql.Rows) ([]models.Article, error) {
 		articles = append(articles, a)
 	}
 	return articles, rows.Err()
+}
+
+func LoadAuthorsByArticleIDs(ctx context.Context, conn *sql.DB, articleIDs []int64) (map[int64][]models.AuthorOverview, error) {
+	authorsByArticle := make(map[int64][]models.AuthorOverview, len(articleIDs))
+	if len(articleIDs) == 0 {
+		return authorsByArticle, nil
+	}
+
+	for _, articleID := range articleIDs {
+		authorsByArticle[articleID] = []models.AuthorOverview{}
+	}
+
+	placeholders := make([]string, len(articleIDs))
+	args := make([]any, len(articleIDs))
+	for i, id := range articleIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := "SELECT aa.articles_id, a.id, a.display_name " +
+		"FROM articles_authors aa " +
+		"JOIN authors a ON a.id = aa.author_id " +
+		"WHERE aa.articles_id IN (" + strings.Join(placeholders, ",") + ") " +
+		"ORDER BY aa.articles_id ASC, aa.id ASC"
+
+	rows, err := conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var articleID int64
+		var author models.AuthorOverview
+		var displayName sql.NullString
+
+		if err := rows.Scan(&articleID, &author.ID, &displayName); err != nil {
+			return nil, err
+		}
+		if displayName.Valid {
+			author.DisplayName = displayName.String
+		}
+
+		authorsByArticle[articleID] = append(authorsByArticle[articleID], author)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return authorsByArticle, nil
+}
+
+func PopulateArticleAuthors(ctx context.Context, conn *sql.DB, articles []models.Article) error {
+	if len(articles) == 0 {
+		return nil
+	}
+
+	articleIDs := make([]int64, 0, len(articles))
+	for _, article := range articles {
+		articleIDs = append(articleIDs, article.ID)
+	}
+
+	authorsByArticle, err := LoadAuthorsByArticleIDs(ctx, conn, articleIDs)
+	if err != nil {
+		return err
+	}
+
+	for i := range articles {
+		authors := authorsByArticle[articles[i].ID]
+		if authors == nil {
+			articles[i].Authors = []models.AuthorOverview{}
+			continue
+		}
+		articles[i].Authors = authors
+	}
+
+	return nil
+}
+
+func nextArticleAuthorLinkIDTx(ctx context.Context, tx *sql.Tx) (int64, error) {
+	var nextID int64
+	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) + 1 FROM articles_authors").Scan(&nextID); err != nil {
+		return 0, err
+	}
+	return nextID, nil
+}
+
+func ReplaceArticleAuthors(ctx context.Context, conn *sql.DB, articleID int64, authorIDs []int64) error {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.ExecContext(ctx, "DELETE FROM articles_authors WHERE articles_id = ?", articleID); err != nil {
+		return err
+	}
+
+	if len(authorIDs) > 0 {
+		nextID, err := nextArticleAuthorLinkIDTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+
+		for i, authorID := range authorIDs {
+			linkID := nextID + int64(i)
+			if _, err = tx.ExecContext(
+				ctx,
+				"INSERT INTO articles_authors (id, author_id, articles_id) VALUES (?, ?, ?)",
+				linkID,
+				authorID,
+				articleID,
+			); err != nil {
+				return fmt.Errorf("insert article author relation %s: %w", strconv.FormatInt(authorID, 10), err)
+			}
+		}
+	}
+
+	return tx.Commit()
 }
 
 func ParsePublishedAt(value string) *time.Time {
