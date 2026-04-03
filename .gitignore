@@ -1,0 +1,7 @@
+/server/cover.out
+/server/certs/*.crt
+/server/certs/*.key
+/server/.env
+/server/**/*.sql
+/report.json
+.vscode/settings.json
