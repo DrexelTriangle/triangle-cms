@@ -3,6 +3,52 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+GENERATE_EMBEDDINGS=0
+EMBEDDING_MODEL="${WP_EMBED_MODEL:-sentence-transformers/paraphrase-MiniLM-L3-v2}"
+EMBEDDING_BATCH_SIZE="${WP_EMBED_BATCH_SIZE:-64}"
+
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --generate-embeddings)
+      GENERATE_EMBEDDINGS=1
+      shift
+      ;;
+    --embedding-model)
+      if [[ -z "${2:-}" ]]; then
+        echo "missing value for --embedding-model" >&2
+        exit 1
+      fi
+      EMBEDDING_MODEL="$2"
+      shift 2
+      ;;
+    --embedding-batch-size)
+      if [[ -z "${2:-}" ]]; then
+        echo "missing value for --embedding-batch-size" >&2
+        exit 1
+      fi
+      EMBEDDING_BATCH_SIZE="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        POSITIONAL_ARGS+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      echo "unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]}"
+
 is_valid_source_dir() {
   local dir="$1"
   [[ -f "$dir/articles.sql" && -f "$dir/articles_authors.sql" ]] \
@@ -178,6 +224,7 @@ CREATE TABLE articles (
   categories LONGTEXT,
   metadata LONGTEXT,
   `text` LONGTEXT,
+  excerpt LONGTEXT,
   title LONGTEXT
 );
 SQL
@@ -203,7 +250,7 @@ SQL
       | map(select(.id != null))
       | sort_by(.id)
       | .[]
-      | "INSERT INTO articles (id, slug, author_ids, authors, breaking_news, comment_status, description, featured_img_id, priority, mod_date, photo_url, pub_date, tags, categories, metadata, `text`, title) VALUES (\(.id), \((.slug // "") | sqlq), \((.authorIDs // []) | jarr), \((.authors // []) | jarr), \(if .breakingNews then 1 else 0 end), \(.commentStatus | sqlq), \(.description | sqlq), \(.featuredImgID | sqlq), \(if .priority then 1 else 0 end), \(.modDate | dt), \(.photoURL | sqlq), \(.pubDate | dt), \((.tags // []) | jarr), \((.categories // []) | jarr), \((.metadata // {}) | jarr), \(.text | sqlq), \(.title | sqlq));"
+      | "INSERT INTO articles (id, slug, author_ids, authors, breaking_news, comment_status, description, featured_img_id, priority, mod_date, photo_url, pub_date, tags, categories, metadata, `text`, excerpt, title) VALUES (\(.id), \((.slug // "") | sqlq), \((.authorIDs // []) | jarr), \((.authors // []) | jarr), \(if .breakingNews then 1 else 0 end), \(.commentStatus | sqlq), \(.description | sqlq), \(.featuredImgID | sqlq), \(if .priority then 1 else 0 end), \(.modDate | dt), \(.photoURL | sqlq), \(.pubDate | dt), \((.tags // []) | jarr), \((.categories // []) | jarr), \((.metadata // {}) | jarr), \(.text | sqlq), \(.excerpt | sqlq), \(.title | sqlq));"
     ' "$ARTICLES_JSON_FILE"
   else
     echo "-- No articles source found; generated schema only."
@@ -253,3 +300,21 @@ SQL
 } > "$OUT_DIR/04-seo.sql"
 
 echo "Generated SQL in: $OUT_DIR"
+
+if [[ "$GENERATE_EMBEDDINGS" -eq 1 ]]; then
+  if [[ -z "$ARTICLES_JSON_FILE" ]]; then
+    cat >&2 <<'ERR'
+Embeddings generation requires article_output.json source data.
+Provide a WordPress ETL directory that includes article_output.json or logs/article_output.json.
+ERR
+    exit 1
+  fi
+
+  python3 "$ROOT_DIR/scripts/generate_article_embeddings_sql.py" \
+    --input-json "$ARTICLES_JSON_FILE" \
+    --out-sql "$OUT_DIR/05-article-embeddings.sql" \
+    --model "$EMBEDDING_MODEL" \
+    --batch-size "$EMBEDDING_BATCH_SIZE"
+
+  echo "Generated embeddings SQL in: $OUT_DIR/05-article-embeddings.sql"
+fi

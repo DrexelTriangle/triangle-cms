@@ -78,6 +78,60 @@ Reset all compose volumes and rebuild:
 
 ### Local Development
 
+#### Rebuild / Rerun Locally (Step-by-step)
+
+Use this flow when you want a full local refresh of DB + API.
+
+1. (Optional, one-time) install local embeddings dependency:
+
+```bash
+python3 -m pip install --user sentence-transformers
+```
+
+2. Run the WordPress ETL pipeline in your local `wordpress-etl` repo so fresh source data exists.
+
+3. Generate CMS SQL files:
+
+Without embeddings:
+
+```bash
+./scripts/generate_wordpress_sql.sh
+```
+
+With embeddings (default-off feature):
+
+```bash
+./scripts/generate_wordpress_sql.sh --generate-embeddings
+```
+
+4. Recreate containers and volumes so MariaDB re-runs init SQL (`01`..`05`):
+
+> [!WARNING]
+> Running this command erases DB data and logs.
+
+```bash
+./scripts/setup-containers.sh --reset-data
+```
+
+5. Choose how to run backend:
+- Docker backend already running from step 4: `https://localhost:8080`
+- Or run Go API locally:
+
+```bash
+docker compose stop cms
+cd server
+go run ./main.go
+```
+
+6. Verify endpoint behavior:
+
+```bash
+curl -s https://localhost:8080/v1/articles/christmas
+```
+
+If embeddings were generated and vector infra exists, `related` should contain up to 3 article overviews.  
+If embeddings were not generated, `related` safely falls back to `[]`.
+
 #### Backend (Go API)
 
 1. Ensure MariaDB is running (via Docker or local instance).
@@ -151,9 +205,16 @@ Generate CMS SQL files from the ETL pipeline output:
 ./scripts/generate_wordpress_sql.sh [source_sql_dir] [output_dir]
 ```
 
+Optional embeddings generation (off by default):
+
+```bash
+./scripts/generate_wordpress_sql.sh --generate-embeddings
+```
+
 Defaults:
 - source: auto-detected (`../wordpress-etl`, `../wordpress-etl/logs/sql`, `./wordpress-etl`, `./wordpress-etl/logs/sql`)
 - output: default (`server/internal/database/wordpress_etl`)
+- embeddings: disabled unless `--generate-embeddings` is passed
 
 Overrides:
 - Pass explicit args:
@@ -162,12 +223,15 @@ Overrides:
   `WP_ETL_SQL_DIR=../wordpress-etl ./scripts/generate_wordpress_sql.sh`
   `WP_ETL_OUT_DIR=server/internal/database/wordpress_etl ./scripts/generate_wordpress_sql.sh`
   `WP_ETL_SQL_DIR=../wordpress-etl WP_ETL_OUT_DIR=server/internal/database/wordpress_etl ./scripts/generate_wordpress_sql.sh`
+  `WP_EMBED_MODEL=sentence-transformers/paraphrase-MiniLM-L3-v2 ./scripts/generate_wordpress_sql.sh --generate-embeddings`
+  `WP_EMBED_BATCH_SIZE=64 ./scripts/generate_wordpress_sql.sh --generate-embeddings`
 
 Generated files:
 - `01-authors.sql`
 - `02-articles.sql`
 - `03-articles-authors.sql`
 - `04-seo.sql`
+- `05-article-embeddings.sql` (only populated when embeddings are enabled)
 
 These are mounted into MariaDB init at container startup through `docker-compose.yml`.
 

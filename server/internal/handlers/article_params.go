@@ -46,7 +46,7 @@ var allowedSubsectionsBySection = map[string]map[string]struct{}{
 }
 
 func normalizeAndValidateArticleParams(params ArticleParams) (ArticleParams, error) {
-	params.AuthorID = strings.TrimSpace(params.AuthorID)
+	params.AuthorSlug = strings.TrimSpace(params.AuthorSlug)
 	params.Section = strings.ToLower(strings.TrimSpace(params.Section))
 	params.Subsection = strings.ToLower(strings.TrimSpace(params.Subsection))
 

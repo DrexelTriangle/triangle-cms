@@ -46,6 +46,7 @@ const (
 
 type Author struct {
 	ID          int64      `json:"id"`
+	Slug        string     `json:"slug"`
 	DisplayName string     `json:"display_name"`
 	FirstName   string     `json:"first_name,omitempty"`
 	LastName    string     `json:"last_name,omitempty"`
@@ -56,10 +57,12 @@ type Author struct {
 
 type AuthorOverview struct {
 	ID          int64  `json:"id"`
+	Slug        string `json:"slug"`
 	DisplayName string `json:"display_name"`
 }
 
 type AuthorInput struct {
+	Slug        string `json:"slug,omitempty"`
 	DisplayName string `json:"display_name"`
 	FirstName   string `json:"first_name,omitempty"`
 	LastName    string `json:"last_name,omitempty"`
@@ -67,6 +70,7 @@ type AuthorInput struct {
 }
 
 type AuthorPatch struct {
+	Slug        *string `json:"slug,omitempty"`
 	DisplayName *string `json:"display_name,omitempty"`
 	FirstName   *string `json:"first_name,omitempty"`
 	LastName    *string `json:"last_name,omitempty"`
@@ -87,6 +91,7 @@ type Article struct {
 	Authors       []AuthorOverview `json:"authors"`
 	Content       string           `json:"content"`
 	Categories    []string         `json:"categories"`
+	Tags          []string         `json:"-"`
 	Excerpt       string           `json:"excerpt"`
 	Slug          string           `json:"slug"`
 	PhotoURL      string           `json:"photo_url"`
