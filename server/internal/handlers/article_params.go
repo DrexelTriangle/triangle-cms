@@ -47,12 +47,6 @@ var allowedSubsectionsBySection = map[string]map[string]struct{}{
 	},
 }
 
-var sectionSlugAliases = map[string]string{
-	"candp":              "comics-puzzles",
-	"comics":             "comics-puzzles",
-	"comics-and-puzzles": "comics-puzzles",
-}
-
 func normalizeAndValidateArticleParams(params ArticleParams) (ArticleParams, error) {
 	params.AuthorSlug = strings.TrimSpace(params.AuthorSlug)
 	params.Section = normalizeSectionSlug(params.Section)
@@ -84,11 +78,7 @@ func normalizeAndValidateArticleParams(params ArticleParams) (ArticleParams, err
 }
 
 func normalizeSectionSlug(value string) string {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	if alias, ok := sectionSlugAliases[normalized]; ok {
-		return alias
-	}
-	return normalized
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func sectionForSubsection(subsection string) (string, bool) {

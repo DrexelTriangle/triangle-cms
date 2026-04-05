@@ -2,14 +2,14 @@ package handlers
 
 import "testing"
 
-func TestNormalizeSectionSlugAliases(t *testing.T) {
+func TestNormalizeSectionSlug(t *testing.T) {
 	cases := []struct {
 		in   string
 		want string
 	}{
-		{in: "candp", want: "comics-puzzles"},
-		{in: "Comics", want: "comics-puzzles"},
-		{in: "comics-and-puzzles", want: "comics-puzzles"},
+		{in: " sports ", want: "sports"},
+		{in: "Opinion", want: "opinion"},
+		{in: "", want: ""},
 		{in: "sports", want: "sports"},
 	}
 
@@ -20,14 +20,10 @@ func TestNormalizeSectionSlugAliases(t *testing.T) {
 	}
 }
 
-func TestNormalizeAndValidateArticleParams_AllowsCandpAlias(t *testing.T) {
-	params, err := normalizeAndValidateArticleParams(ArticleParams{
+func TestNormalizeAndValidateArticleParams_RejectsUnknownSectionSlug(t *testing.T) {
+	if _, err := normalizeAndValidateArticleParams(ArticleParams{
 		Section: "candp",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if params.Section != "comics-puzzles" {
-		t.Fatalf("section = %q, want comics-puzzles", params.Section)
+	}); err == nil {
+		t.Fatal("expected error for unknown section_slug")
 	}
 }
