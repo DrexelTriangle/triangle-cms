@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	mysqlDriver "github.com/go-sql-driver/mysql"
 
 	"server/internal/models"
 )
@@ -26,13 +29,16 @@ var ArticleSortByColumn = map[string]string{
 	string(models.ArticleSortByCommentStatus): "comment_status",
 }
 
-var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email"}
+var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email", "login"}
 
 var ArticleColumns = []string{
-	"id", "title", "slug", "description", "text", "tags",
+	"id", "title", "slug", "description", "text", "excerpt", "tags", "categories",
 	"pub_date", "mod_date", "priority", "breaking_news",
 	"comment_status", "photo_url",
 }
+
+const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`"
+const wordpressImageBaseURL = "https://www.thetriangle.org"
 
 func BuildOrderLimit(query, sortBy, sortDir string, sortColumnMap map[string]string, limit, offset int) string {
 	if col, ok := sortColumnMap[sortBy]; ok && sortBy != "" {
@@ -57,7 +63,8 @@ func ScanAuthor(rows *sql.Rows) (models.Author, error) {
 	var firstName sql.NullString
 	var lastName sql.NullString
 	var email sql.NullString
-	err := rows.Scan(&a.ID, &displayName, &firstName, &lastName, &email)
+	var login sql.NullString
+	err := rows.Scan(&a.ID, &displayName, &firstName, &lastName, &email, &login)
 	if err != nil {
 		return models.Author{}, err
 	}
@@ -73,18 +80,29 @@ func ScanAuthor(rows *sql.Rows) (models.Author, error) {
 	if email.Valid {
 		a.Email = email.String
 	}
+	if login.Valid && strings.TrimSpace(login.String) != "" {
+		a.Slug = normalizeSlug(login.String)
+	} else {
+		a.Slug = normalizeSlug(a.DisplayName)
+	}
 	return a, nil
 }
 
 func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 	var a models.AuthorOverview
 	var displayName sql.NullString
-	err := rows.Scan(&a.ID, &displayName)
+	var login sql.NullString
+	err := rows.Scan(&a.ID, &displayName, &login)
 	if err != nil {
 		return models.AuthorOverview{}, err
 	}
 	if displayName.Valid {
 		a.DisplayName = displayName.String
+	}
+	if login.Valid && strings.TrimSpace(login.String) != "" {
+		a.Slug = normalizeSlug(login.String)
+	} else {
+		a.Slug = normalizeSlug(a.DisplayName)
 	}
 	return a, nil
 }
@@ -95,7 +113,9 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		slug          sql.NullString
 		description   sql.NullString
 		text          sql.NullString
+		excerpt       sql.NullString
 		tags          sql.NullString
+		categories    sql.NullString
 		pubDate       sql.NullTime
 		priority      sql.NullBool
 		commentStatus sql.NullString
@@ -104,7 +124,7 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		ignoredBreak  sql.NullBool
 	)
 	err := rows.Scan(
-		&a.ID, &a.Title, &slug, &description, &text, &tags,
+		&a.ID, &a.Title, &slug, &description, &text, &excerpt, &tags, &categories,
 		&pubDate, &ignoredMod, &priority, &ignoredBreak,
 		&commentStatus, &photoURL,
 	)
@@ -114,17 +134,16 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 	if text.Valid {
 		a.Content = text.String
 	}
-	if description.Valid {
+	if excerpt.Valid {
+		a.Excerpt = excerpt.String
+	} else if description.Valid {
 		a.Excerpt = description.String
 	}
 	if slug.Valid {
 		a.Slug = slug.String
 	}
-	if tags.Valid && strings.TrimSpace(tags.String) != "" {
-		if err := json.Unmarshal([]byte(tags.String), &a.Categories); err != nil {
-			a.Categories = strings.Split(tags.String, ",")
-		}
-	}
+	a.Tags = parseStringListField(tags)
+	a.Categories = parseStringListField(categories)
 	if pubDate.Valid {
 		t := pubDate.Time
 		a.PublishedAt = &t
@@ -139,9 +158,43 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		a.CommentStatus = strings.TrimSpace(commentStatus.String)
 	}
 	if photoURL.Valid {
-		a.PhotoURL = photoURL.String
+		a.PhotoURL = normalizePhotoURL(photoURL.String)
 	}
 	return a, nil
+}
+
+func normalizePhotoURL(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+
+	lowered := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(lowered, "http://"), strings.HasPrefix(lowered, "https://"):
+		return trimmed
+	case strings.HasPrefix(trimmed, "//"):
+		return "https:" + trimmed
+	case strings.HasPrefix(lowered, "www.thetriangle.org/"):
+		return "https://" + trimmed
+	case strings.HasPrefix(lowered, "wp-content/"):
+		return wordpressImageBaseURL + "/" + trimmed
+	case strings.HasPrefix(trimmed, "/wp-content/"):
+		return wordpressImageBaseURL + trimmed
+	default:
+		return trimmed
+	}
+}
+
+func parseStringListField(value sql.NullString) []string {
+	if !value.Valid || strings.TrimSpace(value.String) == "" {
+		return nil
+	}
+	var parsed []string
+	if err := json.Unmarshal([]byte(value.String), &parsed); err != nil {
+		return strings.Split(value.String, ",")
+	}
+	return parsed
 }
 
 func CollectArticles(rows *sql.Rows) ([]models.Article, error) {
@@ -173,7 +226,7 @@ func LoadAuthorsByArticleIDs(ctx context.Context, conn *sql.DB, articleIDs []int
 		args[i] = id
 	}
 
-	query := "SELECT aa.articles_id, a.id, a.display_name " +
+	query := "SELECT aa.articles_id, a.id, a.display_name, a.login " +
 		"FROM articles_authors aa " +
 		"JOIN authors a ON a.id = aa.author_id " +
 		"WHERE aa.articles_id IN (" + strings.Join(placeholders, ",") + ") " +
@@ -189,12 +242,18 @@ func LoadAuthorsByArticleIDs(ctx context.Context, conn *sql.DB, articleIDs []int
 		var articleID int64
 		var author models.AuthorOverview
 		var displayName sql.NullString
+		var login sql.NullString
 
-		if err := rows.Scan(&articleID, &author.ID, &displayName); err != nil {
+		if err := rows.Scan(&articleID, &author.ID, &displayName, &login); err != nil {
 			return nil, err
 		}
 		if displayName.Valid {
 			author.DisplayName = displayName.String
+		}
+		if login.Valid && strings.TrimSpace(login.String) != "" {
+			author.Slug = normalizeSlug(login.String)
+		} else {
+			author.Slug = normalizeSlug(author.DisplayName)
 		}
 
 		authorsByArticle[articleID] = append(authorsByArticle[articleID], author)
@@ -232,6 +291,92 @@ func PopulateArticleAuthors(ctx context.Context, conn *sql.DB, articles []models
 	}
 
 	return nil
+}
+
+// GetRelatedArticlesBySlug returns the k nearest neighbor articles for a given slug.
+//
+// This expects an `article_embeddings` table with:
+// - article_id BIGINT (FK to articles.id)
+// - embedding VECTOR(...)
+// and an HNSW index on `embedding`.
+func GetRelatedArticlesBySlug(ctx context.Context, conn *sql.DB, slug string, k int) ([]models.Article, error) {
+	trimmedSlug := strings.TrimSpace(slug)
+	if trimmedSlug == "" {
+		return nil, fmt.Errorf("slug is required")
+	}
+	if k <= 0 {
+		return nil, fmt.Errorf("k must be greater than 0")
+	}
+
+	query := "SELECT " + articleSelectColumnsQualified + " " +
+		"FROM articles AS src " +
+		"JOIN article_embeddings AS src_vec ON src_vec.article_id = src.id " +
+		"JOIN article_embeddings AS cand_vec ON cand_vec.article_id <> src.id " +
+		"JOIN articles AS a ON a.id = cand_vec.article_id " +
+		"WHERE src.slug = ? " +
+		"ORDER BY VEC_DISTANCE_EUCLIDEAN(cand_vec.embedding, src_vec.embedding), a.id DESC " +
+		"LIMIT ?"
+
+	rows, err := conn.QueryContext(ctx, query, trimmedSlug, k)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	articles, err := CollectArticles(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := PopulateArticleAuthors(ctx, conn, articles); err != nil {
+		return nil, err
+	}
+
+	return articles, nil
+}
+
+func SearchArticles(ctx context.Context, conn *sql.DB, term string, limit, offset int) ([]models.Article, error) {
+	trimmedTerm := strings.TrimSpace(term)
+	if trimmedTerm == "" {
+		return []models.Article{}, nil
+	}
+
+	like := "%" + trimmedTerm + "%"
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url` FROM `articles` " +
+		"WHERE `pub_date` IS NOT NULL AND (`title` LIKE ? OR `tags` LIKE ? OR `text` LIKE ?) " +
+		"ORDER BY CASE " +
+		"WHEN `title` LIKE ? THEN 1 " +
+		"WHEN `tags` LIKE ? THEN 2 " +
+		"WHEN `text` LIKE ? THEN 3 " +
+		"ELSE 4 END, `pub_date` DESC, `id` DESC"
+	query = BuildOrderLimit(query, "", "", ArticleSortByColumn, limit, offset)
+
+	rows, err := conn.QueryContext(ctx, query, like, like, like, like, like, like)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return CollectArticles(rows)
+}
+
+// IsVectorSearchUnavailableError reports errors that indicate vector search
+// infrastructure is not available in the current DB setup.
+func IsVectorSearchUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var mysqlErr *mysqlDriver.MySQLError
+	if errors.As(err, &mysqlErr) {
+		switch mysqlErr.Number {
+		case 1054, 1064, 1146, 1305:
+			return true
+		}
+	}
+
+	lowered := strings.ToLower(err.Error())
+	return strings.Contains(lowered, "article_embeddings") && strings.Contains(lowered, "doesn't exist")
 }
 
 func nextArticleAuthorLinkIDTx(ctx context.Context, tx *sql.Tx) (int64, error) {
@@ -278,6 +423,20 @@ func ReplaceArticleAuthors(ctx context.Context, conn *sql.DB, articleID int64, a
 	}
 
 	return tx.Commit()
+}
+
+func ReplaceArticleAuthorsBySlug(ctx context.Context, conn *sql.DB, slug string, authorIDs []int64) error {
+	trimmedSlug := strings.TrimSpace(slug)
+	if trimmedSlug == "" {
+		return sql.ErrNoRows
+	}
+
+	var articleID int64
+	if err := conn.QueryRowContext(ctx, "SELECT `id` FROM `articles` WHERE `slug` = ?", trimmedSlug).Scan(&articleID); err != nil {
+		return err
+	}
+
+	return ReplaceArticleAuthors(ctx, conn, articleID, authorIDs)
 }
 
 func ParsePublishedAt(value string) *time.Time {
@@ -331,6 +490,18 @@ func normalizeSlug(value string) string {
 	return s
 }
 
+func CanonicalizeSlug(value string) string {
+	return normalizeSlug(value)
+}
+
+func IsCanonicalSlug(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	return trimmed == normalizeSlug(trimmed)
+}
+
 func ArticleInputToDBFields(body models.ArticleInput) []any {
 	var publishedAt any
 	if body.Status == models.ArticleStatusPublished {
@@ -352,7 +523,7 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		body.IsFeatured,
 		false,
 		normalizeCommentStatus(body.CommentStatus),
-		body.PhotoURL,
+		normalizePhotoURL(body.PhotoURL),
 	}
 }
 
@@ -374,6 +545,6 @@ func ArticleToDBFields(body models.Article) []any {
 		body.IsFeatured,
 		false,
 		normalizeCommentStatus(body.CommentStatus),
-		body.PhotoURL,
+		normalizePhotoURL(body.PhotoURL),
 	}
 }

@@ -14,7 +14,6 @@ import (
 )
 
 type fakeServer struct {
-	addr           string
 	listenFn       func(certFile, keyFile string) error
 	shutdownFn     func(ctx context.Context) error
 	closeFn        func() error
@@ -43,10 +42,6 @@ func (f *fakeServer) Close() error {
 		return f.closeFn()
 	}
 	return nil
-}
-
-func (f *fakeServer) Addr() string {
-	return f.addr
 }
 
 func TestRun_TLSLoadFailure(t *testing.T) {
@@ -101,7 +96,6 @@ func TestRun_TLSLoadPathsFromEnv(t *testing.T) {
 
 func TestRun_ServerExitError(t *testing.T) {
 	srv := &fakeServer{
-		addr: ":8080",
 		listenFn: func(certFile, keyFile string) error {
 			return errors.New("listen failed")
 		},
@@ -134,7 +128,6 @@ func TestRun_GracefulShutdownOnSignal(t *testing.T) {
 	sigCh <- syscall.SIGTERM
 
 	srv := &fakeServer{
-		addr: ":8080",
 		listenFn: func(certFile, keyFile string) error {
 			<-releaseListen
 			return http.ErrServerClosed
@@ -173,7 +166,6 @@ func TestRun_ShutdownFailureCallsClose(t *testing.T) {
 	sigCh <- syscall.SIGTERM
 
 	srv := &fakeServer{
-		addr: ":8080",
 		listenFn: func(certFile, keyFile string) error {
 			<-releaseListen
 			return http.ErrServerClosed

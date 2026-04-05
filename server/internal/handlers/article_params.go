@@ -3,6 +3,8 @@ package handlers
 import (
 	"fmt"
 	"strings"
+
+	db "server/internal/database"
 )
 
 var allowedSubsectionsBySection = map[string]map[string]struct{}{
@@ -45,10 +47,20 @@ var allowedSubsectionsBySection = map[string]map[string]struct{}{
 	},
 }
 
+var sectionSlugAliases = map[string]string{
+	"candp":              "comics-puzzles",
+	"comics":             "comics-puzzles",
+	"comics-and-puzzles": "comics-puzzles",
+}
+
 func normalizeAndValidateArticleParams(params ArticleParams) (ArticleParams, error) {
 	params.AuthorSlug = strings.TrimSpace(params.AuthorSlug)
-	params.Section = strings.ToLower(strings.TrimSpace(params.Section))
+	params.Section = normalizeSectionSlug(params.Section)
 	params.Subsection = strings.ToLower(strings.TrimSpace(params.Subsection))
+
+	if params.AuthorSlug != "" && !db.IsCanonicalSlug(params.AuthorSlug) {
+		return ArticleParams{}, fmt.Errorf("invalid author_slug")
+	}
 
 	if params.Section != "" {
 		if _, ok := allowedSubsectionsBySection[params.Section]; !ok {
@@ -69,6 +81,14 @@ func normalizeAndValidateArticleParams(params ArticleParams) (ArticleParams, err
 	}
 
 	return params, nil
+}
+
+func normalizeSectionSlug(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if alias, ok := sectionSlugAliases[normalized]; ok {
+		return alias
+	}
+	return normalized
 }
 
 func sectionForSubsection(subsection string) (string, bool) {

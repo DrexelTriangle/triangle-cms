@@ -34,15 +34,10 @@ type httpsServer interface {
 	ListenAndServeTLS(certFile, keyFile string) error
 	Shutdown(ctx context.Context) error
 	Close() error
-	Addr() string
 }
 
 type stdHTTPServer struct {
 	*http.Server
-}
-
-func (s *stdHTTPServer) Addr() string {
-	return s.Server.Addr
 }
 
 type runDeps struct {

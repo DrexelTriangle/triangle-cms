@@ -232,6 +232,7 @@ Generated files:
 - `03-articles-authors.sql`
 - `04-seo.sql`
 - `05-article-embeddings.sql` (only populated when embeddings are enabled)
+- `06-taxonomy.sql` (canonical section/subsection titles)
 
 These are mounted into MariaDB init at container startup through `docker-compose.yml`.
 

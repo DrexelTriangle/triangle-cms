@@ -83,3 +83,32 @@ func TestUsersHandler_EncodeFailure(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, w.status)
 	}
 }
+
+func TestAppendCategorySlugCondition(t *testing.T) {
+	var conditions []string
+	var args []any
+
+	appendCategorySlugCondition(&conditions, &args, "comics-puzzles")
+
+	if len(conditions) != 1 {
+		t.Fatalf("expected 1 condition, got %d", len(conditions))
+	}
+	if len(args) != 3 {
+		t.Fatalf("expected 3 args, got %d", len(args))
+	}
+
+	wantArgs := []string{
+		"%comics-puzzles%",
+		"%comics puzzles%",
+		"%comics & puzzles%",
+	}
+	for i, want := range wantArgs {
+		got, ok := args[i].(string)
+		if !ok {
+			t.Fatalf("arg %d has non-string type %T", i, args[i])
+		}
+		if got != want {
+			t.Fatalf("arg %d = %q, want %q", i, got, want)
+		}
+	}
+}
