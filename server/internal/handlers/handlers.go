@@ -114,6 +114,49 @@ func canonicalTitleForTaxonomy(ctx context.Context, conn *sql.DB, kind, slug str
 	return title, nil
 }
 
+func subsectionsForSection(ctx context.Context, conn *sql.DB, sectionSlug string) ([]map[string]any, error) {
+	trimmedSection := strings.TrimSpace(sectionSlug)
+	if trimmedSection == "" {
+		return []map[string]any{}, nil
+	}
+
+	rows, err := conn.QueryContext(
+		ctx,
+		"SELECT slug, canonical_title FROM site_taxonomy WHERE kind = 'subsection' AND parent_slug = ? ORDER BY id ASC",
+		trimmedSection,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	subsections := make([]map[string]any, 0)
+	for rows.Next() {
+		var slug string
+		var canonicalTitle sql.NullString
+		if err := rows.Scan(&slug, &canonicalTitle); err != nil {
+			return nil, err
+		}
+
+		canonical := strings.TrimSpace(canonicalTitle.String)
+		if canonical == "" {
+			canonical = titleFromSlug(slug)
+		}
+
+		subsections = append(subsections, map[string]any{
+			"slug":            slug,
+			"name":            canonical,
+			"canonical_title": canonical,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return subsections, nil
+}
+
 func isValidCanonicalSlug(slug string) bool {
 	return db.IsCanonicalSlug(strings.TrimSpace(slug))
 }
@@ -611,6 +654,11 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		subsections, err := subsectionsForSection(r.Context(), conn, params.Section)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"section": map[string]any{
@@ -618,7 +666,7 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 				"name":            sectionCanonicalTitle,
 				"canonical_title": sectionCanonicalTitle,
 			},
-			"subsections": []any{},
+			"subsections": subsections,
 			"articles":    articleListItems(articles, excerptWords),
 			"pagination": map[string]any{
 				"page":     page,
