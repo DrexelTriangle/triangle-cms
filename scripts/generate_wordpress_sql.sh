@@ -3,6 +3,52 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+GENERATE_EMBEDDINGS=0
+EMBEDDING_MODEL="${WP_EMBED_MODEL:-sentence-transformers/paraphrase-MiniLM-L3-v2}"
+EMBEDDING_BATCH_SIZE="${WP_EMBED_BATCH_SIZE:-64}"
+
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --generate-embeddings)
+      GENERATE_EMBEDDINGS=1
+      shift
+      ;;
+    --embedding-model)
+      if [[ -z "${2:-}" ]]; then
+        echo "missing value for --embedding-model" >&2
+        exit 1
+      fi
+      EMBEDDING_MODEL="$2"
+      shift 2
+      ;;
+    --embedding-batch-size)
+      if [[ -z "${2:-}" ]]; then
+        echo "missing value for --embedding-batch-size" >&2
+        exit 1
+      fi
+      EMBEDDING_BATCH_SIZE="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        POSITIONAL_ARGS+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      echo "unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]}"
+
 is_valid_source_dir() {
   local dir="$1"
   [[ -f "$dir/articles.sql" && -f "$dir/articles_authors.sql" ]] \
@@ -121,6 +167,42 @@ ARTICLE_AUTHORS_SQL_FILE="$(first_existing_file "$SRC_DIR/articles_authors.sql" 
 ARTICLES_JSON_FILE="$(first_existing_file "$SRC_DIR/article_output.json" "$SRC_DIR/logs/article_output.json" "$SRC_PARENT/article_output.json" "$SRC_PARENT/logs/article_output.json" "$SRC_GRANDPARENT/article_output.json" "$SRC_GRANDPARENT/logs/article_output.json" || true)"
 AUTHORS_JSON_FILE="$(first_existing_file "$SRC_DIR/auth_output.json" "$SRC_DIR/merged_auth_output.json" "$SRC_DIR/gauth_output.json" "$SRC_DIR/logs/auth_output.json" "$SRC_DIR/logs/merged_auth_output.json" "$SRC_DIR/logs/gauth_output.json" "$SRC_PARENT/auth_output.json" "$SRC_PARENT/merged_auth_output.json" "$SRC_PARENT/gauth_output.json" "$SRC_PARENT/logs/auth_output.json" "$SRC_PARENT/logs/merged_auth_output.json" "$SRC_PARENT/logs/gauth_output.json" "$SRC_GRANDPARENT/auth_output.json" "$SRC_GRANDPARENT/merged_auth_output.json" "$SRC_GRANDPARENT/gauth_output.json" "$SRC_GRANDPARENT/logs/auth_output.json" "$SRC_GRANDPARENT/logs/merged_auth_output.json" "$SRC_GRANDPARENT/logs/gauth_output.json" || true)"
 
+if [[ -n "$AUTHORS_JSON_FILE" ]]; then
+  if ! jq -e '
+    [to_entries[] | .value | select(.id != null)] as $rows
+    | (
+        ($rows | all(.login != null and (.login | type == "string") and (.login | test("^[a-z0-9]+(-[a-z0-9]+)*$"))))
+        and
+        (($rows | map(.login) | length) == ($rows | map(.login) | unique | length))
+      )
+  ' "$AUTHORS_JSON_FILE" >/dev/null; then
+    cat >&2 <<'ERR'
+Author slugs in wordpress-etl output are not canonical and unique.
+Canonicalization/uniqueness must be owned by wordpress-etl.
+Please fix upstream ETL author login slugs, then rerun this script.
+ERR
+    exit 1
+  fi
+fi
+
+if [[ -n "$ARTICLES_JSON_FILE" ]]; then
+  if ! jq -e '
+    [to_entries[] | .value | select(.id != null)] as $rows
+    | (
+        ($rows | all(.slug != null and (.slug | type == "string") and (.slug | test("^[a-z0-9]+(-[a-z0-9]+)*$"))))
+        and
+        (($rows | map(.slug) | length) == ($rows | map(.slug) | unique | length))
+      )
+  ' "$ARTICLES_JSON_FILE" >/dev/null; then
+    cat >&2 <<'ERR'
+Article slugs in wordpress-etl output are not canonical and unique.
+Canonicalization/uniqueness must be owned by wordpress-etl.
+Please fix upstream ETL article slugs, then rerun this script.
+ERR
+    exit 1
+  fi
+fi
+
 # Authors: source CREATE statement from ETL intent.
 {
   cat <<'SQL'
@@ -163,6 +245,7 @@ SQL
 DROP TABLE IF EXISTS articles;
 CREATE TABLE articles (
   id BIGINT PRIMARY KEY,
+  slug LONGTEXT,
   author_ids LONGTEXT,
   authors LONGTEXT,
   breaking_news BOOL,
@@ -177,14 +260,12 @@ CREATE TABLE articles (
   categories LONGTEXT,
   metadata LONGTEXT,
   `text` LONGTEXT,
+  excerpt LONGTEXT,
   title LONGTEXT
 );
 SQL
 
-  if [[ -n "$ARTICLES_SQL_FILE" ]]; then
-    grep '^INSERT INTO articles ' "$ARTICLES_SQL_FILE" \
-      | perl -pe 's/`authorIDs`/`author_ids`/g; s/`breakingNews`/`breaking_news`/g; s/`commentStatus`/`comment_status`/g; s/`featuredImgID`/`featured_img_id`/g; s/`modDate`/`mod_date`/g; s/`photoURL`/`photo_url`/g; s/`pubDate`/`pub_date`/g; s/'\''0000-00-00 00:00:00'\''/NULL/g'
-  elif [[ -n "$ARTICLES_JSON_FILE" ]]; then
+  if [[ -n "$ARTICLES_JSON_FILE" ]]; then
     jq -r '
       def sqlq:
         if . == null then
@@ -196,14 +277,37 @@ SQL
         if . == null or . == "" or . == "0000-00-00 00:00:00" then "NULL" else sqlq end;
       def jarr:
         if . == null then "NULL" else (tojson | sqlq) end;
-
+      def normalize_photo:
+        if . == null then
+          null
+        else
+          (tostring | gsub("^\\s+|\\s+$"; "")) as $photo
+          | if $photo == "" then
+              null
+            elif ($photo | test("^(?i)https?://")) then
+              $photo
+            elif ($photo | startswith("//")) then
+              "https:" + $photo
+            elif ($photo | test("^(?i)www\\.thetriangle\\.org/")) then
+              "https://" + $photo
+            elif ($photo | test("^(?i)wp-content/")) then
+              "https://www.thetriangle.org/" + $photo
+            elif ($photo | test("^(?i)/wp-content/")) then
+              "https://www.thetriangle.org" + $photo
+            else
+              $photo
+            end
+        end;
       to_entries
       | map(.value)
       | map(select(.id != null))
       | sort_by(.id)
       | .[]
-      | "INSERT INTO articles (id, author_ids, authors, breaking_news, comment_status, description, featured_img_id, priority, mod_date, photo_url, pub_date, tags, categories, metadata, `text`, title) VALUES (\(.id), \((.authorIDs // []) | jarr), \((.authors // []) | jarr), \(if .breakingNews then 1 else 0 end), \(.commentStatus | sqlq), \(.description | sqlq), \(.featuredImgID | sqlq), \(if .priority then 1 else 0 end), \(.modDate | dt), \(.photoURL | sqlq), \(.pubDate | dt), \((.tags // []) | jarr), \((.categories // []) | jarr), \((.metadata // {}) | jarr), \(.text | sqlq), \(.title | sqlq));"
+      | "INSERT INTO articles (id, slug, author_ids, authors, breaking_news, comment_status, description, featured_img_id, priority, mod_date, photo_url, pub_date, tags, categories, metadata, `text`, excerpt, title) VALUES (\(.id), \((.slug // "") | sqlq), \((.authorIDs // []) | jarr), \((.authors // []) | jarr), \(if .breakingNews then 1 else 0 end), \(.commentStatus | sqlq), \(.description | sqlq), \(.featuredImgID | sqlq), \(if .priority then 1 else 0 end), \(.modDate | dt), \((.photoURL | normalize_photo) | sqlq), \(.pubDate | dt), \((.tags // []) | jarr), \((.categories // []) | jarr), \((.metadata // {}) | jarr), \(.text | sqlq), \(.excerpt | sqlq), \(.title | sqlq));"
     ' "$ARTICLES_JSON_FILE"
+  elif [[ -n "$ARTICLES_SQL_FILE" ]]; then
+    grep '^INSERT INTO articles ' "$ARTICLES_SQL_FILE" \
+      | perl -pe 's/`authorIDs`/`author_ids`/g; s/`breakingNews`/`breaking_news`/g; s/`commentStatus`/`comment_status`/g; s/`featuredImgID`/`featured_img_id`/g; s/`modDate`/`mod_date`/g; s/`photoURL`/`photo_url`/g; s/`pubDate`/`pub_date`/g; s/'\''0000-00-00 00:00:00'\''/NULL/g'
   else
     echo "-- No articles source found; generated schema only."
   fi
@@ -251,4 +355,70 @@ CREATE TABLE seo (
 SQL
 } > "$OUT_DIR/04-seo.sql"
 
+# Taxonomy metadata: canonical titles for sections/subsections.
+{
+  cat <<'SQL'
+DROP TABLE IF EXISTS site_taxonomy;
+CREATE TABLE site_taxonomy (
+  id BIGINT PRIMARY KEY,
+  kind VARCHAR(32) NOT NULL,
+  slug VARCHAR(255) NOT NULL,
+  canonical_title VARCHAR(255) NOT NULL,
+  parent_slug VARCHAR(255) NULL,
+  UNIQUE KEY uq_site_taxonomy_kind_slug (kind, slug)
+);
+
+INSERT INTO site_taxonomy (id, kind, slug, canonical_title, parent_slug) VALUES
+  (1, 'section', 'news', 'News', NULL),
+  (2, 'section', 'sports', 'Sports', NULL),
+  (3, 'section', 'opinion', 'Opinion', NULL),
+  (4, 'section', 'columns', 'Columns', NULL),
+  (5, 'section', 'entertainment', 'Entertainment', NULL),
+  (6, 'section', 'comics-puzzles', 'Comics & Puzzles', NULL),
+  (7, 'subsection', 'academic-transformation', 'Academic Transformation', 'news'),
+  (8, 'subsection', 'politics', 'Politics', 'news'),
+  (9, 'subsection', 'transit', 'Transit', 'news'),
+  (10, 'subsection', 'crime-policy-violations', 'Crime & Policy Violations', 'news'),
+  (11, 'subsection', 'mens-basketball', 'Men''s Basketball', 'sports'),
+  (12, 'subsection', 'womens-basketball', 'Women''s Basketball', 'sports'),
+  (13, 'subsection', 'big-5', 'Big 5', 'sports'),
+  (14, 'subsection', 'philly-sports', 'Philly Sports', 'sports'),
+  (15, 'subsection', 'field-hockey', 'Field Hockey', 'sports'),
+  (16, 'subsection', 'mens-soccer', 'Men''s Soccer', 'sports'),
+  (17, 'subsection', 'womens-soccer', 'Women''s Soccer', 'sports'),
+  (18, 'subsection', 'science-tech', 'Science & Tech', 'opinion'),
+  (19, 'subsection', 'from-the-editor', 'From the Editor', 'opinion'),
+  (20, 'subsection', 'the-love-triangle', 'The Love Triangle', 'columns'),
+  (21, 'subsection', 'tri-this-sweet-treat', 'Tri This Sweet Treat', 'columns'),
+  (22, 'subsection', 'movies', 'Movies', 'entertainment'),
+  (23, 'subsection', 'music', 'Music', 'entertainment'),
+  (24, 'subsection', 'happening-in-philly', 'Happening in Philly', 'entertainment'),
+  (25, 'subsection', 'cooking', 'Cooking', 'entertainment'),
+  (26, 'subsection', 'books', 'Books', 'entertainment'),
+  (27, 'subsection', 'gaming', 'Gaming', 'entertainment'),
+  (28, 'subsection', 'listicles', 'Listicles', 'entertainment'),
+  (29, 'subsection', 'political-cartoons', 'Political Cartoons', 'comics-puzzles'),
+  (30, 'subsection', 'crossword', 'Crossword', 'comics-puzzles'),
+  (31, 'subsection', 'sudoku', 'Sudoku', 'comics-puzzles');
+SQL
+} > "$OUT_DIR/06-taxonomy.sql"
+
 echo "Generated SQL in: $OUT_DIR"
+
+if [[ "$GENERATE_EMBEDDINGS" -eq 1 ]]; then
+  if [[ -z "$ARTICLES_JSON_FILE" ]]; then
+    cat >&2 <<'ERR'
+Embeddings generation requires article_output.json source data.
+Provide a WordPress ETL directory that includes article_output.json or logs/article_output.json.
+ERR
+    exit 1
+  fi
+
+  python3 "$ROOT_DIR/scripts/generate_article_embeddings_sql.py" \
+    --input-json "$ARTICLES_JSON_FILE" \
+    --out-sql "$OUT_DIR/05-article-embeddings.sql" \
+    --model "$EMBEDDING_MODEL" \
+    --batch-size "$EMBEDDING_BATCH_SIZE"
+
+  echo "Generated embeddings SQL in: $OUT_DIR/05-article-embeddings.sql"
+fi

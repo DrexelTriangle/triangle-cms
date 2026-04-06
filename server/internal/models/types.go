@@ -22,8 +22,8 @@ type ArticleSortBy string
 const (
 	ArticleSortByTitle         ArticleSortBy = "title"
 	ArticleSortBySlug          ArticleSortBy = "slug"
-	ArticleSortByCreatedAt     ArticleSortBy = "created_at"
-	ArticleSortByPublishedAt   ArticleSortBy = "published_at"
+	ArticleSortByCreatedAt     ArticleSortBy = "creation_date"
+	ArticleSortByPublishedAt   ArticleSortBy = "published_date"
 	ArticleSortByStatus        ArticleSortBy = "status"
 	ArticleSortByCommentStatus ArticleSortBy = "comment_status"
 )
@@ -46,6 +46,7 @@ const (
 
 type Author struct {
 	ID          int64      `json:"id"`
+	Slug        string     `json:"slug"`
 	DisplayName string     `json:"display_name"`
 	FirstName   string     `json:"first_name,omitempty"`
 	LastName    string     `json:"last_name,omitempty"`
@@ -56,10 +57,12 @@ type Author struct {
 
 type AuthorOverview struct {
 	ID          int64  `json:"id"`
+	Slug        string `json:"slug"`
 	DisplayName string `json:"display_name"`
 }
 
 type AuthorInput struct {
+	Slug        string `json:"slug,omitempty"`
 	DisplayName string `json:"display_name"`
 	FirstName   string `json:"first_name,omitempty"`
 	LastName    string `json:"last_name,omitempty"`
@@ -67,6 +70,7 @@ type AuthorInput struct {
 }
 
 type AuthorPatch struct {
+	Slug        *string `json:"slug,omitempty"`
 	DisplayName *string `json:"display_name,omitempty"`
 	FirstName   *string `json:"first_name,omitempty"`
 	LastName    *string `json:"last_name,omitempty"`
@@ -87,21 +91,22 @@ type Article struct {
 	Authors       []AuthorOverview `json:"authors"`
 	Content       string           `json:"content"`
 	Categories    []string         `json:"categories"`
+	Tags          []string         `json:"-"`
 	Excerpt       string           `json:"excerpt"`
 	Slug          string           `json:"slug"`
 	PhotoURL      string           `json:"photo_url"`
 	IsFeatured    bool             `json:"is_featured"`
 	Status        ArticleStatus    `json:"status"`
 	CommentStatus string           `json:"comment_status"`
-	CreatedAt     *time.Time       `json:"created_at,omitempty"`
-	PublishedAt   *time.Time       `json:"published_at,omitempty"`
+	CreatedAt     *time.Time       `json:"creation_date,omitempty"`
+	PublishedAt   *time.Time       `json:"published_date,omitempty"`
 }
 
 type ArticleOverview struct {
 	Title         string           `json:"title"`
 	ID            int64            `json:"id"`
 	Authors       []AuthorOverview `json:"authors"`
-	PublishedAt   *time.Time       `json:"published_at,omitempty"`
+	PublishedAt   *time.Time       `json:"published_date,omitempty"`
 	Categories    []string         `json:"categories"`
 	Excerpt       string           `json:"excerpt"`
 	Slug          string           `json:"slug"`
@@ -113,6 +118,7 @@ type ArticleOverview struct {
 
 type ArticleInput struct {
 	Title         string        `json:"title"`
+	Slug          string        `json:"slug,omitempty"`
 	Authors       []int64       `json:"authors"`
 	Content       string        `json:"content"`
 	Categories    []string      `json:"categories"`

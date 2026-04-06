@@ -3,6 +3,8 @@ package handlers
 import (
 	"fmt"
 	"strings"
+
+	db "server/internal/database"
 )
 
 var allowedSubsectionsBySection = map[string]map[string]struct{}{
@@ -46,9 +48,13 @@ var allowedSubsectionsBySection = map[string]map[string]struct{}{
 }
 
 func normalizeAndValidateArticleParams(params ArticleParams) (ArticleParams, error) {
-	params.AuthorID = strings.TrimSpace(params.AuthorID)
-	params.Section = strings.ToLower(strings.TrimSpace(params.Section))
+	params.AuthorSlug = strings.TrimSpace(params.AuthorSlug)
+	params.Section = normalizeSectionSlug(params.Section)
 	params.Subsection = strings.ToLower(strings.TrimSpace(params.Subsection))
+
+	if params.AuthorSlug != "" && !db.IsCanonicalSlug(params.AuthorSlug) {
+		return ArticleParams{}, fmt.Errorf("invalid author_slug")
+	}
 
 	if params.Section != "" {
 		if _, ok := allowedSubsectionsBySection[params.Section]; !ok {
@@ -69,6 +75,10 @@ func normalizeAndValidateArticleParams(params ArticleParams) (ArticleParams, err
 	}
 
 	return params, nil
+}
+
+func normalizeSectionSlug(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func sectionForSubsection(subsection string) (string, bool) {

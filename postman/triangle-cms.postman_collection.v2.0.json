@@ -74,12 +74,12 @@
           "response": []
         },
         {
-          "name": "GET /v1/authors/1",
+          "name": "GET /v1/authors/robert-zaller",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/authors/1",
+              "raw": "https://localhost:8080/v1/authors/robert-zaller",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -88,19 +88,19 @@
               "path": [
                 "v1",
                 "authors",
-                "1"
+                "robert-zaller"
               ]
             }
           },
           "response": []
         },
         {
-          "name": "PUT /v1/authors/1",
+          "name": "PUT /v1/authors/robert-zaller",
           "request": {
             "method": "PUT",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/authors/1",
+              "raw": "https://localhost:8080/v1/authors/robert-zaller",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -109,19 +109,19 @@
               "path": [
                 "v1",
                 "authors",
-                "1"
+                "robert-zaller"
               ]
             }
           },
           "response": []
         },
         {
-          "name": "PATCH /v1/authors/1",
+          "name": "PATCH /v1/authors/robert-zaller",
           "request": {
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/authors/1",
+              "raw": "https://localhost:8080/v1/authors/robert-zaller",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -130,19 +130,19 @@
               "path": [
                 "v1",
                 "authors",
-                "1"
+                "robert-zaller"
               ]
             }
           },
           "response": []
         },
         {
-          "name": "DELETE /v1/authors/1",
+          "name": "DELETE /v1/authors/robert-zaller",
           "request": {
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/authors/1",
+              "raw": "https://localhost:8080/v1/authors/robert-zaller",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -151,19 +151,19 @@
               "path": [
                 "v1",
                 "authors",
-                "1"
+                "robert-zaller"
               ]
             }
           },
           "response": []
         },
         {
-          "name": "GET /v1/authors/1/articles",
+          "name": "GET /v1/authors/robert-zaller/articles",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/authors/1/articles",
+              "raw": "https://localhost:8080/v1/authors/robert-zaller/articles",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -172,7 +172,7 @@
               "path": [
                 "v1",
                 "authors",
-                "1",
+                "robert-zaller",
                 "articles"
               ]
             }
@@ -190,7 +190,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/articles",
+              "raw": "https://localhost:8080/v1/articles?author_slug=robert-zaller",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -199,18 +199,24 @@
               "path": [
                 "v1",
                 "articles"
+              ],
+              "query": [
+                {
+                  "key": "author_slug",
+                  "value": "robert-zaller"
+                }
               ]
             }
           },
           "response": []
         },
         {
-          "name": "GET /v1/articles/1",
+          "name": "GET /v1/articles/christmas",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/articles/1",
+              "raw": "https://localhost:8080/v1/articles/christmas",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -219,7 +225,7 @@
               "path": [
                 "v1",
                 "articles",
-                "1"
+                "christmas"
               ]
             }
           },
@@ -246,12 +252,12 @@
           "response": []
         },
         {
-          "name": "PUT /v1/articles/1",
+          "name": "PUT /v1/articles/christmas",
           "request": {
             "method": "PUT",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/articles/1",
+              "raw": "https://localhost:8080/v1/articles/christmas",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -260,19 +266,19 @@
               "path": [
                 "v1",
                 "articles",
-                "1"
+                "christmas"
               ]
             }
           },
           "response": []
         },
         {
-          "name": "PATCH /v1/articles/1",
+          "name": "PATCH /v1/articles/christmas",
           "request": {
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/articles/1",
+              "raw": "https://localhost:8080/v1/articles/christmas",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -281,19 +287,19 @@
               "path": [
                 "v1",
                 "articles",
-                "1"
+                "christmas"
               ]
             }
           },
           "response": []
         },
         {
-          "name": "DELETE /v1/articles/1",
+          "name": "DELETE /v1/articles/christmas",
           "request": {
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/articles/1",
+              "raw": "https://localhost:8080/v1/articles/christmas",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -302,7 +308,7 @@
               "path": [
                 "v1",
                 "articles",
-                "1"
+                "christmas"
               ]
             }
           },
@@ -319,7 +325,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/sections/news/articles",
+              "raw": "https://localhost:8080/v1/sections/news/articles?author_slug=robert-zaller",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -330,6 +336,12 @@
                 "sections",
                 "news",
                 "articles"
+              ],
+              "query": [
+                {
+                  "key": "author_slug",
+                  "value": "robert-zaller"
+                }
               ]
             }
           },
@@ -341,7 +353,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "https://localhost:8080/v1/subsections/politics/articles",
+              "raw": "https://localhost:8080/v1/subsections/politics/articles?author_slug=robert-zaller",
               "protocol": "https",
               "host": [
                 "localhost"
@@ -352,6 +364,12 @@
                 "subsections",
                 "politics",
                 "articles"
+              ],
+              "query": [
+                {
+                  "key": "author_slug",
+                  "value": "robert-zaller"
+                }
               ]
             }
           },
