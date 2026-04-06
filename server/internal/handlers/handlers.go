@@ -1307,3 +1307,81 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
+
+// GET /v1/homepage
+func GetHomepage(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sections := [...]struct {
+			slug  string
+			key   string
+			limit int
+		}{
+			{slug: "news", key: "news", limit: 13},
+			{slug: "opinion", key: "opinion", limit: 5},
+			{slug: "sports", key: "sports", limit: 6},
+			{slug: "entertainment", key: "entertainment", limit: 8},
+			{slug: "comics-puzzles", key: "candp", limit: 6},
+			{slug: "columns", key: "columns", limit: 5},
+		}
+		_, _, offset := listParams(r, 20)
+		excerptWords := excerptWordLimit(r, 50)
+		sectionArticles := map[string]any{
+			"developingstories": []map[string]any{
+				{
+					"slug":        "questions-arise-over-academy-of-natural-sciences",
+					"link":        "questions-arise-over-academy-of-natural-sciences",
+					"title":       "Questions arise over Academy of Natural Sciences",
+					"excerpt":     "Administration is tight-lipped as a petition is circulating calling on President Merlo to maintain Drexel's commitment to protecting the academy's funding, staff, and programs.",
+					"show_in_news": false,
+					"label": []map[string]any{
+						{
+							"id":   23671,
+							"name": "Academy of Natural Sciences",
+							"slug": "academy-of-natural-sciences",
+						},
+					},
+				},
+				{
+					"slug":        "philly-pretzel-factory-under-construction",
+					"link":        "philly-pretzel-factory-under-construction",
+					"title":       "Philly Pretzel Factory under construction",
+					"excerpt":     "According to Business Services, work is ongoing at the Philly Pretzel Factory in PISB. Opening date is not yet determined.",
+					"show_in_news": false,
+					"label": []map[string]any{
+						{
+							"id":   23374,
+							"name": "Campus",
+							"slug": "campus",
+						},
+					},
+				},
+			},
+		}
+
+		for _, section := range sections {
+			params := ArticleParams{"", section.slug, ""}
+			limit := section.limit
+			rows, err := queryArticles(r, conn, params, limit+1, offset)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			defer rows.Close()
+			articles, err := db.CollectArticles(rows)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			hasMore := len(articles) > limit
+			if hasMore {
+				articles = articles[:limit]
+			}
+			sectionArticles[section.key] = articleListItems(articles, excerptWords)
+		}
+		writeJSON(w, http.StatusOK, sectionArticles)
+	}
+}

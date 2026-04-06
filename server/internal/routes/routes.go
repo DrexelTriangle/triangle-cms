@@ -40,5 +40,5 @@ func Register(mux *http.ServeMux, conn *sql.DB) {
 	mux.HandleFunc("GET /v1/media/gallery", handlers.Users)
 
 	// Homepage
-	mux.HandleFunc("GET /v1/homepage", handlers.Users)
+	mux.HandleFunc("GET /v1/homepage", handlers.GetHomepage(conn))
 }
