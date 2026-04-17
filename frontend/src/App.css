@@ -1,10 +1,3 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-
-}
-
 .logo {
   height: 6em;
   padding: 1.5em;
@@ -52,85 +45,191 @@
 
 body {
   min-height: 100vh;
+  background-color: #f0f0f1;
+  color: #1d2327;
 }
 
-.header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 40px;
-  background-color: #1d202c;
-  z-index: 1000;
+.app {
+  min-height: 100vh;
 }
 
-.header-logo {
-  height: 36px;
-  margin-right: auto;
-  width: auto;
-  padding: 2px 2px 2px 2px
+.layout {
+  display: flex;
+  min-height: 100vh;
 }
 
-.sidebar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 220px;
+.triangle-kumo-sidebar {
+  --color-kumo-base: #1d2327;
+  --color-kumo-tint: rgba(255, 255, 255, 0.1);
+  --color-kumo-line: rgba(255, 255, 255, 0.08);
+  --color-kumo-brand: #2271b1;
+  --text-color-kumo-default: #ffffff;
+  --text-color-kumo-subtle: rgba(255, 255, 255, 0.7);
+  --text-color-kumo-strong: #ffffff;
+
   height: 100vh;
-  background-color: #1d202c;
-  padding-top: 40px;
-  overflow-y: auto;
-  z-index: 1;
+  background-color: #1d2327 !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.triangle-kumo-sidebar-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.triangle-brand-link {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.triangle-brand-logo {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.triangle-brand-text {
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.1;
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] .triangle-brand-link {
+  justify-content: center;
+  padding: 6px 0;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] .triangle-brand-text {
+  display: none;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] .triangle-brand-logo {
+  width: 28px;
+  height: 28px;
+}
+
+.triangle-kumo-sidebar [data-sidebar="header"] {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-left: 12px;
+  padding-right: 12px;
+  margin-left: 6px;
+  margin-right: 6px;
+}
+
+.triangle-kumo-sidebar [data-sidebar="footer"] {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-left: 12px;
+  padding-right: 12px;
+  margin-left: 6px;
+  margin-right: 6px;
+}
+
+.triangle-kumo-sidebar [data-sidebar="content"] {
+  padding-left: 12px;
+  padding-right: 12px;
+  padding-top: 14px;
+  margin-left: 6px;
+  margin-right: 6px;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="header"],
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="content"],
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="footer"] {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="content"] {
+  padding-top: 8px;
+}
+
+.triangle-kumo-sidebar [data-sidebar="menu-button"] {
+  min-height: 36px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 10px 14px;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="menu-button"] {
+  padding-left: 8px;
+  padding-right: 8px;
+  justify-content: center;
+}
+
+.triangle-kumo-sidebar [data-sidebar="menu-button"] > svg {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.triangle-kumo-sidebar [data-sidebar="menu-button"]:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.triangle-kumo-sidebar [data-sidebar="menu-button"]:hover > svg {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.triangle-kumo-sidebar [data-sidebar="menu-button"][data-active] {
+  background: #2271b1;
+  color: #ffffff;
+}
+
+.triangle-kumo-sidebar [data-sidebar="menu-button"][data-active] > svg {
+  color: #ffffff;
+}
+
+.triangle-kumo-sidebar [data-sidebar="trigger"] {
+  color: rgba(255, 255, 255, 0.75);
+  min-height: 44px;
+  width: 100%;
+  border-radius: 6px;
+  padding: 10px 12px;
+  justify-content: flex-start;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="trigger"] {
+  min-height: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+.triangle-kumo-sidebar [data-sidebar="trigger"]:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.triangle-kumo-sidebar [data-sidebar="trigger"]:hover > svg {
+  color: #ffffff;
 }
 
 .content {
-  margin-left: 220px;
-  padding-top: 80px;
+  flex: 1;
   padding: 20px;
 }
 
-/* css for the dashboard button or any button that needs a space underneath*/
-.dashboard-button {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  padding: 5px 10px;
-  color: #b4b9c9;
-  text-decoration: none;
-  font-size: 14px;
-  padding-bottom: 4px;
-  transition: background-color 0.2s, color 0.2s;
-  margin-bottom: 15px;
-  margin-top: 10px
-}
-
-.dashboard-button:hover {
-  color: #5e8fcf
-}
-
-.dashboard-button.active {
-  color: #1d202c;
-  background-color: #5e8fcf
-}
-
-
-/*css for sidebar buttons*/
-.sidebar-button {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  padding: 5px 10px;
-  color: #b4b9c9;
-  text-decoration: none;
-  font-size: 14px;
-  transition: background-color 0.2s, color 0.2s;
-}
-
-.sidebar-button:hover {
-  color: #5e8fcf
-}
-
-.sidebar-button.active {
-  color: #1d202c;
-  background-color: #5e8fcf
+@media (max-width: 768px) {
+  .content {
+    width: 100%;
+  }
 }

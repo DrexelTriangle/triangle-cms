@@ -5,3 +5,5 @@
 /server/**/*.sql
 /report.json
 .vscode/settings.json
+.codex
+**/.codex
