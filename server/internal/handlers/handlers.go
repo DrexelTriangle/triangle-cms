@@ -760,6 +760,9 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, o
 	var conditions []string
 	var args []any
 
+	// Exclude media/import artifacts that have neither authors nor categories.
+	conditions = append(conditions, "((TRIM(COALESCE(`authors`, '')) <> '' AND TRIM(`authors`) <> '[]') OR (TRIM(COALESCE(`categories`, '')) <> '' AND TRIM(`categories`) <> '[]'))")
+
 	if params.AuthorSlug != "" {
 		conditions = append(conditions, "`id` IN (SELECT aa.`articles_id` FROM `articles_authors` aa JOIN `authors` au ON au.`id` = aa.`author_id` WHERE au.`login` = ?)")
 		args = append(args, params.AuthorSlug)
@@ -780,6 +783,12 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, o
 		case string(models.ArticleStatusPublished):
 			conditions = append(conditions, "`pub_date` IS NOT NULL")
 		}
+	}
+
+	// For oldest-first date sorting, exclude undated rows so ordering is strictly by real dates.
+	if strings.EqualFold(strings.TrimSpace(q.Get("sort_by")), string(models.ArticleSortByPublishedAt)) &&
+		strings.EqualFold(strings.TrimSpace(q.Get("sort_direction")), string(models.SortDirectionAscending)) {
+		conditions = append(conditions, "`pub_date` IS NOT NULL")
 	}
 
 	if title := strings.TrimSpace(q.Get("title")); title != "" {

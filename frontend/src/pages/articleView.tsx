@@ -1,50 +1,171 @@
 import { Pagination, buttonVariants } from "@cloudflare/kumo"
-import { useEffect, useMemo, useState } from "react"
-import { ArrowSquareOutIcon, MagnifyingGlassIcon, PencilIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react"
+import { useEffect, useState } from "react"
+import { ArrowSquareOutIcon, MagnifyingGlassIcon, PencilIcon, PlusIcon, TrashIcon, XIcon } from "@phosphor-icons/react"
 
 type ArticleStatus = "Published" | "Draft"
+
 type ArticleItem = {
   id: string
   title: string
   status: ArticleStatus
   date: string
+  slug?: string
 }
 
-const PAGE_SIZE = 8
+type ApiArticle = {
+  id: number
+  title: string
+  slug: string
+  status: string
+  published_date?: string
+}
 
-const articleData: ArticleItem[] = [
-  { id: "1", title: "Budget negotiations continue into weekend", status: "Published", date: "Apr 16, 2026" },
-  { id: "2", title: "Campus rail extension proposal advances", status: "Draft", date: "Apr 15, 2026" },
-  { id: "3", title: "Editorial: Student housing priorities for fall", status: "Draft", date: "Apr 14, 2026" },
-  { id: "4", title: "Alumni panel highlights startup trends", status: "Published", date: "Apr 13, 2026" },
-  { id: "5", title: "Women in STEM fellowship opens applications", status: "Published", date: "Apr 12, 2026" },
-  { id: "6", title: "Opinion: Why local reporting still matters", status: "Draft", date: "Apr 11, 2026" },
-  { id: "7", title: "New sustainability grants announced", status: "Draft", date: "Apr 10, 2026" },
-  { id: "8", title: "Voter guide for spring municipal election", status: "Published", date: "Apr 9, 2026" },
-  { id: "9", title: "Faculty senate debates policy changes", status: "Draft", date: "Apr 8, 2026" },
-  { id: "10", title: "Profiles: Five student founders to watch", status: "Published", date: "Apr 7, 2026" },
-]
+type ApiArticleResponse = {
+  articles?: ApiArticle[]
+  pagination?: {
+    has_more?: boolean
+    hasMore?: boolean
+  }
+}
+
+type ApiAuthor = {
+  id: number
+  slug: string
+  display_name: string
+}
+
+const PAGE_SIZE = 20
+const AUTHORS_PAGE_SIZE = 200
+
+const mapApiStatus = (status: string): ArticleStatus => (status.toLowerCase() === "published" ? "Published" : "Draft")
+
+const formatArticleDate = (publishedDate?: string) => {
+  if (!publishedDate) return "-"
+  const parsed = new Date(publishedDate)
+  if (Number.isNaN(parsed.getTime())) return "-"
+
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
 
 function ArticleView() {
   const [searchQuery, setSearchQuery] = useState("")
   const [activeTab, setActiveTab] = useState<"all" | "trash">("all")
   const [page, setPage] = useState(0)
+  const [articles, setArticles] = useState<ArticleItem[]>([])
+  const [hasMoreArticles, setHasMoreArticles] = useState(false)
+  const [authors, setAuthors] = useState<ApiAuthor[]>([])
+  const [authorQuery, setAuthorQuery] = useState("")
+  const [selectedAuthorSlug, setSelectedAuthorSlug] = useState("")
+  const [publishedFilter, setPublishedFilter] = useState<"all" | "published" | "draft">("all")
+  const [dateSortDirection, setDateSortDirection] = useState<"asc" | "desc">("desc")
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const trashedItems: ArticleItem[] = []
 
-  const filteredItems = useMemo(() => {
-    const pool = activeTab === "all" ? articleData : trashedItems
-    if (!searchQuery.trim()) return pool
-    const query = searchQuery.trim().toLowerCase()
-    return pool.filter((item) => item.title.toLowerCase().includes(query))
-  }, [activeTab, searchQuery, trashedItems])
+  useEffect(() => {
+    let cancelled = false
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE))
-  const paginatedItems = filteredItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+    const fetchAuthors = async () => {
+      try {
+        const allAuthors: ApiAuthor[] = []
+        let offset = 0
+        let keepFetching = true
+
+        while (keepFetching) {
+          const response = await fetch(`/v1/authors?limit=${AUTHORS_PAGE_SIZE}&offset=${offset}&sort_by=display_name&sort_direction=asc`)
+          if (!response.ok) {
+            throw new Error(`Authors request failed (${response.status})`)
+          }
+
+          const payload = (await response.json()) as ApiAuthor[]
+          allAuthors.push(...payload)
+          keepFetching = payload.length === AUTHORS_PAGE_SIZE
+          offset += AUTHORS_PAGE_SIZE
+        }
+
+        if (!cancelled) {
+          setAuthors(allAuthors)
+        }
+      } catch {
+        if (!cancelled) {
+          setAuthors([])
+        }
+      }
+    }
+
+    void fetchAuthors()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
-    setPage((current) => Math.min(current, totalPages - 1))
-  }, [totalPages])
+    let cancelled = false
+
+    const fetchArticles = async () => {
+      setIsLoading(true)
+      setError(null)
+
+      try {
+        const params = new URLSearchParams({
+          limit: String(PAGE_SIZE),
+          page: String(page + 1),
+          sort_by: "published_date",
+          sort_direction: dateSortDirection,
+        })
+        if (selectedAuthorSlug) {
+          params.set("author_slug", selectedAuthorSlug)
+        }
+        if (publishedFilter !== "all") {
+          params.set("status", publishedFilter)
+        }
+        if (searchQuery.trim()) {
+          params.set("title", searchQuery.trim())
+        }
+
+        const response = await fetch(`/v1/articles?${params.toString()}`)
+        if (!response.ok) {
+          throw new Error(`Request failed (${response.status})`)
+        }
+
+        const payload = (await response.json()) as ApiArticleResponse
+        const items = (payload.articles ?? []).map((item) => ({
+          id: String(item.id),
+          title: item.title,
+          status: mapApiStatus(item.status),
+          date: formatArticleDate(item.published_date),
+          slug: item.slug,
+        }))
+
+        if (!cancelled) {
+          setArticles(items)
+          setHasMoreArticles(Boolean(payload.pagination?.has_more ?? payload.pagination?.hasMore))
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : "Unable to load articles."
+          setError(message)
+          setArticles([])
+          setHasMoreArticles(false)
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void fetchArticles()
+
+    return () => {
+      cancelled = true
+    }
+  }, [dateSortDirection, page, publishedFilter, searchQuery, selectedAuthorSlug])
 
   const onChangeTab = (tab: "all" | "trash") => {
     setActiveTab(tab)
@@ -55,6 +176,23 @@ function ArticleView() {
     setSearchQuery(value)
     setPage(0)
   }
+
+  useEffect(() => {
+    const normalizedValue = authorQuery.trim().toLowerCase()
+    if (!normalizedValue) {
+      setSelectedAuthorSlug("")
+      return
+    }
+
+    const matchedAuthor = authors.find((author) => author.display_name.trim().toLowerCase() === normalizedValue)
+    setSelectedAuthorSlug(matchedAuthor?.slug ?? "")
+  }, [authorQuery, authors])
+
+  useEffect(() => {
+    setPage(0)
+  }, [selectedAuthorSlug, publishedFilter, dateSortDirection, searchQuery])
+
+  const estimatedTotalCount = hasMoreArticles ? ((page + 1) * PAGE_SIZE) + 1 : (page * PAGE_SIZE) + articles.length
 
   return (
     <div className="article-list-page">
@@ -78,6 +216,88 @@ function ArticleView() {
           type="search"
           value={searchQuery}
         />
+      </div>
+
+      <div className="article-filters-row">
+        <div className="article-filter-group">
+          <label className="article-filter-label" htmlFor="article-author-filter">
+            Author
+          </label>
+          <div className="article-author-input-wrap">
+            <input
+              className="article-filter-select"
+              id="article-author-filter"
+              list="article-author-options"
+              onChange={(e) => setAuthorQuery(e.target.value)}
+              placeholder="All authors"
+              type="text"
+              value={authorQuery}
+            />
+            {authorQuery.trim() && (
+              <button
+                aria-label="Clear author filter"
+                className="article-author-clear-button"
+                onClick={() => setAuthorQuery("")}
+                title="Clear author"
+                type="button"
+              >
+                <XIcon />
+              </button>
+            )}
+          </div>
+          <datalist id="article-author-options">
+            {authors.map((author) => (
+              <option key={author.id} value={author.display_name} />
+            ))}
+          </datalist>
+        </div>
+
+        <div className="article-filter-group">
+          <span className="article-filter-label">Date</span>
+          <div className="article-filter-tags">
+            <button
+              className={`article-filter-tag ${dateSortDirection === "desc" ? "active" : ""}`}
+              onClick={() => setDateSortDirection("desc")}
+              type="button"
+            >
+              Newest first
+            </button>
+            <button
+              className={`article-filter-tag ${dateSortDirection === "asc" ? "active" : ""}`}
+              onClick={() => setDateSortDirection("asc")}
+              type="button"
+            >
+              Oldest first
+            </button>
+          </div>
+        </div>
+
+        <div className="article-filter-group">
+          <span className="article-filter-label">Published</span>
+          <div className="article-filter-tags">
+            <button
+              className={`article-filter-tag ${publishedFilter === "all" ? "active" : ""}`}
+              onClick={() => setPublishedFilter("all")}
+              type="button"
+            >
+              All
+            </button>
+            <button
+              className={`article-filter-tag ${publishedFilter === "published" ? "active" : ""}`}
+              onClick={() => setPublishedFilter("published")}
+              type="button"
+            >
+              Published
+            </button>
+            <button
+              className={`article-filter-tag ${publishedFilter === "draft" ? "active" : ""}`}
+              onClick={() => setPublishedFilter("draft")}
+              type="button"
+            >
+              Not Published
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="article-tabs">
@@ -114,14 +334,26 @@ function ArticleView() {
             </tr>
           </thead>
           <tbody>
-            {paginatedItems.length === 0 ? (
-                <tr>
+            {isLoading ? (
+              <tr>
+                <td className="empty" colSpan={4}>
+                  Loading articles...
+                </td>
+              </tr>
+            ) : error ? (
+              <tr>
+                <td className="empty" colSpan={4}>
+                  Failed to load articles: {error}
+                </td>
+              </tr>
+            ) : articles.length === 0 ? (
+              <tr>
                 <td className="empty" colSpan={4}>
                   {searchQuery ? `No results for "${searchQuery}"` : `No ${activeTab === "trash" ? "trashed" : ""} articles yet.`}
                 </td>
               </tr>
             ) : (
-              paginatedItems.map((item) => (
+              articles.map((item) => (
                 <tr key={item.id}>
                   <td>{item.title}</td>
                   <td>
@@ -130,7 +362,12 @@ function ArticleView() {
                   <td>{item.date}</td>
                   <td className="actions">
                     {item.status === "Published" && (
-                      <a className="article-view-live-link" href="#" rel="noreferrer" target="_blank">
+                      <a
+                        className="article-view-live-link"
+                        href={item.slug ? `http://localhost:4321/article/${encodeURIComponent(item.slug)}` : "#"}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
                         <ArrowSquareOutIcon className="article-action-icon" />
                         View Live
                       </a>
@@ -151,16 +388,14 @@ function ArticleView() {
 
       <Pagination
         className="article-kumo-pagination"
-        page={Math.min(page + 1, totalPages)}
+        page={page + 1}
         perPage={PAGE_SIZE}
-        setPage={(nextPage) => setPage(Math.max(0, Math.min(totalPages - 1, nextPage - 1)))}
-        totalCount={filteredItems.length}
+        setPage={(nextPage) => setPage(Math.max(0, nextPage - 1))}
+        totalCount={estimatedTotalCount}
       >
         <Pagination.Info>
-          {({ totalCount }) => (
-            <span className="article-count">
-              {(totalCount ?? 0)} article{(totalCount ?? 0) === 1 ? "" : "s"}
-            </span>
+          {() => (
+            <span className="article-count">{articles.length} article{articles.length === 1 ? "" : "s"} shown</span>
           )}
         </Pagination.Info>
         <Pagination.Controls controls="full" />
