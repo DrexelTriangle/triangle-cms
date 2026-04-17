@@ -53,9 +53,148 @@ body {
   min-height: 100vh;
 }
 
+.triangle-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+}
+
 .layout {
   display: flex;
+  height: 100vh;
   min-height: 100vh;
+  width: 100%;
+}
+
+.main-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.triangle-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  width: 100%;
+  height: 64px;
+  align-items: center;
+  justify-content: flex-end;
+  border-bottom: 1px solid var(--color-kumo-line, #c3c4c7);
+  background: var(--color-kumo-base, #ffffff);
+  padding: 0 16px;
+}
+
+.triangle-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.triangle-header-link-icon {
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 4px;
+}
+
+.triangle-header-option {
+  padding: 6px 12px;
+}
+
+.triangle-user-trigger {
+  gap: 8px;
+  height: auto;
+  padding: 6px 12px;
+}
+
+.triangle-user-avatar {
+  align-items: center;
+  background: color-mix(in oklab, var(--color-kumo-brand, #2271b1) 18%, transparent);
+  border-radius: 999px;
+  display: flex;
+  font-size: 12px;
+  font-weight: 600;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.triangle-user-name {
+  font-size: 13px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triangle-user-menu {
+  width: 224px;
+  padding: 8px;
+}
+
+.triangle-user-menu-info {
+  border-bottom: 1px solid var(--color-kumo-line, #c3c4c7);
+  margin-bottom: 4px;
+  padding: 8px 12px;
+}
+
+.triangle-user-menu-name {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triangle-user-menu-email {
+  color: var(--text-color-kumo-subtle, #787c82);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triangle-user-menu-actions {
+  display: grid;
+  gap: 4px;
+}
+
+.triangle-user-menu-link,
+.triangle-user-menu-logout {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  padding: 8px 12px;
+  text-align: left;
+  text-decoration: none;
+  width: 100%;
+}
+
+.triangle-user-menu-link:hover {
+  background: var(--color-kumo-tint, #f0f0f1);
+}
+
+.triangle-user-menu-logout {
+  color: var(--text-color-kumo-danger, #d63638);
+}
+
+.triangle-user-menu-logout:hover {
+  background: color-mix(in oklab, var(--color-kumo-danger, #d63638) 12%, transparent);
+}
+
+.triangle-user-menu-icon {
+  height: 16px;
+  width: 16px;
 }
 
 .triangle-kumo-sidebar {
@@ -68,6 +207,7 @@ body {
   --text-color-kumo-strong: #ffffff;
 
   height: 100vh;
+  min-height: 100vh;
   background-color: #1d2327 !important;
   color: #ffffff !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
@@ -145,7 +285,7 @@ body {
 .triangle-kumo-sidebar [data-sidebar="content"] {
   padding-left: 12px;
   padding-right: 12px;
-  padding-top: 14px;
+  padding-top: 8px;
   margin-left: 6px;
   margin-right: 6px;
 }
@@ -163,18 +303,57 @@ body {
   padding-top: 8px;
 }
 
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="group-content"] {
+  grid-template-rows: 1fr !important;
+}
+
+.triangle-kumo-sidebar [data-sidebar="group-label"] {
+  color: rgba(255, 255, 255, 0.45) !important;
+  font-size: 11px !important;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding-left: 12px;
+  padding-right: 12px;
+  margin-bottom: 8px;
+}
+
+.triangle-kumo-sidebar [data-sidebar="separator"] {
+  border: 0 !important;
+  height: 1px;
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  margin: 8px 12px;
+}
+
 .triangle-kumo-sidebar [data-sidebar="menu-button"] {
   min-height: 36px;
   border-radius: 6px;
   font-size: 13px;
+  line-height: 1.35;
   color: rgba(255, 255, 255, 0.7);
-  padding: 10px 14px;
+  padding: 7px 12px;
 }
 
 .triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="menu-button"] {
   padding-left: 8px;
   padding-right: 8px;
   justify-content: center;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="separator"] {
+  margin: 6px 10px;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="group"] {
+  gap: 2px;
+}
+
+.triangle-kumo-sidebar[data-state="collapsed"] [data-sidebar="menu"] {
+  gap: 2px;
+}
+
+.triangle-kumo-sidebar [data-sidebar="group"]:first-child + [data-sidebar="separator"] {
+  margin-top: 4px;
 }
 
 .triangle-kumo-sidebar [data-sidebar="menu-button"] > svg {
@@ -225,6 +404,7 @@ body {
 
 .content {
   flex: 1;
+  overflow-y: auto;
   padding: 20px;
 }
 
