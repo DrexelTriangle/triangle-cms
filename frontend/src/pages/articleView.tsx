@@ -25,6 +25,8 @@ type ApiArticleResponse = {
   pagination?: {
     has_more?: boolean
     hasMore?: boolean
+    total_count?: number
+    totalCount?: number
   }
 }
 
@@ -56,7 +58,7 @@ function ArticleView() {
   const [activeTab, setActiveTab] = useState<"all" | "trash">("all")
   const [page, setPage] = useState(0)
   const [articles, setArticles] = useState<ArticleItem[]>([])
-  const [hasMoreArticles, setHasMoreArticles] = useState(false)
+  const [totalArticleCount, setTotalArticleCount] = useState(0)
   const [authors, setAuthors] = useState<ApiAuthor[]>([])
   const [authorQuery, setAuthorQuery] = useState("")
   const [selectedAuthorSlug, setSelectedAuthorSlug] = useState("")
@@ -144,14 +146,16 @@ function ArticleView() {
 
         if (!cancelled) {
           setArticles(items)
-          setHasMoreArticles(Boolean(payload.pagination?.has_more ?? payload.pagination?.hasMore))
+          const apiTotalCount = payload.pagination?.total_count ?? payload.pagination?.totalCount
+          const fallbackTotalCount = (page * PAGE_SIZE) + items.length + (Boolean(payload.pagination?.has_more ?? payload.pagination?.hasMore) ? 1 : 0)
+          setTotalArticleCount(typeof apiTotalCount === "number" ? apiTotalCount : fallbackTotalCount)
         }
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : "Unable to load articles."
           setError(message)
           setArticles([])
-          setHasMoreArticles(false)
+          setTotalArticleCount(0)
         }
       } finally {
         if (!cancelled) {
@@ -192,7 +196,7 @@ function ArticleView() {
     setPage(0)
   }, [selectedAuthorSlug, publishedFilter, dateSortDirection, searchQuery])
 
-  const estimatedTotalCount = hasMoreArticles ? ((page + 1) * PAGE_SIZE) + 1 : (page * PAGE_SIZE) + articles.length
+  const effectiveTotalCount = Math.max(totalArticleCount, (page * PAGE_SIZE) + articles.length)
 
   return (
     <div className="article-list-page">
@@ -294,7 +298,7 @@ function ArticleView() {
               onClick={() => setPublishedFilter("draft")}
               type="button"
             >
-              Not Published
+              Draft
             </button>
           </div>
         </div>
@@ -390,8 +394,14 @@ function ArticleView() {
         className="article-kumo-pagination"
         page={page + 1}
         perPage={PAGE_SIZE}
-        setPage={(nextPage) => setPage(Math.max(0, nextPage - 1))}
-        totalCount={estimatedTotalCount}
+        setPage={(nextPage) => {
+          if (!Number.isFinite(nextPage)) return
+          const normalizedPage = Math.max(1, Math.trunc(nextPage))
+          const maxPage = Math.max(1, Math.ceil(effectiveTotalCount / PAGE_SIZE))
+          const boundedPage = Math.min(normalizedPage, maxPage)
+          setPage(boundedPage - 1)
+        }}
+        totalCount={effectiveTotalCount}
       >
         <Pagination.Info>
           {() => (

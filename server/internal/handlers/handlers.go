@@ -528,6 +528,11 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 
 		page, limit, offset := listParams(r, 20)
 		excerptWords := excerptWordLimit(r, 50)
+		totalCount, err := countArticles(r, conn, params)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		rows, err := queryArticles(r, conn, params, limit+1, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -556,11 +561,13 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 			},
 			"articles": articleListItems(articles, excerptWords),
 			"pagination": map[string]any{
-				"page":     page,
-				"limit":    limit,
-				"offset":   offset,
-				"hasMore":  hasMore,
-				"has_more": hasMore,
+				"page":        page,
+				"limit":       limit,
+				"offset":      offset,
+				"hasMore":     hasMore,
+				"has_more":    hasMore,
+				"totalCount":  totalCount,
+				"total_count": totalCount,
 			},
 		})
 	}
@@ -582,6 +589,11 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 		}
 		page, limit, offset := listParams(r, 20)
 		excerptWords := excerptWordLimit(r, 50)
+		totalCount, err := countArticles(r, conn, params)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		rows, err := queryArticles(r, conn, params, limit+1, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -605,11 +617,13 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"articles": articleListItems(articles, excerptWords),
 			"pagination": map[string]any{
-				"page":     page,
-				"limit":    limit,
-				"offset":   offset,
-				"hasMore":  hasMore,
-				"has_more": hasMore,
+				"page":        page,
+				"limit":       limit,
+				"offset":      offset,
+				"hasMore":     hasMore,
+				"has_more":    hasMore,
+				"totalCount":  totalCount,
+				"total_count": totalCount,
 			},
 		})
 	}
@@ -629,6 +643,11 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 		}
 		page, limit, offset := listParams(r, 20)
 		excerptWords := excerptWordLimit(r, 50)
+		totalCount, err := countArticles(r, conn, params)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		rows, err := queryArticles(r, conn, params, limit+1, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -669,11 +688,13 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 			"subsections": subsections,
 			"articles":    articleListItems(articles, excerptWords),
 			"pagination": map[string]any{
-				"page":     page,
-				"limit":    limit,
-				"offset":   offset,
-				"hasMore":  hasMore,
-				"has_more": hasMore,
+				"page":        page,
+				"limit":       limit,
+				"offset":      offset,
+				"hasMore":     hasMore,
+				"has_more":    hasMore,
+				"totalCount":  totalCount,
+				"total_count": totalCount,
 			},
 		})
 	}
@@ -693,6 +714,11 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 		}
 		page, limit, offset := listParams(r, 20)
 		excerptWords := excerptWordLimit(r, 50)
+		totalCount, err := countArticles(r, conn, params)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		rows, err := queryArticles(r, conn, params, limit+1, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -737,11 +763,13 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 			},
 			"articles": articleListItems(articles, excerptWords),
 			"pagination": map[string]any{
-				"page":     page,
-				"limit":    limit,
-				"offset":   offset,
-				"hasMore":  hasMore,
-				"has_more": hasMore,
+				"page":        page,
+				"limit":       limit,
+				"offset":      offset,
+				"hasMore":     hasMore,
+				"has_more":    hasMore,
+				"totalCount":  totalCount,
+				"total_count": totalCount,
 			},
 		})
 	}
@@ -756,6 +784,35 @@ type ArticleParams struct {
 
 // queryArticles is shared by GetArticles and GetAuthorArticles.
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
+	q := r.URL.Query()
+	conditions, args := articleQueryFilters(r, params)
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url` FROM `articles`"
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	if q.Get("sort_by") == "" {
+		query += " ORDER BY `id` DESC"
+	}
+	query = db.BuildOrderLimit(query, q.Get("sort_by"), q.Get("sort_direction"), db.ArticleSortByColumn, limit, offset)
+
+	return conn.QueryContext(r.Context(), query, args...)
+}
+
+func countArticles(r *http.Request, conn *sql.DB, params ArticleParams) (int, error) {
+	conditions, args := articleQueryFilters(r, params)
+	query := "SELECT COUNT(*) FROM `articles`"
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	var totalCount int
+	if err := conn.QueryRowContext(r.Context(), query, args...).Scan(&totalCount); err != nil {
+		return 0, err
+	}
+	return totalCount, nil
+}
+
+func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any) {
 	q := r.URL.Query()
 	var conditions []string
 	var args []any
@@ -811,16 +868,7 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, o
 		args = append(args, "%"+slug+"%")
 	}
 
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url` FROM `articles`"
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	if q.Get("sort_by") == "" {
-		query += " ORDER BY `id` DESC"
-	}
-	query = db.BuildOrderLimit(query, q.Get("sort_by"), q.Get("sort_direction"), db.ArticleSortByColumn, limit, offset)
-
-	return conn.QueryContext(r.Context(), query, args...)
+	return conditions, args
 }
 
 func appendCategorySlugCondition(conditions *[]string, args *[]any, slug string) {
