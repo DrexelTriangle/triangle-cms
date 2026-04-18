@@ -1,5 +1,5 @@
 import { Sidebar as KumoSidebar } from "@cloudflare/kumo"
-import { EnvelopeIcon, FileTextIcon, GearIcon, HouseIcon, ImageIcon, MagnifyingGlassIcon, PlantIcon, RowsIcon, SquaresFourIcon, TagIcon, UsersFourIcon, UsersIcon } from "@phosphor-icons/react"
+import { EnvelopeIcon, FileTextIcon, GearIcon, HouseIcon, ImageIcon, MagnifyingGlassIcon, PlantIcon, RowsIcon, SquaresFourIcon, UsersFourIcon, UsersIcon } from "@phosphor-icons/react"
 import { useLocation, useNavigate } from "react-router-dom"
 import logo from "../assets/logo.png"
 
@@ -49,11 +49,6 @@ const manageItems = [
     icon: SquaresFourIcon,
     label: "Categories",
     path: "/categories",
-  },
-  {
-    icon: TagIcon,
-    label: "Tags",
-    path: "/tags",
   },
   {
     icon: MagnifyingGlassIcon,

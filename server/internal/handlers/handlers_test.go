@@ -112,3 +112,52 @@ func TestAppendCategorySlugCondition(t *testing.T) {
 		}
 	}
 }
+
+func TestAppendArticleTypeCondition(t *testing.T) {
+	var conditions []string
+	var args []any
+
+	appendArticleTypeCondition(&conditions, &args, "developing-stories")
+
+	if len(conditions) != 1 {
+		t.Fatalf("expected 1 condition, got %d", len(conditions))
+	}
+	if len(args) != 6 {
+		t.Fatalf("expected 6 args, got %d", len(args))
+	}
+
+	wantArgs := []string{
+		"%developing-stories%",
+		"%developing-stories%",
+		"%developing-stories%",
+		"%developing stories%",
+		"%developing stories%",
+		"%developing stories%",
+	}
+	for i, want := range wantArgs {
+		got, ok := args[i].(string)
+		if !ok {
+			t.Fatalf("arg %d has non-string type %T", i, args[i])
+		}
+		if got != want {
+			t.Fatalf("arg %d = %q, want %q", i, got, want)
+		}
+	}
+}
+
+func TestAppendArticleTypeCondition_Negated(t *testing.T) {
+	var conditions []string
+	var args []any
+
+	appendArticleTypeCondition(&conditions, &args, "developing-stories", true)
+
+	if len(conditions) != 1 {
+		t.Fatalf("expected 1 condition, got %d", len(conditions))
+	}
+	if !strings.HasPrefix(conditions[0], "NOT (") {
+		t.Fatalf("expected negated clause, got %q", conditions[0])
+	}
+	if len(args) != 6 {
+		t.Fatalf("expected 6 args, got %d", len(args))
+	}
+}

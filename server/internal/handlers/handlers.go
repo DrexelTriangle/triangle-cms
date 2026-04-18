@@ -853,6 +853,13 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 		args = append(args, "%"+title+"%")
 	}
 
+	if articleType := strings.TrimSpace(q.Get("type")); articleType != "" {
+		appendArticleTypeCondition(&conditions, &args, articleType)
+	}
+	if excludedType := strings.TrimSpace(q.Get("exclude_type")); excludedType != "" {
+		appendArticleTypeCondition(&conditions, &args, excludedType, true)
+	}
+
 	if pub_date := db.ParsePublishedAt(q.Get("published_date")); pub_date != nil {
 		conditions = append(conditions, "`pub_date` >= ?")
 		args = append(args, pub_date.UTC().Format("2026-03-23 15:04:05"))
@@ -900,6 +907,46 @@ func appendCategorySlugCondition(conditions *[]string, args *[]any, slug string)
 	}
 
 	*conditions = append(*conditions, "("+strings.Join(clauseParts, " OR ")+")")
+}
+
+func appendArticleTypeCondition(conditions *[]string, args *[]any, rawType string, negate ...bool) {
+	normalized := strings.ToLower(strings.TrimSpace(rawType))
+	if normalized == "" {
+		return
+	}
+
+	patterns := make([]string, 0, 4)
+	addPattern := func(value string) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		for _, existing := range patterns {
+			if existing == value {
+				return
+			}
+		}
+		patterns = append(patterns, value)
+	}
+
+	addPattern("%" + normalized + "%")
+	addPattern("%" + strings.ReplaceAll(normalized, "-", " ") + "%")
+	addPattern("%" + strings.ReplaceAll(normalized, "_", " ") + "%")
+
+	clauseParts := make([]string, 0, len(patterns)*3)
+	for _, pattern := range patterns {
+		clauseParts = append(clauseParts, "LOWER(`categories`) LIKE ?")
+		*args = append(*args, pattern)
+		clauseParts = append(clauseParts, "LOWER(`tags`) LIKE ?")
+		*args = append(*args, pattern)
+		clauseParts = append(clauseParts, "LOWER(COALESCE(`metadata`, '')) LIKE ?")
+		*args = append(*args, pattern)
+	}
+
+	clause := "(" + strings.Join(clauseParts, " OR ") + ")"
+	if len(negate) > 0 && negate[0] {
+		clause = "NOT " + clause
+	}
+	*conditions = append(*conditions, clause)
 }
 
 // GET /v1/search?q={term}
