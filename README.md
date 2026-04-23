@@ -35,6 +35,14 @@ Optional flags:
 
 ## First Local Run
 
+0. Create Docker env vars for required secrets:
+
+```bash
+cp .env.example .env
+```
+
+Update `.env` with strong values before running Compose.
+
 1. Generate ETL SQL in `wordpress-etl`:
 
 ```bash
@@ -70,6 +78,8 @@ Path A (recommended): full Docker stack (CMS + observability):
 ```bash
 python ./scripts/setup_containers.py
 ```
+
+This stack uses a shared Docker bridge network scoped to the Compose project, so services can resolve each other by container/service name (for example `mariadb`, `loki`, `grafana`).
 
 Path B: Docker MariaDB + local Go backend:
 

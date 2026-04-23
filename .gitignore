@@ -5,3 +5,5 @@
 .vscode/settings.json
 .codex
 **/.codex
+
+/.env

@@ -3,10 +3,10 @@ services:
     image: mariadb:11.7
     restart: unless-stopped
     environment:
-      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-rootpassword}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
       MARIADB_DATABASE: ${MARIADB_DATABASE:-triangle}
       MARIADB_USER: ${MARIADB_USER:-triangle_user}
-      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-triangle_password}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
     volumes:
       - mariadb_data:/var/lib/mysql
       - ./server/internal/database/wordpress_etl/01-authors.sql:/docker-entrypoint-initdb.d/01-authors.sql:ro,z
@@ -16,13 +16,15 @@ services:
       - ./server/internal/database/wordpress_etl/05-article-embeddings.sql:/docker-entrypoint-initdb.d/05-article-embeddings.sql:ro,z
       - ./server/internal/database/wordpress_etl/06-taxonomy.sql:/docker-entrypoint-initdb.d/06-taxonomy.sql:ro,z
     ports:
-      - "${MARIADB_PORT_FORWARD:-3306}:3306"
+      - "127.0.0.1:${MARIADB_PORT_FORWARD:-3306}:3306"
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
+    networks:
+      - triangle_net
 
   cms:
     pull_policy: build
@@ -33,7 +35,7 @@ services:
     environment:
       DB_NAME: ${MARIADB_DATABASE:-triangle}
       DB_USER: ${MARIADB_USER:-triangle_user}
-      DB_PASSWORD: ${MARIADB_PASSWORD:-triangle_password}
+      DB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
       DB_HOST: mariadb
       DB_PORT: 3306
       TLS_CERT_FILE: /app/certs/localhost.crt
@@ -41,47 +43,76 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate -q -O - https://127.0.0.1:8080/users >/dev/null 2>&1 || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     ports:
       - "8080:8080"
+    networks:
+      - triangle_net
 
   loki:
     image: grafana/loki:3.5.6
     restart: unless-stopped
     command: ["-config.file=/etc/loki/config.yaml"]
+    healthcheck:
+      test: ["CMD", "loki", "-verify-config=true", "-config.file=/etc/loki/config.yaml"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     volumes:
       - ./observability/loki-config.yml:/etc/loki/config.yaml:ro,z
       - loki_data:/loki
-    ports:
-      - "3100:3100"
+    networks:
+      - triangle_net
 
   promtail:
     image: grafana/promtail:3.5.6
     restart: unless-stopped
     user: "0:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     command: ["-config.file=/etc/promtail/config.yml"]
     depends_on:
-      - loki
+      loki:
+        condition: service_healthy
     volumes:
       - ./observability/promtail-config.yml:/etc/promtail/config.yml:ro,z
       - promtail_positions:/tmp
       - /var/lib/docker/containers:/var/lib/docker/containers:ro,z
+    networks:
+      - triangle_net
 
   grafana:
     image: grafana/grafana:12.2.0
     restart: unless-stopped
     depends_on:
-      - loki
+      loki:
+        condition: service_healthy
     environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./observability/grafana/provisioning/datasources/loki.yml:/etc/grafana/provisioning/datasources/loki.yml:ro,z
+    networks:
+      - triangle_net
 
 volumes:
   mariadb_data:
   loki_data:
   promtail_positions:
   grafana_data:
+
+networks:
+  triangle_net:
+    driver: bridge
