@@ -53,7 +53,7 @@ This starts:
 If you want the full Docker stack (CMS + observability), run:
 
 ```bash
-./scripts/setup-containers.sh
+python ./scripts/setup_containers.py
 ```
 
 This starts:
@@ -73,7 +73,7 @@ Reset all compose volumes and rebuild:
 > Running this command will erase all logs and database entries, equivalent to a fresh install
 
 ```bash
-./scripts/setup-containers.sh --reset-data
+python ./scripts/setup_containers.py --reset-data
 ```
 
 ### Local Development
@@ -110,7 +110,7 @@ With embeddings (default-off feature):
 > Running this command erases DB data and logs.
 
 ```bash
-./scripts/setup-containers.sh --reset-data
+python ./scripts/setup_containers.py --reset-data
 ```
 
 5. Choose how to run backend:
@@ -166,10 +166,10 @@ The backend serves HTTPS on `https://localhost:8080` using (the certs are just t
 
 #### Apply Backend Changes to Docker CMS
 
-When you change Go backend code under `server/` and want those changes reflected in the Docker `cms` container, rebuild and restart that service image:
+When you change Go backend code under `server/` and want those changes reflected in the Docker `cms` container, restart that service. Compose is configured to build `cms` automatically on `up`:
 
 ```bash
-docker compose up -d --build cms
+docker compose up -d cms
 ```
 
 If your change is to MariaDB bootstrap SQL files in `server/internal/database/wordpress_etl/`, those are only applied on fresh DB initialization. Recreate volumes for those to take effect:
@@ -178,7 +178,7 @@ If your change is to MariaDB bootstrap SQL files in `server/internal/database/wo
 > Running this command will erase all logs and database entries, equivalent to a fresh install
 
 ```bash
-./scripts/setup-containers.sh --reset-data
+python ./scripts/setup_containers.py --reset-data
 ```
 
 #### Frontend (Vite)
