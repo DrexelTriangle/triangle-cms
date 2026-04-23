@@ -1,6 +1,7 @@
 import { Pagination, buttonVariants } from "@cloudflare/kumo"
 import { useEffect, useState } from "react"
 import { MagnifyingGlassIcon, PencilIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react"
+import { useNavigate } from "react-router-dom"
 
 type ArticleStatus = "Published" | "Draft"
 
@@ -76,6 +77,7 @@ const formatArticleDate = (publishedDate?: string) => {
 }
 
 function DevelopingStoriesView() {
+  const navigate = useNavigate()
   const storageKeyBase = "developingStoriesView"
   const uiStateKey = `${storageKeyBase}:ui`
   const resultsCacheKey = `${storageKeyBase}:results`
@@ -336,7 +338,16 @@ function DevelopingStoriesView() {
                   </td>
                   <td>{item.date}</td>
                   <td className="actions">
-                    <button className="article-action-button" title="Edit" type="button">
+                    <button
+                      className="article-action-button"
+                      disabled={!item.slug}
+                      onClick={() => {
+                        if (!item.slug) return
+                        navigate(`/developing-stories/${encodeURIComponent(item.slug)}/edit`)
+                      }}
+                      title={item.slug ? "Edit" : "Edit unavailable"}
+                      type="button"
+                    >
                       <PencilIcon className="article-action-icon" />
                     </button>
                     <button className="article-action-button danger" title="Delete" type="button">
