@@ -2,7 +2,8 @@
 """First-time setup for Triangle repositories.
 
 This script is cross-platform (macOS/Linux/Windows) and will:
-1. Create a target directory (default: ./triangle)
+1. Determine a target directory
+   (default: parent of current triangle-cms checkout, else ./triangle)
 2. Clone all Triangle repositories into that directory
 3. Install project dependencies for each repository
 """
@@ -21,20 +22,30 @@ REPOS: tuple[tuple[str, str], ...] = (
     ("wordpress-etl", "https://github.com/DrexelTriangle/wordpress-etl.git"),
     ("Scalene", "https://github.com/DrexelTriangle/Scalene.git"),
 )
+PRIMARY_REPO_NAME = "triangle-cms"
 
 
 class SetupError(RuntimeError):
     """Raised when setup cannot continue."""
 
 
+def infer_default_target_dir() -> str:
+    script_root = Path(__file__).resolve().parent.parent
+    if script_root.name == PRIMARY_REPO_NAME and (script_root / ".git").exists():
+        # If run from an existing triangle-cms checkout, place sibling repos next to it.
+        return str(script_root.parent)
+    return "triangle"
+
+
 def parse_args() -> argparse.Namespace:
+    default_target_dir = infer_default_target_dir()
     parser = argparse.ArgumentParser(
         description="Clone Triangle repos and install first-time dependencies."
     )
     parser.add_argument(
         "--target-dir",
-        default="triangle",
-        help="Directory where repositories will be cloned (default: triangle)",
+        default=default_target_dir,
+        help=f"Directory where repositories will be cloned (default: {default_target_dir})",
     )
     parser.add_argument(
         "--skip-embeddings",

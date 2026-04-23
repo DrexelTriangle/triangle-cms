@@ -18,13 +18,30 @@ API docs and data models: https://github.com/DrexelTriangle/triangle-cms/wiki
 
 ## First-Time Setup (Recommended)
 
-From the parent directory where you want `triangle/` created:
+Create a `triangle` directory first, then clone `triangle-cms` into it
+(`triangle-cms` contains the setup script):
 
 ```bash
-python ./triangle-cms/scripts/first_time_setup.py --target-dir triangle
+mkdir triangle
+cd triangle
+git clone https://github.com/DrexelTriangle/triangle-cms.git
+cd triangle-cms
 ```
 
-This clones and installs dependencies for:
+Then run:
+
+```bash
+python ./scripts/first_time_setup.py
+```
+
+When run from inside `triangle/triangle-cms`, this installs dependencies for the current checkout and clones:
+- `wordpress-etl`
+- `Scalene`
+as sibling directories inside `triangle/`.
+
+If you want a custom location, set `--target-dir` explicitly.
+
+This prepares and installs dependencies for:
 - `triangle-cms`
 - `wordpress-etl`
 - `Scalene`
