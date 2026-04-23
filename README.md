@@ -1,121 +1,122 @@
 # Triangle CMS (Delta)
 
-## Foreword
+Headless CMS replacement for The Triangle, with:
+- `server/` Go API
+- `frontend/` React frontend
+- `observability/` Loki + Promtail + Grafana
+- `scripts/` local setup helpers
 
-Triangle CMS (Delta) is the Drexel Triangle's solution for a minimal WordPress replacement. Its core is a headless CMS (Content Management System) that serves and edits content from a local database. WordPress content can be migrated into Delta via the `wordpress-etl` tool. Delta also offers a minimal frontend similar to WordPress, and because the core CMS is headless, users are welcome to build their own. Delta also includes built-in logging, accessible through a Grafana dashboard, to enable easy monitoring of API calls and internal errors.
+API docs and data models: https://github.com/DrexelTriangle/triangle-cms/wiki
 
-## Developer Guide
+## Prerequisites
 
-### Project Structure
-
-Triangle CMS is split into:
-- `server/`: Go backend
-- `frontend/`: React frontend
-- `observability/`: Loki + Promtail + Grafana config for logging purposes
-- `scripts/`: setup scripts
-
-### API Specification and Data Models
-
-API specification and response/data model documentation live in the project wiki:
-- https://github.com/DrexelTriangle/triangle-cms/wiki
-  - Endpoints: https://github.com/DrexelTriangle/triangle-cms/wiki/Endpoints
-  - Response shapes/models: https://github.com/DrexelTriangle/triangle-cms/wiki/Response-Shapes
-
-### Prerequisites
-
-- Docker and Docker Compose
+- Python 3.10+
+- Git
+- Docker + Docker Compose
 - Go 1.24+
-- Node.js 20+ and npm
-- Local clone of `wordpress-etl`: https://github.com/DrexelTriangle/wordpress-etl
+- Node.js 20+ + npm
 
-### Quick Start
+## First-Time Setup (Recommended)
 
-1. Run the WordPress ETL pipeline locally in `wordpress-etl` to generate source SQL files.
-2. From `triangle-cms` repo root, generate CMS SQL files:
+From the parent directory where you want `triangle/` created:
 
 ```bash
-./scripts/generate_wordpress_sql.sh
+python ./triangle-cms/scripts/first_time_setup.py --target-dir triangle
 ```
 
-By default, the script auto-detects ETL SQL if the `wordpress-etl` repository is in the same directory or the parent directory of `triangle-cms`:
-- `../wordpress-etl/logs/sql`
-- `./wordpress-etl/logs/sql`
+This clones and installs dependencies for:
+- `triangle-cms`
+- `wordpress-etl`
+- `Scalene`
 
-3. Start only MariaDB in Docker (recommended for local backend development):
+Optional flags:
+- `--pull` to update already-cloned repos (`git pull --ff-only`)
+- `--skip-embeddings` to skip `sentence-transformers` install in `wordpress-etl`
+
+## First Local Run
+
+1. Generate ETL SQL in `wordpress-etl`:
 
 ```bash
-docker compose up -d mariadb
+cd ../wordpress-etl
+.venv/bin/python main.py
 ```
 
-This starts:
-- MariaDB (`mariadb`) on `localhost:${MARIADB_PORT_FORWARD:-3306}` (container port `3306`), populated from the ETL pipeline output
+Windows PowerShell:
 
-If you want the full Docker stack (CMS + observability), run:
+```powershell
+cd ../wordpress-etl
+.venv/Scripts/python.exe main.py
+```
+
+For embeddings SQL:
+
+```bash
+cd ../wordpress-etl
+.venv/bin/python main.py --generate-embeddings
+```
+
+2. Copy ETL SQL into CMS bootstrap files:
+
+```bash
+cd ../triangle-cms
+python ./scripts/generate_wordpress_sql.py
+```
+
+3. Start services (Path A is recommended):
+
+Path A (recommended): full Docker stack (CMS + observability):
 
 ```bash
 python ./scripts/setup_containers.py
 ```
 
-This starts:
-- MariaDB (`mariadb`) on `localhost:${MARIADB_PORT_FORWARD:-3306}` (container port `3306`), populated from the ETL pipeline output
-- CMS backend (`cms`) on `https://localhost:8080` which exposes the API
-- Promtail (`promtail`) which collects logs from Docker containers
-- Loki (`loki`) on port `3100`, which indexes logs from Promtail
-- Grafana (`http://localhost:3000`, default `User:admin, Password:admin`) which allows you to explore and query logs from Loki
+Path B: Docker MariaDB + local Go backend:
 
-Important:
-- Logging/observability (Promtail, Loki, Grafana) is only available when running the full Docker stack.
-- If you run the backend locally via `go run` (instead of the `cms` Docker container), those Docker logging pipelines do not apply to your local process.
+```bash
+docker compose up -d mariadb
+```
 
-Reset all compose volumes and rebuild:
+Then run backend locally:
 
-> [!WARNING]
-> Running this command will erase all logs and database entries, equivalent to a fresh install
+```bash
+cd server
+go run ./main.go
+```
+
+4. Verify API (works with either path):
+
+```bash
+curl -s https://localhost:8080/v1/articles/christmas
+```
+
+5. Run the Triangle CMS frontend dashboard:
+
+```bash
+cd frontend
+npm run dev
+```
+
+Frontend dashboard: `http://localhost:5173`
+
+6. Run Scalene frontend:
+
+```bash
+cd ../Scalene
+npm run dev
+```
+
+Scalene: `http://localhost:4321`
+
+## Common Tasks
+
+Reset DB + logs (fresh install):
 
 ```bash
 python ./scripts/setup_containers.py --reset-data
 ```
 
-### Local Development
-
-#### Rebuild / Rerun Locally (Step-by-step)
-
-Use this flow when you want a full local refresh of DB + API.
-
-1. (Optional, one-time) install local embeddings dependency:
-
-```bash
-python3 -m pip install --user sentence-transformers
-```
-
-2. Run the WordPress ETL pipeline in your local `wordpress-etl` repo so fresh source data exists.
-
-3. Generate CMS SQL files:
-
-Without embeddings:
-
-```bash
-./scripts/generate_wordpress_sql.sh
-```
-
-With embeddings (default-off feature):
-
-```bash
-./scripts/generate_wordpress_sql.sh --generate-embeddings
-```
-
-4. Recreate containers and volumes so MariaDB re-runs init SQL (`01`..`05`):
-
-> [!WARNING]
-> Running this command erases DB data and logs.
-
-```bash
-python ./scripts/setup_containers.py --reset-data
-```
-
-5. Choose how to run backend:
-- Docker backend already running from step 4: `https://localhost:8080`
-- Or run Go API locally:
+Run backend locally (instead of Docker `cms` service):
 
 ```bash
 docker compose stop cms
@@ -123,19 +124,7 @@ cd server
 go run ./main.go
 ```
 
-6. Verify endpoint behavior:
-
-```bash
-curl -s https://localhost:8080/v1/articles/christmas
-```
-
-If embeddings were generated and vector infra exists, `related` should contain up to 3 article overviews.  
-If embeddings were not generated, `related` safely falls back to `[]`.
-
-#### Backend (Go API)
-
-1. Ensure MariaDB is running (via Docker or local instance).
-2. If using Docker MariaDB and running the backend via `go run`, configure `server/.env` with the same values used by your compose `MARIADB_DATABASE`, `MARIADB_USER`, and `MARIADB_PASSWORD`:
+If running backend locally against Docker MariaDB, create `server/.env`:
 
 ```env
 DB_NAME=triangle
@@ -145,113 +134,62 @@ DB_HOST=127.0.0.1
 DB_PORT=3306
 ```
 
-If using a separate local MariaDB instance, configure `server/.env` for that instance instead.
-
-3. If the Docker `cms` service is running, stop it first to avoid port conflict on `:8080`:
-
-```bash
-docker compose stop cms
-```
-
-4. Run backend:
-
-```bash
-cd server
-go run ./main.go
-```
-
-The backend serves HTTPS on `https://localhost:8080` using (the certs are just there to keep Postman happy):
-- `server/certs/localhost.crt`
-- `server/certs/localhost.key`
-
-#### Apply Backend Changes to Docker CMS
-
-When you change Go backend code under `server/` and want those changes reflected in the Docker `cms` container, restart that service. Compose is configured to build `cms` automatically on `up`:
-
-```bash
-docker compose up -d cms
-```
-
-If your change is to MariaDB bootstrap SQL files in `server/internal/database/wordpress_etl/`, those are only applied on fresh DB initialization. Recreate volumes for those to take effect:
-
-> [!WARNING]
-> Running this command will erase all logs and database entries, equivalent to a fresh install
-
-```bash
-python ./scripts/setup_containers.py --reset-data
-```
-
-#### Frontend (Vite)
+Run Triangle CMS frontend dashboard:
 
 ```bash
 cd frontend
-npm install
 npm run dev
 ```
 
-Vite dev server starts on `http://localhost:5173`.
+Frontend dashboard: `http://localhost:5173`
 
-### WordPress SQL ETL Flow
-
-SQL files for bootstrap imports live in:
-- `server/internal/database/wordpress_etl/`
-
-Before running this step, you must have already run the ETL pipeline in:
-- https://github.com/DrexelTriangle/wordpress-etl
-
-Generate CMS SQL files from the ETL pipeline output:
+Run Scalene:
 
 ```bash
-./scripts/generate_wordpress_sql.sh [source_sql_dir] [output_dir]
+cd ../Scalene
+npm run dev
 ```
 
-Optional embeddings generation (off by default):
+Scalene: `http://localhost:4321`
+
+## ETL SQL Script (Advanced)
+
+Default usage:
 
 ```bash
-./scripts/generate_wordpress_sql.sh --generate-embeddings
+python ./scripts/generate_wordpress_sql.py
 ```
 
-Defaults:
-- source: auto-detected (`../wordpress-etl`, `../wordpress-etl/logs/sql`, `./wordpress-etl`, `./wordpress-etl/logs/sql`)
-- output: default (`server/internal/database/wordpress_etl`)
-- embeddings: disabled unless `--generate-embeddings` is passed
+Optional override usage:
 
-Overrides:
-- Pass explicit args:
-  `./scripts/generate_wordpress_sql.sh ../wordpress-etl/logs/sql server/internal/database/wordpress_etl`
-- Or use env vars:
-  `WP_ETL_SQL_DIR=../wordpress-etl ./scripts/generate_wordpress_sql.sh`
-  `WP_ETL_OUT_DIR=server/internal/database/wordpress_etl ./scripts/generate_wordpress_sql.sh`
-  `WP_ETL_SQL_DIR=../wordpress-etl WP_ETL_OUT_DIR=server/internal/database/wordpress_etl ./scripts/generate_wordpress_sql.sh`
-  `WP_EMBED_MODEL=sentence-transformers/paraphrase-MiniLM-L3-v2 ./scripts/generate_wordpress_sql.sh --generate-embeddings`
-  `WP_EMBED_BATCH_SIZE=64 ./scripts/generate_wordpress_sql.sh --generate-embeddings`
+```bash
+python ./scripts/generate_wordpress_sql.py [source_sql_dir] [output_dir]
+```
+
+Environment variable overrides:
+
+```bash
+WP_ETL_SQL_DIR=../wordpress-etl/logs/sql WP_ETL_OUT_DIR=server/internal/database/wordpress_etl python ./scripts/generate_wordpress_sql.py
+```
 
 Generated files:
 - `01-authors.sql`
 - `02-articles.sql`
 - `03-articles-authors.sql`
 - `04-seo.sql`
-- `05-article-embeddings.sql` (only populated when embeddings are enabled)
-- `06-taxonomy.sql` (canonical section/subsection titles)
+- `05-article-embeddings.sql` (real file when available, placeholder otherwise)
+- `06-taxonomy.sql`
 
-These are mounted into MariaDB init at container startup through `docker-compose.yml`.
-
-### Testing
-
-Backend tests:
+## Testing
 
 ```bash
 cd server
 go test ./...
 ```
 
-Test coverage:
-
-Run to see the percentage of code each test covers
+Coverage:
 
 ```bash
 cd server
 go test -coverprofile=cover.out ./...
 ```
-
-This also generates the `cover.out` file, showing exactly which lines are run during tests.
