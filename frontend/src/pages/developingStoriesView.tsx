@@ -1,6 +1,6 @@
 import { Pagination, buttonVariants } from "@cloudflare/kumo"
 import { useEffect, useState } from "react"
-import { ArrowSquareOutIcon, MagnifyingGlassIcon, PencilIcon, PlusIcon, TrashIcon, XIcon } from "@phosphor-icons/react"
+import { MagnifyingGlassIcon, PencilIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react"
 import { useNavigate } from "react-router-dom"
 
 type ArticleStatus = "Published" | "Draft"
@@ -8,7 +8,6 @@ type ArticleStatus = "Published" | "Draft"
 type ArticleItem = {
   id: string
   title: string
-  authors: string
   status: ArticleStatus
   date: string
   slug?: string
@@ -20,9 +19,6 @@ type ApiArticle = {
   slug: string
   status: string
   published_date?: string
-  authors?: Array<{
-    name?: string
-  }>
 }
 
 type ApiArticleResponse = {
@@ -35,44 +31,17 @@ type ApiArticleResponse = {
   }
 }
 
-type ApiAuthor = {
-  id: number
-  slug: string
-  display_name: string
-}
-
 const PAGE_SIZE = 20
-const AUTHORS_PAGE_SIZE = 200
+const TYPE_FILTER = "developing-stories"
 
-const mapApiStatus = (status: string): ArticleStatus => (status.toLowerCase() === "published" ? "Published" : "Draft")
-
-const formatArticleDate = (publishedDate?: string) => {
-  if (!publishedDate) return "-"
-  const parsed = new Date(publishedDate)
-  if (Number.isNaN(parsed.getTime())) return "-"
-
-  return parsed.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  })
-}
-
-type ArticleViewProps = {
-  pageTitle?: string
-  fixedType?: string
-  excludeType?: string
-}
-
-type ArticleViewUIState = {
+type DevelopingStoriesUIState = {
   searchQuery?: string
   activeTab?: "all" | "trash"
-  authorQuery?: string
   publishedFilter?: "all" | "published" | "draft"
   dateSortDirection?: "asc" | "desc"
 }
 
-type ArticleResultsCacheEntry = {
+type DevelopingStoriesResultsCacheEntry = {
   items: ArticleItem[]
   totalArticleCount: number
 }
@@ -93,22 +62,32 @@ const writeSessionJSON = (key: string, value: unknown) => {
   window.sessionStorage.setItem(key, JSON.stringify(value))
 }
 
-function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: ArticleViewProps) {
+const mapApiStatus = (status: string): ArticleStatus => (status.toLowerCase() === "published" ? "Published" : "Draft")
+
+const formatArticleDate = (publishedDate?: string) => {
+  if (!publishedDate) return "-"
+  const parsed = new Date(publishedDate)
+  if (Number.isNaN(parsed.getTime())) return "-"
+
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+function DevelopingStoriesView() {
   const navigate = useNavigate()
-  const storageKeyBase = `articleView:${fixedType ?? "all"}:${excludeType ?? "none"}`
+  const storageKeyBase = "developingStoriesView"
   const uiStateKey = `${storageKeyBase}:ui`
   const resultsCacheKey = `${storageKeyBase}:results`
-  const authorsCacheKey = `${storageKeyBase}:authors`
-  const loadUIState = () => readSessionJSON<ArticleViewUIState>(uiStateKey, {})
+  const loadUIState = () => readSessionJSON<DevelopingStoriesUIState>(uiStateKey, {})
 
   const [searchQuery, setSearchQuery] = useState(() => loadUIState().searchQuery ?? "")
   const [activeTab, setActiveTab] = useState<"all" | "trash">(() => loadUIState().activeTab ?? "all")
   const [page, setPage] = useState(0)
   const [articles, setArticles] = useState<ArticleItem[]>([])
   const [totalArticleCount, setTotalArticleCount] = useState(0)
-  const [authors, setAuthors] = useState<ApiAuthor[]>([])
-  const [authorQuery, setAuthorQuery] = useState(() => loadUIState().authorQuery ?? "")
-  const [selectedAuthorSlug, setSelectedAuthorSlug] = useState("")
   const [publishedFilter, setPublishedFilter] = useState<"all" | "published" | "draft">(() => loadUIState().publishedFilter ?? "all")
   const [dateSortDirection, setDateSortDirection] = useState<"asc" | "desc">(() => loadUIState().dateSortDirection ?? "desc")
   const [isLoading, setIsLoading] = useState(true)
@@ -120,55 +99,10 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     writeSessionJSON(uiStateKey, {
       searchQuery,
       activeTab,
-      authorQuery,
       publishedFilter,
       dateSortDirection,
-    } satisfies ArticleViewUIState)
-  }, [activeTab, authorQuery, dateSortDirection, publishedFilter, searchQuery, uiStateKey])
-
-  useEffect(() => {
-    let cancelled = false
-
-    const fetchAuthors = async () => {
-      const cachedAuthors = readSessionJSON<ApiAuthor[] | null>(authorsCacheKey, null)
-      if (cachedAuthors) {
-        setAuthors(cachedAuthors)
-        return
-      }
-
-      try {
-        const allAuthors: ApiAuthor[] = []
-        let offset = 0
-        let keepFetching = true
-
-        while (keepFetching) {
-          const response = await fetch(`/v1/authors?limit=${AUTHORS_PAGE_SIZE}&offset=${offset}&sort_by=display_name&sort_direction=asc`)
-          if (!response.ok) {
-            throw new Error(`Authors request failed (${response.status})`)
-          }
-
-          const payload = (await response.json()) as ApiAuthor[]
-          allAuthors.push(...payload)
-          keepFetching = payload.length === AUTHORS_PAGE_SIZE
-          offset += AUTHORS_PAGE_SIZE
-        }
-
-        if (!cancelled) {
-          setAuthors(allAuthors)
-          writeSessionJSON(authorsCacheKey, allAuthors)
-        }
-      } catch {
-        if (!cancelled) {
-          setAuthors([])
-        }
-      }
-    }
-
-    void fetchAuthors()
-    return () => {
-      cancelled = true
-    }
-  }, [authorsCacheKey])
+    } satisfies DevelopingStoriesUIState)
+  }, [activeTab, dateSortDirection, publishedFilter, searchQuery, uiStateKey])
 
   useEffect(() => {
     let cancelled = false
@@ -183,25 +117,18 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           page: String(page + 1),
           sort_by: "published_date",
           sort_direction: dateSortDirection,
+          type: TYPE_FILTER,
         })
-        if (selectedAuthorSlug) {
-          params.set("author_slug", selectedAuthorSlug)
-        }
+
         if (publishedFilter !== "all") {
           params.set("status", publishedFilter)
         }
         if (searchQuery.trim()) {
           params.set("title", searchQuery.trim())
         }
-        if (fixedType) {
-          params.set("type", fixedType)
-        }
-        if (excludeType) {
-          params.set("exclude_type", excludeType)
-        }
 
         const queryKey = params.toString()
-        const cache = readSessionJSON<Record<string, ArticleResultsCacheEntry>>(resultsCacheKey, {})
+        const cache = readSessionJSON<Record<string, DevelopingStoriesResultsCacheEntry>>(resultsCacheKey, {})
         const cachedEntry = cache[queryKey]
         if (cachedEntry) {
           if (!cancelled) {
@@ -221,10 +148,6 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         const items = (payload.articles ?? []).map((item) => ({
           id: String(item.id),
           title: item.title,
-          authors: (item.authors ?? [])
-            .map((author) => (author.name ?? "").trim())
-            .filter((name) => name.length > 0)
-            .join(", "),
           status: mapApiStatus(item.status),
           date: formatArticleDate(item.published_date),
           slug: item.slug,
@@ -242,7 +165,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
               items,
               totalArticleCount: computedTotal,
             },
-          } satisfies Record<string, ArticleResultsCacheEntry>)
+          } satisfies Record<string, DevelopingStoriesResultsCacheEntry>)
         }
       } catch (err) {
         if (!cancelled) {
@@ -263,7 +186,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     return () => {
       cancelled = true
     }
-  }, [dateSortDirection, excludeType, fixedType, page, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
+  }, [dateSortDirection, page, publishedFilter, resultsCacheKey, searchQuery])
 
   const onChangeTab = (tab: "all" | "trash") => {
     setActiveTab(tab)
@@ -276,29 +199,16 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   }
 
   useEffect(() => {
-    const normalizedValue = authorQuery.trim().toLowerCase()
-    if (!normalizedValue) {
-      setSelectedAuthorSlug("")
-      return
-    }
-
-    const matchedAuthor = authors.find((author) => author.display_name.trim().toLowerCase() === normalizedValue)
-    setSelectedAuthorSlug(matchedAuthor?.slug ?? "")
-  }, [authorQuery, authors])
-
-  useEffect(() => {
     setPage(0)
-  }, [selectedAuthorSlug, publishedFilter, dateSortDirection, searchQuery])
+  }, [publishedFilter, dateSortDirection, searchQuery])
 
   const effectiveTotalCount = Math.max(totalArticleCount, (page * PAGE_SIZE) + articles.length)
-
-  const listLabel = pageTitle.toLowerCase()
 
   return (
     <div className="article-list-page">
       <div className="article-list-header">
         <div className="article-list-title-row">
-          <h1 className="article-list-title">{pageTitle}</h1>
+          <h1 className="article-list-title">Developing Stories</h1>
         </div>
         <button className={`${buttonVariants()} article-add-new-button`} type="button">
           <PlusIcon aria-hidden="true" className="me-2 h-4 w-4" />
@@ -309,49 +219,16 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       <div className="article-search-wrap">
         <MagnifyingGlassIcon className="article-search-icon" />
         <input
-          aria-label={`Search ${listLabel}`}
+          aria-label="Search developing stories"
           className="article-search-input"
           onChange={(e) => onSearch(e.target.value)}
-          placeholder={`Search ${listLabel}...`}
+          placeholder="Search developing stories..."
           type="search"
           value={searchQuery}
         />
       </div>
 
       <div className="article-filters-row">
-        <div className="article-filter-group">
-          <label className="article-filter-label" htmlFor="article-author-filter">
-            Author
-          </label>
-          <div className="article-author-input-wrap">
-            <input
-              className="article-filter-select"
-              id="article-author-filter"
-              list="article-author-options"
-              onChange={(e) => setAuthorQuery(e.target.value)}
-              placeholder="All authors"
-              type="text"
-              value={authorQuery}
-            />
-            {authorQuery.trim() && (
-              <button
-                aria-label="Clear author filter"
-                className="article-author-clear-button"
-                onClick={() => setAuthorQuery("")}
-                title="Clear author"
-                type="button"
-              >
-                <XIcon />
-              </button>
-            )}
-          </div>
-          <datalist id="article-author-options">
-            {authors.map((author) => (
-              <option key={author.id} value={author.display_name} />
-            ))}
-          </datalist>
-        </div>
-
         <div className="article-filter-group">
           <span className="article-filter-label">Date</span>
           <div className="article-filter-tags">
@@ -426,7 +303,6 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           <thead>
             <tr>
               <th scope="col">Title</th>
-              <th scope="col">Authors</th>
               <th scope="col">Status</th>
               <th scope="col">Date</th>
               <th className="actions" scope="col">
@@ -437,49 +313,37 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           <tbody>
             {isLoading ? (
               <tr>
-                <td className="empty" colSpan={5}>
+                <td className="empty" colSpan={4}>
                   Loading articles...
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td className="empty" colSpan={5}>
+                <td className="empty" colSpan={4}>
                   Failed to load articles: {error}
                 </td>
               </tr>
             ) : articles.length === 0 ? (
               <tr>
-                <td className="empty" colSpan={5}>
-                  {searchQuery ? `No results for "${searchQuery}"` : `No ${activeTab === "trash" ? "trashed" : ""} ${listLabel} yet.`}
+                <td className="empty" colSpan={4}>
+                  {searchQuery ? `No results for "${searchQuery}"` : `No ${activeTab === "trash" ? "trashed" : ""} developing stories yet.`}
                 </td>
               </tr>
             ) : (
               articles.map((item) => (
                 <tr key={item.id}>
                   <td>{item.title}</td>
-                  <td>{item.authors || "-"}</td>
                   <td>
                     <span className={`article-status ${item.status.toLowerCase()}`}>{item.status}</span>
                   </td>
                   <td>{item.date}</td>
                   <td className="actions">
-                    {item.status === "Published" && (
-                      <a
-                        className="article-view-live-link"
-                        href={item.slug ? `http://localhost:4321/article/${encodeURIComponent(item.slug)}` : "#"}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        <ArrowSquareOutIcon className="article-action-icon" />
-                        View Live
-                      </a>
-                    )}
                     <button
                       className="article-action-button"
                       disabled={!item.slug}
                       onClick={() => {
                         if (!item.slug) return
-                        navigate(`/articles/${encodeURIComponent(item.slug)}/edit`)
+                        navigate(`/developing-stories/${encodeURIComponent(item.slug)}/edit`)
                       }}
                       title={item.slug ? "Edit" : "Edit unavailable"}
                       type="button"
@@ -521,4 +385,4 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   )
 }
 
-export default ArticleView
+export default DevelopingStoriesView
