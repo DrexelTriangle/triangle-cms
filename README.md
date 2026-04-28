@@ -114,7 +114,7 @@ go run ./main.go
 4. Verify API (works with either path):
 
 ```bash
-curl -s https://localhost:8080/v1/articles/christmas
+curl -k https://localhost:8080/v1/articles/christmas
 ```
 
 5. Run the Triangle CMS frontend dashboard:
