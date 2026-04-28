@@ -230,20 +230,8 @@ def install_scalene_deps(target_dir: Path) -> None:
 
 
 def install_node_deps(repo_dir: Path) -> None:
-    """Install Node dependencies, falling back when lockfile is out of sync."""
-    has_lock = (repo_dir / "package-lock.json").exists()
-    if not has_lock:
-        run_checked(["npm", "install"], cwd=repo_dir)
-        return
-
-    try:
-        run_checked(["npm", "ci"], cwd=repo_dir)
-    except subprocess.CalledProcessError:
-        print(
-            "npm ci failed (likely lockfile drift). Falling back to npm install: "
-            f"{repo_dir}"
-        )
-        run_checked(["npm", "install"], cwd=repo_dir)
+    """Install Node dependencies for local development setup."""
+    run_checked(["npm", "install"], cwd=repo_dir)
 
 
 def print_summary(target_dir: Path, skip_embeddings: bool) -> None:
