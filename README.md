@@ -121,7 +121,7 @@ curl -s https://localhost:8080/v1/articles/christmas
 
 ```bash
 cd frontend
-npm run dev
+npm run dev -- --port 5173
 ```
 
 Frontend dashboard: `http://localhost:5173`
@@ -130,7 +130,7 @@ Frontend dashboard: `http://localhost:5173`
 
 ```bash
 cd ../Scalene
-npm run dev
+npm run dev -- --port 4321
 ```
 
 Scalene: `http://localhost:4321`
@@ -165,7 +165,7 @@ Run Triangle CMS frontend dashboard:
 
 ```bash
 cd frontend
-npm run dev
+npm run dev -- --port 5173
 ```
 
 Frontend dashboard: `http://localhost:5173`
@@ -174,7 +174,7 @@ Run Scalene:
 
 ```bash
 cd ../Scalene
-npm run dev
+npm run dev -- --port 4321
 ```
 
 Scalene: `http://localhost:4321`
