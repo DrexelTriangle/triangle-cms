@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPOS: tuple[tuple[str, str], ...] = (
@@ -64,10 +65,42 @@ def command_exists(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def resolve_command(cmd: list[str]) -> list[str]:
+    """Resolve executable path for robust cross-platform subprocess execution."""
+    if not cmd:
+        return cmd
+
+    exe = cmd[0]
+    resolved = shutil.which(exe)
+
+    if os.name == "nt" and resolved is None and Path(exe).suffix == "":
+        # Windows tools are often command shims (e.g., npm.cmd).
+        for suffix in (".cmd", ".bat", ".exe"):
+            resolved = shutil.which(exe + suffix)
+            if resolved:
+                break
+
+    if resolved:
+        return [resolved, *cmd[1:]]
+    return cmd
+
+
 def run_checked(cmd: list[str], cwd: Path | None = None) -> None:
     where = f" (cwd={cwd})" if cwd else ""
     print(f"\n> {' '.join(cmd)}{where}")
-    subprocess.run(cmd, check=True, cwd=str(cwd) if cwd else None)
+    if cwd is not None and not cwd.exists():
+        raise SetupError(f"Working directory does not exist: {cwd}")
+
+    resolved_cmd = resolve_command(cmd)
+    try:
+        subprocess.run(resolved_cmd, check=True, cwd=str(cwd) if cwd else None)
+    except FileNotFoundError as exc:
+        raise SetupError(
+            "Failed to start command. Ensure the tool is installed and on PATH.\n"
+            f"Command: {' '.join(cmd)}\n"
+            f"Resolved: {' '.join(resolved_cmd)}\n"
+            f"cwd: {cwd if cwd else Path.cwd()}"
+        ) from exc
 
 
 def ensure_prerequisites(skip_embeddings: bool) -> None:
@@ -121,6 +154,39 @@ def venv_python_path(venv_dir: Path) -> Path:
     return venv_dir / "bin" / "python"
 
 
+def normalize_wordpress_requirements(requirements_path: Path, skip_embeddings: bool) -> Path:
+    """Return a temporary requirements file with local compatibility fixes."""
+    normalized_lines: list[str] = []
+
+    for raw_line in requirements_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        lowered = line.lower()
+
+        if skip_embeddings and lowered.startswith("sentence-transformers"):
+            continue
+
+        # Guard against known bad upstream pin ("numba>=2.2.6").
+        if lowered.startswith("numba>=2"):
+            normalized_lines.append("numba")
+            continue
+
+        normalized_lines.append(raw_line)
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix="wordpress-etl-req-",
+        suffix=".txt",
+        delete=False,
+    )
+    try:
+        tmp.write("\n".join(normalized_lines).rstrip() + "\n")
+    finally:
+        tmp.close()
+
+    return Path(tmp.name)
+
+
 def install_wordpress_etl_deps(target_dir: Path, skip_embeddings: bool) -> None:
     repo_dir = target_dir / "wordpress-etl"
     venv_dir = repo_dir / ".venv"
@@ -133,13 +199,20 @@ def install_wordpress_etl_deps(target_dir: Path, skip_embeddings: bool) -> None:
         raise SetupError(f"Virtual environment python not found: {py}")
 
     run_checked([str(py), "-m", "pip", "install", "--upgrade", "pip"], cwd=repo_dir)
-    run_checked([str(py), "-m", "pip", "install", "-r", "requirements.txt"], cwd=repo_dir)
-
-    if not skip_embeddings:
+    tmp_requirements = normalize_wordpress_requirements(
+        requirements_path=repo_dir / "requirements.txt",
+        skip_embeddings=skip_embeddings,
+    )
+    try:
         run_checked(
-            [str(py), "-m", "pip", "install", "sentence-transformers"],
+            [str(py), "-m", "pip", "install", "-r", str(tmp_requirements)],
             cwd=repo_dir,
         )
+    finally:
+        try:
+            tmp_requirements.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def install_triangle_cms_deps(target_dir: Path) -> None:
