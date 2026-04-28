@@ -170,6 +170,11 @@ npm run dev -- --port 5173
 
 Frontend dashboard: `http://localhost:5173`
 
+> [!NOTE]
+> If you want Scalene to use your local CMS instead of our production WordPress you need to be on the `CMS-Testing` branch
+> 
+> Use `git switch CMS-Testing` to switch
+
 Run Scalene:
 
 ```bash
