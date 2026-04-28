@@ -59,6 +59,8 @@ PLACEHOLDER_EMBEDDINGS_SQL = """DROP TABLE IF EXISTS article_embeddings;
 -- No article_embeddings.sql found in ETL output.
 """
 
+NO_AUTO_VALUE_ON_ZERO_PREAMBLE = "SET sql_mode = CONCAT(@@sql_mode, ',NO_AUTO_VALUE_ON_ZERO');\n"
+
 USAGE_ERROR = """Could not determine WordPress ETL SQL source directory.
 
 Expected one of:
@@ -136,6 +138,13 @@ def ensure_pattern(path: Path, pattern: str, label: str) -> None:
         )
         print("Run the latest wordpress-etl pipeline to regenerate SQL artifacts.", file=sys.stderr)
         raise SystemExit(1)
+
+
+def copy_sql_with_mariadb_mode(src: Path, dest: Path) -> None:
+    text = src.read_text(encoding="utf-8", errors="replace")
+    if "NO_AUTO_VALUE_ON_ZERO" not in text:
+        text = NO_AUTO_VALUE_ON_ZERO_PREAMBLE + text
+    dest.write_text(text, encoding="utf-8")
 
 
 def main() -> int:
@@ -256,8 +265,8 @@ def main() -> int:
     out_embeddings = out_dir / "05-article-embeddings.sql"
     out_taxonomy = out_dir / "06-taxonomy.sql"
 
-    shutil.copyfile(authors_sql, out_authors)
-    shutil.copyfile(articles_sql, out_articles)
+    copy_sql_with_mariadb_mode(authors_sql, out_authors)
+    copy_sql_with_mariadb_mode(articles_sql, out_articles)
     shutil.copyfile(article_authors_sql, out_article_authors)
     shutil.copyfile(seo_sql, out_seo)
 
