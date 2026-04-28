@@ -5,6 +5,7 @@ import Header from "./components/Header"
 import Sidebar from "./components/Sidebar"
 import ArticleView from "./pages/articleView"
 import DevelopingStoriesView from "./pages/developingStoriesView"
+import EditArticleView from "./pages/editArticleView"
 import MediaView from "./pages/mediaView"
 
 
@@ -21,7 +22,9 @@ function App() {
               <Routes>
                 <Route path="/" element={<p>THIS IS THE HOMEPAGE</p>} />
                 <Route path="/articles" element={<ArticleView excludeType="developing-stories" />} />
+                <Route path="/articles/:slug/edit" element={<EditArticleView />} />
                 <Route path="/developing-stories" element={<DevelopingStoriesView />} />
+                <Route path="/developing-stories/:slug/edit" element={<EditArticleView />} />
                 <Route path="/newsletter" element={<p>NEWSLETTER PAGE</p>} />
                 <Route path="/media" element={<MediaView />} />
                 <Route path="/authors" element={<p>AUTHORS PAGE</p>} />

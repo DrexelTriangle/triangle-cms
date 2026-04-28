@@ -27,7 +27,6 @@ services:
       - triangle_net
 
   cms:
-    pull_policy: build
     build:
       context: ./server
       dockerfile: Dockerfile

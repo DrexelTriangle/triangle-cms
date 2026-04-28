@@ -1,6 +1,7 @@
 import { Pagination, buttonVariants } from "@cloudflare/kumo"
 import { useEffect, useState } from "react"
 import { ArrowSquareOutIcon, MagnifyingGlassIcon, PencilIcon, PlusIcon, TrashIcon, XIcon } from "@phosphor-icons/react"
+import { useNavigate } from "react-router-dom"
 
 type ArticleStatus = "Published" | "Draft"
 
@@ -93,6 +94,7 @@ const writeSessionJSON = (key: string, value: unknown) => {
 }
 
 function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: ArticleViewProps) {
+  const navigate = useNavigate()
   const storageKeyBase = `articleView:${fixedType ?? "all"}:${excludeType ?? "none"}`
   const uiStateKey = `${storageKeyBase}:ui`
   const resultsCacheKey = `${storageKeyBase}:results`
@@ -472,7 +474,16 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                         View Live
                       </a>
                     )}
-                    <button className="article-action-button" title="Edit" type="button">
+                    <button
+                      className="article-action-button"
+                      disabled={!item.slug}
+                      onClick={() => {
+                        if (!item.slug) return
+                        navigate(`/articles/${encodeURIComponent(item.slug)}/edit`)
+                      }}
+                      title={item.slug ? "Edit" : "Edit unavailable"}
+                      type="button"
+                    >
                       <PencilIcon className="article-action-icon" />
                     </button>
                     <button className="article-action-button danger" title="Delete" type="button">
