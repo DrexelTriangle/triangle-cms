@@ -221,15 +221,29 @@ def install_triangle_cms_deps(target_dir: Path) -> None:
     frontend_dir = cms_dir / "frontend"
 
     run_checked(["go", "mod", "download"], cwd=server_dir)
-
-    npm_cmd = ["npm", "ci"] if (frontend_dir / "package-lock.json").exists() else ["npm", "install"]
-    run_checked(npm_cmd, cwd=frontend_dir)
+    install_node_deps(frontend_dir)
 
 
 def install_scalene_deps(target_dir: Path) -> None:
     repo_dir = target_dir / "Scalene"
-    npm_cmd = ["npm", "ci"] if (repo_dir / "package-lock.json").exists() else ["npm", "install"]
-    run_checked(npm_cmd, cwd=repo_dir)
+    install_node_deps(repo_dir)
+
+
+def install_node_deps(repo_dir: Path) -> None:
+    """Install Node dependencies, falling back when lockfile is out of sync."""
+    has_lock = (repo_dir / "package-lock.json").exists()
+    if not has_lock:
+        run_checked(["npm", "install"], cwd=repo_dir)
+        return
+
+    try:
+        run_checked(["npm", "ci"], cwd=repo_dir)
+    except subprocess.CalledProcessError:
+        print(
+            "npm ci failed (likely lockfile drift). Falling back to npm install: "
+            f"{repo_dir}"
+        )
+        run_checked(["npm", "install"], cwd=repo_dir)
 
 
 def print_summary(target_dir: Path, skip_embeddings: bool) -> None:
