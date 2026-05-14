@@ -92,10 +92,12 @@ func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 	var a models.AuthorOverview
 	var displayName sql.NullString
 	var login sql.NullString
-	err := rows.Scan(&a.ID, &displayName, &login)
+	var email sql.NullString
+	err := rows.Scan(&a.ID, &displayName, &login, &email)
 	if err != nil {
 		return models.AuthorOverview{}, err
 	}
+
 	if displayName.Valid {
 		a.DisplayName = displayName.String
 	}
@@ -103,6 +105,9 @@ func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 		a.Slug = normalizeSlug(login.String)
 	} else {
 		a.Slug = normalizeSlug(a.DisplayName)
+	}
+	if email.Valid {
+		a.Email = email.String
 	}
 	return a, nil
 }

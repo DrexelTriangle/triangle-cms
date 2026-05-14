@@ -10,8 +10,36 @@ import (
 	"time"
 
 	db "server/internal/database"
+	"server/internal/middleware"
 	"server/internal/models"
 )
+
+// @Summary Liveness check
+// @Tags health
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /v1/health [get]
+func HealthCheck(w http.ResponseWriter, r *http.Request){
+
+	writeJSON(w, http.StatusOK, map[string]string{"status":"Ok"})
+}
+
+// @Summary Readiness check
+// @Tags health
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 503 {object} map[string]string
+// @Router /v1/health/db [get]
+func HealthReady(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request){
+		if err := conn.PingContext(r.Context()); 
+		err != nil {
+			writeError(w, http.StatusServiceUnavailable, "Database unreachable")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status":"Ok"})
+	}
+}
 
 func Users(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -256,7 +284,18 @@ func parseAuthorIDs(raw any) ([]int64, error) {
 	return authorIDs, nil
 }
 
-// GET /v1/authors
+// @Summary List authors
+// @Tags authors
+// @Produce json
+// @Param limit query int false "Max results" default(20)
+// @Param offset query int false "Offset"
+// @Param article_id query int false "Filter by article ID"
+// @Param sort_by query string false "Sort field" Enums(display_name,created_at,updated_at)
+// @Param sort_direction query string false "Sort direction" Enums(asc,desc)
+// @Success 200 {array} models.AuthorOverview
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/authors [get]
 func GetAuthors(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -276,7 +315,7 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 			args = append(args, articleID)
 		}
 
-		query := "SELECT `id`, `display_name`, `login` FROM `authors`"
+		query := "SELECT `id`, `display_name`, `login`,`email` FROM `authors`"
 		if len(conditions) > 0 {
 			query += " WHERE " + strings.Join(conditions, " AND ")
 		}
@@ -309,7 +348,15 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// POST /v1/authors
+// @Summary Create an author
+// @Tags authors
+// @Accept json
+// @Param body body models.AuthorInput true "Author"
+// @Success 201
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/authors [post]
 func PostAuthors(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body models.AuthorInput
@@ -338,7 +385,16 @@ func PostAuthors(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// GET /v1/authors/{slug}
+// @Summary Get an author by slug
+// @Tags authors
+// @Produce json
+// @Param slug path string true "Author slug"
+// @Success 200 {object} models.Author
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/authors/{slug} [get]
 func GetAuthor(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := strings.TrimSpace(r.PathValue("slug"))
@@ -365,7 +421,17 @@ func GetAuthor(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// PUT /v1/authors/{slug}
+// @Summary Replace an author
+// @Tags authors
+// @Accept json
+// @Param slug path string true "Author slug"
+// @Param body body models.AuthorInput true "Author"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/authors/{slug} [put]
 func PutAuthor(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := strings.TrimSpace(r.PathValue("slug"))
@@ -408,7 +474,17 @@ func PutAuthor(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// PATCH /v1/authors/{slug}
+// @Summary Partially update an author
+// @Tags authors
+// @Accept json
+// @Param slug path string true "Author slug"
+// @Param body body models.AuthorPatch true "Fields to update"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/authors/{slug} [patch]
 func PatchAuthor(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := strings.TrimSpace(r.PathValue("slug"))
@@ -465,7 +541,15 @@ func PatchAuthor(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// DELETE /v1/authors/{slug}
+// @Summary Delete an author
+// @Tags authors
+// @Param slug path string true "Author slug"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/authors/{slug} [delete]
 func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := strings.TrimSpace(r.PathValue("slug"))
@@ -491,7 +575,22 @@ func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// GET /v1/authors/{slug}/articles
+// @Summary List articles by author
+// @Tags authors
+// @Produce json
+// @Param slug path string true "Author slug"
+// @Param page query int false "Page number"
+// @Param limit query int false "Max results" default(20)
+// @Param offset query int false "Offset"
+// @Param excerpt_words query int false "Max words in excerpt" default(50)
+// @Param section_slug query string false "Filter by section"
+// @Param subsection_slug query string false "Filter by subsection"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/authors/{slug}/articles [get]
 func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := r.PathValue("slug")
@@ -573,9 +672,26 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// ---- Article Handlers ------------------------------------------------------
-
-// GET /v1/articles
+// @Summary List articles
+// @Tags articles
+// @Produce json
+// @Param page query int false "Page number"
+// @Param limit query int false "Max results" default(20)
+// @Param offset query int false "Offset"
+// @Param excerpt_words query int false "Max words in excerpt" default(50)
+// @Param author_slug query string false "Filter by author slug"
+// @Param section_slug query string false "Filter by section slug"
+// @Param subsection_slug query string false "Filter by subsection slug"
+// @Param status query string false "Filter by status" Enums(draft,published)
+// @Param title query string false "Filter by title (partial match)"
+// @Param slug query string false "Filter by slug (partial match)"
+// @Param sort_by query string false "Sort field" Enums(title,slug,creation_date,published_date,status,comment_status)
+// @Param sort_direction query string false "Sort direction" Enums(asc,desc)
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/articles [get]
 func GetArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params, err := normalizeAndValidateArticleParams(ArticleParams{
@@ -629,7 +745,19 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// GET /v1/sections/{section_slug}/articles
+// @Summary List articles by section
+// @Tags articles
+// @Produce json
+// @Param section_slug path string true "Section slug"
+// @Param page query int false "Page number"
+// @Param limit query int false "Max results" default(20)
+// @Param offset query int false "Offset"
+// @Param excerpt_words query int false "Max words in excerpt" default(50)
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/sections/{section_slug}/articles [get]
 func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params, err := normalizeAndValidateArticleParams(ArticleParams{
@@ -700,7 +828,20 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// GET /v1/subsections/{subsection_slug}/articles
+// @Summary List articles by subsection
+// @Tags articles
+// @Produce json
+// @Param subsection_slug path string true "Subsection slug"
+// @Param section_slug query string false "Parent section slug"
+// @Param page query int false "Page number"
+// @Param limit query int false "Max results" default(20)
+// @Param offset query int false "Offset"
+// @Param excerpt_words query int false "Max words in excerpt" default(50)
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/subsections/{subsection_slug}/articles [get]
 func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params, err := normalizeAndValidateArticleParams(ArticleParams{
@@ -775,14 +916,12 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// queryArticles is shared by GetArticles and GetAuthorArticles.
 type ArticleParams struct {
 	AuthorSlug string
 	Section    string
 	Subsection string
 }
 
-// queryArticles is shared by GetArticles and GetAuthorArticles.
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
 	q := r.URL.Query()
 	conditions, args := articleQueryFilters(r, params)
@@ -817,8 +956,8 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	var conditions []string
 	var args []any
 
-	// Exclude media/import artifacts that have neither authors nor categories.
 	conditions = append(conditions, "((TRIM(COALESCE(`authors`, '')) <> '' AND TRIM(`authors`) <> '[]') OR (TRIM(COALESCE(`categories`, '')) <> '' AND TRIM(`categories`) <> '[]'))")
+	conditions = append(conditions, "`archived_at` IS NULL")
 
 	if params.AuthorSlug != "" {
 		conditions = append(conditions, "`id` IN (SELECT aa.`articles_id` FROM `articles_authors` aa JOIN `authors` au ON au.`id` = aa.`author_id` WHERE au.`login` = ?)")
@@ -842,7 +981,6 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 		}
 	}
 
-	// For oldest-first date sorting, exclude undated rows so ordering is strictly by real dates.
 	if strings.EqualFold(strings.TrimSpace(q.Get("sort_by")), string(models.ArticleSortByPublishedAt)) &&
 		strings.EqualFold(strings.TrimSpace(q.Get("sort_direction")), string(models.SortDirectionAscending)) {
 		conditions = append(conditions, "`pub_date` IS NOT NULL")
@@ -949,7 +1087,16 @@ func appendArticleTypeCondition(conditions *[]string, args *[]any, rawType strin
 	*conditions = append(*conditions, clause)
 }
 
-// GET /v1/search?q={term}
+// @Summary Search articles
+// @Tags articles
+// @Produce json
+// @Param q query string true "Search term"
+// @Param limit query int false "Max results" default(20)
+// @Param offset query int false "Offset"
+// @Success 200 {array} map[string]interface{}
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/search [get]
 func GetSearch(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -1015,7 +1162,16 @@ func GetSearch(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// GET /v1/articles/{slug}
+// @Summary Get an article by slug
+// @Tags articles
+// @Produce json
+// @Param slug path string true "Article slug"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/articles/{slug} [get]
 func GetArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := strings.TrimSpace(r.PathValue("slug"))
@@ -1156,7 +1312,15 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// POST /v1/articles
+// @Summary Create an article
+// @Tags articles
+// @Accept json
+// @Param body body models.ArticleInput true "Article"
+// @Success 201
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/articles [post]
 func PostArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body models.ArticleInput
@@ -1190,13 +1354,38 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// PUT /v1/articles/{slug}
+// @Summary Replace an article
+// @Tags articles
+// @Accept json
+// @Param slug path string true "Article slug"
+// @Param body body models.Article true "Article"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/articles/{slug} [put]
 func PutArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := strings.TrimSpace(r.PathValue("slug"))
 		if !isValidCanonicalSlug(slug) {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
+		}
+		if user, ok := middleware.UserFromContext(r.Context()); ok && user.Role != models.RoleAdmin {
+			if user.AuthorID == nil {
+				writeError(w, http.StatusForbidden, "forbidden")
+				return
+			}
+			owned, err := db.ArticleHasAuthor(r.Context(), conn, slug, *user.AuthorID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if !owned {
+				writeError(w, http.StatusForbidden, "forbidden")
+				return
+			}
 		}
 		var body models.Article
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -1241,13 +1430,38 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// PATCH /v1/articles/{slug}
+// @Summary Partially update an article
+// @Tags articles
+// @Accept json
+// @Param slug path string true "Article slug"
+// @Param body body models.ArticlePatch true "Fields to update"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/articles/{slug} [patch]
 func PatchArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := strings.TrimSpace(r.PathValue("slug"))
 		if !isValidCanonicalSlug(slug) {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
+		}
+		if user, ok := middleware.UserFromContext(r.Context()); ok && user.Role != models.RoleAdmin {
+			if user.AuthorID == nil {
+				writeError(w, http.StatusForbidden, "forbidden")
+				return
+			}
+			owned, err := db.ArticleHasAuthor(r.Context(), conn, slug, *user.AuthorID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if !owned {
+				writeError(w, http.StatusForbidden, "forbidden")
+				return
+			}
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -1395,7 +1609,14 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// DELETE /v1/articles/{slug}
+// @Summary Delete an article
+// @Tags articles
+// @Param slug path string true "Article slug"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/articles/{slug} [delete]
 func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := strings.TrimSpace(r.PathValue("slug"))
@@ -1403,16 +1624,27 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
-		_, err := db.Delete(r.Context(), conn, "articles", "`slug` = ?", slug)
+		result, err := conn.ExecContext(r.Context(), "UPDATE `articles` SET `archived_at` = NOW() WHERE `slug` = ? AND `archived_at` IS NULL", slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if n, _ := result.RowsAffected(); n == 0 {
+			writeError(w, http.StatusNotFound, "article not found")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-// GET /v1/homepage
+// @Summary Get homepage data
+// @Tags homepage
+// @Produce json
+// @Param excerpt_words query int false "Max words in excerpt" default(50)
+// @Success 200 {object} map[string]interface{}
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/homepage [get]
 func GetHomepage(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sections := [...]struct {
