@@ -30,6 +30,13 @@ func Register(mux *http.ServeMux, conn *sql.DB) {
 	mux.HandleFunc("GET /v1/sections/{section_slug}/articles", handlers.GetSectionArticles(conn))
 	mux.HandleFunc("GET /v1/subsections/{subsection_slug}/articles", handlers.GetSubsectionArticles(conn))
 
+	// Taxonomy (categories, sections, tags)
+	mux.HandleFunc("GET /v1/taxonomy", handlers.GetTaxonomy(conn))
+	mux.HandleFunc("POST /v1/taxonomy", handlers.PostTaxonomy(conn))
+	mux.HandleFunc("GET /v1/taxonomy/{kind}/{slug}", handlers.GetTaxonomyItem(conn))
+	mux.HandleFunc("PUT /v1/taxonomy/{kind}/{slug}", handlers.PutTaxonomyItem(conn))
+	mux.HandleFunc("DELETE /v1/taxonomy/{kind}/{slug}", handlers.DeleteTaxonomyItem(conn))
+
 	// Media
 	mux.HandleFunc("GET /v1/media", handlers.Users)
 	mux.HandleFunc("POST /v1/media", handlers.Users)

@@ -197,3 +197,32 @@ type MediaListParams struct {
 	SortBy        MediaSortBy
 	SortDirection SortDirection
 }
+
+type TaxonomyKind string
+
+const (
+	TaxonomyKindSection    TaxonomyKind = "section"
+	TaxonomyKindSubsection TaxonomyKind = "subsection"
+	TaxonomyKindTag        TaxonomyKind = "tag"
+)
+
+type TaxonomyItem struct {
+	ID             int64   `json:"id"`
+	Kind           string  `json:"kind"`
+	Slug           string  `json:"slug"`
+	CanonicalTitle string  `json:"canonical_title"`
+	ParentSlug     *string `json:"parent_slug,omitempty"`
+}
+
+type TaxonomyInput struct {
+	Kind           string  `json:"kind"`
+	Slug           string  `json:"slug"`
+	CanonicalTitle string  `json:"canonical_title"`
+	ParentSlug     *string `json:"parent_slug,omitempty"`
+}
+
+type TaxonomyPut struct {
+	Slug           string  `json:"slug,omitempty"`
+	CanonicalTitle string  `json:"canonical_title"`
+	ParentSlug     *string `json:"parent_slug,omitempty"`
+}
