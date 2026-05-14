@@ -1,139 +1,253 @@
-import { Sidebar as KumoSidebar } from "@cloudflare/kumo"
-import { EnvelopeIcon, FileTextIcon, GearIcon, HouseIcon, ImageIcon, MagnifyingGlassIcon, PlantIcon, RowsIcon, SquaresFourIcon, UsersFourIcon, UsersIcon } from "@phosphor-icons/react"
+import { useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
+import {
+  LayoutDashboard,
+  FileText,
+  TrendingUp,
+  Mail,
+  Image,
+  Users,
+  Layers,
+  Tag,
+  Tags,
+  Search,
+  Settings,
+  UserCog,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  LogOut,
+  PlusCircle,
+  BookOpen,
+  MessageSquare,
+  MapPin,
+  Activity,
+  Megaphone,
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { Separator } from "@/components/ui/separator"
 import logo from "../assets/logo.png"
 
-const dashboardItems = [
+type NavItem = {
+  icon: React.ElementType
+  label: string
+  path: string
+  badge?: number
+  children?: { label: string; path: string }[]
+}
+
+type NavGroup = {
+  label: string | null
+  items: NavItem[]
+}
+
+const navGroups: NavGroup[] = [
   {
-    icon: HouseIcon,
-    label: "Home",
-    path: "/",
+    label: null,
+    items: [{ icon: LayoutDashboard, label: "Dashboard", path: "/" }],
+  },
+  {
+    label: "Content",
+    items: [
+      {
+        icon: FileText,
+        label: "Articles",
+        path: "/articles",
+        children: [
+          { label: "All Articles", path: "/articles" },
+          { label: "Add New", path: "/articles/new" },
+          { label: "Categories", path: "/categories" },
+          { label: "Tags", path: "/tags" },
+        ],
+      },
+      {
+        icon: TrendingUp,
+        label: "Developing Stories",
+        path: "/developing-stories",
+        children: [
+          { label: "All Stories", path: "/developing-stories" },
+          { label: "Add New", path: "/developing-stories/new" },
+        ],
+      },
+      { icon: BookOpen, label: "Pages", path: "/pages" },
+      { icon: Image, label: "Media", path: "/media" },
+      { icon: Mail, label: "Newsletter", path: "/newsletter" },
+      { icon: Megaphone, label: "Ad Locations", path: "/ad-locations" },
+    ],
+  },
+  {
+    label: "Manage",
+    items: [
+      { icon: Users, label: "Authors", path: "/authors" },
+      { icon: Layers, label: "Sections", path: "/sections" },
+      { icon: Tag, label: "Categories", path: "/categories" },
+      { icon: Tags, label: "Tags", path: "/tags" },
+      { icon: MessageSquare, label: "Comments", path: "/comments", badge: 3 },
+      { icon: MapPin, label: "Contact", path: "/contact", badge: 1 },
+      { icon: Search, label: "SEO", path: "/seo" },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { icon: Activity, label: "Activity", path: "/activity" },
+      { icon: UserCog, label: "Users", path: "/users" },
+      { icon: Settings, label: "Settings", path: "/settings" },
+    ],
   },
 ]
 
-const contentItems = [
-  {
-    icon: FileTextIcon,
-    label: "Articles",
-    path: "/articles",
-  },
-  {
-    icon: PlantIcon,
-    label: "Developing Stories",
-    path: "/developing-stories",
-  },
-  {
-    icon: EnvelopeIcon,
-    label: "Newsletter",
-    path: "/newsletter",
-  },
-  {
-    icon: ImageIcon,
-    label: "Media",
-    path: "/media",
-  },
-]
-
-const manageItems = [
-  {
-    icon: UsersFourIcon,
-    label: "Authors",
-    path: "/authors",
-  },
-  {
-    icon: RowsIcon,
-    label: "Sections",
-    path: "/sections",
-  },
-  {
-    icon: SquaresFourIcon,
-    label: "Categories",
-    path: "/categories",
-  },
-  {
-    icon: MagnifyingGlassIcon,
-    label: "SEO",
-    path: "/seo",
-  },
-]
-
-const adminItems = [
-  {
-    icon: UsersIcon,
-    label: "Users",
-    path: "/users",
-  },
-  {
-    icon: GearIcon,
-    label: "Settings",
-    path: "/settings",
-  },
-]
-
-function Sidebar() {
+export default function Sidebar() {
+  const [collapsed, setCollapsed] = useState(false)
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    "/articles": true,
+  })
   const { pathname } = useLocation()
   const navigate = useNavigate()
 
-  const renderMenuButtons = (items: Array<{ icon: typeof HouseIcon; label: string; path: string }>) =>
-    items.map((item) => (
-      <KumoSidebar.MenuButton
-        key={item.path}
-        active={pathname === item.path}
-        icon={item.icon}
-        onClick={() => navigate(item.path)}
-        type="button"
-      >
-        {item.label}
-      </KumoSidebar.MenuButton>
-    ))
+  const toggleGroup = (path: string) => {
+    setOpenGroups((prev) => ({ ...prev, [path]: !prev[path] }))
+  }
+
+  const isActive = (item: NavItem) => {
+    if (item.children) {
+      return item.children.some((c) => pathname === c.path) || pathname === item.path
+    }
+    return pathname === item.path
+  }
 
   return (
-    <KumoSidebar className="triangle-kumo-sidebar">
-      <KumoSidebar.Header>
-        <button className="triangle-brand-link" onClick={() => navigate("/")} type="button">
-          <img alt="Delta Logo" className="triangle-brand-logo" src={logo} />
-          <span className="triangle-brand-text">Delta</span>
+    <aside
+      className={cn(
+        "relative flex flex-col h-screen bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-200 shrink-0",
+        collapsed ? "w-[60px]" : "w-[220px]",
+      )}
+    >
+      {/* Brand */}
+      <div
+        className={cn(
+          "flex items-center gap-2.5 h-16 px-4 border-b border-sidebar-border shrink-0",
+          collapsed && "justify-center px-0",
+        )}
+      >
+        <img src={logo} alt="Delta" className="w-7 h-7 shrink-0 object-contain" />
+        {!collapsed && (
+          <span className="text-lg font-bold text-white tracking-tight truncate">Delta CMS</span>
+        )}
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto py-3 px-2">
+        {navGroups.map((group, gi) => (
+          <div key={gi} className="mb-1">
+            {gi > 0 && <Separator className="my-2 bg-sidebar-border" />}
+            {group.label && !collapsed && (
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-muted px-3 pb-1.5 pt-0.5">
+                {group.label}
+              </p>
+            )}
+            {group.items.map((item) => {
+              const Icon = item.icon
+              const active = isActive(item)
+              const hasChildren = item.children && item.children.length > 0
+              const open = openGroups[item.path]
+
+              return (
+                <div key={item.path}>
+                  <button
+                    type="button"
+                    title={collapsed ? item.label : undefined}
+                    onClick={() => {
+                      if (hasChildren && !collapsed) {
+                        toggleGroup(item.path)
+                      } else {
+                        navigate(item.path)
+                      }
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                      collapsed && "justify-center px-2",
+                      active
+                        ? "bg-primary text-white"
+                        : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                    )}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    {!collapsed && (
+                      <>
+                        <span className="flex-1 truncate text-left">{item.label}</span>
+                        {item.badge ? (
+                          <span className="ml-auto px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/20 text-primary min-w-[18px] text-center leading-none">
+                            {item.badge}
+                          </span>
+                        ) : null}
+                        {hasChildren && (
+                          <ChevronDown
+                            className={cn(
+                              "w-3.5 h-3.5 shrink-0 transition-transform",
+                              open && "rotate-180",
+                            )}
+                          />
+                        )}
+                      </>
+                    )}
+                  </button>
+
+                  {/* Sub-items */}
+                  {hasChildren && open && !collapsed && (
+                    <div className="ml-3 pl-3 border-l border-sidebar-border mt-0.5 mb-1 space-y-0.5">
+                      {item.children!.map((child) => (
+                        <button
+                          key={child.path}
+                          type="button"
+                          onClick={() => navigate(child.path)}
+                          className={cn(
+                            "w-full flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                            pathname === child.path
+                              ? "text-white bg-primary/80"
+                              : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                          )}
+                        >
+                          {child.label === "Add New" && <PlusCircle className="w-3 h-3 shrink-0" />}
+                          <span>{child.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </nav>
+
+      {/* Footer */}
+      <div className={cn("px-2 py-3 border-t border-sidebar-border space-y-0.5 shrink-0")}>
+        <button
+          type="button"
+          onClick={() => navigate("/login")}
+          className={cn(
+            "w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors",
+            collapsed && "justify-center px-2",
+          )}
+          title={collapsed ? "Log out" : undefined}
+        >
+          <LogOut className="w-4 h-4 shrink-0" />
+          {!collapsed && <span>Log out</span>}
         </button>
-      </KumoSidebar.Header>
 
-      <KumoSidebar.Content>
-        <KumoSidebar.Group>
-          <KumoSidebar.Menu>{renderMenuButtons(dashboardItems)}</KumoSidebar.Menu>
-        </KumoSidebar.Group>
-
-        <KumoSidebar.Separator />
-
-        <KumoSidebar.Group collapsible defaultOpen>
-          <KumoSidebar.GroupLabel>Content</KumoSidebar.GroupLabel>
-          <KumoSidebar.GroupContent>
-            <KumoSidebar.Menu>{renderMenuButtons(contentItems)}</KumoSidebar.Menu>
-          </KumoSidebar.GroupContent>
-        </KumoSidebar.Group>
-
-        <KumoSidebar.Separator />
-
-        <KumoSidebar.Group collapsible defaultOpen>
-          <KumoSidebar.GroupLabel>Manage</KumoSidebar.GroupLabel>
-          <KumoSidebar.GroupContent>
-            <KumoSidebar.Menu>{renderMenuButtons(manageItems)}</KumoSidebar.Menu>
-          </KumoSidebar.GroupContent>
-        </KumoSidebar.Group>
-
-        <KumoSidebar.Separator />
-
-        <KumoSidebar.Group collapsible defaultOpen>
-          <KumoSidebar.GroupLabel>Admin</KumoSidebar.GroupLabel>
-          <KumoSidebar.GroupContent>
-            <KumoSidebar.Menu>{renderMenuButtons(adminItems)}</KumoSidebar.Menu>
-          </KumoSidebar.GroupContent>
-        </KumoSidebar.Group>
-      </KumoSidebar.Content>
-
-      <KumoSidebar.Footer>
-        <KumoSidebar.Trigger />
-      </KumoSidebar.Footer>
-    </KumoSidebar>
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className={cn(
+            "w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors",
+            collapsed && "justify-center px-2",
+          )}
+        >
+          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          {!collapsed && <span>Collapse</span>}
+        </button>
+      </div>
+    </aside>
   )
 }
-
-export default Sidebar
