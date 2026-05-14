@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import { useApiFetch } from "../hooks/useApiFetch"
 
 type ArticleStatus = "Published" | "Draft"
 
@@ -96,6 +97,7 @@ const writeSessionJSON = (key: string, value: unknown) => {
 
 function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: ArticleViewProps) {
   const navigate = useNavigate()
+  const apiFetch = useApiFetch()
   const storageKeyBase = `articleView:${fixedType ?? "all"}:${excludeType ?? "none"}`
   const uiStateKey = `${storageKeyBase}:ui`
   const resultsCacheKey = `${storageKeyBase}:results`
@@ -143,7 +145,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         let keepFetching = true
 
         while (keepFetching) {
-          const response = await fetch(`/v1/authors?limit=${AUTHORS_PAGE_SIZE}&offset=${offset}&sort_by=display_name&sort_direction=asc`)
+          const response = await apiFetch(`/v1/authors?limit=${AUTHORS_PAGE_SIZE}&offset=${offset}&sort_by=display_name&sort_direction=asc`)
           if (!response.ok) {
             throw new Error(`Authors request failed (${response.status})`)
           }
@@ -213,7 +215,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           return
         }
 
-        const response = await fetch(`/v1/articles?${params.toString()}`)
+        const response = await apiFetch(`/v1/articles?${params.toString()}`)
         if (!response.ok) {
           throw new Error(`Request failed (${response.status})`)
         }

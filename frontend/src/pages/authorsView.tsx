@@ -1,18 +1,14 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Search, Plus, Pencil, Trash2 } from "lucide-react"
+import { useApiFetch } from "../hooks/useApiFetch"
 
-const AUTHORS = [
-  { id: 1, name: "Zarina Morgan", slug: "zarina-morgan", articles: 47, email: "zmorgan@thetriangle.org" },
-  { id: 2, name: "Sanjana Bandi", slug: "sanjana-bandi", articles: 31, email: "sbandi@thetriangle.org" },
-  { id: 3, name: "Nina Feinberg", slug: "nina-feinberg", articles: 28, email: "nfeinberg@thetriangle.org" },
-  { id: 4, name: "Paulie Loscalzo", slug: "paulie-loscalzo", articles: 52, email: "ploscalzo@thetriangle.org" },
-  { id: 5, name: "Ava Buckingham", slug: "ava-buckingham", articles: 19, email: "abuckingham@thetriangle.org" },
-  { id: 6, name: "Coco Li", slug: "coco-li", articles: 23, email: "cli@thetriangle.org" },
-  { id: 7, name: "Erik Heyman-Meltzer", slug: "erik-heyman-meltzer", articles: 41, email: "eheyman@thetriangle.org" },
-  { id: 8, name: "Sophie Fang", slug: "sophie-fang", articles: 14, email: "sfang@thetriangle.org" },
-  { id: 9, name: "Marcus Chen", slug: "marcus-chen", articles: 36, email: "mchen@thetriangle.org" },
-  { id: 10, name: "Jenna Pedorenko", slug: "jenna-pedorenko", articles: 22, email: "jpedorenko@thetriangle.org" },
-]
+type Author = {
+  id: number
+  slug: string
+  display_name: string
+  email?: string
+  article_count?: number
+}
 
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
@@ -25,11 +21,30 @@ const AVATAR_COLORS = [
 ]
 
 function AuthorsView() {
+  const apiFetch = useApiFetch()
+  const [authors, setAuthors] = useState<Author[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
 
-  const filtered = AUTHORS.filter((a) =>
-    a.name.toLowerCase().includes(search.toLowerCase()) ||
-    a.email.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => {
+    setIsLoading(true)
+    apiFetch("/v1/authors?limit=200&sort_by=display_name&sort_direction=asc")
+      .then((r) => {
+        if (!r.ok) throw new Error(`Request failed (${r.status})`)
+        return r.json() as Promise<Author[] | { authors: Author[] }>
+      })
+      .then((data) => {
+        setAuthors(Array.isArray(data) ? data : (data.authors ?? []))
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load authors"))
+      .finally(() => setIsLoading(false))
+  }, [apiFetch])
+
+  const filtered = authors.filter((a) =>
+    a.display_name.toLowerCase().includes(search.toLowerCase()) ||
+    (a.email ?? "").toLowerCase().includes(search.toLowerCase()) ||
+    a.slug.toLowerCase().includes(search.toLowerCase())
   )
 
   return (
@@ -37,7 +52,9 @@ function AuthorsView() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Authors</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{AUTHORS.length} authors total</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {isLoading ? "Loading…" : `${authors.length} authors total`}
+          </p>
         </div>
         <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors" type="button">
           <Plus className="w-4 h-4" />
@@ -68,10 +85,18 @@ function AuthorsView() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {isLoading ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>Loading authors…</td>
+              </tr>
+            ) : error ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-destructive" colSpan={6}>{error}</td>
+              </tr>
+            ) : filtered.length === 0 ? (
               <tr>
                 <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
-                  No authors found for "{search}"
+                  {search ? `No authors found for "${search}"` : "No authors yet."}
                 </td>
               </tr>
             ) : (
@@ -79,17 +104,17 @@ function AuthorsView() {
                 <tr key={author.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
                   <td className="px-4 py-3">
                     <div className={`w-8 h-8 rounded-full ${AVATAR_COLORS[i % AVATAR_COLORS.length]} flex items-center justify-center text-white text-xs font-bold`}>
-                      {initials(author.name)}
+                      {initials(author.display_name)}
                     </div>
                   </td>
-                  <td className="px-4 py-3 font-medium text-foreground">{author.name}</td>
+                  <td className="px-4 py-3 font-medium text-foreground">{author.display_name}</td>
                   <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{author.slug}</td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                      {author.articles}
+                      {author.article_count}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{author.email}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{author.email ?? "—"}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
                       <button className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" type="button" title="Edit">

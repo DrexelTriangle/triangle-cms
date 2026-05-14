@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { useApiFetch } from "../hooks/useApiFetch"
 import {
   FileText,
   CheckCircle2,
@@ -13,17 +14,14 @@ import {
   Activity,
   Clock,
   Zap,
-  BookOpen,
   Tag,
   Layers,
   Send,
   Server,
-  RefreshCw,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 
 interface RecentArticle {
   id: number
@@ -58,18 +56,9 @@ function timeAgo(dateStr: string | null) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return "—"
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const apiFetch = useApiFetch()
   const [recentArticles, setRecentArticles] = useState<RecentArticle[]>([])
   const [draftTitle, setDraftTitle] = useState("")
   const [draftContent, setDraftContent] = useState("")
@@ -77,7 +66,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<ApiStats>({ totalArticles: null, totalAuthors: null, loading: true })
 
   useEffect(() => {
-    fetch("/v1/articles?limit=10")
+    apiFetch("/v1/articles?limit=10")
       .then((r) => r.json())
       .then((d) => {
         setRecentArticles(d.articles ?? [])
@@ -85,17 +74,17 @@ export default function DashboardPage() {
       })
       .catch(() => setStats((s) => ({ ...s, loading: false })))
 
-    fetch("/v1/authors?limit=1")
+    apiFetch("/v1/authors?limit=1")
       .then((r) => r.json())
       .then((d: unknown) => {
         if (Array.isArray(d)) setStats((s) => ({ ...s, totalAuthors: d.length }))
       })
       .catch(() => {})
 
-    fetch("/v1/articles?limit=1")
+    apiFetch("/v1/articles?limit=1")
       .then((r) => (r.ok ? setApiHealth("ok") : setApiHealth("error")))
       .catch(() => setApiHealth("error"))
-  }, [])
+  }, [apiFetch])
 
   const published = recentArticles.filter((a) => a.status === "published")
   const drafts = recentArticles.filter((a) => a.status === "draft")
@@ -212,98 +201,7 @@ export default function DashboardPage() {
         {/* LEFT: At a Glance + Activity */}
         <div className="xl:col-span-2 space-y-5">
 
-          {/* At a Glance */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-primary" />
-                  At a Glance
-                </CardTitle>
-                <button
-                  type="button"
-                  onClick={() => window.location.reload()}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </CardHeader>
-            <CardContent className="px-5 pb-4">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[
-                  { icon: FileText, label: "Posts", value: stats.totalArticles?.toLocaleString() ?? "—", path: "/articles" },
-                  { icon: Users, label: "Authors", value: stats.totalAuthors?.toLocaleString() ?? "—", path: "/authors" },
-                  { icon: Tag, label: "Categories", value: "24", path: "/categories" },
-                  { icon: BookOpen, label: "Sections", value: "6", path: "/sections" },
-                ].map(({ icon: Icon, label, value, path }) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => navigate(path)}
-                    className="flex items-center gap-2.5 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors text-left"
-                  >
-                    <Icon className="w-4 h-4 text-primary shrink-0" />
-                    <div>
-                      <p className="text-sm font-bold">{value}</p>
-                      <p className="text-xs text-muted-foreground">{label}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <Separator className="my-3" />
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className={`w-2 h-2 rounded-full ${apiHealth === "ok" ? "bg-success" : apiHealth === "error" ? "bg-destructive" : "bg-amber-400"}`} />
-                {apiHealth === "ok" ? "Delta CMS API running normally" : apiHealth === "error" ? "API unreachable — check backend" : "Checking API status…"}
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* Recently Published */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-primary" />
-                  Recently Published
-                </CardTitle>
-                <Button variant="ghost" size="sm" className="text-primary text-xs h-7 px-2" onClick={() => navigate("/articles")}>
-                  View all →
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0 pb-2">
-              {recentArticles.length === 0 ? (
-                <p className="text-sm text-muted-foreground px-5 py-4">Loading…</p>
-              ) : (
-                <div className="divide-y divide-border">
-                  {published.slice(0, 6).map((article) => (
-                    <div
-                      key={article.id}
-                      className="flex items-center gap-3 px-5 py-2.5 hover:bg-muted/40 cursor-pointer group transition-colors"
-                      onClick={() => navigate(`/articles/${article.slug}/edit`)}
-                    >
-                      <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                          {article.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {formatDate(article.published_date)}
-                          {article.authors[0] ? ` · ${article.authors[0].name}` : ""}
-                        </p>
-                      </div>
-                      {article.categories[0] && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
-                          {article.categories[0].name}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
 
           {/* All recent articles full table */}
           <Card>

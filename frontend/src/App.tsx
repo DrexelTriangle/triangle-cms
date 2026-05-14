@@ -11,12 +11,9 @@ import DevelopingStoriesView from "./pages/developingStoriesView"
 import EditArticleView from "./pages/editArticleView"
 import MediaView from "./pages/mediaView"
 import AuthorsView from "./pages/authorsView"
-import CategoriesView from "./pages/categoriesView"
-import TagsView from "./pages/tagsView"
 import SectionsView from "./pages/sectionsView"
 import UsersView from "./pages/usersView"
 import CommentsView from "./pages/commentsView"
-import ContactView from "./pages/contactView"
 import ActivityView from "./pages/activityView"
 import NewsletterView from "./pages/newsletterView"
 import SeoView from "./pages/seoView"
@@ -91,10 +88,7 @@ export default function App() {
         <Route path="/ad-locations" element={<AdLocationsView />} />
         <Route path="/authors" element={<AuthorsView />} />
         <Route path="/sections" element={<SectionsView />} />
-        <Route path="/categories" element={<CategoriesView />} />
-        <Route path="/tags" element={<TagsView />} />
         <Route path="/comments" element={<CommentsView />} />
-        <Route path="/contact" element={<ContactView />} />
         <Route path="/seo" element={<SeoView />} />
         <Route path="/activity" element={<ActivityView />} />
         <Route path="/users" element={<UsersView />} />

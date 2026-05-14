@@ -74,10 +74,11 @@ type Author struct {
 }
 
 type AuthorOverview struct {
-	ID          int64  `json:"id"`
-	Slug        string `json:"slug"`
-	DisplayName string `json:"display_name"`
-	Email       string     `json:"email,omitempty"`
+	ID           int64  `json:"id"`
+	Slug         string `json:"slug"`
+	DisplayName  string `json:"display_name"`
+	Email        string `json:"email,omitempty"`
+	ArticleCount int    `json:"article_count"`
 }
 
 type AuthorInput struct {

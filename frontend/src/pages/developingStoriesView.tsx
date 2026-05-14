@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Search, Pencil, Plus, Trash2, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import { useApiFetch } from "../hooks/useApiFetch"
 
 type ArticleStatus = "Published" | "Draft"
 
@@ -79,6 +80,7 @@ const formatArticleDate = (publishedDate?: string) => {
 
 function DevelopingStoriesView() {
   const navigate = useNavigate()
+  const apiFetch = useApiFetch()
   const storageKeyBase = "developingStoriesView"
   const uiStateKey = `${storageKeyBase}:ui`
   const resultsCacheKey = `${storageKeyBase}:results`
@@ -140,7 +142,7 @@ function DevelopingStoriesView() {
           return
         }
 
-        const response = await fetch(`/v1/articles?${params.toString()}`)
+        const response = await apiFetch(`/v1/articles?${params.toString()}`)
         if (!response.ok) {
           throw new Error(`Request failed (${response.status})`)
         }

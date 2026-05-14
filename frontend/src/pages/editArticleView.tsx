@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { ArrowLeft, Save, Image, Search, X } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
+import { useApiFetch } from "../hooks/useApiFetch"
 
 type EditableStatus = "draft" | "published"
 
@@ -67,6 +68,7 @@ const normalizeMediaItems = (payload: unknown): MediaItem[] => {
 
 function EditArticleView() {
   const navigate = useNavigate()
+  const apiFetch = useApiFetch()
   const { slug: rawSlug } = useParams<{ slug: string }>()
   const slug = useMemo(() => (rawSlug ? decodeURIComponent(rawSlug) : ""), [rawSlug])
 
@@ -102,7 +104,7 @@ function EditArticleView() {
       setError(null)
       setSuccessMessage(null)
       try {
-        const response = await fetch(`/v1/articles/${encodeURIComponent(slug)}`)
+        const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`)
         if (!response.ok) {
           throw new Error(`Request failed (${response.status})`)
         }
@@ -151,7 +153,7 @@ function EditArticleView() {
       if (mediaItems.length > 0) return
       setMediaLoading(true)
       try {
-        const response = await fetch("/v1/media?limit=200")
+        const response = await apiFetch("/v1/media?limit=200")
         if (!response.ok) {
           throw new Error(`Media request failed (${response.status})`)
         }
@@ -196,7 +198,7 @@ function EditArticleView() {
     }
 
     try {
-      const response = await fetch(`/v1/articles/${encodeURIComponent(slug)}`, {
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

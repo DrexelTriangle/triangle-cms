@@ -2,23 +2,36 @@ import { useState } from "react"
 import { Search, Plus, Pencil, Trash2 } from "lucide-react"
 
 const SECTIONS = [
-  { id: 1, name: "News", slug: "news", parent: null, articles: 1890, editors: 12 },
-  { id: 2, name: "Opinion", slug: "opinion", parent: null, articles: 432, editors: 8 },
-  { id: 3, name: "Sports", slug: "sports", parent: null, articles: 891, editors: 6 },
-  { id: 4, name: "Arts & Entertainment", slug: "arts-entertainment", parent: null, articles: 563, editors: 5 },
-  { id: 5, name: "Comics", slug: "comics", parent: null, articles: 124, editors: 3 },
-  { id: 6, name: "Campus", slug: "campus", parent: "News", articles: 312, editors: 4 },
-  { id: 7, name: "City", slug: "city", parent: "News", articles: 284, editors: 3 },
-  { id: 8, name: "National", slug: "national", parent: "News", articles: 198, editors: 2 },
-  { id: 9, name: "World", slug: "world", parent: "News", articles: 87, editors: 1 },
-  { id: 10, name: "100 Year Anniversary", slug: "100-year-anniversary", parent: null, articles: 45, editors: 2 },
+  { id: 1, name: "News", slug: "news", parent: null, articles: 1890 },
+  { id: 2, name: "Opinion", slug: "opinion", parent: null, articles: 432 },
+  { id: 3, name: "Sports", slug: "sports", parent: null, articles: 891 },
+  { id: 4, name: "Arts & Entertainment", slug: "arts-entertainment", parent: null, articles: 563 },
+  { id: 5, name: "Comics", slug: "comics", parent: null, articles: 124 },
+  { id: 6, name: "Campus", slug: "campus", parent: "News", articles: 312 },
+  { id: 7, name: "City", slug: "city", parent: "News", articles: 284 },
+  { id: 8, name: "National", slug: "national", parent: "News", articles: 198 },
+  { id: 9, name: "World", slug: "world", parent: "News", articles: 87 },
+  { id: 10, name: "100 Year Anniversary", slug: "100-year-anniversary", parent: null, articles: 45 },
 ]
 
 export default function SectionsView() {
   const [search, setSearch] = useState("")
 
-  const filtered = SECTIONS.filter((s) =>
-    s.name.toLowerCase().includes(search.toLowerCase()),
+  const parents = SECTIONS.filter((s) => s.parent === null)
+  const childrenOf = (name: string) => SECTIONS.filter((s) => s.parent === name)
+
+  const rows: { section: typeof SECTIONS[0]; isChild: boolean; isLast: boolean }[] = []
+  for (const parent of parents) {
+    const children = childrenOf(parent.name)
+    rows.push({ section: parent, isChild: false, isLast: false })
+    children.forEach((child, i) => {
+      rows.push({ section: child, isChild: true, isLast: i === children.length - 1 })
+    })
+  }
+
+  const filtered = rows.filter(({ section }) =>
+    section.name.toLowerCase().includes(search.toLowerCase()) ||
+    section.slug.toLowerCase().includes(search.toLowerCase()),
   )
 
   return (
@@ -45,20 +58,33 @@ export default function SectionsView() {
             <tr className="border-b border-border bg-muted/40">
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Name</th>
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Slug</th>
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Parent</th>
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Articles</th>
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Editors</th>
               <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((s) => (
+            {filtered.map(({ section: s, isChild, isLast }) => (
               <tr key={s.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                <td className="px-4 py-3 font-medium text-foreground">{s.name}</td>
+                <td className="px-4 py-3 font-medium text-foreground">
+                  {isChild ? (
+                    <span className="flex items-start gap-1.5">
+                      <span className="flex flex-col items-center w-4 shrink-0 mt-0.5">
+                        <span className="w-px h-2 bg-border" />
+                        <span className="w-3 h-px bg-border" />
+                        {!isLast && <span className="w-px flex-1 bg-transparent" />}
+                      </span>
+                      <span className="text-muted-foreground">{s.name}</span>
+                    </span>
+                  ) : (
+                    s.name
+                  )}
+                </td>
                 <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{s.slug}</td>
-                <td className="px-4 py-3 text-muted-foreground">{s.parent ?? <span className="text-muted-foreground/40">—</span>}</td>
-                <td className="px-4 py-3"><span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">{s.articles.toLocaleString()}</span></td>
-                <td className="px-4 py-3 text-muted-foreground">{s.editors}</td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                    {s.articles.toLocaleString()}
+                  </span>
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
                     <button className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" type="button"><Pencil className="w-4 h-4" /></button>

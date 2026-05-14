@@ -8,8 +8,6 @@ import {
   Image,
   Users,
   Layers,
-  Tag,
-  Tags,
   Search,
   Settings,
   UserCog,
@@ -20,7 +18,6 @@ import {
   PlusCircle,
   BookOpen,
   MessageSquare,
-  MapPin,
   Activity,
   Megaphone,
 } from "lucide-react"
@@ -49,26 +46,8 @@ const navGroups: NavGroup[] = [
   {
     label: "Content",
     items: [
-      {
-        icon: FileText,
-        label: "Articles",
-        path: "/articles",
-        children: [
-          { label: "All Articles", path: "/articles" },
-          { label: "Add New", path: "/articles/new" },
-          { label: "Categories", path: "/categories" },
-          { label: "Tags", path: "/tags" },
-        ],
-      },
-      {
-        icon: TrendingUp,
-        label: "Developing Stories",
-        path: "/developing-stories",
-        children: [
-          { label: "All Stories", path: "/developing-stories" },
-          { label: "Add New", path: "/developing-stories/new" },
-        ],
-      },
+      { icon: FileText, label: "Articles", path: "/articles" },
+      { icon: TrendingUp, label: "Developing Stories", path: "/developing-stories" },
       { icon: BookOpen, label: "Pages", path: "/pages" },
       { icon: Image, label: "Media", path: "/media" },
       { icon: Mail, label: "Newsletter", path: "/newsletter" },
@@ -80,10 +59,7 @@ const navGroups: NavGroup[] = [
     items: [
       { icon: Users, label: "Authors", path: "/authors" },
       { icon: Layers, label: "Sections", path: "/sections" },
-      { icon: Tag, label: "Categories", path: "/categories" },
-      { icon: Tags, label: "Tags", path: "/tags" },
       { icon: MessageSquare, label: "Comments", path: "/comments", badge: 3 },
-      { icon: MapPin, label: "Contact", path: "/contact", badge: 1 },
       { icon: Search, label: "SEO", path: "/seo" },
     ],
   },

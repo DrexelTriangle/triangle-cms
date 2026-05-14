@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { Search, Upload, Trash2, ImageOff } from "lucide-react"
+import { useApiFetch } from "../hooks/useApiFetch"
 
 type MediaItem = {
   id: string
@@ -39,6 +40,7 @@ const normalizeMediaItems = (payload: unknown): MediaItem[] => {
 }
 
 function MediaView() {
+  const apiFetch = useApiFetch()
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -50,7 +52,7 @@ function MediaView() {
       setIsLoading(true)
       setError(null)
       try {
-        const response = await fetch("/v1/media?limit=200")
+        const response = await apiFetch("/v1/media?limit=200")
         if (!response.ok) throw new Error(`Request failed (${response.status})`)
         const payload = (await response.json()) as unknown
         if (!cancelled) setMediaItems(normalizeMediaItems(payload))

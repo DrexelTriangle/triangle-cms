@@ -315,12 +315,13 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 			args = append(args, articleID)
 		}
 
-		query := "SELECT `id`, `display_name`, `login`,`email` FROM `authors`"
+		query := "SELECT a.`id`, a.`display_name`, a.`login`, a.`email`, COUNT(aa.`articles_id`) AS `article_count` FROM `authors` a LEFT JOIN `articles_authors` aa ON a.`id` = aa.`author_id`"
 		if len(conditions) > 0 {
 			query += " WHERE " + strings.Join(conditions, " AND ")
 		}
+		query += " GROUP BY a.`id`, a.`display_name`, a.`login`, a.`email`"
 		if sortBy == "" {
-			query += " ORDER BY `id` DESC"
+			query += " ORDER BY a.`id` DESC"
 		}
 		query = db.BuildOrderLimit(query, sortBy, q.Get("sort_direction"), db.AuthorSortByColumn, limit, offset)
 
