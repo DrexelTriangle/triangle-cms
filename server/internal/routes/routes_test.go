@@ -3,12 +3,13 @@ package routes
 import (
 	"net/http"
 	"net/http/httptest"
+	"server/internal/auth"
 	"testing"
 )
 
 func TestRegister_UsersRoute(t *testing.T) {
 	mux := http.NewServeMux()
-	Register(mux, nil, nil)
+	Register(mux, nil, nil, auth.OIDCConfig{})
 
 	tests := []struct {
 		name       string

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"server/internal/auth"
 	"server/internal/database"
 	"server/internal/middleware"
 	"server/internal/routes"
@@ -51,6 +52,7 @@ type runDeps struct {
 	signalStop      func(c chan<- os.Signal)
 	shutdownTimeout time.Duration
 	oidcVerifier    *oidc.IDTokenVerifier
+	oidcCfg         auth.OIDCConfig
 }
 
 // @title Triangle CMS API
@@ -96,6 +98,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := database.EnsureSessionsTable(context.Background(), db); err != nil {
+		slog.Error("failed to create sessions table", "error", err)
+		os.Exit(1)
+	}
+
 	row := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?", dbName)
 	var tableCount int
 	if err := row.Scan(&tableCount); err != nil {
@@ -105,6 +112,7 @@ func main() {
 	}
 
 	var verifier *oidc.IDTokenVerifier
+	var oidcCfg auth.OIDCConfig
 	if issuerURL := strings.TrimSpace(os.Getenv("OIDC_ISSUER_URL")); issuerURL != "" {
 		provider, err := oidc.NewProvider(context.Background(), issuerURL)
 		if err != nil {
@@ -113,15 +121,25 @@ func main() {
 		}
 		clientID := strings.TrimSpace(os.Getenv("OIDC_CLIENT_ID"))
 		verifier = provider.Verifier(&oidc.Config{
-			ClientID:        clientID,
+			ClientID:          clientID,
 			SkipClientIDCheck: clientID == "",
 		})
+		frontendURL := getenvOrDefault("FRONTEND_ORIGIN", "http://localhost:5173")
+		redirectURL := getenvOrDefault("OIDC_REDIRECT_URI", frontendURL+"/v1/auth/callback")
+		oidcCfg = auth.OIDCConfig{
+			ClientID:     clientID,
+			ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
+			AuthURL:      provider.Endpoint().AuthURL,
+			TokenURL:     provider.Endpoint().TokenURL,
+			RedirectURL:  redirectURL,
+			FrontendURL:  frontendURL,
+		}
 		slog.Info("OIDC authentication enabled", "issuer", issuerURL)
 	} else {
 		slog.Warn("OIDC_ISSUER_URL not set, write endpoints are unprotected")
 	}
 
-	if err := run(defaultRunDeps(verifier), db); err != nil {
+	if err := run(defaultRunDeps(verifier, oidcCfg), db); err != nil {
 		slog.Error("server terminated", "error", err)
 		os.Exit(1)
 	}
@@ -154,7 +172,7 @@ func dbConfigFromEnv() (dbName, user, password, host string, port int, err error
 	return dbName, user, password, host, port, nil
 }
 
-func defaultRunDeps(verifier *oidc.IDTokenVerifier) runDeps {
+func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig) runDeps {
 	return runDeps{
 		loadX509KeyPair: tls.LoadX509KeyPair,
 		newServer:       newDefaultServer,
@@ -162,6 +180,7 @@ func defaultRunDeps(verifier *oidc.IDTokenVerifier) runDeps {
 		signalStop:      signal.Stop,
 		shutdownTimeout: defaultShutdownTimeout,
 		oidcVerifier:    verifier,
+		oidcCfg:         oidcCfg,
 	}
 }
 
@@ -204,7 +223,7 @@ func run(deps runDeps, conn *sql.DB) error {
 	}
 
 	mux := http.NewServeMux()
-	routes.Register(mux, conn, deps.oidcVerifier)
+	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg)
 	server := deps.newServer(cert, mux, slog.Default())
 
 	serverErr := make(chan error, 1)
