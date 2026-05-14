@@ -39,6 +39,8 @@ services:
       DB_PORT: 3306
       TLS_CERT_FILE: /app/certs/localhost.crt
       TLS_KEY_FILE: /app/certs/localhost.key
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
     depends_on:
       mariadb:
         condition: service_healthy

@@ -1,0 +1,1066 @@
+basePath: /
+definitions:
+  models.Article:
+    properties:
+      authors:
+        items:
+          $ref: '#/definitions/models.AuthorOverview'
+        type: array
+      categories:
+        items:
+          type: string
+        type: array
+      comment_status:
+        type: string
+      content:
+        type: string
+      creation_date:
+        type: string
+      excerpt:
+        type: string
+      id:
+        type: integer
+      is_featured:
+        type: boolean
+      photo_url:
+        type: string
+      published_date:
+        type: string
+      slug:
+        type: string
+      status:
+        $ref: '#/definitions/models.ArticleStatus'
+      title:
+        type: string
+    type: object
+  models.ArticleInput:
+    properties:
+      authors:
+        items:
+          type: integer
+        type: array
+      categories:
+        items:
+          type: string
+        type: array
+      comment_status:
+        type: string
+      content:
+        type: string
+      is_featured:
+        type: boolean
+      photo_url:
+        type: string
+      slug:
+        type: string
+      status:
+        $ref: '#/definitions/models.ArticleStatus'
+      title:
+        type: string
+    type: object
+  models.ArticlePatch:
+    properties:
+      authors:
+        items:
+          type: integer
+        type: array
+      categories:
+        items:
+          type: string
+        type: array
+      comment_status:
+        type: string
+      content:
+        type: string
+      excerpt:
+        type: string
+      is_featured:
+        type: boolean
+      photo_url:
+        type: string
+      status:
+        $ref: '#/definitions/models.ArticleStatus'
+      title:
+        type: string
+    type: object
+  models.ArticleStatus:
+    enum:
+    - draft
+    - published
+    type: string
+    x-enum-varnames:
+    - ArticleStatusDraft
+    - ArticleStatusPublished
+  models.Author:
+    properties:
+      created_at:
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      id:
+        type: integer
+      last_name:
+        type: string
+      slug:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.AuthorInput:
+    properties:
+      display_name:
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      last_name:
+        type: string
+      slug:
+        type: string
+    type: object
+  models.AuthorOverview:
+    properties:
+      display_name:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      slug:
+        type: string
+    type: object
+  models.AuthorPatch:
+    properties:
+      display_name:
+        type: string
+      email:
+        type: string
+      first_name:
+        type: string
+      last_name:
+        type: string
+      slug:
+        type: string
+    type: object
+  models.Role:
+    enum:
+    - editor
+    - admin
+    type: string
+    x-enum-varnames:
+    - RoleEditor
+    - RoleAdmin
+  models.User:
+    properties:
+      author_id:
+        type: integer
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      last_login_at:
+        type: string
+      name:
+        type: string
+      role:
+        $ref: '#/definitions/models.Role'
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: REST API for The Triangle newspaper CMS
+  title: Triangle CMS API
+  version: "1.0"
+paths:
+  /v1/articles:
+    get:
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - default: 50
+        description: Max words in excerpt
+        in: query
+        name: excerpt_words
+        type: integer
+      - description: Filter by author slug
+        in: query
+        name: author_slug
+        type: string
+      - description: Filter by section slug
+        in: query
+        name: section_slug
+        type: string
+      - description: Filter by subsection slug
+        in: query
+        name: subsection_slug
+        type: string
+      - description: Filter by status
+        enum:
+        - draft
+        - published
+        in: query
+        name: status
+        type: string
+      - description: Filter by title (partial match)
+        in: query
+        name: title
+        type: string
+      - description: Filter by slug (partial match)
+        in: query
+        name: slug
+        type: string
+      - description: Sort field
+        enum:
+        - title
+        - slug
+        - creation_date
+        - published_date
+        - status
+        - comment_status
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction
+        enum:
+        - asc
+        - desc
+        in: query
+        name: sort_direction
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List articles
+      tags:
+      - articles
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Article
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.ArticleInput'
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create an article
+      tags:
+      - articles
+  /v1/articles/{slug}:
+    delete:
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete an article
+      tags:
+      - articles
+    get:
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get an article by slug
+      tags:
+      - articles
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.ArticlePatch'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Partially update an article
+      tags:
+      - articles
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Article
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.Article'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Replace an article
+      tags:
+      - articles
+  /v1/authors:
+    get:
+      parameters:
+      - default: 20
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - description: Filter by article ID
+        in: query
+        name: article_id
+        type: integer
+      - description: Sort field
+        enum:
+        - display_name
+        - created_at
+        - updated_at
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction
+        enum:
+        - asc
+        - desc
+        in: query
+        name: sort_direction
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.AuthorOverview'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List authors
+      tags:
+      - authors
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Author
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.AuthorInput'
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create an author
+      tags:
+      - authors
+  /v1/authors/{slug}:
+    delete:
+      parameters:
+      - description: Author slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete an author
+      tags:
+      - authors
+    get:
+      parameters:
+      - description: Author slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Author'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get an author by slug
+      tags:
+      - authors
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Author slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.AuthorPatch'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Partially update an author
+      tags:
+      - authors
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Author slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Author
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.AuthorInput'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Replace an author
+      tags:
+      - authors
+  /v1/authors/{slug}/articles:
+    get:
+      parameters:
+      - description: Author slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - default: 50
+        description: Max words in excerpt
+        in: query
+        name: excerpt_words
+        type: integer
+      - description: Filter by section
+        in: query
+        name: section_slug
+        type: string
+      - description: Filter by subsection
+        in: query
+        name: subsection_slug
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List articles by author
+      tags:
+      - authors
+  /v1/health:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Liveness check
+      tags:
+      - health
+  /v1/health/db:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Readiness check
+      tags:
+      - health
+  /v1/homepage:
+    get:
+      parameters:
+      - default: 50
+        description: Max words in excerpt
+        in: query
+        name: excerpt_words
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get homepage data
+      tags:
+      - homepage
+  /v1/search:
+    get:
+      parameters:
+      - description: Search term
+        in: query
+        name: q
+        required: true
+        type: string
+      - default: 20
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Search articles
+      tags:
+      - articles
+  /v1/sections/{section_slug}/articles:
+    get:
+      parameters:
+      - description: Section slug
+        in: path
+        name: section_slug
+        required: true
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - default: 50
+        description: Max words in excerpt
+        in: query
+        name: excerpt_words
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List articles by section
+      tags:
+      - articles
+  /v1/subsections/{subsection_slug}/articles:
+    get:
+      parameters:
+      - description: Subsection slug
+        in: path
+        name: subsection_slug
+        required: true
+        type: string
+      - description: Parent section slug
+        in: query
+        name: section_slug
+        type: string
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - default: 50
+        description: Max words in excerpt
+        in: query
+        name: excerpt_words
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List articles by subsection
+      tags:
+      - articles
+  /v1/users:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.User'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all users
+      tags:
+      - users
+  /v1/users/{id}:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Role update
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update user role
+      tags:
+      - users
+  /v1/users/me:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.User'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user
+      tags:
+      - users
+schemes:
+- https
+securityDefinitions:
+  BearerAuth:
+    description: 'Enter: Bearer <your-token>'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
+tags:
+- name: homepage
+- name: health
+- name: authors
+- name: articles
