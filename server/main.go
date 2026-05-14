@@ -19,7 +19,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/joho/godotenv"
+
+	_ "server/docs"
 )
 
 const (
@@ -47,7 +50,23 @@ type runDeps struct {
 	signalNotify    func(c chan<- os.Signal, sig ...os.Signal)
 	signalStop      func(c chan<- os.Signal)
 	shutdownTimeout time.Duration
+	oidcVerifier    *oidc.IDTokenVerifier
 }
+
+// @title Triangle CMS API
+// @version 1.0
+// @description REST API for The Triangle newspaper CMS
+// @host localhost:8080
+// @BasePath /
+// @schemes https
+// @tag.name homepage
+// @tag.name health
+// @tag.name authors
+// @tag.name articles
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Enter: Bearer <your-token>
 
 func main() {
 	godotenv.Load(".env")
@@ -67,7 +86,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Just for testing the database
+	if err := database.EnsureArticlesSchema(context.Background(), db); err != nil {
+		slog.Error("failed to migrate articles schema", "error", err)
+		os.Exit(1)
+	}
+
+	if err := database.EnsureUsersTable(context.Background(), db); err != nil {
+		slog.Error("failed to create users table", "error", err)
+		os.Exit(1)
+	}
+
 	row := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?", dbName)
 	var tableCount int
 	if err := row.Scan(&tableCount); err != nil {
@@ -76,7 +104,24 @@ func main() {
 		slog.Info("cms startup", "event", "startup", "stage", "db_table_count", "table_count", tableCount)
 	}
 
-	if err := run(defaultRunDeps(), db); err != nil {
+	var verifier *oidc.IDTokenVerifier
+	if issuerURL := strings.TrimSpace(os.Getenv("OIDC_ISSUER_URL")); issuerURL != "" {
+		provider, err := oidc.NewProvider(context.Background(), issuerURL)
+		if err != nil {
+			slog.Error("failed to initialize OIDC provider", "error", err)
+			os.Exit(1)
+		}
+		clientID := strings.TrimSpace(os.Getenv("OIDC_CLIENT_ID"))
+		verifier = provider.Verifier(&oidc.Config{
+			ClientID:        clientID,
+			SkipClientIDCheck: clientID == "",
+		})
+		slog.Info("OIDC authentication enabled", "issuer", issuerURL)
+	} else {
+		slog.Warn("OIDC_ISSUER_URL not set, write endpoints are unprotected")
+	}
+
+	if err := run(defaultRunDeps(verifier), db); err != nil {
 		slog.Error("server terminated", "error", err)
 		os.Exit(1)
 	}
@@ -109,13 +154,14 @@ func dbConfigFromEnv() (dbName, user, password, host string, port int, err error
 	return dbName, user, password, host, port, nil
 }
 
-func defaultRunDeps() runDeps {
+func defaultRunDeps(verifier *oidc.IDTokenVerifier) runDeps {
 	return runDeps{
 		loadX509KeyPair: tls.LoadX509KeyPair,
 		newServer:       newDefaultServer,
 		signalNotify:    signal.Notify,
 		signalStop:      signal.Stop,
 		shutdownTimeout: defaultShutdownTimeout,
+		oidcVerifier:    verifier,
 	}
 }
 
@@ -158,7 +204,7 @@ func run(deps runDeps, conn *sql.DB) error {
 	}
 
 	mux := http.NewServeMux()
-	routes.Register(mux, conn)
+	routes.Register(mux, conn, deps.oidcVerifier)
 	server := deps.newServer(cert, mux, slog.Default())
 
 	serverErr := make(chan error, 1)

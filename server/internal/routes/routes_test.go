@@ -8,7 +8,7 @@ import (
 
 func TestRegister_UsersRoute(t *testing.T) {
 	mux := http.NewServeMux()
-	Register(mux, nil)
+	Register(mux, nil, nil)
 
 	tests := []struct {
 		name       string

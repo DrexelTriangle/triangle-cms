@@ -212,6 +212,32 @@ Generated files:
 - `05-article-embeddings.sql` (real file when available, placeholder otherwise)
 - `06-taxonomy.sql`
 
+## API Docs (Swagger)
+
+Swagger UI is available at `https://localhost:8080/swagger/index.html` when the server is running.
+
+The docs are generated automatically during the Docker build — no manual step needed.
+
+If running the server locally (Path B), regenerate the docs after changing any handler annotations:
+
+```bash
+cd server
+swag init --parseDependency --parseInternal
+```
+
+To add or update docs for an endpoint, add swaggo annotations directly above the handler function in `server/internal/handlers/handlers.go`. Example:
+
+```go
+// @Summary My endpoint
+// @Tags mytag
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /v1/my-endpoint [get]
+func MyHandler(...) {
+```
+
+Tag order in the UI is controlled by the `@tag.name` lines in `main.go`.
+
 ## Testing
 
 ```bash
