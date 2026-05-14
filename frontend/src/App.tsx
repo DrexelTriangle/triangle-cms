@@ -1,9 +1,11 @@
-import { Routes, Route, useLocation } from "react-router-dom"
+import { Routes, Route, useLocation, Navigate } from "react-router-dom"
+import { useAuth } from "react-oidc-context"
 import Header from "./components/Header"
 import Sidebar from "./components/Sidebar"
 import DashboardPage from "./pages/DashboardPage"
 import LoginPage from "./pages/LoginPage"
 import SignupPage from "./pages/SignupPage"
+import AuthCallback from "./pages/AuthCallback"
 import ArticleView from "./pages/articleView"
 import DevelopingStoriesView from "./pages/developingStoriesView"
 import EditArticleView from "./pages/editArticleView"
@@ -48,15 +50,29 @@ function ComingSoon({ page }: { page: string }) {
 
 export default function App() {
   const location = useLocation()
-  const isAuth = AUTH_ROUTES.includes(location.pathname)
+  const auth = useAuth()
+  const isAuthRoute = AUTH_ROUTES.includes(location.pathname)
 
-  if (isAuth) {
+  if (auth.isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    )
+  }
+
+  if (isAuthRoute || location.pathname === "/auth/callback") {
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
       </Routes>
     )
+  }
+
+  if (!auth.isAuthenticated) {
+    return <Navigate to="/login" replace />
   }
 
   return (

@@ -97,7 +97,10 @@ export default function ContactView() {
                 </div>
               </div>
               <button
-                onClick={() => setSubmissions((prev) => prev.filter((s) => s.id !== selected.id)) || setSelected(null)}
+                onClick={() => {
+                  setSubmissions((prev) => prev.filter((s) => s.id !== selected.id))
+                  setSelected(null)
+                }}
                 className="p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
               >
                 <Trash2 className="w-4 h-4" />

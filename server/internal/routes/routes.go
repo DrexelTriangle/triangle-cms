@@ -47,14 +47,6 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier) 
 	mux.HandleFunc("PUT /v1/taxonomy/{kind}/{slug}", handlers.PutTaxonomyItem(conn))
 	mux.HandleFunc("DELETE /v1/taxonomy/{kind}/{slug}", handlers.DeleteTaxonomyItem(conn))
 
-	// Media
-	mux.HandleFunc("GET /v1/media", handlers.Users)
-	mux.HandleFunc("POST /v1/media", handlers.Users)
-	mux.HandleFunc("GET /v1/media/{id}", handlers.Users)
-	mux.HandleFunc("PUT /v1/media/{id}", handlers.Users)
-	mux.HandleFunc("PATCH /v1/media/{id}", handlers.Users)
-	mux.HandleFunc("DELETE /v1/media/{id}", handlers.Users)
-	mux.HandleFunc("GET /v1/media/gallery", handlers.Users)
 	mux.Handle("GET /v1/sections/{section_slug}/articles", auth(handlers.GetSectionArticles(conn)))
 	mux.Handle("GET /v1/subsections/{subsection_slug}/articles", auth(handlers.GetSubsectionArticles(conn)))
 

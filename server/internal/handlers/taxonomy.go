@@ -33,7 +33,15 @@ func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, 
 	return item, nil
 }
 
-// GET /v1/taxonomy
+// @Summary List taxonomy items
+// @Tags taxonomy
+// @Produce json
+// @Param kind query string false "Filter by kind" Enums(section,subsection,tag)
+// @Success 200 {array} models.TaxonomyItem
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/taxonomy [get]
 func GetTaxonomy(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		kind := strings.TrimSpace(r.URL.Query().Get("kind"))
@@ -75,7 +83,17 @@ func GetTaxonomy(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// GET /v1/taxonomy/{kind}/{slug}
+// @Summary Get a taxonomy item
+// @Tags taxonomy
+// @Produce json
+// @Param kind path string true "Kind" Enums(section,subsection,tag)
+// @Param slug path string true "Slug"
+// @Success 200 {object} models.TaxonomyItem
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/taxonomy/{kind}/{slug} [get]
 func GetTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		kind := strings.TrimSpace(r.PathValue("kind"))
@@ -107,7 +125,16 @@ func GetTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// POST /v1/taxonomy
+// @Summary Create a taxonomy item
+// @Tags taxonomy
+// @Accept json
+// @Produce json
+// @Param body body models.TaxonomyInput true "Taxonomy item"
+// @Success 201 {object} map[string]int64
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/taxonomy [post]
 func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body models.TaxonomyInput
@@ -163,7 +190,18 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// PUT /v1/taxonomy/{kind}/{slug}
+// @Summary Update a taxonomy item
+// @Tags taxonomy
+// @Accept json
+// @Param kind path string true "Kind" Enums(section,subsection,tag)
+// @Param slug path string true "Slug"
+// @Param body body models.TaxonomyPut true "Updated fields"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/taxonomy/{kind}/{slug} [put]
 func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		kind := strings.TrimSpace(r.PathValue("kind"))
@@ -234,7 +272,16 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// DELETE /v1/taxonomy/{kind}/{slug}
+// @Summary Delete a taxonomy item
+// @Tags taxonomy
+// @Param kind path string true "Kind" Enums(section,subsection,tag)
+// @Param slug path string true "Slug"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security BearerAuth
+// @Router /v1/taxonomy/{kind}/{slug} [delete]
 func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		kind := strings.TrimSpace(r.PathValue("kind"))
