@@ -15,11 +15,15 @@ import (
 // @Tags users
 // @Produce json
 // @Success 200 {object} models.User
-// @Failure 401 {object} map[string]string
+// @Failure 401 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/users/me [get]
 func GetMe(w http.ResponseWriter, r *http.Request) {
-	user, _ := middleware.UserFromContext(r.Context())
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok || user == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	writeJSON(w, http.StatusOK, user)
 }
 
@@ -27,8 +31,8 @@ func GetMe(w http.ResponseWriter, r *http.Request) {
 // @Tags users
 // @Produce json
 // @Success 200 {array} models.User
-// @Failure 401 {object} map[string]string
-// @Failure 403 {object} map[string]string
+// @Failure 401 {object} models.ErrorResponse
+// @Failure 403 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/users [get]
 func GetUsers(conn *sql.DB) http.HandlerFunc {
@@ -46,12 +50,12 @@ func GetUsers(conn *sql.DB) http.HandlerFunc {
 // @Tags users
 // @Accept json
 // @Param id path int true "User ID"
-// @Param body body map[string]string true "Role update"
+// @Param body body models.UserRolePatchRequest true "Role update"
 // @Success 204
-// @Failure 400 {object} map[string]string
-// @Failure 401 {object} map[string]string
-// @Failure 403 {object} map[string]string
-// @Failure 404 {object} map[string]string
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 401 {object} models.ErrorResponse
+// @Failure 403 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/users/{id} [patch]
 func PatchUser(conn *sql.DB) http.HandlerFunc {
@@ -62,9 +66,7 @@ func PatchUser(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		var body struct {
-			Role models.Role `json:"role"`
-		}
+		var body models.UserRolePatchRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return

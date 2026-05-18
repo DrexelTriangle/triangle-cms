@@ -116,9 +116,10 @@ func main() {
 			ClientID:        clientID,
 			SkipClientIDCheck: clientID == "",
 		})
-		slog.Info("OIDC authentication enabled", "issuer", issuerURL)
+		slog.Info("AUTH ENABLED: protected routes are registered", "issuer", issuerURL)
 	} else {
-		slog.Warn("OIDC_ISSUER_URL not set, write endpoints are unprotected")
+		slog.Warn("AUTH DISABLED: OIDC_ISSUER_URL not set")
+		slog.Warn("AUTH DISABLED: protected routes are NOT registered; only public read routes are available")
 	}
 
 	if err := run(defaultRunDeps(verifier), db); err != nil {

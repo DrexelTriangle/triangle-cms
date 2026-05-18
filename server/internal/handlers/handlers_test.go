@@ -1,86 +1,49 @@
 package handlers
 
 import (
-	"errors"
-	"io"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
 
-func TestUsersHandler(t *testing.T) {
-	tests := []struct {
-		name            string
-		method          string
-		path            string
-		wantStatus      int
-		wantContentType string
-		wantBody        string
-	}{
-		{
-			name:            "get users",
-			method:          http.MethodGet,
-			path:            "/users",
-			wantStatus:      http.StatusOK,
-			wantContentType: "application/json",
-			wantBody:        "{\"status\":\"OK\",\"message\":\"Users endpoint hit\",\"code\":200}",
-		},
+func TestUsersHandler_NotImplemented(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/media", nil)
+	rec := httptest.NewRecorder()
+
+	Users(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected %d, got %d", http.StatusNotImplemented, rec.Code)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(tt.method, tt.path, nil)
-			rr := httptest.NewRecorder()
-
-			handler := http.HandlerFunc(Users)
-			handler.ServeHTTP(rr, req)
-
-			if rr.Code != tt.wantStatus {
-				t.Fatalf("handler returned wrong status code: got %v want %v", rr.Code, tt.wantStatus)
-			}
-
-			contentType := rr.Header().Get("Content-Type")
-			if contentType != tt.wantContentType {
-				t.Fatalf("expected Content-Type: %s, got: %q", tt.wantContentType, contentType)
-			}
-
-			body, _ := io.ReadAll(rr.Body)
-			if strings.TrimSpace(string(body)) != tt.wantBody {
-				t.Fatalf("handler returned unexpected body: got %v want %v", string(body), tt.wantBody)
-			}
-		})
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+	if body["error"] != "not implemented" {
+		t.Fatalf("expected error %q, got %q", "not implemented", body["error"])
 	}
 }
 
-type failingResponseWriter struct {
-	header http.Header
-	status int
-}
+func TestGetMe_UnauthorizedWithoutUserInContext(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/users/me", nil)
+	rec := httptest.NewRecorder()
 
-func (w *failingResponseWriter) Header() http.Header {
-	if w.header == nil {
-		w.header = make(http.Header)
+	GetMe(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d", http.StatusUnauthorized, rec.Code)
 	}
-	return w.header
-}
 
-func (w *failingResponseWriter) Write(_ []byte) (int, error) {
-	return 0, errors.New("forced write error")
-}
-
-func (w *failingResponseWriter) WriteHeader(statusCode int) {
-	w.status = statusCode
-}
-
-func TestUsersHandler_EncodeFailure(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/users", nil)
-	w := &failingResponseWriter{}
-
-	Users(w, req)
-
-	if w.status != http.StatusInternalServerError {
-		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, w.status)
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response body: %v", err)
+	}
+	if body["error"] != "unauthorized" {
+		t.Fatalf("expected error %q, got %q", "unauthorized", body["error"])
 	}
 }
 
@@ -159,5 +122,39 @@ func TestAppendArticleTypeCondition_Negated(t *testing.T) {
 	}
 	if len(args) != 6 {
 		t.Fatalf("expected 6 args, got %d", len(args))
+	}
+}
+
+func TestArticleQueryFilters_FormatsDateFiltersWithGoReferenceLayout(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles", nil)
+	q := url.Values{}
+	q.Set("published_date", "2026-05-18T14:30:45Z")
+	q.Set("creation_date", "2026-05-17")
+	req.URL.RawQuery = q.Encode()
+
+	_, args := articleQueryFilters(req, ArticleParams{})
+
+	var stringArgs []string
+	for _, arg := range args {
+		s, ok := arg.(string)
+		if ok {
+			stringArgs = append(stringArgs, s)
+		}
+	}
+
+	contains := func(target string) bool {
+		for _, candidate := range stringArgs {
+			if candidate == target {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !contains("2026-05-18 14:30:45") {
+		t.Fatalf("expected formatted published_date argument %q in args %v", "2026-05-18 14:30:45", stringArgs)
+	}
+	if !contains("2026-05-17 00:00:00") {
+		t.Fatalf("expected formatted creation_date argument %q in args %v", "2026-05-17 00:00:00", stringArgs)
 	}
 }
