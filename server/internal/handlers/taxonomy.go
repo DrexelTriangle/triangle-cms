@@ -10,20 +10,20 @@ import (
 	"server/internal/models"
 )
 
-var validTaxonomyKinds = map[string]bool{
-	string(models.TaxonomyKindSection):    true,
-	string(models.TaxonomyKindSubsection): true,
-	string(models.TaxonomyKindTag):        true,
+var validTaxonomyTypes = map[string]bool{
+	string(models.TaxonomyTypeSection):    true,
+	string(models.TaxonomyTypeSubsection): true,
+	string(models.TaxonomyTypeTag):        true,
 }
 
-func isValidTaxonomyKind(kind string) bool {
-	return validTaxonomyKinds[strings.TrimSpace(kind)]
+func isValidTaxonomyType(taxType string) bool {
+	return validTaxonomyTypes[strings.TrimSpace(taxType)]
 }
 
 func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, error) {
 	var item models.TaxonomyItem
 	var parentSlug sql.NullString
-	if err := row.Scan(&item.ID, &item.Kind, &item.Slug, &item.CanonicalTitle, &parentSlug); err != nil {
+	if err := row.Scan(&item.ID, &item.Type, &item.Slug, &item.CanonicalTitle, &parentSlug); err != nil {
 		return models.TaxonomyItem{}, err
 	}
 	if parentSlug.Valid && parentSlug.String != "" {
@@ -36,7 +36,7 @@ func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, 
 // @Summary List taxonomy items
 // @Tags taxonomy
 // @Produce json
-// @Param kind query string false "Filter by kind" Enums(section,subsection,tag)
+// @Param type query string false "Filter by type" Enums(section,subsection,tag)
 // @Success 200 {array} models.TaxonomyItem
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
@@ -44,17 +44,17 @@ func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, 
 // @Router /v1/taxonomy [get]
 func GetTaxonomy(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		kind := strings.TrimSpace(r.URL.Query().Get("kind"))
+		taxType := strings.TrimSpace(r.URL.Query().Get("type"))
 
 		var query string
 		var args []any
-		if kind != "" {
-			if !isValidTaxonomyKind(kind) {
-				writeError(w, http.StatusBadRequest, "kind must be one of: section, subsection, tag")
+		if taxType != "" {
+			if !isValidTaxonomyType(taxType) {
+				writeError(w, http.StatusBadRequest, "type must be one of: section, subsection, tag")
 				return
 			}
 			query = "SELECT id, kind, slug, canonical_title, parent_slug FROM site_taxonomy WHERE kind = ? ORDER BY id ASC"
-			args = []any{kind}
+			args = []any{taxType}
 		} else {
 			query = "SELECT id, kind, slug, canonical_title, parent_slug FROM site_taxonomy ORDER BY kind ASC, id ASC"
 		}
@@ -86,21 +86,21 @@ func GetTaxonomy(conn *sql.DB) http.HandlerFunc {
 // @Summary Get a taxonomy item
 // @Tags taxonomy
 // @Produce json
-// @Param kind path string true "Kind" Enums(section,subsection,tag)
+// @Param type path string true "Type" Enums(section,subsection,tag)
 // @Param slug path string true "Slug"
 // @Success 200 {object} models.TaxonomyItem
 // @Failure 400 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Security BearerAuth
-// @Router /v1/taxonomy/{kind}/{slug} [get]
+// @Router /v1/taxonomy/{type}/{slug} [get]
 func GetTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		kind := strings.TrimSpace(r.PathValue("kind"))
+		taxType := strings.TrimSpace(r.PathValue("type"))
 		slug := strings.TrimSpace(r.PathValue("slug"))
 
-		if !isValidTaxonomyKind(kind) {
-			writeError(w, http.StatusBadRequest, "kind must be one of: section, subsection, tag")
+		if !isValidTaxonomyType(taxType) {
+			writeError(w, http.StatusBadRequest, "type must be one of: section, subsection, tag")
 			return
 		}
 		if !isValidCanonicalSlug(slug) {
@@ -110,7 +110,7 @@ func GetTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 
 		row := conn.QueryRowContext(r.Context(),
 			"SELECT id, kind, slug, canonical_title, parent_slug FROM site_taxonomy WHERE kind = ? AND slug = ?",
-			kind, slug,
+			taxType, slug,
 		)
 		item, err := scanTaxonomyRow(row)
 		if err == sql.ErrNoRows {
@@ -143,12 +143,12 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		kind := strings.TrimSpace(body.Kind)
+		taxType := strings.TrimSpace(body.Type)
 		slug := strings.TrimSpace(body.Slug)
 		title := strings.TrimSpace(body.CanonicalTitle)
 
-		if !isValidTaxonomyKind(kind) {
-			writeError(w, http.StatusBadRequest, "kind must be one of: section, subsection, tag")
+		if !isValidTaxonomyType(taxType) {
+			writeError(w, http.StatusBadRequest, "type must be one of: section, subsection, tag")
 			return
 		}
 		if !isValidCanonicalSlug(slug) {
@@ -180,7 +180,7 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 
 		_, err := db.Insert(r.Context(), conn, "site_taxonomy",
 			[]string{"id", "kind", "slug", "canonical_title", "parent_slug"},
-			nextID, kind, slug, title, parentSlug,
+			nextID, taxType, slug, title, parentSlug,
 		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -193,7 +193,7 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 // @Summary Update a taxonomy item
 // @Tags taxonomy
 // @Accept json
-// @Param kind path string true "Kind" Enums(section,subsection,tag)
+// @Param type path string true "Type" Enums(section,subsection,tag)
 // @Param slug path string true "Slug"
 // @Param body body models.TaxonomyPut true "Updated fields"
 // @Success 204
@@ -201,14 +201,14 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 // @Failure 404 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Security BearerAuth
-// @Router /v1/taxonomy/{kind}/{slug} [put]
+// @Router /v1/taxonomy/{type}/{slug} [put]
 func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		kind := strings.TrimSpace(r.PathValue("kind"))
+		taxType := strings.TrimSpace(r.PathValue("type"))
 		slug := strings.TrimSpace(r.PathValue("slug"))
 
-		if !isValidTaxonomyKind(kind) {
-			writeError(w, http.StatusBadRequest, "kind must be one of: section, subsection, tag")
+		if !isValidTaxonomyType(taxType) {
+			writeError(w, http.StatusBadRequest, "type must be one of: section, subsection, tag")
 			return
 		}
 		if !isValidCanonicalSlug(slug) {
@@ -253,7 +253,7 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 		result, err := db.Update(r.Context(), conn, "site_taxonomy",
 			[]string{"slug", "canonical_title", "parent_slug"},
 			"kind = ? AND slug = ?",
-			newSlug, title, parentSlug, kind, slug,
+			newSlug, title, parentSlug, taxType, slug,
 		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -274,21 +274,21 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 
 // @Summary Delete a taxonomy item
 // @Tags taxonomy
-// @Param kind path string true "Kind" Enums(section,subsection,tag)
+// @Param type path string true "Type" Enums(section,subsection,tag)
 // @Param slug path string true "Slug"
 // @Success 204
 // @Failure 400 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Security BearerAuth
-// @Router /v1/taxonomy/{kind}/{slug} [delete]
+// @Router /v1/taxonomy/{type}/{slug} [delete]
 func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		kind := strings.TrimSpace(r.PathValue("kind"))
+		taxType := strings.TrimSpace(r.PathValue("type"))
 		slug := strings.TrimSpace(r.PathValue("slug"))
 
-		if !isValidTaxonomyKind(kind) {
-			writeError(w, http.StatusBadRequest, "kind must be one of: section, subsection, tag")
+		if !isValidTaxonomyType(taxType) {
+			writeError(w, http.StatusBadRequest, "type must be one of: section, subsection, tag")
 			return
 		}
 		if !isValidCanonicalSlug(slug) {
@@ -296,7 +296,7 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		result, err := db.Delete(r.Context(), conn, "site_taxonomy", "kind = ? AND slug = ?", kind, slug)
+		result, err := db.Delete(r.Context(), conn, "site_taxonomy", "kind = ? AND slug = ?", taxType, slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

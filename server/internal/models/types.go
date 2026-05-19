@@ -218,24 +218,24 @@ type MediaListParams struct {
 	SortDirection SortDirection
 }
 
-type TaxonomyKind string
+type TaxonomyType string
 
 const (
-	TaxonomyKindSection    TaxonomyKind = "section"
-	TaxonomyKindSubsection TaxonomyKind = "subsection"
-	TaxonomyKindTag        TaxonomyKind = "tag"
+	TaxonomyTypeSection    TaxonomyType = "section"
+	TaxonomyTypeSubsection TaxonomyType = "subsection"
+	TaxonomyTypeTag        TaxonomyType = "tag"
 )
 
 type TaxonomyItem struct {
 	ID             int64   `json:"id"`
-	Kind           string  `json:"kind"`
+	Type           string  `json:"type"`
 	Slug           string  `json:"slug"`
 	CanonicalTitle string  `json:"canonical_title"`
 	ParentSlug     *string `json:"parent_slug,omitempty"`
 }
 
 type TaxonomyInput struct {
-	Kind           string  `json:"kind"`
+	Type           string  `json:"type"`
 	Slug           string  `json:"slug"`
 	CanonicalTitle string  `json:"canonical_title"`
 	ParentSlug     *string `json:"parent_slug,omitempty"`

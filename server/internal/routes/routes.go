@@ -49,9 +49,9 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	// Taxonomy (categories, sections, tags)
 	mux.HandleFunc("GET /v1/taxonomy", handlers.GetTaxonomy(conn))
 	mux.HandleFunc("POST /v1/taxonomy", handlers.PostTaxonomy(conn))
-	mux.HandleFunc("GET /v1/taxonomy/{kind}/{slug}", handlers.GetTaxonomyItem(conn))
-	mux.HandleFunc("PUT /v1/taxonomy/{kind}/{slug}", handlers.PutTaxonomyItem(conn))
-	mux.HandleFunc("DELETE /v1/taxonomy/{kind}/{slug}", handlers.DeleteTaxonomyItem(conn))
+	mux.HandleFunc("GET /v1/taxonomy/{type}/{slug}", handlers.GetTaxonomyItem(conn))
+	mux.HandleFunc("PUT /v1/taxonomy/{type}/{slug}", handlers.PutTaxonomyItem(conn))
+	mux.HandleFunc("DELETE /v1/taxonomy/{type}/{slug}", handlers.DeleteTaxonomyItem(conn))
 
 	mux.Handle("GET /v1/sections/{section_slug}/articles", authMW(handlers.GetSectionArticles(conn)))
 	mux.Handle("GET /v1/subsections/{subsection_slug}/articles", authMW(handlers.GetSubsectionArticles(conn)))
