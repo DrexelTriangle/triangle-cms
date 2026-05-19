@@ -95,6 +95,10 @@ func main() {
 		slog.Error("failed to create users table", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsurePollsTable(context.Background(), db); err != nil {
+		slog.Error("failed to create poll table", "error", err)
+		os.Exit(1)
+	}
 
 	row := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?", dbName)
 	var tableCount int
@@ -113,7 +117,7 @@ func main() {
 		}
 		clientID := strings.TrimSpace(os.Getenv("OIDC_CLIENT_ID"))
 		verifier = provider.Verifier(&oidc.Config{
-			ClientID:        clientID,
+			ClientID:          clientID,
 			SkipClientIDCheck: clientID == "",
 		})
 		slog.Info("AUTH ENABLED: protected routes are registered", "issuer", issuerURL)
