@@ -1,7 +1,7 @@
-import { Pagination, buttonVariants } from "@cloudflare/kumo"
 import { useEffect, useState } from "react"
-import { ArrowSquareOutIcon, MagnifyingGlassIcon, PencilIcon, PlusIcon, TrashIcon, XIcon } from "@phosphor-icons/react"
+import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import { useApiFetch } from "../hooks/useApiFetch"
 
 type ArticleStatus = "Published" | "Draft"
 
@@ -12,6 +12,7 @@ type ArticleItem = {
   status: ArticleStatus
   date: string
   slug?: string
+  featuredImage?: string
 }
 
 type ApiArticle = {
@@ -20,6 +21,7 @@ type ApiArticle = {
   slug: string
   status: string
   published_date?: string
+  featured_image?: string
   authors?: Array<{
     name?: string
   }>
@@ -95,6 +97,7 @@ const writeSessionJSON = (key: string, value: unknown) => {
 
 function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: ArticleViewProps) {
   const navigate = useNavigate()
+  const apiFetch = useApiFetch()
   const storageKeyBase = `articleView:${fixedType ?? "all"}:${excludeType ?? "none"}`
   const uiStateKey = `${storageKeyBase}:ui`
   const resultsCacheKey = `${storageKeyBase}:results`
@@ -142,7 +145,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         let keepFetching = true
 
         while (keepFetching) {
-          const response = await fetch(`/v1/authors?limit=${AUTHORS_PAGE_SIZE}&offset=${offset}&sort_by=display_name&sort_direction=asc`)
+          const response = await apiFetch(`/v1/authors?limit=${AUTHORS_PAGE_SIZE}&offset=${offset}&sort_by=display_name&sort_direction=asc`)
           if (!response.ok) {
             throw new Error(`Authors request failed (${response.status})`)
           }
@@ -212,7 +215,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           return
         }
 
-        const response = await fetch(`/v1/articles?${params.toString()}`)
+        const response = await apiFetch(`/v1/articles?${params.toString()}`)
         if (!response.ok) {
           throw new Error(`Request failed (${response.status})`)
         }
@@ -228,6 +231,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           status: mapApiStatus(item.status),
           date: formatArticleDate(item.published_date),
           slug: item.slug,
+          featuredImage: item.featured_image,
         }))
 
         if (!cancelled) {
@@ -291,26 +295,43 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   }, [selectedAuthorSlug, publishedFilter, dateSortDirection, searchQuery])
 
   const effectiveTotalCount = Math.max(totalArticleCount, (page * PAGE_SIZE) + articles.length)
-
+  const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / PAGE_SIZE))
   const listLabel = pageTitle.toLowerCase()
 
+  const filterTagClass = (active: boolean) =>
+    `px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer border ${
+      active
+        ? "bg-primary text-primary-foreground border-primary"
+        : "bg-background text-muted-foreground border-border hover:border-primary hover:text-primary"
+    }`
+
+  const tabClass = (active: boolean) =>
+    `px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+      active
+        ? "border-primary text-primary"
+        : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+    }`
+
   return (
-    <div className="article-list-page">
-      <div className="article-list-header">
-        <div className="article-list-title-row">
-          <h1 className="article-list-title">{pageTitle}</h1>
-        </div>
-        <button className={`${buttonVariants()} article-add-new-button`} type="button">
-          <PlusIcon aria-hidden="true" className="me-2 h-4 w-4" />
+    <div className="flex flex-col gap-6 p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
+        <button
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          type="button"
+        >
+          <Plus className="w-4 h-4" aria-hidden="true" />
           Add New
         </button>
       </div>
 
-      <div className="article-search-wrap">
-        <MagnifyingGlassIcon className="article-search-icon" />
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
         <input
           aria-label={`Search ${listLabel}`}
-          className="article-search-input"
+          className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
           onChange={(e) => onSearch(e.target.value)}
           placeholder={`Search ${listLabel}...`}
           type="search"
@@ -318,14 +339,16 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         />
       </div>
 
-      <div className="article-filters-row">
-        <div className="article-filter-group">
-          <label className="article-filter-label" htmlFor="article-author-filter">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-6 items-start">
+        {/* Author filter */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" htmlFor="article-author-filter">
             Author
           </label>
-          <div className="article-author-input-wrap">
+          <div className="relative flex items-center">
             <input
-              className="article-filter-select"
+              className="pr-7 pl-3 py-1.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
               id="article-author-filter"
               list="article-author-options"
               onChange={(e) => setAuthorQuery(e.target.value)}
@@ -336,12 +359,12 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
             {authorQuery.trim() && (
               <button
                 aria-label="Clear author filter"
-                className="article-author-clear-button"
+                className="absolute right-2 text-muted-foreground hover:text-foreground"
                 onClick={() => setAuthorQuery("")}
                 title="Clear author"
                 type="button"
               >
-                <XIcon />
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
@@ -352,143 +375,137 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           </datalist>
         </div>
 
-        <div className="article-filter-group">
-          <span className="article-filter-label">Date</span>
-          <div className="article-filter-tags">
-            <button
-              className={`article-filter-tag ${dateSortDirection === "desc" ? "active" : ""}`}
-              onClick={() => setDateSortDirection("desc")}
-              type="button"
-            >
+        {/* Date sort */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Date</span>
+          <div className="flex gap-1.5">
+            <button className={filterTagClass(dateSortDirection === "desc")} onClick={() => setDateSortDirection("desc")} type="button">
               Newest first
             </button>
-            <button
-              className={`article-filter-tag ${dateSortDirection === "asc" ? "active" : ""}`}
-              onClick={() => setDateSortDirection("asc")}
-              type="button"
-            >
+            <button className={filterTagClass(dateSortDirection === "asc")} onClick={() => setDateSortDirection("asc")} type="button">
               Oldest first
             </button>
           </div>
         </div>
 
-        <div className="article-filter-group">
-          <span className="article-filter-label">Published</span>
-          <div className="article-filter-tags">
-            <button
-              className={`article-filter-tag ${publishedFilter === "all" ? "active" : ""}`}
-              onClick={() => setPublishedFilter("all")}
-              type="button"
-            >
-              All
-            </button>
-            <button
-              className={`article-filter-tag ${publishedFilter === "published" ? "active" : ""}`}
-              onClick={() => setPublishedFilter("published")}
-              type="button"
-            >
-              Published
-            </button>
-            <button
-              className={`article-filter-tag ${publishedFilter === "draft" ? "active" : ""}`}
-              onClick={() => setPublishedFilter("draft")}
-              type="button"
-            >
-              Draft
-            </button>
+        {/* Published filter */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</span>
+          <div className="flex gap-1.5">
+            <button className={filterTagClass(publishedFilter === "all")} onClick={() => setPublishedFilter("all")} type="button">All</button>
+            <button className={filterTagClass(publishedFilter === "published")} onClick={() => setPublishedFilter("published")} type="button">Published</button>
+            <button className={filterTagClass(publishedFilter === "draft")} onClick={() => setPublishedFilter("draft")} type="button">Draft</button>
           </div>
         </div>
       </div>
 
-      <div className="article-tabs">
-        <button
-          aria-pressed={activeTab === "all"}
-          className={`article-tab ${activeTab === "all" ? "active" : ""}`}
-          onClick={() => onChangeTab("all")}
-          type="button"
-        >
+      {/* Tabs */}
+      <div className="flex border-b border-border">
+        <button aria-pressed={activeTab === "all"} className={tabClass(activeTab === "all")} onClick={() => onChangeTab("all")} type="button">
           All
         </button>
-        <button
-          aria-pressed={activeTab === "trash"}
-          className={`article-tab ${activeTab === "trash" ? "active" : ""}`}
-          onClick={() => onChangeTab("trash")}
-          type="button"
-        >
-          <TrashIcon className="article-tab-icon" />
+        <button aria-pressed={activeTab === "trash"} className={tabClass(activeTab === "trash")} onClick={() => onChangeTab("trash")} type="button">
+          <Trash2 className="w-3.5 h-3.5" />
           Trash
-          <span className="article-trash-badge">{trashedItems.length}</span>
+          <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{trashedItems.length}</span>
         </button>
       </div>
 
-      <div className="article-table-card">
-        <table className="article-table">
+      {/* Table */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <table className="w-full text-sm">
           <thead>
-            <tr>
-              <th scope="col">Title</th>
-              <th scope="col">Authors</th>
-              <th scope="col">Status</th>
-              <th scope="col">Date</th>
-              <th className="actions" scope="col">
-                Actions
-              </th>
+            <tr className="border-b border-border bg-muted/40">
+              <th className="w-16 px-3 py-3" scope="col" aria-label="Featured image" />
+              <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Title</th>
+              <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Authors</th>
+              <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Status</th>
+              <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Date</th>
+              <th className="text-right px-4 py-3 font-semibold text-muted-foreground" scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td className="empty" colSpan={5}>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
                   Loading articles...
                 </td>
               </tr>
             ) : error ? (
               <tr>
-                <td className="empty" colSpan={5}>
+                <td className="px-4 py-8 text-center text-destructive" colSpan={6}>
                   Failed to load articles: {error}
                 </td>
               </tr>
             ) : articles.length === 0 ? (
               <tr>
-                <td className="empty" colSpan={5}>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
                   {searchQuery ? `No results for "${searchQuery}"` : `No ${activeTab === "trash" ? "trashed" : ""} ${listLabel} yet.`}
                 </td>
               </tr>
             ) : (
               articles.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.title}</td>
-                  <td>{item.authors || "-"}</td>
-                  <td>
-                    <span className={`article-status ${item.status.toLowerCase()}`}>{item.status}</span>
-                  </td>
-                  <td>{item.date}</td>
-                  <td className="actions">
-                    {item.status === "Published" && (
-                      <a
-                        className="article-view-live-link"
-                        href={item.slug ? `http://localhost:4321/article/${encodeURIComponent(item.slug)}` : "#"}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        <ArrowSquareOutIcon className="article-action-icon" />
-                        View Live
-                      </a>
+                <tr key={item.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                  <td className="px-3 py-2 w-16">
+                    {item.featuredImage ? (
+                      <img
+                        alt=""
+                        className="w-12 h-10 object-cover rounded-md bg-muted flex-shrink-0"
+                        src={item.featuredImage}
+                      />
+                    ) : (
+                      <div className="w-12 h-10 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
+                        <svg className="w-4 h-4 text-muted-foreground/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
                     )}
-                    <button
-                      className="article-action-button"
-                      disabled={!item.slug}
-                      onClick={() => {
-                        if (!item.slug) return
-                        navigate(`/articles/${encodeURIComponent(item.slug)}/edit`)
-                      }}
-                      title={item.slug ? "Edit" : "Edit unavailable"}
-                      type="button"
-                    >
-                      <PencilIcon className="article-action-icon" />
-                    </button>
-                    <button className="article-action-button danger" title="Delete" type="button">
-                      <TrashIcon className="article-action-icon" />
-                    </button>
+                  </td>
+                  <td className="px-4 py-3 font-medium text-foreground max-w-xs truncate">{item.title}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{item.authors || "-"}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      item.status === "Published"
+                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                        : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                    }`}>
+                      {item.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{item.date}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      {item.status === "Published" && (
+                        <a
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                          href={item.slug ? `http://localhost:4321/article/${encodeURIComponent(item.slug)}` : "#"}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          View Live
+                        </a>
+                      )}
+                      <button
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!item.slug}
+                        onClick={() => {
+                          if (!item.slug) return
+                          navigate(`/articles/${encodeURIComponent(item.slug)}/edit`)
+                        }}
+                        title={item.slug ? "Edit" : "Edit unavailable"}
+                        type="button"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        title="Delete"
+                        type="button"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -497,26 +514,47 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         </table>
       </div>
 
-      <Pagination
-        className="article-kumo-pagination"
-        page={page + 1}
-        perPage={PAGE_SIZE}
-        setPage={(nextPage) => {
-          if (!Number.isFinite(nextPage)) return
-          const normalizedPage = Math.max(1, Math.trunc(nextPage))
-          const maxPage = Math.max(1, Math.ceil(effectiveTotalCount / PAGE_SIZE))
-          const boundedPage = Math.min(normalizedPage, maxPage)
-          setPage(boundedPage - 1)
-        }}
-        totalCount={effectiveTotalCount}
-      >
-        <Pagination.Info>
-          {() => (
-            <span className="article-count">{articles.length} article{articles.length === 1 ? "" : "s"} shown</span>
-          )}
-        </Pagination.Info>
-        <Pagination.Controls controls="full" />
-      </Pagination>
+      {/* Pagination */}
+      <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <span>{articles.length} article{articles.length === 1 ? "" : "s"} shown</span>
+        <div className="flex items-center gap-1">
+          <button
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={page === 0}
+            onClick={() => setPage(0)}
+            type="button"
+          >
+            <ChevronFirst className="w-4 h-4" />
+          </button>
+          <button
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={page === 0}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            type="button"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="px-3 py-1 font-medium text-foreground">
+            {page + 1} / {totalPages}
+          </span>
+          <button
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={(page + 1) * PAGE_SIZE >= effectiveTotalCount}
+            onClick={() => setPage((p) => p + 1)}
+            type="button"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <button
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={(page + 1) * PAGE_SIZE >= effectiveTotalCount}
+            onClick={() => setPage(Math.max(0, totalPages - 1))}
+            type="button"
+          >
+            <ChevronLast className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -74,10 +74,11 @@ type Author struct {
 }
 
 type AuthorOverview struct {
-	ID          int64  `json:"id"`
-	Slug        string `json:"slug"`
-	DisplayName string `json:"display_name"`
-	Email       string     `json:"email,omitempty"`
+	ID           int64  `json:"id"`
+	Slug         string `json:"slug"`
+	DisplayName  string `json:"display_name"`
+	Email        string `json:"email,omitempty"`
+	ArticleCount int    `json:"article_count"`
 }
 
 type AuthorInput struct {
@@ -215,4 +216,33 @@ type MediaListParams struct {
 	MimeType      string
 	SortBy        MediaSortBy
 	SortDirection SortDirection
+}
+
+type TaxonomyType string
+
+const (
+	TaxonomyTypeSection    TaxonomyType = "section"
+	TaxonomyTypeSubsection TaxonomyType = "subsection"
+	TaxonomyTypeTag        TaxonomyType = "tag"
+)
+
+type TaxonomyItem struct {
+	ID             int64   `json:"id"`
+	Type           string  `json:"type"`
+	Slug           string  `json:"slug"`
+	CanonicalTitle string  `json:"canonical_title"`
+	ParentSlug     *string `json:"parent_slug,omitempty"`
+}
+
+type TaxonomyInput struct {
+	Type           string  `json:"type"`
+	Slug           string  `json:"slug"`
+	CanonicalTitle string  `json:"canonical_title"`
+	ParentSlug     *string `json:"parent_slug,omitempty"`
+}
+
+type TaxonomyPut struct {
+	Slug           string  `json:"slug,omitempty"`
+	CanonicalTitle string  `json:"canonical_title"`
+	ParentSlug     *string `json:"parent_slug,omitempty"`
 }
