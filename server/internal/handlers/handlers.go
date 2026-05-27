@@ -17,46 +17,31 @@ import (
 // @Summary Liveness check
 // @Tags health
 // @Produce json
-// @Success 200 {object} map[string]string
+// @Success 200 {object} models.HealthResponse
 // @Router /v1/health [get]
-func HealthCheck(w http.ResponseWriter, r *http.Request){
+func HealthCheck(w http.ResponseWriter, r *http.Request) {
 
-	writeJSON(w, http.StatusOK, map[string]string{"status":"Ok"})
+	writeJSON(w, http.StatusOK, models.HealthResponse{Status: "Ok"})
 }
 
 // @Summary Readiness check
 // @Tags health
 // @Produce json
-// @Success 200 {object} map[string]string
-// @Failure 503 {object} map[string]string
+// @Success 200 {object} models.HealthResponse
+// @Failure 503 {object} models.ErrorResponse
 // @Router /v1/health/db [get]
 func HealthReady(conn *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request){
-		if err := conn.PingContext(r.Context()); 
-		err != nil {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := conn.PingContext(r.Context()); err != nil {
 			writeError(w, http.StatusServiceUnavailable, "Database unreachable")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status":"Ok"})
+		writeJSON(w, http.StatusOK, models.HealthResponse{Status: "Ok"})
 	}
 }
 
 func Users(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	resp := struct {
-		Status  string `json:"status"`
-		Message string `json:"message"`
-		Code    int    `json:"code"`
-	}{
-		Status:  "OK",
-		Message: "Users endpoint hit",
-		Code:    http.StatusOK,
-	}
-
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "failed to encode response", http.StatusInternalServerError)
-	}
+	writeError(w, http.StatusNotImplemented, "not implemented")
 }
 
 func intParam(r *http.Request, key string, fallback int) int {
@@ -78,7 +63,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	writeJSON(w, status, models.ErrorResponse{Error: msg})
 }
 
 func titleFromSlug(slug string) string {
@@ -142,10 +127,10 @@ func canonicalTitleForTaxonomy(ctx context.Context, conn *sql.DB, kind, slug str
 	return title, nil
 }
 
-func subsectionsForSection(ctx context.Context, conn *sql.DB, sectionSlug string) ([]map[string]any, error) {
+func subsectionsForSection(ctx context.Context, conn *sql.DB, sectionSlug string) ([]models.TaxonomySummary, error) {
 	trimmedSection := strings.TrimSpace(sectionSlug)
 	if trimmedSection == "" {
-		return []map[string]any{}, nil
+		return []models.TaxonomySummary{}, nil
 	}
 
 	rows, err := conn.QueryContext(
@@ -158,7 +143,7 @@ func subsectionsForSection(ctx context.Context, conn *sql.DB, sectionSlug string
 	}
 	defer rows.Close()
 
-	subsections := make([]map[string]any, 0)
+	subsections := make([]models.TaxonomySummary, 0)
 	for rows.Next() {
 		var slug string
 		var canonicalTitle sql.NullString
@@ -171,10 +156,10 @@ func subsectionsForSection(ctx context.Context, conn *sql.DB, sectionSlug string
 			canonical = titleFromSlug(slug)
 		}
 
-		subsections = append(subsections, map[string]any{
-			"slug":            slug,
-			"name":            canonical,
-			"canonical_title": canonical,
+		subsections = append(subsections, models.TaxonomySummary{
+			Slug:           slug,
+			Name:           canonical,
+			CanonicalTitle: canonical,
 		})
 	}
 
@@ -208,48 +193,49 @@ func listParams(r *http.Request, defaultLimit int) (page, limit, offset int) {
 	return page, limit, offset
 }
 
-func articleListItems(articles []models.Article, excerptWords int) []map[string]any {
-	items := make([]map[string]any, 0, len(articles))
+func articleListItems(articles []models.Article, excerptWords int) []models.ArticleListItem {
+	items := make([]models.ArticleListItem, 0, len(articles))
 	for _, article := range articles {
-		categories := make([]map[string]string, 0, len(article.Categories))
+		categories := make([]models.CategorySummary, 0, len(article.Categories))
 		for _, category := range article.Categories {
 			name := strings.TrimSpace(category)
 			if name == "" {
 				continue
 			}
-			categories = append(categories, map[string]string{
-				"name": name,
-				"slug": db.CanonicalizeSlug(name),
-			})
+			categories = append(categories, models.CategorySummary{Name: name, Slug: db.CanonicalizeSlug(name)})
 		}
 
-		authors := make([]map[string]any, 0, len(article.Authors))
+		authors := make([]models.AuthorSummary, 0, len(article.Authors))
 		for _, author := range article.Authors {
-			authors = append(authors, map[string]any{
-				"id":   author.ID,
-				"name": author.DisplayName,
-				"slug": author.Slug,
-			})
+			authors = append(authors, models.AuthorSummary{ID: author.ID, Name: author.DisplayName, Slug: author.Slug})
 		}
 
-		item := map[string]any{
-			"title":          article.Title,
-			"id":             article.ID,
-			"authors":        authors,
-			"categories":     categories,
-			"excerpt":        truncateWords(article.Excerpt, excerptWords),
-			"slug":           article.Slug,
-			"status":         article.Status,
-			"comment_status": article.CommentStatus,
-			"featured_image": article.PhotoURL,
-			"is_featured":    article.IsFeatured,
+		item := models.ArticleListItem{
+			Title:         article.Title,
+			ID:            article.ID,
+			Authors:       authors,
+			Categories:    categories,
+			Excerpt:       truncateWords(article.Excerpt, excerptWords),
+			Slug:          article.Slug,
+			Status:        article.Status,
+			CommentStatus: article.CommentStatus,
+			FeaturedImage: article.PhotoURL,
+			IsFeatured:    article.IsFeatured,
 		}
-		if article.PublishedAt != nil {
-			item["published_date"] = article.PublishedAt
-		}
+		item.PublishedDate = article.PublishedAt
 		items = append(items, item)
 	}
 	return items
+}
+
+func paginationResponse(page, limit, offset int, hasMore bool, totalCount int) models.Pagination {
+	return models.Pagination{
+		Page:       page,
+		Limit:      limit,
+		Offset:     offset,
+		HasMore:    hasMore,
+		TotalCount: totalCount,
+	}
 }
 
 func authorIDsFromOverviews(authors []models.AuthorOverview) []int64 {
@@ -293,8 +279,7 @@ func parseAuthorIDs(raw any) ([]int64, error) {
 // @Param sort_by query string false "Sort field" Enums(display_name,created_at,updated_at)
 // @Param sort_direction query string false "Sort direction" Enums(asc,desc)
 // @Success 200 {array} models.AuthorOverview
-// @Failure 500 {object} map[string]string
-// @Security BearerAuth
+// @Failure 500 {object} models.ErrorResponse
 // @Router /v1/authors [get]
 func GetAuthors(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -354,8 +339,8 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 // @Accept json
 // @Param body body models.AuthorInput true "Author"
 // @Success 201
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/authors [post]
 func PostAuthors(conn *sql.DB) http.HandlerFunc {
@@ -391,10 +376,9 @@ func PostAuthors(conn *sql.DB) http.HandlerFunc {
 // @Produce json
 // @Param slug path string true "Author slug"
 // @Success 200 {object} models.Author
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Security BearerAuth
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /v1/authors/{slug} [get]
 func GetAuthor(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -428,9 +412,9 @@ func GetAuthor(conn *sql.DB) http.HandlerFunc {
 // @Param slug path string true "Author slug"
 // @Param body body models.AuthorInput true "Author"
 // @Success 204
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/authors/{slug} [put]
 func PutAuthor(conn *sql.DB) http.HandlerFunc {
@@ -481,9 +465,9 @@ func PutAuthor(conn *sql.DB) http.HandlerFunc {
 // @Param slug path string true "Author slug"
 // @Param body body models.AuthorPatch true "Fields to update"
 // @Success 204
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/authors/{slug} [patch]
 func PatchAuthor(conn *sql.DB) http.HandlerFunc {
@@ -546,9 +530,9 @@ func PatchAuthor(conn *sql.DB) http.HandlerFunc {
 // @Tags authors
 // @Param slug path string true "Author slug"
 // @Success 204
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/authors/{slug} [delete]
 func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
@@ -586,11 +570,10 @@ func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
 // @Param excerpt_words query int false "Max words in excerpt" default(50)
 // @Param section_slug query string false "Filter by section"
 // @Param subsection_slug query string false "Filter by subsection"
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Security BearerAuth
+// @Success 200 {object} models.AuthorArticlesResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /v1/authors/{slug}/articles [get]
 func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -653,22 +636,14 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 			articles = articles[:limit]
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"author": map[string]any{
-				"id":           author.ID,
-				"slug":         author.Slug,
-				"display_name": author.DisplayName,
+		writeJSON(w, http.StatusOK, models.AuthorArticlesResponse{
+			Author: models.AuthorArticlesAuthor{
+				ID:          author.ID,
+				Slug:        author.Slug,
+				DisplayName: author.DisplayName,
 			},
-			"articles": articleListItems(articles, excerptWords),
-			"pagination": map[string]any{
-				"page":        page,
-				"limit":       limit,
-				"offset":      offset,
-				"hasMore":     hasMore,
-				"has_more":    hasMore,
-				"totalCount":  totalCount,
-				"total_count": totalCount,
-			},
+			Articles:   articleListItems(articles, excerptWords),
+			Pagination: paginationResponse(page, limit, offset, hasMore, totalCount),
 		})
 	}
 }
@@ -688,10 +663,9 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 // @Param slug query string false "Filter by slug (partial match)"
 // @Param sort_by query string false "Sort field" Enums(title,slug,creation_date,published_date,status,comment_status)
 // @Param sort_direction query string false "Sort direction" Enums(asc,desc)
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Security BearerAuth
+// @Success 200 {object} models.ArticlesResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /v1/articles [get]
 func GetArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -731,17 +705,9 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 			articles = articles[:limit]
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"articles": articleListItems(articles, excerptWords),
-			"pagination": map[string]any{
-				"page":        page,
-				"limit":       limit,
-				"offset":      offset,
-				"hasMore":     hasMore,
-				"has_more":    hasMore,
-				"totalCount":  totalCount,
-				"total_count": totalCount,
-			},
+		writeJSON(w, http.StatusOK, models.ArticlesResponse{
+			Articles:   articleListItems(articles, excerptWords),
+			Pagination: paginationResponse(page, limit, offset, hasMore, totalCount),
 		})
 	}
 }
@@ -754,10 +720,9 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 // @Param limit query int false "Max results" default(20)
 // @Param offset query int false "Offset"
 // @Param excerpt_words query int false "Max words in excerpt" default(50)
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Security BearerAuth
+// @Success 200 {object} models.SectionArticlesResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /v1/sections/{section_slug}/articles [get]
 func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -808,23 +773,15 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"section": map[string]any{
-				"slug":            params.Section,
-				"name":            sectionCanonicalTitle,
-				"canonical_title": sectionCanonicalTitle,
+		writeJSON(w, http.StatusOK, models.SectionArticlesResponse{
+			Section: models.TaxonomySummary{
+				Slug:           params.Section,
+				Name:           sectionCanonicalTitle,
+				CanonicalTitle: sectionCanonicalTitle,
 			},
-			"subsections": subsections,
-			"articles":    articleListItems(articles, excerptWords),
-			"pagination": map[string]any{
-				"page":        page,
-				"limit":       limit,
-				"offset":      offset,
-				"hasMore":     hasMore,
-				"has_more":    hasMore,
-				"totalCount":  totalCount,
-				"total_count": totalCount,
-			},
+			Subsections: subsections,
+			Articles:    articleListItems(articles, excerptWords),
+			Pagination:  paginationResponse(page, limit, offset, hasMore, totalCount),
 		})
 	}
 }
@@ -838,10 +795,9 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 // @Param limit query int false "Max results" default(20)
 // @Param offset query int false "Offset"
 // @Param excerpt_words query int false "Max words in excerpt" default(50)
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Security BearerAuth
+// @Success 200 {object} models.SubsectionArticlesResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /v1/subsections/{subsection_slug}/articles [get]
 func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -892,27 +848,19 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"section": map[string]any{
-				"slug":            params.Section,
-				"name":            sectionCanonicalTitle,
-				"canonical_title": sectionCanonicalTitle,
+		writeJSON(w, http.StatusOK, models.SubsectionArticlesResponse{
+			Section: models.TaxonomySummary{
+				Slug:           params.Section,
+				Name:           sectionCanonicalTitle,
+				CanonicalTitle: sectionCanonicalTitle,
 			},
-			"subsection": map[string]any{
-				"slug":            params.Subsection,
-				"name":            subsectionCanonicalTitle,
-				"canonical_title": subsectionCanonicalTitle,
+			Subsection: models.TaxonomySummary{
+				Slug:           params.Subsection,
+				Name:           subsectionCanonicalTitle,
+				CanonicalTitle: subsectionCanonicalTitle,
 			},
-			"articles": articleListItems(articles, excerptWords),
-			"pagination": map[string]any{
-				"page":        page,
-				"limit":       limit,
-				"offset":      offset,
-				"hasMore":     hasMore,
-				"has_more":    hasMore,
-				"totalCount":  totalCount,
-				"total_count": totalCount,
-			},
+			Articles:   articleListItems(articles, excerptWords),
+			Pagination: paginationResponse(page, limit, offset, hasMore, totalCount),
 		})
 	}
 }
@@ -1001,12 +949,12 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 
 	if pub_date := db.ParsePublishedAt(q.Get("published_date")); pub_date != nil {
 		conditions = append(conditions, "`pub_date` >= ?")
-		args = append(args, pub_date.UTC().Format("2026-03-23 15:04:05"))
+		args = append(args, pub_date.UTC().Format("2006-01-02 15:04:05"))
 	}
 
 	if creation_date := db.ParsePublishedAt(q.Get("creation_date")); creation_date != nil {
 		conditions = append(conditions, "`creation_date` >= ?")
-		args = append(args, creation_date.UTC().Format("2026-03-23 15:04:05"))
+		args = append(args, creation_date.UTC().Format("2006-01-02 15:04:05"))
 	}
 
 	if slug := strings.TrimSpace(q.Get("slug")); slug != "" {
@@ -1094,9 +1042,8 @@ func appendArticleTypeCondition(conditions *[]string, args *[]any, rawType strin
 // @Param q query string true "Search term"
 // @Param limit query int false "Max results" default(20)
 // @Param offset query int false "Offset"
-// @Success 200 {array} map[string]interface{}
-// @Failure 500 {object} map[string]string
-// @Security BearerAuth
+// @Success 200 {array} models.ArticleListItem
+// @Failure 500 {object} models.ErrorResponse
 // @Router /v1/search [get]
 func GetSearch(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1118,44 +1065,35 @@ func GetSearch(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		resp := make([]map[string]any, 0, len(articles))
+		resp := make([]models.ArticleListItem, 0, len(articles))
 		for _, article := range articles {
-			categories := make([]map[string]string, 0, len(article.Categories))
+			categories := make([]models.CategorySummary, 0, len(article.Categories))
 			for _, category := range article.Categories {
 				name := strings.TrimSpace(category)
 				if name == "" {
 					continue
 				}
-				categories = append(categories, map[string]string{
-					"name": name,
-					"slug": db.CanonicalizeSlug(name),
-				})
+				categories = append(categories, models.CategorySummary{Name: name, Slug: db.CanonicalizeSlug(name)})
 			}
 
-			authors := make([]map[string]any, 0, len(article.Authors))
+			authors := make([]models.AuthorSummary, 0, len(article.Authors))
 			for _, author := range article.Authors {
-				authors = append(authors, map[string]any{
-					"id":   author.ID,
-					"name": author.DisplayName,
-					"slug": author.Slug,
-				})
+				authors = append(authors, models.AuthorSummary{ID: author.ID, Name: author.DisplayName, Slug: author.Slug})
 			}
 
-			item := map[string]any{
-				"title":          article.Title,
-				"id":             article.ID,
-				"authors":        authors,
-				"categories":     categories,
-				"excerpt":        article.Excerpt,
-				"slug":           article.Slug,
-				"status":         article.Status,
-				"comment_status": article.CommentStatus,
-				"featured_image": article.PhotoURL,
-				"is_featured":    article.IsFeatured,
+			item := models.ArticleListItem{
+				Title:         article.Title,
+				ID:            article.ID,
+				Authors:       authors,
+				Categories:    categories,
+				Excerpt:       article.Excerpt,
+				Slug:          article.Slug,
+				Status:        article.Status,
+				CommentStatus: article.CommentStatus,
+				FeaturedImage: article.PhotoURL,
+				IsFeatured:    article.IsFeatured,
 			}
-			if article.PublishedAt != nil {
-				item["published_date"] = article.PublishedAt
-			}
+			item.PublishedDate = article.PublishedAt
 			resp = append(resp, item)
 		}
 
@@ -1167,11 +1105,10 @@ func GetSearch(conn *sql.DB) http.HandlerFunc {
 // @Tags articles
 // @Produce json
 // @Param slug path string true "Article slug"
-// @Success 200 {object} map[string]interface{}
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Security BearerAuth
+// @Success 200 {object} models.ArticleDetailResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /v1/articles/{slug} [get]
 func GetArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1201,37 +1138,27 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 		a = articles[0]
-		categories := make([]map[string]string, 0, len(a.Categories))
+		categories := make([]models.CategorySummary, 0, len(a.Categories))
 		for _, category := range a.Categories {
 			name := strings.TrimSpace(category)
 			if name == "" {
 				continue
 			}
-			categories = append(categories, map[string]string{
-				"name": name,
-				"slug": db.CanonicalizeSlug(name),
-			})
+			categories = append(categories, models.CategorySummary{Name: name, Slug: db.CanonicalizeSlug(name)})
 		}
 
-		seoTags := make([]map[string]string, 0, len(a.Tags))
+		seoTags := make([]models.CategorySummary, 0, len(a.Tags))
 		for _, tag := range a.Tags {
 			name := strings.TrimSpace(tag)
 			if name == "" {
 				continue
 			}
-			seoTags = append(seoTags, map[string]string{
-				"name": name,
-				"slug": db.CanonicalizeSlug(name),
-			})
+			seoTags = append(seoTags, models.CategorySummary{Name: name, Slug: db.CanonicalizeSlug(name)})
 		}
 
-		authors := make([]map[string]any, 0, len(a.Authors))
+		authors := make([]models.AuthorSummary, 0, len(a.Authors))
 		for _, author := range a.Authors {
-			authors = append(authors, map[string]any{
-				"id":   author.ID,
-				"name": author.DisplayName,
-				"slug": author.Slug,
-			})
+			authors = append(authors, models.AuthorSummary{ID: author.ID, Name: author.DisplayName, Slug: author.Slug})
 		}
 
 		relatedArticles, err := db.GetRelatedArticlesBySlug(r.Context(), conn, a.Slug, 3)
@@ -1243,71 +1170,60 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 			relatedArticles = []models.Article{}
 		}
 
-		related := make([]map[string]any, 0, len(relatedArticles))
+		related := make([]models.ArticleListItem, 0, len(relatedArticles))
 		for _, relatedArticle := range relatedArticles {
-			relatedCategories := make([]map[string]string, 0, len(relatedArticle.Categories))
+			relatedCategories := make([]models.CategorySummary, 0, len(relatedArticle.Categories))
 			for _, category := range relatedArticle.Categories {
 				name := strings.TrimSpace(category)
 				if name == "" {
 					continue
 				}
-				relatedCategories = append(relatedCategories, map[string]string{
-					"name": name,
-					"slug": db.CanonicalizeSlug(name),
-				})
+				relatedCategories = append(relatedCategories, models.CategorySummary{Name: name, Slug: db.CanonicalizeSlug(name)})
 			}
 
-			relatedAuthors := make([]map[string]any, 0, len(relatedArticle.Authors))
+			relatedAuthors := make([]models.AuthorSummary, 0, len(relatedArticle.Authors))
 			for _, author := range relatedArticle.Authors {
-				relatedAuthors = append(relatedAuthors, map[string]any{
-					"id":   author.ID,
-					"name": author.DisplayName,
-					"slug": author.Slug,
-				})
+				relatedAuthors = append(relatedAuthors, models.AuthorSummary{ID: author.ID, Name: author.DisplayName, Slug: author.Slug})
 			}
 
-			relatedItem := map[string]any{
-				"title":          relatedArticle.Title,
-				"id":             relatedArticle.ID,
-				"authors":        relatedAuthors,
-				"categories":     relatedCategories,
-				"excerpt":        relatedArticle.Excerpt,
-				"slug":           relatedArticle.Slug,
-				"status":         relatedArticle.Status,
-				"comment_status": relatedArticle.CommentStatus,
-				"featured_image": relatedArticle.PhotoURL,
-				"is_featured":    relatedArticle.IsFeatured,
+			relatedItem := models.ArticleListItem{
+				Title:         relatedArticle.Title,
+				ID:            relatedArticle.ID,
+				Authors:       relatedAuthors,
+				Categories:    relatedCategories,
+				Excerpt:       relatedArticle.Excerpt,
+				Slug:          relatedArticle.Slug,
+				Status:        relatedArticle.Status,
+				CommentStatus: relatedArticle.CommentStatus,
+				FeaturedImage: relatedArticle.PhotoURL,
+				IsFeatured:    relatedArticle.IsFeatured,
 			}
-			if relatedArticle.PublishedAt != nil {
-				relatedItem["published_date"] = relatedArticle.PublishedAt
-			}
+			relatedItem.PublishedDate = relatedArticle.PublishedAt
 			related = append(related, relatedItem)
 		}
 
-		resp := map[string]any{
-			"id":             a.ID,
-			"title":          a.Title,
-			"slug":           a.Slug,
-			"content":        a.Content,
-			"excerpt":        a.Excerpt,
-			"categories":     categories,
-			"comment_status": a.CommentStatus,
-			"is_featured":    a.IsFeatured,
-			"status":         a.Status,
-			"featured_image": a.PhotoURL,
-			"authors":        authors,
-			"seo": map[string]any{
-				"seo_title":        "",
-				"meta_description": "",
-				"focus_keyword":    "",
-				"canonical_url":    "",
-				"tags":             seoTags,
+		resp := models.ArticleDetailResponse{
+			ID:            a.ID,
+			Title:         a.Title,
+			Slug:          a.Slug,
+			Content:       a.Content,
+			Excerpt:       a.Excerpt,
+			Categories:    categories,
+			CommentStatus: a.CommentStatus,
+			IsFeatured:    a.IsFeatured,
+			Status:        a.Status,
+			FeaturedImage: a.PhotoURL,
+			Authors:       authors,
+			SEO: models.SEOResponse{
+				SEOTitle:        "",
+				MetaDescription: "",
+				FocusKeyword:    "",
+				CanonicalURL:    "",
+				Tags:            seoTags,
 			},
-			"related": related,
+			Related: related,
 		}
-		if a.PublishedAt != nil {
-			resp["published_date"] = a.PublishedAt
-		}
+		resp.PublishedDate = a.PublishedAt
 
 		writeJSON(w, http.StatusOK, resp)
 	}
@@ -1318,8 +1234,8 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 // @Accept json
 // @Param body body models.ArticleInput true "Article"
 // @Success 201
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/articles [post]
 func PostArticles(conn *sql.DB) http.HandlerFunc {
@@ -1361,9 +1277,9 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 // @Param slug path string true "Article slug"
 // @Param body body models.Article true "Article"
 // @Success 204
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/articles/{slug} [put]
 func PutArticle(conn *sql.DB) http.HandlerFunc {
@@ -1437,9 +1353,9 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 // @Param slug path string true "Article slug"
 // @Param body body models.ArticlePatch true "Fields to update"
 // @Success 204
-// @Failure 400 {object} map[string]string
-// @Failure 404 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/articles/{slug} [patch]
 func PatchArticle(conn *sql.DB) http.HandlerFunc {
@@ -1614,8 +1530,8 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 // @Tags articles
 // @Param slug path string true "Article slug"
 // @Success 204
-// @Failure 400 {object} map[string]string
-// @Failure 500 {object} map[string]string
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/articles/{slug} [delete]
 func DeleteArticle(conn *sql.DB) http.HandlerFunc {
@@ -1642,9 +1558,8 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 // @Tags homepage
 // @Produce json
 // @Param excerpt_words query int false "Max words in excerpt" default(50)
-// @Success 200 {object} map[string]interface{}
-// @Failure 500 {object} map[string]string
-// @Security BearerAuth
+// @Success 200 {object} models.HomepageResponse
+// @Failure 500 {object} models.ErrorResponse
 // @Router /v1/homepage [get]
 func GetHomepage(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -1662,33 +1577,33 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 		}
 		_, _, offset := listParams(r, 20)
 		excerptWords := excerptWordLimit(r, 50)
-		sectionArticles := map[string]any{
-			"developingstories": []map[string]any{
+		sectionArticles := models.HomepageResponse{
+			DevelopingStories: []models.HomepageDevelopingStory{
 				{
-					"slug":        "questions-arise-over-academy-of-natural-sciences",
-					"link":        "questions-arise-over-academy-of-natural-sciences",
-					"title":       "Questions arise over Academy of Natural Sciences",
-					"excerpt":     "Administration is tight-lipped as a petition is circulating calling on President Merlo to maintain Drexel's commitment to protecting the academy's funding, staff, and programs.",
-					"show_in_news": false,
-					"label": []map[string]any{
+					Slug:       "questions-arise-over-academy-of-natural-sciences",
+					Link:       "questions-arise-over-academy-of-natural-sciences",
+					Title:      "Questions arise over Academy of Natural Sciences",
+					Excerpt:    "Administration is tight-lipped as a petition is circulating calling on President Merlo to maintain Drexel's commitment to protecting the academy's funding, staff, and programs.",
+					ShowInNews: false,
+					Label: []models.HomepageLabel{
 						{
-							"id":   23671,
-							"name": "Academy of Natural Sciences",
-							"slug": "academy-of-natural-sciences",
+							ID:   23671,
+							Name: "Academy of Natural Sciences",
+							Slug: "academy-of-natural-sciences",
 						},
 					},
 				},
 				{
-					"slug":        "philly-pretzel-factory-under-construction",
-					"link":        "philly-pretzel-factory-under-construction",
-					"title":       "Philly Pretzel Factory under construction",
-					"excerpt":     "According to Business Services, work is ongoing at the Philly Pretzel Factory in PISB. Opening date is not yet determined.",
-					"show_in_news": false,
-					"label": []map[string]any{
+					Slug:       "philly-pretzel-factory-under-construction",
+					Link:       "philly-pretzel-factory-under-construction",
+					Title:      "Philly Pretzel Factory under construction",
+					Excerpt:    "According to Business Services, work is ongoing at the Philly Pretzel Factory in PISB. Opening date is not yet determined.",
+					ShowInNews: false,
+					Label: []models.HomepageLabel{
 						{
-							"id":   23374,
-							"name": "Campus",
-							"slug": "campus",
+							ID:   23374,
+							Name: "Campus",
+							Slug: "campus",
 						},
 					},
 				},
@@ -1696,28 +1611,49 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 		}
 
 		for _, section := range sections {
-			params := ArticleParams{"", section.slug, ""}
-			limit := section.limit
-			rows, err := queryArticles(r, conn, params, limit+1, offset)
-			if err != nil {
+			if err := func(section struct {
+				slug  string
+				key   string
+				limit int
+			}) error {
+				params := ArticleParams{"", section.slug, ""}
+				limit := section.limit
+				rows, err := queryArticles(r, conn, params, limit+1, offset)
+				if err != nil {
+					return err
+				}
+				defer rows.Close()
+
+				articles, err := db.CollectArticles(rows)
+				if err != nil {
+					return err
+				}
+				if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
+					return err
+				}
+				hasMore := len(articles) > limit
+				if hasMore {
+					articles = articles[:limit]
+				}
+				switch section.key {
+				case "news":
+					sectionArticles.News = articleListItems(articles, excerptWords)
+				case "opinion":
+					sectionArticles.Opinion = articleListItems(articles, excerptWords)
+				case "sports":
+					sectionArticles.Sports = articleListItems(articles, excerptWords)
+				case "entertainment":
+					sectionArticles.Entertainment = articleListItems(articles, excerptWords)
+				case "candp":
+					sectionArticles.CAndP = articleListItems(articles, excerptWords)
+				case "columns":
+					sectionArticles.Columns = articleListItems(articles, excerptWords)
+				}
+				return nil
+			}(section); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			defer rows.Close()
-			articles, err := db.CollectArticles(rows)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			hasMore := len(articles) > limit
-			if hasMore {
-				articles = articles[:limit]
-			}
-			sectionArticles[section.key] = articleListItems(articles, excerptWords)
 		}
 		writeJSON(w, http.StatusOK, sectionArticles)
 	}

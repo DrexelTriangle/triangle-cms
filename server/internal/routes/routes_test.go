@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestRegister_UsersRoute(t *testing.T) {
+func TestRegister_PublicRoute(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, nil, nil, auth.OIDCConfig{})
 
@@ -18,15 +18,15 @@ func TestRegister_UsersRoute(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "get users route",
+			name:       "get health route",
 			method:     http.MethodGet,
-			path:       "/users",
+			path:       "/v1/health",
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "post users not allowed",
+			name:       "post health not allowed",
 			method:     http.MethodPost,
-			path:       "/users",
+			path:       "/v1/health",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 		{
@@ -34,6 +34,18 @@ func TestRegister_UsersRoute(t *testing.T) {
 			method:     http.MethodGet,
 			path:       "/unknown",
 			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "media placeholder is explicit not implemented",
+			method:     http.MethodGet,
+			path:       "/v1/media",
+			wantStatus: http.StatusNotImplemented,
+		},
+		{
+			name:       "protected write route method not allowed without verifier",
+			method:     http.MethodPost,
+			path:       "/v1/articles",
+			wantStatus: http.StatusMethodNotAllowed,
 		},
 	}
 

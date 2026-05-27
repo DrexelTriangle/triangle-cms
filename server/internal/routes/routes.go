@@ -28,7 +28,9 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	}
 	adminOnly := middleware.RequireAdmin
 
-	mux.HandleFunc("GET /users", handlers.Users)
+	mux.Handle("GET /v1/articles", handlers.GetArticles(conn))
+	mux.Handle("GET /v1/articles/{slug}", handlers.GetArticle(conn))
+	mux.Handle("GET /v1/search", handlers.GetSearch(conn))
 
 	mux.Handle("GET /v1/authors", authMW(handlers.GetAuthors(conn)))
 	mux.Handle("GET /v1/authors/{slug}", authMW(handlers.GetAuthor(conn)))
