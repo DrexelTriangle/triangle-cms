@@ -93,7 +93,7 @@ func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 	var displayName sql.NullString
 	var login sql.NullString
 	var email sql.NullString
-	err := rows.Scan(&a.ID, &displayName, &login, &email)
+	err := rows.Scan(&a.ID, &displayName, &login, &email, &a.ArticleCount)
 	if err != nil {
 		return models.AuthorOverview{}, err
 	}

@@ -155,6 +155,39 @@ definitions:
     x-enum-varnames:
     - RoleEditor
     - RoleAdmin
+  models.TaxonomyInput:
+    properties:
+      canonical_title:
+        type: string
+      kind:
+        type: string
+      parent_slug:
+        type: string
+      slug:
+        type: string
+    type: object
+  models.TaxonomyItem:
+    properties:
+      canonical_title:
+        type: string
+      id:
+        type: integer
+      kind:
+        type: string
+      parent_slug:
+        type: string
+      slug:
+        type: string
+    type: object
+  models.TaxonomyPut:
+    properties:
+      canonical_title:
+        type: string
+      parent_slug:
+        type: string
+      slug:
+        type: string
+    type: object
   models.User:
     properties:
       author_id:
@@ -952,6 +985,219 @@ paths:
       summary: List articles by subsection
       tags:
       - articles
+  /v1/taxonomy:
+    get:
+      parameters:
+      - description: Filter by kind
+        enum:
+        - section
+        - subsection
+        - tag
+        in: query
+        name: kind
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.TaxonomyItem'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List taxonomy items
+      tags:
+      - taxonomy
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Taxonomy item
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.TaxonomyInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              format: int64
+              type: integer
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a taxonomy item
+      tags:
+      - taxonomy
+  /v1/taxonomy/{kind}/{slug}:
+    delete:
+      parameters:
+      - description: Kind
+        enum:
+        - section
+        - subsection
+        - tag
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a taxonomy item
+      tags:
+      - taxonomy
+    get:
+      parameters:
+      - description: Kind
+        enum:
+        - section
+        - subsection
+        - tag
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.TaxonomyItem'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a taxonomy item
+      tags:
+      - taxonomy
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Kind
+        enum:
+        - section
+        - subsection
+        - tag
+        in: path
+        name: kind
+        required: true
+        type: string
+      - description: Slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Updated fields
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.TaxonomyPut'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update a taxonomy item
+      tags:
+      - taxonomy
   /v1/users:
     get:
       produces:
