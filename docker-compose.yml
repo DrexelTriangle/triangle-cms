@@ -15,6 +15,7 @@ services:
       - ./server/internal/database/wordpress_etl/04-seo.sql:/docker-entrypoint-initdb.d/04-seo.sql:ro,z
       - ./server/internal/database/wordpress_etl/05-article-embeddings.sql:/docker-entrypoint-initdb.d/05-article-embeddings.sql:ro,z
       - ./server/internal/database/wordpress_etl/06-taxonomy.sql:/docker-entrypoint-initdb.d/06-taxonomy.sql:ro,z
+      - ./server/internal/database/wordpress_etl/07-poll-counts.sql:/docker-entrypoint-initdb.d/07-poll-counts.sql:ro,z
     ports:
       - "127.0.0.1:${MARIADB_PORT_FORWARD:-3306}:3306"
     healthcheck:

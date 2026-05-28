@@ -59,6 +59,15 @@ PLACEHOLDER_EMBEDDINGS_SQL = """DROP TABLE IF EXISTS article_embeddings;
 -- No article_embeddings.sql found in ETL output.
 """
 
+POLL_COUNTS_SQL = """DROP TABLE IF EXISTS cms_poll_counts;
+CREATE TABLE cms_poll_counts (
+  option_name VARCHAR(128) NOT NULL,
+  vote_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (option_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+"""
+
 NO_AUTO_VALUE_ON_ZERO_PREAMBLE = "SET sql_mode = CONCAT(@@sql_mode, ',NO_AUTO_VALUE_ON_ZERO');\n"
 
 USAGE_ERROR = """Could not determine WordPress ETL SQL source directory.
@@ -264,6 +273,7 @@ def main() -> int:
     out_seo = out_dir / "04-seo.sql"
     out_embeddings = out_dir / "05-article-embeddings.sql"
     out_taxonomy = out_dir / "06-taxonomy.sql"
+    out_poll_counts = out_dir / "07-poll-counts.sql"
 
     copy_sql_with_mariadb_mode(authors_sql, out_authors)
     copy_sql_with_mariadb_mode(articles_sql, out_articles)
@@ -276,6 +286,7 @@ def main() -> int:
         out_embeddings.write_text(PLACEHOLDER_EMBEDDINGS_SQL, encoding="utf-8")
 
     out_taxonomy.write_text(TAXONOMY_SQL, encoding="utf-8")
+    out_poll_counts.write_text(POLL_COUNTS_SQL, encoding="utf-8")
 
     print(f"Imported ETL SQL into: {out_dir}")
     print(f"  01-authors.sql <- {authors_sql}")
@@ -287,6 +298,7 @@ def main() -> int:
     else:
         print("  05-article-embeddings.sql <- placeholder (no ETL embeddings artifact found)")
     print("  06-taxonomy.sql <- cms static taxonomy seed")
+    print("  07-poll-counts.sql <- cms poll counts schema seed")
     return 0
 
 

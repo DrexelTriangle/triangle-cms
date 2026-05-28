@@ -97,6 +97,10 @@ func main() {
 		slog.Error("failed to create users table", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsurePollsTable(context.Background(), db); err != nil {
+		slog.Error("failed to create poll table", "error", err)
+		os.Exit(1)
+	}
 
 	if err := database.EnsureSessionsTable(context.Background(), db); err != nil {
 		slog.Error("failed to create sessions table", "error", err)
