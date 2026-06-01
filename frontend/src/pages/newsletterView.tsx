@@ -62,10 +62,10 @@ export default function NewsletterView() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Subscribers", value: "4,821" },
+          { label: "Total Subscribers", value: SUBSCRIBERS.length.toLocaleString() },
           { label: "Campaigns Sent", value: CAMPAIGNS.filter((c) => c.status === "sent").length.toString() },
           { label: "Avg Open Rate", value: `${avgOpenRate}%` },
-          { label: "Scheduled", value: CAMPAIGNS.filter((c) => c.status === "scheduled").length.toString() },
+          { label: "Recipients Reached", value: totalSent.toLocaleString() },
         ].map((stat) => (
           <div key={stat.label} className="rounded-xl border border-border bg-card p-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{stat.label}</p>

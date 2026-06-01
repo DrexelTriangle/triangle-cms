@@ -40,6 +40,13 @@ func HealthReady(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
+// @Summary Media endpoint placeholder
+// @Tags media
+// @Produce json
+// @Failure 501 {object} models.ErrorResponse
+// @Router /v1/media [get]
+// @Router /v1/media/{id} [get]
+// @Router /v1/media/gallery [get]
 func Users(w http.ResponseWriter, _ *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not implemented")
 }

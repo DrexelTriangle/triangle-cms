@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 	"database/sql"
+	"os"
+	"strings"
 	"time"
 
 	"server/internal/models"
@@ -35,8 +37,14 @@ func EnsureUsersTable(ctx context.Context, conn *sql.DB) error {
 }
 
 func FindOrCreateUser(ctx context.Context, conn *sql.DB, sub, email, name string) (*models.User, error) {
+	autoPromoteAllAdmins := strings.EqualFold(strings.TrimSpace(os.Getenv("CMS_AUTO_PROMOTE_ALL_ADMINS")), "true")
 	user, err := findUserBySub(ctx, conn, sub)
 	if err == nil {
+		if autoPromoteAllAdmins && user.Role != models.RoleAdmin {
+			if err := UpdateUserRole(ctx, conn, user.ID, models.RoleAdmin); err == nil {
+				user.Role = models.RoleAdmin
+			}
+		}
 		_ = updateLastLogin(ctx, conn, user.ID)
 		return user, nil
 	}
@@ -46,9 +54,14 @@ func FindOrCreateUser(ctx context.Context, conn *sql.DB, sub, email, name string
 
 	authorID := findAuthorIDByEmail(ctx, conn, email)
 
+	role := models.RoleEditor
+	if autoPromoteAllAdmins {
+		role = models.RoleAdmin
+	}
+
 	res, err := conn.ExecContext(ctx,
-		"INSERT INTO cms_users (sub, email, name, author_id) VALUES (?, ?, ?, ?)",
-		sub, email, name, authorID,
+		"INSERT INTO cms_users (sub, email, name, role, author_id) VALUES (?, ?, ?, ?, ?)",
+		sub, email, name, role, authorID,
 	)
 	if err != nil {
 		return nil, err
@@ -64,7 +77,7 @@ func FindOrCreateUser(ctx context.Context, conn *sql.DB, sub, email, name string
 		Sub:         sub,
 		Email:       email,
 		Name:        name,
-		Role:        models.RoleEditor,
+		Role:        role,
 		AuthorID:    authorID,
 		CreatedAt:   now,
 		LastLoginAt: now,

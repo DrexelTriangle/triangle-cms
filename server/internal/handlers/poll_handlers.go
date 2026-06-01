@@ -5,17 +5,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	db "server/internal/database"
+	"server/internal/models"
 )
 
-type pollOptionRequest struct {
-	Option string `json:"option"`
-}
-
-type pollOptionRenameRequest struct {
-	OldOption string `json:"old_option"`
-	NewOption string `json:"new_option"`
-}
-
+// @Summary Get poll counts
+// @Tags poll
+// @Produce json
+// @Success 200 {object} models.PollCountsResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/poll [get]
 func GetPoll(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		counts, err := pollCounts(r, conn)
@@ -23,10 +23,21 @@ func GetPoll(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to fetch poll counts")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"counts": counts})
+		writeJSON(w, http.StatusOK, models.PollCountsResponse{Counts: counts})
 	})
 }
 
+// @Summary Submit poll vote
+// @Tags poll
+// @Accept json
+// @Accept application/x-www-form-urlencoded
+// @Produce json
+// @Param body body models.PollOptionRequest false "Poll vote payload"
+// @Param poll formData string false "Poll vote option (form payload)"
+// @Success 200 {object} models.PollCountsResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/poll [post]
 func PostPoll(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		option, err := parseSubmittedPollOption(r)
@@ -48,10 +59,16 @@ func PostPoll(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to fetch poll counts")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"counts": counts})
+		writeJSON(w, http.StatusOK, models.PollCountsResponse{Counts: counts})
 	})
 }
 
+// @Summary Get poll options
+// @Tags poll
+// @Produce json
+// @Success 200 {object} models.PollOptionsResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/poll/options [get]
 func GetPollOptions(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		options, err := pollOptions(r, conn)
@@ -59,13 +76,73 @@ func GetPollOptions(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to fetch poll options")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"options": options})
+		writeJSON(w, http.StatusOK, models.PollOptionsResponse{Options: options})
 	})
 }
 
+// @Summary Get poll title
+// @Tags poll
+// @Produce json
+// @Success 200 {object} models.PollTitleResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/poll/title [get]
+func GetPollTitle(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		title, err := db.GetPollTitle(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to fetch poll title")
+			return
+		}
+		writeJSON(w, http.StatusOK, models.PollTitleResponse{Title: title})
+	})
+}
+
+// @Summary Update poll title
+// @Tags poll
+// @Accept json
+// @Produce json
+// @Param body body models.PollTitleRequest true "Poll title update"
+// @Success 200 {object} models.PollTitleResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/poll/title [patch]
+func PatchPollTitle(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body models.PollTitleRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		title := strings.TrimSpace(body.Title)
+		if title == "" {
+			writeError(w, http.StatusBadRequest, "poll title is required")
+			return
+		}
+		if len(title) > 200 {
+			writeError(w, http.StatusBadRequest, "poll title too long")
+			return
+		}
+		if err := db.SetPollTitle(r.Context(), conn, title); err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to update poll title")
+			return
+		}
+		writeJSON(w, http.StatusOK, models.PollTitleResponse{Title: title})
+	})
+}
+
+// @Summary Add poll option
+// @Tags poll
+// @Accept json
+// @Param body body models.PollOptionRequest true "Poll option"
+// @Success 201
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 409 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/poll/options [post]
 func PostPollOption(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body pollOptionRequest
+		var body models.PollOptionRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
@@ -93,9 +170,20 @@ func PostPollOption(conn *sql.DB) http.Handler {
 	})
 }
 
+// @Summary Rename poll option
+// @Tags poll
+// @Accept json
+// @Param body body models.PollOptionRenameRequest true "Poll option rename"
+// @Success 204
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 409 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/poll/options [patch]
 func PatchPollOption(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body pollOptionRenameRequest
+		var body models.PollOptionRenameRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
@@ -128,9 +216,19 @@ func PatchPollOption(conn *sql.DB) http.Handler {
 	})
 }
 
+// @Summary Delete poll option
+// @Tags poll
+// @Accept json
+// @Param body body models.PollOptionRequest true "Poll option"
+// @Success 204
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/poll/options [delete]
 func DeletePollOption(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body pollOptionRequest
+		var body models.PollOptionRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
@@ -163,7 +261,7 @@ func parseSubmittedPollOption(r *http.Request) (string, error) {
 	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
 	switch {
 	case strings.Contains(contentType, "application/json"):
-		var body pollOptionRequest
+		var body models.PollOptionRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			return "", err
 		}

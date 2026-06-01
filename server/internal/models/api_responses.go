@@ -6,6 +6,10 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type AuthRedirectResponse struct {
+	Location string `json:"location"`
+}
+
 type UserRolePatchRequest struct {
 	Role Role `json:"role"`
 }
@@ -132,4 +136,37 @@ type HomepageResponse struct {
 	Entertainment     []ArticleListItem         `json:"entertainment"`
 	CAndP             []ArticleListItem         `json:"candp"`
 	Columns           []ArticleListItem         `json:"columns"`
+}
+
+type SiteSettingsResponse struct {
+	SiteTitle string `json:"site_title"`
+}
+
+type SiteSettingsPatchRequest struct {
+	SiteTitle string `json:"site_title"`
+}
+
+type PollOptionRequest struct {
+	Option string `json:"option"`
+}
+
+type PollOptionRenameRequest struct {
+	OldOption string `json:"old_option"`
+	NewOption string `json:"new_option"`
+}
+
+type PollTitleRequest struct {
+	Title string `json:"title"`
+}
+
+type PollCountsResponse struct {
+	Counts map[string]int64 `json:"counts"`
+}
+
+type PollOptionsResponse struct {
+	Options []string `json:"options"`
+}
+
+type PollTitleResponse struct {
+	Title string `json:"title"`
 }

@@ -33,6 +33,43 @@ definitions:
       title:
         type: string
     type: object
+  models.ArticleDetailResponse:
+    properties:
+      authors:
+        items:
+          $ref: '#/definitions/models.AuthorSummary'
+        type: array
+      categories:
+        items:
+          $ref: '#/definitions/models.CategorySummary'
+        type: array
+      comment_status:
+        type: string
+      content:
+        type: string
+      excerpt:
+        type: string
+      featured_image:
+        type: string
+      id:
+        type: integer
+      is_featured:
+        type: boolean
+      published_date:
+        type: string
+      related:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      seo:
+        $ref: '#/definitions/models.SEOResponse'
+      slug:
+        type: string
+      status:
+        $ref: '#/definitions/models.ArticleStatus'
+      title:
+        type: string
+    type: object
   models.ArticleInput:
     properties:
       authors:
@@ -50,6 +87,35 @@ definitions:
       is_featured:
         type: boolean
       photo_url:
+        type: string
+      slug:
+        type: string
+      status:
+        $ref: '#/definitions/models.ArticleStatus'
+      title:
+        type: string
+    type: object
+  models.ArticleListItem:
+    properties:
+      authors:
+        items:
+          $ref: '#/definitions/models.AuthorSummary'
+        type: array
+      categories:
+        items:
+          $ref: '#/definitions/models.CategorySummary'
+        type: array
+      comment_status:
+        type: string
+      excerpt:
+        type: string
+      featured_image:
+        type: string
+      id:
+        type: integer
+      is_featured:
+        type: boolean
+      published_date:
         type: string
       slug:
         type: string
@@ -91,6 +157,20 @@ definitions:
     x-enum-varnames:
     - ArticleStatusDraft
     - ArticleStatusPublished
+  models.ArticlesResponse:
+    properties:
+      articles:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      pagination:
+        $ref: '#/definitions/models.Pagination'
+    type: object
+  models.AuthRedirectResponse:
+    properties:
+      location:
+        type: string
+    type: object
   models.Author:
     properties:
       created_at:
@@ -110,6 +190,26 @@ definitions:
       updated_at:
         type: string
     type: object
+  models.AuthorArticlesAuthor:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: integer
+      slug:
+        type: string
+    type: object
+  models.AuthorArticlesResponse:
+    properties:
+      articles:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      author:
+        $ref: '#/definitions/models.AuthorArticlesAuthor'
+      pagination:
+        $ref: '#/definitions/models.Pagination'
+    type: object
   models.AuthorInput:
     properties:
       display_name:
@@ -125,6 +225,8 @@ definitions:
     type: object
   models.AuthorOverview:
     properties:
+      article_count:
+        type: integer
       display_name:
         type: string
       email:
@@ -147,6 +249,139 @@ definitions:
       slug:
         type: string
     type: object
+  models.AuthorSummary:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  models.CategorySummary:
+    properties:
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  models.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  models.HealthResponse:
+    properties:
+      status:
+        type: string
+    type: object
+  models.HomepageDevelopingStory:
+    properties:
+      excerpt:
+        type: string
+      label:
+        items:
+          $ref: '#/definitions/models.HomepageLabel'
+        type: array
+      link:
+        type: string
+      show_in_news:
+        type: boolean
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
+  models.HomepageLabel:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  models.HomepageResponse:
+    properties:
+      candp:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      columns:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      developingstories:
+        items:
+          $ref: '#/definitions/models.HomepageDevelopingStory'
+        type: array
+      entertainment:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      news:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      opinion:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      sports:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+    type: object
+  models.Pagination:
+    properties:
+      has_more:
+        type: boolean
+      limit:
+        type: integer
+      offset:
+        type: integer
+      page:
+        type: integer
+      total_count:
+        type: integer
+    type: object
+  models.PollCountsResponse:
+    properties:
+      counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+    type: object
+  models.PollOptionRenameRequest:
+    properties:
+      new_option:
+        type: string
+      old_option:
+        type: string
+    type: object
+  models.PollOptionRequest:
+    properties:
+      option:
+        type: string
+    type: object
+  models.PollOptionsResponse:
+    properties:
+      options:
+        items:
+          type: string
+        type: array
+    type: object
+  models.PollTitleRequest:
+    properties:
+      title:
+        type: string
+    type: object
+  models.PollTitleResponse:
+    properties:
+      title:
+        type: string
+    type: object
   models.Role:
     enum:
     - editor
@@ -155,15 +390,68 @@ definitions:
     x-enum-varnames:
     - RoleEditor
     - RoleAdmin
+  models.SEOResponse:
+    properties:
+      canonical_url:
+        type: string
+      focus_keyword:
+        type: string
+      meta_description:
+        type: string
+      seo_title:
+        type: string
+      tags:
+        items:
+          $ref: '#/definitions/models.CategorySummary'
+        type: array
+    type: object
+  models.SectionArticlesResponse:
+    properties:
+      articles:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      pagination:
+        $ref: '#/definitions/models.Pagination'
+      section:
+        $ref: '#/definitions/models.TaxonomySummary'
+      subsections:
+        items:
+          $ref: '#/definitions/models.TaxonomySummary'
+        type: array
+    type: object
+  models.SiteSettingsPatchRequest:
+    properties:
+      site_title:
+        type: string
+    type: object
+  models.SiteSettingsResponse:
+    properties:
+      site_title:
+        type: string
+    type: object
+  models.SubsectionArticlesResponse:
+    properties:
+      articles:
+        items:
+          $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      pagination:
+        $ref: '#/definitions/models.Pagination'
+      section:
+        $ref: '#/definitions/models.TaxonomySummary'
+      subsection:
+        $ref: '#/definitions/models.TaxonomySummary'
+    type: object
   models.TaxonomyInput:
     properties:
       canonical_title:
         type: string
-      kind:
-        type: string
       parent_slug:
         type: string
       slug:
+        type: string
+      type:
         type: string
     type: object
   models.TaxonomyItem:
@@ -172,11 +460,11 @@ definitions:
         type: string
       id:
         type: integer
-      kind:
-        type: string
       parent_slug:
         type: string
       slug:
+        type: string
+      type:
         type: string
     type: object
   models.TaxonomyPut:
@@ -184,6 +472,15 @@ definitions:
       canonical_title:
         type: string
       parent_slug:
+        type: string
+      slug:
+        type: string
+    type: object
+  models.TaxonomySummary:
+    properties:
+      canonical_title:
+        type: string
+      name:
         type: string
       slug:
         type: string
@@ -202,6 +499,11 @@ definitions:
         type: string
       name:
         type: string
+      role:
+        $ref: '#/definitions/models.Role'
+    type: object
+  models.UserRolePatchRequest:
+    properties:
       role:
         $ref: '#/definitions/models.Role'
     type: object
@@ -284,22 +586,15 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/models.ArticlesResponse'
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/models.ErrorResponse'
       summary: List articles
       tags:
       - articles
@@ -319,15 +614,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Create an article
@@ -347,15 +638,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Delete an article
@@ -374,28 +661,19 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/models.ArticleDetailResponse'
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/models.ErrorResponse'
       summary: Get an article by slug
       tags:
       - articles
@@ -420,21 +698,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Partially update an article
@@ -461,26 +733,59 @@ paths:
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Replace an article
       tags:
       - articles
+  /v1/auth/callback:
+    get:
+      parameters:
+      - description: Authorization code
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: State
+        in: query
+        name: state
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Found
+          schema:
+            $ref: '#/definitions/models.AuthRedirectResponse'
+      summary: Complete OIDC login callback
+      tags:
+      - auth
+  /v1/auth/login:
+    get:
+      responses:
+        "302":
+          description: Found
+          schema:
+            $ref: '#/definitions/models.AuthRedirectResponse'
+      summary: Start OIDC login
+      tags:
+      - auth
+  /v1/auth/logout:
+    post:
+      responses:
+        "204":
+          description: No Content
+      summary: Logout current session
+      tags:
+      - auth
   /v1/authors:
     get:
       parameters:
@@ -524,11 +829,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/models.ErrorResponse'
       summary: List authors
       tags:
       - authors
@@ -548,15 +849,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Create an author
@@ -576,21 +873,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Delete an author
@@ -613,23 +904,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/models.ErrorResponse'
       summary: Get an author by slug
       tags:
       - authors
@@ -654,21 +937,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Partially update an author
@@ -695,21 +972,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Replace an author
@@ -755,28 +1026,19 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/models.AuthorArticlesResponse'
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/models.ErrorResponse'
       summary: List articles by author
       tags:
       - authors
@@ -788,9 +1050,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.HealthResponse'
       summary: Liveness check
       tags:
       - health
@@ -802,15 +1062,11 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.HealthResponse'
         "503":
           description: Service Unavailable
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       summary: Readiness check
       tags:
       - health
@@ -828,19 +1084,250 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/models.HomepageResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/models.ErrorResponse'
       summary: Get homepage data
       tags:
       - homepage
+  /v1/media:
+    get:
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Media endpoint placeholder
+      tags:
+      - media
+  /v1/media/{id}:
+    get:
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Media endpoint placeholder
+      tags:
+      - media
+  /v1/media/gallery:
+    get:
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Media endpoint placeholder
+      tags:
+      - media
+  /v1/poll:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PollCountsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get poll counts
+      tags:
+      - poll
+    post:
+      consumes:
+      - application/json
+      - application/x-www-form-urlencoded
+      parameters:
+      - description: Poll vote payload
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/models.PollOptionRequest'
+      - description: Poll vote option (form payload)
+        in: formData
+        name: poll
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PollCountsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Submit poll vote
+      tags:
+      - poll
+  /v1/poll/options:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Poll option
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.PollOptionRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete poll option
+      tags:
+      - poll
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PollOptionsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get poll options
+      tags:
+      - poll
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Poll option rename
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.PollOptionRenameRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Rename poll option
+      tags:
+      - poll
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Poll option
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.PollOptionRequest'
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add poll option
+      tags:
+      - poll
+  /v1/poll/title:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PollTitleResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get poll title
+      tags:
+      - poll
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Poll title update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.PollTitleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PollTitleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update poll title
+      tags:
+      - poll
   /v1/search:
     get:
       parameters:
@@ -865,17 +1352,12 @@ paths:
           description: OK
           schema:
             items:
-              additionalProperties: true
-              type: object
+              $ref: '#/definitions/models.ArticleListItem'
             type: array
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/models.ErrorResponse'
       summary: Search articles
       tags:
       - articles
@@ -911,25 +1393,64 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/models.SectionArticlesResponse'
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/models.ErrorResponse'
       summary: List articles by section
       tags:
       - articles
+  /v1/settings/site:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SiteSettingsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get site settings
+      tags:
+      - settings
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Site settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.SiteSettingsPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SiteSettingsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update site settings
+      tags:
+      - settings
   /v1/subsections/{subsection_slug}/articles:
     get:
       parameters:
@@ -966,35 +1487,28 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/models.SubsectionArticlesResponse'
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
+            $ref: '#/definitions/models.ErrorResponse'
       summary: List articles by subsection
       tags:
       - articles
   /v1/taxonomy:
     get:
       parameters:
-      - description: Filter by kind
+      - description: Filter by type
         enum:
         - section
         - subsection
         - tag
         in: query
-        name: kind
+        name: type
         type: string
       produces:
       - application/json
@@ -1059,16 +1573,16 @@ paths:
       summary: Create a taxonomy item
       tags:
       - taxonomy
-  /v1/taxonomy/{kind}/{slug}:
+  /v1/taxonomy/{type}/{slug}:
     delete:
       parameters:
-      - description: Kind
+      - description: Type
         enum:
         - section
         - subsection
         - tag
         in: path
-        name: kind
+        name: type
         required: true
         type: string
       - description: Slug
@@ -1104,13 +1618,13 @@ paths:
       - taxonomy
     get:
       parameters:
-      - description: Kind
+      - description: Type
         enum:
         - section
         - subsection
         - tag
         in: path
-        name: kind
+        name: type
         required: true
         type: string
       - description: Slug
@@ -1152,13 +1666,13 @@ paths:
       consumes:
       - application/json
       parameters:
-      - description: Kind
+      - description: Type
         enum:
         - section
         - subsection
         - tag
         in: path
-        name: kind
+        name: type
         required: true
         type: string
       - description: Slug
@@ -1212,15 +1726,11 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "403":
           description: Forbidden
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: List all users
@@ -1241,36 +1751,26 @@ paths:
         name: body
         required: true
         schema:
-          additionalProperties:
-            type: string
-          type: object
+          $ref: '#/definitions/models.UserRolePatchRequest'
       responses:
         "204":
           description: No Content
         "400":
           description: Bad Request
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "403":
           description: Forbidden
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Update user role
@@ -1288,9 +1788,7 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Get current user

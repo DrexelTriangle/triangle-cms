@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -37,6 +38,11 @@ func RequireAuth(verifier *oidc.IDTokenVerifier, conn *sql.DB, oidcCfg auth.OIDC
 				user, session, err := db.GetUserBySessionID(r.Context(), conn, cookie.Value)
 				if err == nil {
 					if time.Now().Before(session.ExpiresAt) {
+						if strings.EqualFold(strings.TrimSpace(os.Getenv("CMS_AUTO_PROMOTE_ALL_ADMINS")), "true") && user.Role != models.RoleAdmin {
+							if err := db.UpdateUserRole(r.Context(), conn, user.ID, models.RoleAdmin); err == nil {
+								user.Role = models.RoleAdmin
+							}
+						}
 						ctx := context.WithValue(r.Context(), contextKeyUser, user)
 						next.ServeHTTP(w, r.WithContext(ctx))
 						return

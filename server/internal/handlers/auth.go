@@ -28,7 +28,10 @@ func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: "sid", Value: "", HttpOnly: true, Path: "/", MaxAge: -1})
 }
 
-// GET /v1/auth/login
+// @Summary Start OIDC login
+// @Tags auth
+// @Success 302 {object} models.AuthRedirectResponse
+// @Router /v1/auth/login [get]
 func AuthLogin(cfg auth.OIDCConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		verifier := auth.GenerateRandom()
@@ -56,7 +59,12 @@ func AuthLogin(cfg auth.OIDCConfig) http.HandlerFunc {
 	}
 }
 
-// GET /v1/auth/callback
+// @Summary Complete OIDC login callback
+// @Tags auth
+// @Param code query string true "Authorization code"
+// @Param state query string true "State"
+// @Success 302 {object} models.AuthRedirectResponse
+// @Router /v1/auth/callback [get]
 func AuthCallback(cfg auth.OIDCConfig, verifier *oidc.IDTokenVerifier, conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		loginErr := func(reason string) {
@@ -137,7 +145,10 @@ func AuthCallback(cfg auth.OIDCConfig, verifier *oidc.IDTokenVerifier, conn *sql
 	}
 }
 
-// POST /v1/auth/logout
+// @Summary Logout current session
+// @Tags auth
+// @Success 204
+// @Router /v1/auth/logout [post]
 func AuthLogout(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if cookie, err := r.Cookie("sid"); err == nil {
