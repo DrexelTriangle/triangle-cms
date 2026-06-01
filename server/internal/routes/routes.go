@@ -45,6 +45,8 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/homepage", handlers.GetHomepage(conn))
 	mux.Handle("GET /v1/settings/site", handlers.GetSiteSettings(conn))
 	mux.Handle("GET /v1/users/me", authMW(http.HandlerFunc(handlers.GetMe)))
+	mux.Handle("GET /v1/users", authMW(adminOnly(handlers.GetUsers(conn))))
+	mux.Handle("PATCH /v1/users/{id}", authMW(adminOnly(handlers.PatchUser(conn))))
 	mux.Handle("GET /v1/poll", handlers.GetPoll(conn))
 	mux.Handle("GET /v1/poll/title", handlers.GetPollTitle(conn))
 	mux.Handle("POST /v1/poll", middleware.RateLimitByIP(5, time.Minute)(handlers.PostPoll(conn)))

@@ -1,3 +1,4 @@
+import { useCurrentUserRole } from "./hooks/useCurrentUserRole"
 import { Routes, Route, useLocation, Navigate } from "react-router-dom"
 import { useAuth } from "react-oidc-context"
 import Header from "./components/Header"
@@ -45,6 +46,24 @@ function ComingSoon({ page }: { page: string }) {
   )
 }
 
+function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { isAdmin, isLoading } = useCurrentUserRole()
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    )
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/" replace />
+  }
+
+  return <>{children}</>
+}
+
 export default function App() {
   const location = useLocation()
   const auth = useAuth()
@@ -90,10 +109,31 @@ export default function App() {
         <Route path="/sections" element={<SectionsView />} />
         <Route path="/comments" element={<CommentsView />} />
         <Route path="/seo" element={<SeoView />} />
-        <Route path="/activity" element={<ActivityView />} />
-        <Route path="/users" element={<UsersView />} />
+        <Route
+          path="/activity"
+          element={(
+            <AdminOnlyRoute>
+              <ActivityView />
+            </AdminOnlyRoute>
+          )}
+        />
+        <Route
+          path="/users"
+          element={(
+            <AdminOnlyRoute>
+              <UsersView />
+            </AdminOnlyRoute>
+          )}
+        />
         <Route path="/user-settings" element={<ComingSoon page="Profile Settings" />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route
+          path="/settings"
+          element={(
+            <AdminOnlyRoute>
+              <SettingsPage />
+            </AdminOnlyRoute>
+          )}
+        />
         <Route path="/articleView" element={<ArticleView excludeType="developing-stories" />} />
         <Route path="/mediaView" element={<MediaView />} />
       </Routes>

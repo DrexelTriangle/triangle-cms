@@ -45,6 +45,14 @@ type ApiAuthor = {
   display_name: string
 }
 
+type AuthorsResponse = {
+  authors?: ApiAuthor[]
+  pagination?: {
+    has_more?: boolean
+    hasMore?: boolean
+  }
+}
+
 const normalizeMediaItems = (payload: unknown): MediaItem[] => {
   const asRecord = (value: unknown): Record<string, unknown> | null => (value && typeof value === "object" ? (value as Record<string, unknown>) : null)
   const root = asRecord(payload)
@@ -164,13 +172,32 @@ function EditArticleView() {
       setAuthorsLoading(true)
       setAuthorsError(null)
       try {
-        const response = await apiFetch("/v1/authors?limit=200&sort_by=display_name&sort_direction=asc")
-        if (!response.ok) {
-          throw new Error(`Authors request failed (${response.status})`)
+        const pageSize = 200
+        let offset = 0
+        let hasMore = true
+        const allAuthors: ApiAuthor[] = []
+
+        while (hasMore) {
+          const response = await apiFetch(`/v1/authors?limit=${pageSize}&offset=${offset}&sort_by=display_name&sort_direction=asc`)
+          if (!response.ok) {
+            throw new Error(`Authors request failed (${response.status})`)
+          }
+          const payload = (await response.json()) as ApiAuthor[] | AuthorsResponse
+          const authorList = Array.isArray(payload) ? payload : (payload.authors ?? [])
+          allAuthors.push(...authorList)
+
+          const apiHasMore = Array.isArray(payload)
+            ? undefined
+            : (payload.pagination?.has_more ?? payload.pagination?.hasMore)
+          hasMore = typeof apiHasMore === "boolean" ? apiHasMore : authorList.length === pageSize
+          offset += authorList.length
+          if (authorList.length === 0) {
+            hasMore = false
+          }
         }
-        const payload = (await response.json()) as ApiAuthor[]
+
         if (!cancelled) {
-          setAuthors(payload)
+          setAuthors(allAuthors)
         }
       } catch (err) {
         if (!cancelled) {
