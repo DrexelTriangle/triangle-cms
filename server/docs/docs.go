@@ -17,11 +17,6 @@ const docTemplate = `{
     "paths": {
         "/v1/articles": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -125,26 +120,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/models.ArticlesResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -180,19 +168,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -200,11 +182,6 @@ const docTemplate = `{
         },
         "/v1/articles/{slug}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -225,35 +202,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/models.ArticleDetailResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -296,28 +263,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -348,19 +306,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -403,40 +355,87 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
+                    }
+                }
+            }
+        },
+        "/v1/auth/callback": {
+            "get": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Complete OIDC login callback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Authorization code",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "State",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.AuthRedirectResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/login": {
+            "get": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Start OIDC login",
+                "responses": {
+                    "302": {
+                        "description": "Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.AuthRedirectResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/logout": {
+            "post": {
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Logout current session",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     }
                 }
             }
         },
         "/v1/authors": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -499,10 +498,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -538,19 +534,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -558,11 +548,6 @@ const docTemplate = `{
         },
         "/v1/authors/{slug}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -589,28 +574,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -653,28 +629,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -705,28 +672,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -769,28 +727,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -798,11 +747,6 @@ const docTemplate = `{
         },
         "/v1/authors/{slug}/articles": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -861,35 +805,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/models.AuthorArticlesResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -908,10 +842,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.HealthResponse"
                         }
                     }
                 }
@@ -930,19 +861,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.HealthResponse"
                         }
                     },
                     "503": {
                         "description": "Service Unavailable",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -950,11 +875,6 @@ const docTemplate = `{
         },
         "/v1/homepage": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -975,17 +895,386 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/models.HomepageResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/media": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "media"
+                ],
+                "summary": "Media endpoint placeholder",
+                "responses": {
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/media/gallery": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "media"
+                ],
+                "summary": "Media endpoint placeholder",
+                "responses": {
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/media/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "media"
+                ],
+                "summary": "Media endpoint placeholder",
+                "responses": {
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/poll": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "poll"
+                ],
+                "summary": "Get poll counts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.PollCountsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json",
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "poll"
+                ],
+                "summary": "Submit poll vote",
+                "parameters": [
+                    {
+                        "description": "Poll vote payload",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/models.PollOptionRequest"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Poll vote option (form payload)",
+                        "name": "poll",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.PollCountsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/poll/options": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "poll"
+                ],
+                "summary": "Get poll options",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.PollOptionsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "poll"
+                ],
+                "summary": "Add poll option",
+                "parameters": [
+                    {
+                        "description": "Poll option",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.PollOptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "poll"
+                ],
+                "summary": "Delete poll option",
+                "parameters": [
+                    {
+                        "description": "Poll option",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.PollOptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "poll"
+                ],
+                "summary": "Rename poll option",
+                "parameters": [
+                    {
+                        "description": "Poll option rename",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.PollOptionRenameRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/poll/title": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "poll"
+                ],
+                "summary": "Get poll title",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.PollTitleResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "poll"
+                ],
+                "summary": "Update poll title",
+                "parameters": [
+                    {
+                        "description": "Poll title update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.PollTitleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.PollTitleResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -993,11 +1282,6 @@ const docTemplate = `{
         },
         "/v1/search": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1033,18 +1317,14 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "type": "object",
-                                "additionalProperties": true
+                                "$ref": "#/definitions/models.ArticleListItem"
                             }
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1052,11 +1332,6 @@ const docTemplate = `{
         },
         "/v1/sections/{section_slug}/articles": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1103,26 +1378,92 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/models.SectionArticlesResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/settings/site": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get site settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.SiteSettingsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Update site settings",
+                "parameters": [
+                    {
+                        "description": "Site settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.SiteSettingsPatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.SiteSettingsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1130,11 +1471,6 @@ const docTemplate = `{
         },
         "/v1/subsections/{subsection_slug}/articles": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1187,26 +1523,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/models.SubsectionArticlesResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1234,8 +1563,8 @@ const docTemplate = `{
                             "tag"
                         ],
                         "type": "string",
-                        "description": "Filter by kind",
-                        "name": "kind",
+                        "description": "Filter by type",
+                        "name": "type",
                         "in": "query"
                     }
                 ],
@@ -1328,7 +1657,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/v1/taxonomy/{kind}/{slug}": {
+        "/v1/taxonomy/{type}/{slug}": {
             "get": {
                 "security": [
                     {
@@ -1350,8 +1679,8 @@ const docTemplate = `{
                             "tag"
                         ],
                         "type": "string",
-                        "description": "Kind",
-                        "name": "kind",
+                        "description": "Type",
+                        "name": "type",
                         "in": "path",
                         "required": true
                     },
@@ -1420,8 +1749,8 @@ const docTemplate = `{
                             "tag"
                         ],
                         "type": "string",
-                        "description": "Kind",
-                        "name": "kind",
+                        "description": "Type",
+                        "name": "type",
                         "in": "path",
                         "required": true
                     },
@@ -1493,8 +1822,8 @@ const docTemplate = `{
                             "tag"
                         ],
                         "type": "string",
-                        "description": "Kind",
-                        "name": "kind",
+                        "description": "Type",
+                        "name": "type",
                         "in": "path",
                         "required": true
                     },
@@ -1567,19 +1896,13 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1609,10 +1932,7 @@ const docTemplate = `{
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1646,10 +1966,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.UserRolePatchRequest"
                         }
                     }
                 ],
@@ -1660,37 +1977,25 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1748,6 +2053,62 @@ const docTemplate = `{
                 }
             }
         },
+        "models.ArticleDetailResponse": {
+            "type": "object",
+            "properties": {
+                "authors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.AuthorSummary"
+                    }
+                },
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.CategorySummary"
+                    }
+                },
+                "comment_status": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "excerpt": {
+                    "type": "string"
+                },
+                "featured_image": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_featured": {
+                    "type": "boolean"
+                },
+                "published_date": {
+                    "type": "string"
+                },
+                "related": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "seo": {
+                    "$ref": "#/definitions/models.SEOResponse"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/models.ArticleStatus"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "models.ArticleInput": {
             "type": "object",
             "properties": {
@@ -1773,6 +2134,50 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "photo_url": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/models.ArticleStatus"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.ArticleListItem": {
+            "type": "object",
+            "properties": {
+                "authors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.AuthorSummary"
+                    }
+                },
+                "categories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.CategorySummary"
+                    }
+                },
+                "comment_status": {
+                    "type": "string"
+                },
+                "excerpt": {
+                    "type": "string"
+                },
+                "featured_image": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_featured": {
+                    "type": "boolean"
+                },
+                "published_date": {
                     "type": "string"
                 },
                 "slug": {
@@ -1835,6 +2240,28 @@ const docTemplate = `{
                 "ArticleStatusPublished"
             ]
         },
+        "models.ArticlesResponse": {
+            "type": "object",
+            "properties": {
+                "articles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/models.Pagination"
+                }
+            }
+        },
+        "models.AuthRedirectResponse": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string"
+                }
+            }
+        },
         "models.Author": {
             "type": "object",
             "properties": {
@@ -1864,6 +2291,37 @@ const docTemplate = `{
                 }
             }
         },
+        "models.AuthorArticlesAuthor": {
+            "type": "object",
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.AuthorArticlesResponse": {
+            "type": "object",
+            "properties": {
+                "articles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "author": {
+                    "$ref": "#/definitions/models.AuthorArticlesAuthor"
+                },
+                "pagination": {
+                    "$ref": "#/definitions/models.Pagination"
+                }
+            }
+        },
         "models.AuthorInput": {
             "type": "object",
             "properties": {
@@ -1887,6 +2345,9 @@ const docTemplate = `{
         "models.AuthorOverview": {
             "type": "object",
             "properties": {
+                "article_count": {
+                    "type": "integer"
+                },
                 "display_name": {
                     "type": "string"
                 },
@@ -1921,6 +2382,212 @@ const docTemplate = `{
                 }
             }
         },
+        "models.AuthorSummary": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.CategorySummary": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.HealthResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.HomepageDevelopingStory": {
+            "type": "object",
+            "properties": {
+                "excerpt": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.HomepageLabel"
+                    }
+                },
+                "link": {
+                    "type": "string"
+                },
+                "show_in_news": {
+                    "type": "boolean"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.HomepageLabel": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.HomepageResponse": {
+            "type": "object",
+            "properties": {
+                "candp": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "columns": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "developingstories": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.HomepageDevelopingStory"
+                    }
+                },
+                "entertainment": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "news": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "opinion": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "sports": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                }
+            }
+        },
+        "models.Pagination": {
+            "type": "object",
+            "properties": {
+                "has_more": {
+                    "type": "boolean"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "total_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.PollCountsResponse": {
+            "type": "object",
+            "properties": {
+                "counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            }
+        },
+        "models.PollOptionRenameRequest": {
+            "type": "object",
+            "properties": {
+                "new_option": {
+                    "type": "string"
+                },
+                "old_option": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.PollOptionRequest": {
+            "type": "object",
+            "properties": {
+                "option": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.PollOptionsResponse": {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "models.PollTitleRequest": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.PollTitleResponse": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "models.Role": {
             "type": "string",
             "enum": [
@@ -1932,19 +2599,101 @@ const docTemplate = `{
                 "RoleAdmin"
             ]
         },
+        "models.SEOResponse": {
+            "type": "object",
+            "properties": {
+                "canonical_url": {
+                    "type": "string"
+                },
+                "focus_keyword": {
+                    "type": "string"
+                },
+                "meta_description": {
+                    "type": "string"
+                },
+                "seo_title": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.CategorySummary"
+                    }
+                }
+            }
+        },
+        "models.SectionArticlesResponse": {
+            "type": "object",
+            "properties": {
+                "articles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/models.Pagination"
+                },
+                "section": {
+                    "$ref": "#/definitions/models.TaxonomySummary"
+                },
+                "subsections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.TaxonomySummary"
+                    }
+                }
+            }
+        },
+        "models.SiteSettingsPatchRequest": {
+            "type": "object",
+            "properties": {
+                "site_title": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.SiteSettingsResponse": {
+            "type": "object",
+            "properties": {
+                "site_title": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.SubsectionArticlesResponse": {
+            "type": "object",
+            "properties": {
+                "articles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/models.Pagination"
+                },
+                "section": {
+                    "$ref": "#/definitions/models.TaxonomySummary"
+                },
+                "subsection": {
+                    "$ref": "#/definitions/models.TaxonomySummary"
+                }
+            }
+        },
         "models.TaxonomyInput": {
             "type": "object",
             "properties": {
                 "canonical_title": {
                     "type": "string"
                 },
-                "kind": {
-                    "type": "string"
-                },
                 "parent_slug": {
                     "type": "string"
                 },
                 "slug": {
+                    "type": "string"
+                },
+                "type": {
                     "type": "string"
                 }
             }
@@ -1958,13 +2707,13 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
-                "kind": {
-                    "type": "string"
-                },
                 "parent_slug": {
                     "type": "string"
                 },
                 "slug": {
+                    "type": "string"
+                },
+                "type": {
                     "type": "string"
                 }
             }
@@ -1976,6 +2725,20 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "parent_slug": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.TaxonomySummary": {
+            "type": "object",
+            "properties": {
+                "canonical_title": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 },
                 "slug": {
@@ -2004,6 +2767,14 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "role": {
+                    "$ref": "#/definitions/models.Role"
+                }
+            }
+        },
+        "models.UserRolePatchRequest": {
+            "type": "object",
+            "properties": {
                 "role": {
                     "$ref": "#/definitions/models.Role"
                 }
