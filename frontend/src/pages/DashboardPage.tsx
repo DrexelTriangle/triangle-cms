@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import { useAuth } from "react-oidc-context"
 import { useNavigate } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { useSessionAuth } from "../auth/sessionAuth"
 import {
   FileText,
   CheckCircle2,
@@ -82,7 +82,7 @@ async function slugExists(apiFetch: (url: string, init?: RequestInit) => Promise
 
 export default function DashboardPage() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user } = useSessionAuth()
   const apiFetch = useApiFetch()
   const [recentArticles, setRecentArticles] = useState<RecentArticle[]>([])
   const [draftTitle, setDraftTitle] = useState("")
@@ -231,8 +231,7 @@ export default function DashboardPage() {
   }, [apiFetch])
 
   const weeklyDelta = stats.weeklyDelta
-  const profile = user?.profile
-  const displayName = String(profile?.name ?? profile?.preferred_username ?? "Editor")
+  const displayName = String(user?.name ?? user?.email ?? "Editor")
 
   const createQuickDraft = async () => {
     const title = draftTitle.trim()

@@ -51,15 +51,33 @@ func CreateSession(ctx context.Context, conn *sql.DB, s Session) error {
 
 func GetSessionByID(ctx context.Context, conn *sql.DB, id string) (Session, error) {
 	var s Session
-	var expiresAt string
+	var expiresAtRaw any
 	err := conn.QueryRowContext(ctx,
 		"SELECT id, user_id, access_token, refresh_token, expires_at FROM cms_sessions WHERE id = ?",
 		id,
-	).Scan(&s.ID, &s.UserID, &s.AccessToken, &s.RefreshToken, &expiresAt)
+	).Scan(&s.ID, &s.UserID, &s.AccessToken, &s.RefreshToken, &expiresAtRaw)
 	if err != nil {
 		return Session{}, err
 	}
-	s.ExpiresAt, _ = time.Parse("2006-01-02 15:04:05", expiresAt)
+
+	switch v := expiresAtRaw.(type) {
+	case time.Time:
+		s.ExpiresAt = v.UTC()
+	case []byte:
+		expiresAt, err := time.Parse("2006-01-02 15:04:05", string(v))
+		if err != nil {
+			return Session{}, err
+		}
+		s.ExpiresAt = expiresAt.UTC()
+	case string:
+		expiresAt, err := time.Parse("2006-01-02 15:04:05", v)
+		if err != nil {
+			return Session{}, err
+		}
+		s.ExpiresAt = expiresAt.UTC()
+	default:
+		return Session{}, sql.ErrNoRows
+	}
 	return s, nil
 }
 

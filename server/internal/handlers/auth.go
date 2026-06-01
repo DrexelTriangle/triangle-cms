@@ -50,7 +50,7 @@ func AuthLogin(cfg auth.OIDCConfig) http.HandlerFunc {
 			"client_id":             {cfg.ClientID},
 			"redirect_uri":          {cfg.RedirectURL},
 			"response_type":         {"code"},
-			"scope":                 {"openid profile email"},
+			"scope":                 {"openid profile email offline_access"},
 			"state":                 {state},
 			"code_challenge":        {auth.PKCEChallenge(verifier)},
 			"code_challenge_method": {"S256"},
@@ -124,23 +124,21 @@ func AuthCallback(cfg auth.OIDCConfig, verifier *oidc.IDTokenVerifier, conn *sql
 			return
 		}
 
-		expiresIn := tr.ExpiresIn
-		if expiresIn <= 0 {
-			expiresIn = 3600
-		}
+		sessionTTL := auth.SessionTTL()
+		sessionMaxAge := int(sessionTTL.Seconds())
 
 		if err := db.CreateSession(r.Context(), conn, db.Session{
 			ID:           sessionID,
 			UserID:       user.ID,
 			AccessToken:  tr.AccessToken,
 			RefreshToken: tr.RefreshToken,
-			ExpiresAt:    time.Now().Add(time.Duration(expiresIn) * time.Second),
+			ExpiresAt:    time.Now().Add(sessionTTL),
 		}); err != nil {
 			loginErr("session_error")
 			return
 		}
 
-		setSessionCookie(w, sessionID, expiresIn)
+		setSessionCookie(w, sessionID, sessionMaxAge)
 		http.Redirect(w, r, cfg.FrontendURL+"/", http.StatusFound)
 	}
 }

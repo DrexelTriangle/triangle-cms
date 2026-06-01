@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1656,37 +1657,29 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 		}
 		_, _, offset := listParams(r, 20)
 		excerptWords := excerptWordLimit(r, 50)
+		storyTitles, err := db.GetDevelopingStories(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		developingStories := make([]models.HomepageDevelopingStory, 0, len(storyTitles))
+		for idx, title := range storyTitles {
+			slug := db.CanonicalizeSlug(title)
+			if slug == "" {
+				slug = fmt.Sprintf("developing-story-%d", idx+1)
+			}
+			developingStories = append(developingStories, models.HomepageDevelopingStory{
+				Slug:       slug,
+				Link:       slug,
+				Title:      title,
+				Excerpt:    "",
+				ShowInNews: false,
+				Label:      []models.HomepageLabel{},
+			})
+		}
+
 		sectionArticles := models.HomepageResponse{
-			DevelopingStories: []models.HomepageDevelopingStory{
-				{
-					Slug:       "questions-arise-over-academy-of-natural-sciences",
-					Link:       "questions-arise-over-academy-of-natural-sciences",
-					Title:      "Questions arise over Academy of Natural Sciences",
-					Excerpt:    "Administration is tight-lipped as a petition is circulating calling on President Merlo to maintain Drexel's commitment to protecting the academy's funding, staff, and programs.",
-					ShowInNews: false,
-					Label: []models.HomepageLabel{
-						{
-							ID:   23671,
-							Name: "Academy of Natural Sciences",
-							Slug: "academy-of-natural-sciences",
-						},
-					},
-				},
-				{
-					Slug:       "philly-pretzel-factory-under-construction",
-					Link:       "philly-pretzel-factory-under-construction",
-					Title:      "Philly Pretzel Factory under construction",
-					Excerpt:    "According to Business Services, work is ongoing at the Philly Pretzel Factory in PISB. Opening date is not yet determined.",
-					ShowInNews: false,
-					Label: []models.HomepageLabel{
-						{
-							ID:   23374,
-							Name: "Campus",
-							Slug: "campus",
-						},
-					},
-				},
-			},
+			DevelopingStories: developingStories,
 		}
 
 		for _, section := range sections {

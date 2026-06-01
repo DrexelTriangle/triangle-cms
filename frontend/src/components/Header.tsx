@@ -1,8 +1,6 @@
 import { Bell } from "lucide-react"
-import { useEffect, useState } from "react"
-import { useAuth } from "react-oidc-context"
 import { useNavigate } from "react-router-dom"
-import { useApiFetch } from "../hooks/useApiFetch"
+import { useSessionAuth } from "../auth/sessionAuth"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -16,35 +14,10 @@ import {
 
 export default function Header() {
   const navigate = useNavigate()
-  const { user } = useAuth()
-  const apiFetch = useApiFetch()
-  const [displayRole, setDisplayRole] = useState("Editor")
-  const profile = user?.profile
-  const displayName = String(profile?.name ?? profile?.preferred_username ?? "Editor")
+  const { user, logout } = useSessionAuth()
+  const displayName = String(user?.name ?? user?.email ?? "Editor")
   const initials = displayName.split(" ").map((part) => part[0] ?? "").join("").slice(0, 2).toUpperCase()
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadMe() {
-      try {
-        const res = await apiFetch("/v1/users/me")
-        if (!res.ok) return
-        const body = (await res.json()) as { role?: string }
-        const role = String(body.role ?? "").trim()
-        if (!cancelled && role) {
-          setDisplayRole(role.charAt(0).toUpperCase() + role.slice(1))
-        }
-      } catch {
-        // Keep fallback role when /me is unavailable.
-      }
-    }
-
-    void loadMe()
-    return () => {
-      cancelled = true
-    }
-  }, [apiFetch])
+  const displayRole = user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : "Editor"
 
   return (
     <header className="h-16 flex items-center justify-between px-6 bg-card border-b border-border shrink-0">
@@ -78,7 +51,10 @@ export default function Header() {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive focus:text-destructive focus:bg-destructive/10"
-              onClick={() => navigate("/login")}
+              onClick={async () => {
+                await logout()
+                navigate("/login", { replace: true })
+              }}
             >
               Log out
             </DropdownMenuItem>

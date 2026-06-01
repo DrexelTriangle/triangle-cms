@@ -20,10 +20,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
-    "oidc-client-ts": "^3.5.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-oidc-context": "^3.3.1",
     "react-router-dom": "^7.13.1",
     "tailwind-merge": "^3.5.0"
   },

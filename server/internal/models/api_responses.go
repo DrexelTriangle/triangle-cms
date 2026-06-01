@@ -175,3 +175,11 @@ type PollOptionsResponse struct {
 type PollTitleResponse struct {
 	Title string `json:"title"`
 }
+
+type DevelopingStoryRequest struct {
+	Title string `json:"title"`
+}
+
+type DevelopingStoriesResponse struct {
+	Stories []string `json:"stories"`
+}

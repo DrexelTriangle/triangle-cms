@@ -1,7 +1,8 @@
-import { useAuth } from "react-oidc-context"
 import { LogOut } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { useNavigate } from "react-router-dom"
+import { useSessionAuth } from "../auth/sessionAuth"
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -13,13 +14,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export default function SettingsPage() {
-  const { user, signoutRedirect } = useAuth()
+  const { user, logout } = useSessionAuth()
+  const navigate = useNavigate()
   const apiFetch = useApiFetch()
-  const profile = user?.profile
-  const name = profile?.name ?? "—"
-  const email = profile?.email ?? "—"
-  const username = profile?.preferred_username ?? "—"
-  const groups = (profile?.groups as string[] | undefined) ?? []
+  const name = user?.name ?? "—"
+  const email = user?.email ?? "—"
+  const username = user?.email ?? "—"
+  const groups: string[] = []
   const initials = name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
   const [siteTitle, setSiteTitle] = useState("")
   const [siteTitleDraft, setSiteTitleDraft] = useState("")
@@ -85,7 +86,10 @@ export default function SettingsPage() {
         </div>
         <button
           type="button"
-          onClick={() => signoutRedirect()}
+          onClick={async () => {
+            await logout()
+            navigate("/login", { replace: true })
+          }}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-destructive/40 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
         >
           <LogOut className="w-4 h-4" />

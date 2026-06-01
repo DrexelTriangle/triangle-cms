@@ -141,7 +141,7 @@ func main() {
 			SkipClientIDCheck: clientID == "",
 		})
 		frontendURL := getenvOrDefault("FRONTEND_ORIGIN", "http://localhost:5173")
-		redirectURL := getenvOrDefault("OIDC_REDIRECT_URI", frontendURL+"/v1/auth/callback")
+		redirectURL := getenvOrDefault("OIDC_REDIRECT_URI", frontendURL+"/auth/callback")
 		oidcCfg = auth.OIDCConfig{
 			ClientID:     clientID,
 			ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),

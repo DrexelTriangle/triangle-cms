@@ -1,6 +1,6 @@
 import { useCurrentUserRole } from "./hooks/useCurrentUserRole"
 import { Routes, Route, useLocation, Navigate } from "react-router-dom"
-import { useAuth } from "react-oidc-context"
+import { useSessionAuth } from "./auth/sessionAuth"
 import Header from "./components/Header"
 import Sidebar from "./components/Sidebar"
 import DashboardPage from "./pages/DashboardPage"
@@ -66,7 +66,7 @@ function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const location = useLocation()
-  const auth = useAuth()
+  const auth = useSessionAuth()
   const isAuthRoute = AUTH_ROUTES.includes(location.pathname)
 
   if (auth.isLoading) {
@@ -88,6 +88,13 @@ export default function App() {
   }
 
   if (!auth.isAuthenticated) {
+    if (auth.hasPendingAuthFlow) {
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">Finalizing sign-in…</p>
+        </div>
+      )
+    }
     return <Navigate to="/login" replace />
   }
 
@@ -134,8 +141,6 @@ export default function App() {
             </AdminOnlyRoute>
           )}
         />
-        <Route path="/articleView" element={<ArticleView excludeType="developing-stories" />} />
-        <Route path="/mediaView" element={<MediaView />} />
       </Routes>
     </AppShell>
   )
