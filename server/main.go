@@ -110,6 +110,10 @@ func main() {
 		slog.Error("failed to create settings table", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsureTaxonomyTable(context.Background(), db); err != nil {
+		slog.Error("failed to create taxonomy table", "error", err)
+		os.Exit(1)
+	}
 	if err := database.EnsurePollSettings(context.Background(), db); err != nil {
 		slog.Error("failed to seed poll settings", "error", err)
 		os.Exit(1)

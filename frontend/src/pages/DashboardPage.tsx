@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useAuth } from "react-oidc-context"
 import { useNavigate } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import {
@@ -10,9 +11,9 @@ import {
   Plus,
   ArrowUpRight,
   ArrowDownRight,
+  AlertCircle,
   ExternalLink,
   Activity,
-  Clock,
   Zap,
   Tag,
   Layers,
@@ -35,7 +36,11 @@ interface RecentArticle {
 
 interface ApiStats {
   totalArticles: number | null
+  publishedArticles: number | null
+  draftArticles: number | null
   totalAuthors: number | null
+  totalSections: number | null
+  weeklyDelta: number
   loading: boolean
 }
 
@@ -56,38 +61,263 @@ function timeAgo(dateStr: string | null) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+function toCanonicalSlug(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+async function slugExists(apiFetch: (url: string, init?: RequestInit) => Promise<Response>, slug: string) {
+  const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`)
+  return response.ok
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const apiFetch = useApiFetch()
   const [recentArticles, setRecentArticles] = useState<RecentArticle[]>([])
   const [draftTitle, setDraftTitle] = useState("")
   const [draftContent, setDraftContent] = useState("")
+  const [isSavingDraft, setIsSavingDraft] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
   const [apiHealth, setApiHealth] = useState<"ok" | "error" | "checking">("checking")
-  const [stats, setStats] = useState<ApiStats>({ totalArticles: null, totalAuthors: null, loading: true })
+  const [stats, setStats] = useState<ApiStats>({ totalArticles: null, publishedArticles: null, draftArticles: null, totalAuthors: null, totalSections: null, weeklyDelta: 0, loading: true })
 
   useEffect(() => {
+    let cancelled = false
+
     apiFetch("/v1/articles?limit=10")
       .then((r) => r.json())
       .then((d) => {
         setRecentArticles(d.articles ?? [])
-        setStats((s) => ({ ...s, totalArticles: d.pagination?.totalCount ?? null, loading: false }))
+        setStats((s) => ({
+          ...s,
+          totalArticles: d.pagination?.total_count ?? d.pagination?.totalCount ?? null,
+          loading: false,
+        }))
       })
       .catch(() => setStats((s) => ({ ...s, loading: false })))
 
-    apiFetch("/v1/authors?limit=1")
+    apiFetch("/v1/articles?status=published&limit=1")
       .then((r) => r.json())
-      .then((d: unknown) => {
-        if (Array.isArray(d)) setStats((s) => ({ ...s, totalAuthors: d.length }))
+      .then((d) => {
+        setStats((s) => ({
+          ...s,
+          publishedArticles: d.pagination?.total_count ?? d.pagination?.totalCount ?? null,
+        }))
       })
       .catch(() => {})
+
+    apiFetch("/v1/articles?status=draft&limit=1")
+      .then((r) => r.json())
+      .then((d) => {
+        setStats((s) => ({
+          ...s,
+          draftArticles: d.pagination?.total_count ?? d.pagination?.totalCount ?? null,
+        }))
+      })
+      .catch(() => {})
+
+    apiFetch("/v1/authors?limit=10000")
+      .then((r) => r.json())
+      .then((d) => {
+        setStats((s) => ({
+          ...s,
+          totalAuthors: Array.isArray(d) ? d.length : (d.pagination?.total_count ?? d.pagination?.totalCount ?? null),
+        }))
+      })
+      .catch(() => {})
+
+    apiFetch("/v1/taxonomy?type=section")
+      .then(async (r) => {
+        if (r.ok) return r.json()
+        const fallback = await apiFetch("/v1/taxonomy")
+        if (!fallback.ok) throw new Error("taxonomy unavailable")
+        return fallback.json()
+      })
+      .then(async (d) => {
+        let totalSections = Array.isArray(d)
+          ? d.filter((item) => item?.type === "section").length || d.length
+          : null
+        if (totalSections == null || totalSections === 0) {
+          const homepageRes = await apiFetch("/v1/homepage")
+          if (homepageRes.ok) {
+            const homepage = await homepageRes.json()
+            const sectionKeys = ["news", "opinion", "sports", "entertainment", "candp", "columns"]
+            totalSections = sectionKeys.filter((key) => Array.isArray(homepage?.[key])).length
+          }
+        }
+        setStats((s) => ({
+          ...s,
+          totalSections,
+        }))
+      })
+      .catch(async () => {
+        try {
+          const homepageRes = await apiFetch("/v1/homepage")
+          if (!homepageRes.ok) return
+          const homepage = await homepageRes.json()
+          const sectionKeys = ["news", "opinion", "sports", "entertainment", "candp", "columns"]
+          const totalSections = sectionKeys.filter((key) => Array.isArray(homepage?.[key])).length
+          setStats((s) => ({ ...s, totalSections }))
+        } catch {
+          // Keep placeholder when both sources are unavailable.
+        }
+      })
 
     apiFetch("/v1/articles?limit=1")
       .then((r) => (r.ok ? setApiHealth("ok") : setApiHealth("error")))
       .catch(() => setApiHealth("error"))
+
+    ;(async () => {
+      const now = Date.now()
+      const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000
+      const twoWeeksAgo = now - 14 * 24 * 60 * 60 * 1000
+      const pageSize = 100
+      let offset = 0
+      let thisWeek = 0
+      let prevWeek = 0
+
+      try {
+        for (;;) {
+          const resp = await apiFetch(`/v1/articles?status=published&sort_by=published_date&sort_direction=desc&limit=${pageSize}&offset=${offset}`)
+          const data = await resp.json()
+          const articles = Array.isArray(data?.articles) ? data.articles : []
+          if (articles.length === 0) break
+
+          let reachedOlderThanWindow = false
+          for (const article of articles) {
+            const publishedDate = article?.published_date
+            if (!publishedDate) continue
+            const t = new Date(publishedDate).getTime()
+            if (Number.isNaN(t)) continue
+            if (t >= oneWeekAgo) {
+              thisWeek += 1
+              continue
+            }
+            if (t >= twoWeeksAgo) {
+              prevWeek += 1
+              continue
+            }
+            reachedOlderThanWindow = true
+          }
+
+          if (reachedOlderThanWindow || articles.length < pageSize) break
+          offset += pageSize
+        }
+
+        if (!cancelled) {
+          setStats((s) => ({ ...s, weeklyDelta: thisWeek - prevWeek }))
+        }
+      } catch {
+        if (!cancelled) {
+          setStats((s) => ({ ...s, weeklyDelta: 0 }))
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
   }, [apiFetch])
 
-  const published = recentArticles.filter((a) => a.status === "published")
-  const drafts = recentArticles.filter((a) => a.status === "draft")
+  const weeklyDelta = stats.weeklyDelta
+  const profile = user?.profile
+  const displayName = String(profile?.name ?? profile?.preferred_username ?? "Editor")
+
+  const createQuickDraft = async () => {
+    const title = draftTitle.trim()
+    if (!title || isSavingDraft) return
+
+    setIsSavingDraft(true)
+    setDraftError(null)
+
+    const baseSlug = toCanonicalSlug(title) || "draft"
+    let slug = baseSlug
+    try {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const candidate = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`
+        // Prefer the cleanest slug first, and only suffix if it's already taken.
+        // If lookup errors, we still try creating with this candidate.
+        const exists = await slugExists(apiFetch, candidate).catch(() => false)
+        if (!exists) {
+          slug = candidate
+          break
+        }
+      }
+      if (!slug) {
+        slug = `${baseSlug}-${Date.now().toString(36)}`
+      }
+    } catch {
+      slug = `${baseSlug}-${Date.now().toString(36)}`
+    }
+    const payload = {
+      title,
+      slug,
+      content: draftContent.trim(),
+      categories: ["Uncategorized"],
+      photo_url: "",
+      is_featured: false,
+      status: "draft",
+      comment_status: "open",
+      authors: [],
+    }
+
+    try {
+      const response = await apiFetch("/v1/articles", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        throw new Error(`Save failed (${response.status})`)
+      }
+
+      let confirmed = false
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const verifyResponse = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`)
+        if (verifyResponse.ok) {
+          confirmed = true
+          break
+        }
+        await delay(200)
+      }
+      if (!confirmed) {
+        throw new Error("Draft created but not yet available. Please try again.")
+      }
+
+      if (typeof window !== "undefined") {
+        const keysToDelete: string[] = []
+        for (let i = 0; i < window.sessionStorage.length; i += 1) {
+          const key = window.sessionStorage.key(i)
+          if (key?.startsWith("articleView:")) {
+            keysToDelete.push(key)
+          }
+        }
+        for (const key of keysToDelete) {
+          window.sessionStorage.removeItem(key)
+        }
+      }
+
+      navigate(`/articles/${encodeURIComponent(slug)}/edit`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to save draft."
+      setDraftError(message)
+    } finally {
+      setIsSavingDraft(false)
+    }
+  }
 
   return (
     <div className="p-6 space-y-6 w-full">
@@ -97,13 +327,18 @@ export default function DashboardPage() {
           <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-1">
             COMMAND CENTER
           </p>
-          <h1 className="text-3xl font-extrabold tracking-tight">{getHour()}, Juste.</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight">{getHour()}, {displayName}.</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Here's what's happening at The Triangle today.
           </p>
         </div>
         <div className="flex gap-2.5 shrink-0">
-          <Button variant="outline" size="sm" className="gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => window.open("https://www.thetriangle.org", "_blank", "noopener,noreferrer")}
+          >
             <ExternalLink className="w-3.5 h-3.5" />
             View site
           </Button>
@@ -123,26 +358,34 @@ export default function DashboardPage() {
             icon: FileText,
             color: "text-primary",
             bg: "bg-primary/10",
-            delta: "+12 this week",
-            up: true,
+            delta: `${weeklyDelta >= 0 ? "+" : ""}${weeklyDelta} this week`,
+            up: weeklyDelta >= 0,
+            neutral: weeklyDelta === 0,
           },
           {
             label: "Published",
-            value: published.length,
+            value:
+              stats.publishedArticles != null
+                ? stats.publishedArticles.toLocaleString()
+                : "—",
             icon: CheckCircle2,
             color: "text-success",
             bg: "bg-success/10",
-            delta: "in this view",
+            delta: "",
             up: true,
           },
           {
             label: "Drafts",
-            value: drafts.length,
+            value:
+              stats.draftArticles != null
+                ? stats.draftArticles.toLocaleString()
+                : "—",
             icon: PenLine,
             color: "text-amber-500",
             bg: "bg-amber-50",
             delta: "need review",
-            up: false,
+            up: (stats.draftArticles ?? 0) === 0,
+            deltaIcon: AlertCircle,
           },
           {
             label: "Authors",
@@ -150,16 +393,16 @@ export default function DashboardPage() {
             icon: Users,
             color: "text-violet-500",
             bg: "bg-violet-50",
-            delta: "active",
+            delta: "",
             up: true,
           },
           {
             label: "Sections",
-            value: "6",
+            value: stats.totalSections != null ? stats.totalSections.toLocaleString() : "—",
             icon: Layers,
             color: "text-sky-500",
             bg: "bg-sky-50",
-            delta: "editorial",
+            delta: "",
             up: true,
           },
           {
@@ -168,11 +411,12 @@ export default function DashboardPage() {
             icon: Server,
             color: apiHealth === "ok" ? "text-success" : apiHealth === "error" ? "text-destructive" : "text-muted-foreground",
             bg: apiHealth === "ok" ? "bg-success/10" : apiHealth === "error" ? "bg-destructive/10" : "bg-muted",
-            delta: "live",
+            delta: apiHealth === "ok" ? "up" : "down",
             up: apiHealth === "ok",
           },
         ].map((card) => {
           const Icon = card.icon
+          const DeltaIcon = card.deltaIcon
           return (
             <Card key={card.label} className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
@@ -185,10 +429,12 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <p className="text-2xl font-extrabold tracking-tight">{card.value}</p>
-                <p className={`text-xs mt-1 flex items-center gap-0.5 font-medium ${card.up ? "text-success" : "text-amber-500"}`}>
-                  {card.up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                  {card.delta}
-                </p>
+                {card.delta ? (
+                  <p className={`text-xs mt-1 flex items-center gap-0.5 font-medium ${card.neutral ? "text-muted-foreground" : card.up ? "text-success" : "text-destructive"}`}>
+                    {DeltaIcon ? <DeltaIcon className="w-3 h-3" /> : card.up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                    {card.delta}
+                  </p>
+                ) : null}
               </CardContent>
             </Card>
           )
@@ -261,7 +507,7 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* RIGHT: Quick Draft + Quick Actions + Tip */}
+        {/* RIGHT: Quick Draft + Quick Actions */}
         <div className="space-y-5">
 
           {/* Quick Draft */}
@@ -295,12 +541,15 @@ export default function DashboardPage() {
               <Button
                 size="sm"
                 className="w-full gap-1.5"
-                disabled={!draftTitle.trim()}
-                onClick={() => navigate("/articles")}
+                disabled={!draftTitle.trim() || isSavingDraft}
+                onClick={() => void createQuickDraft()}
               >
                 <Send className="w-3.5 h-3.5" />
-                Save Draft
+                {isSavingDraft ? "Saving..." : "Save Draft"}
               </Button>
+              {draftError ? (
+                <p className="text-xs text-destructive">{draftError}</p>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -341,42 +590,6 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Publishing Tip */}
-          <Card className="bg-sidebar text-sidebar-foreground border-0 overflow-hidden">
-            <CardContent className="p-5">
-              <div className="flex items-center gap-2 mb-2.5">
-                <Clock className="w-4 h-4 text-primary" />
-                <p className="text-[10px] font-bold uppercase tracking-widest text-sidebar-muted">Publishing Tip</p>
-              </div>
-              <p className="text-sm text-white font-semibold leading-snug mb-1">
-                Articles published 9–11am get 2× more engagement.
-              </p>
-              <p className="text-xs text-sidebar-muted">Schedule your next piece for morning.</p>
-            </CardContent>
-          </Card>
-
-          {/* System info */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-sm font-bold flex items-center gap-2">
-                <Server className="w-4 h-4 text-primary" />
-                System
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 pb-4 space-y-2 text-sm">
-              {[
-                { label: "CMS Version", value: "Delta 1.0" },
-                { label: "Backend", value: "Go 1.25" },
-                { label: "Database", value: "MariaDB 11.7" },
-                { label: "API", value: apiHealth === "ok" ? "✓ Healthy" : apiHealth === "error" ? "✗ Unreachable" : "Checking…" },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex items-center justify-between">
-                  <span className="text-muted-foreground text-xs">{label}</span>
-                  <span className="text-xs font-semibold">{value}</span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>

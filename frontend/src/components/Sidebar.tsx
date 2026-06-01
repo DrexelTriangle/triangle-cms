@@ -19,7 +19,6 @@ import {
   BookOpen,
   MessageSquare,
   Activity,
-  Megaphone,
   BarChart3,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -53,7 +52,6 @@ const navGroups: NavGroup[] = [
       { icon: BarChart3, label: "Poll", path: "/poll" },
       { icon: Image, label: "Media", path: "/media" },
       { icon: Mail, label: "Newsletter", path: "/newsletter" },
-      { icon: Megaphone, label: "Ad Locations", path: "/ad-locations" },
     ],
   },
   {

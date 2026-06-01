@@ -44,10 +44,12 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/media/gallery", http.HandlerFunc(handlers.Users))
 	mux.Handle("GET /v1/homepage", handlers.GetHomepage(conn))
 	mux.Handle("GET /v1/settings/site", handlers.GetSiteSettings(conn))
+	mux.Handle("GET /v1/users/me", authMW(http.HandlerFunc(handlers.GetMe)))
 	mux.Handle("GET /v1/poll", handlers.GetPoll(conn))
 	mux.Handle("GET /v1/poll/title", handlers.GetPollTitle(conn))
 	mux.Handle("POST /v1/poll", middleware.RateLimitByIP(5, time.Minute)(handlers.PostPoll(conn)))
 	mux.Handle("GET /v1/poll/options", handlers.GetPollOptions(conn))
+	mux.Handle("GET /v1/taxonomy", authMW(handlers.GetTaxonomy(conn)))
 	mux.Handle("PATCH /v1/poll/title", authMW(adminOnly(handlers.PatchPollTitle(conn))))
 	mux.Handle("POST /v1/poll/options", authMW(adminOnly(handlers.PostPollOption(conn))))
 	mux.Handle("PATCH /v1/poll/options", authMW(adminOnly(handlers.PatchPollOption(conn))))
@@ -60,12 +62,13 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 		mux.Handle("PATCH /v1/authors/{slug}", authMW(adminOnly(handlers.PatchAuthor(conn))))
 		mux.Handle("DELETE /v1/authors/{slug}", authMW(adminOnly(handlers.DeleteAuthor(conn))))
 
-		mux.Handle("POST /v1/articles", authMW(handlers.PostArticles(conn)))
-		mux.Handle("PUT /v1/articles/{slug}", authMW(handlers.PutArticle(conn)))
-		mux.Handle("PATCH /v1/articles/{slug}", authMW(handlers.PatchArticle(conn)))
-		mux.Handle("DELETE /v1/articles/{slug}", authMW(adminOnly(handlers.DeleteArticle(conn))))
+			mux.Handle("POST /v1/articles", authMW(handlers.PostArticles(conn)))
+			mux.Handle("PUT /v1/articles/{slug}", authMW(handlers.PutArticle(conn)))
+				mux.Handle("PATCH /v1/articles/{slug}", authMW(handlers.PatchArticle(conn)))
+				mux.Handle("PATCH /v1/articles/{slug}/restore", authMW(handlers.RestoreArticle(conn)))
+				mux.Handle("DELETE /v1/articles/{slug}", authMW(handlers.DeleteArticle(conn)))
+		}
 	}
-}
 
 func registerProtectedRoutes(
 	mux *http.ServeMux,

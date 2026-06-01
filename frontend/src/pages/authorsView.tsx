@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Search, Plus, Pencil, Trash2 } from "lucide-react"
+import { Search, Plus, Pencil, Trash2, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 
 type Author = {
@@ -9,6 +9,18 @@ type Author = {
   email?: string
   article_count?: number
 }
+
+type AuthorsResponse = {
+  authors?: Author[]
+  pagination?: {
+    has_more?: boolean
+    hasMore?: boolean
+    total_count?: number
+    totalCount?: number
+  }
+}
+
+const PAGE_SIZE = 50
 
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
@@ -26,26 +38,39 @@ function AuthorsView() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  const [page, setPage] = useState(0)
+  const [totalAuthorCount, setTotalAuthorCount] = useState(0)
 
   useEffect(() => {
     setIsLoading(true)
-    apiFetch("/v1/authors?limit=200&sort_by=display_name&sort_direction=asc")
+    apiFetch(`/v1/authors?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}&sort_by=display_name&sort_direction=asc`)
       .then((r) => {
         if (!r.ok) throw new Error(`Request failed (${r.status})`)
-        return r.json() as Promise<Author[] | { authors: Author[] }>
+        return r.json() as Promise<Author[] | AuthorsResponse>
       })
       .then((data) => {
-        setAuthors(Array.isArray(data) ? data : (data.authors ?? []))
+        const items = Array.isArray(data) ? data : (data.authors ?? [])
+        setAuthors(items)
+        const apiTotalCount = Array.isArray(data) ? undefined : (data.pagination?.total_count ?? data.pagination?.totalCount)
+        const hasMore = Array.isArray(data) ? (items.length === PAGE_SIZE) : Boolean(data.pagination?.has_more ?? data.pagination?.hasMore)
+        const fallbackTotalCount = (page * PAGE_SIZE) + items.length + (hasMore ? 1 : 0)
+        setTotalAuthorCount(typeof apiTotalCount === "number" ? apiTotalCount : fallbackTotalCount)
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load authors"))
       .finally(() => setIsLoading(false))
-  }, [apiFetch])
+  }, [apiFetch, page])
+
+  useEffect(() => {
+    setPage(0)
+  }, [search])
 
   const filtered = authors.filter((a) =>
     a.display_name.toLowerCase().includes(search.toLowerCase()) ||
     (a.email ?? "").toLowerCase().includes(search.toLowerCase()) ||
     a.slug.toLowerCase().includes(search.toLowerCase())
   )
+  const effectiveTotalCount = Math.max(totalAuthorCount, (page * PAGE_SIZE) + authors.length)
+  const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / PAGE_SIZE))
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -53,7 +78,7 @@ function AuthorsView() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Authors</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isLoading ? "Loading…" : `${authors.length} authors total`}
+            {isLoading ? "Loading…" : `${effectiveTotalCount} authors total`}
           </p>
         </div>
         <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors" type="button">
@@ -130,6 +155,47 @@ function AuthorsView() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <span>{filtered.length} author{filtered.length === 1 ? "" : "s"} shown</span>
+        <div className="flex items-center gap-1">
+          <button
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={page === 0}
+            onClick={() => setPage(0)}
+            type="button"
+          >
+            <ChevronFirst className="w-4 h-4" />
+          </button>
+          <button
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={page === 0}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            type="button"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="px-3 py-1 font-medium text-foreground">
+            {page + 1} / {totalPages}
+          </span>
+          <button
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={(page + 1) * PAGE_SIZE >= effectiveTotalCount}
+            onClick={() => setPage((p) => p + 1)}
+            type="button"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <button
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={(page + 1) * PAGE_SIZE >= effectiveTotalCount}
+            onClick={() => setPage(Math.max(0, totalPages - 1))}
+            type="button"
+          >
+            <ChevronLast className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
   )

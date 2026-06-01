@@ -10,6 +10,6 @@ export function useApiFetch() {
       ...(init?.headers as Record<string, string>),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     }
-    return fetch(url, { ...init, headers })
+    return fetch(url, { ...init, credentials: "include", headers })
   }, [token])
 }
