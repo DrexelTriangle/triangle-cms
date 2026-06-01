@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Search, FileText, Image, Tag, Users, Settings, MessageSquare, UserPlus } from "lucide-react"
+import { Search, FileText, Image, Tag, Settings, MessageSquare, UserPlus } from "lucide-react"
 
 type ActionType = "article_published" | "article_updated" | "article_deleted" | "media_uploaded" | "user_added" | "comment_approved" | "settings_changed" | "tag_created"
 
@@ -79,7 +79,7 @@ export default function ActivityView() {
           </div>
 
           <div className="flex flex-col gap-2">
-            {filtered.map((event, i) => {
+            {filtered.map((event) => {
               const meta = ACTION_META[event.action]
               const Icon = meta.icon
               const userIdx = users.indexOf(event.user)

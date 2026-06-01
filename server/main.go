@@ -106,6 +106,10 @@ func main() {
 		slog.Error("failed to create sessions table", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsureSettingsTable(context.Background(), db); err != nil {
+		slog.Error("failed to create settings table", "error", err)
+		os.Exit(1)
+	}
 
 	row := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?", dbName)
 	var tableCount int

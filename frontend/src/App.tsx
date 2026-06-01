@@ -20,6 +20,7 @@ import SeoView from "./pages/seoView"
 import AdLocationsView from "./pages/adLocationsView"
 import PagesView from "./pages/pagesView"
 import SettingsPage from "./pages/settingsPage"
+import PollView from "./pages/pollView"
 
 const AUTH_ROUTES = ["/login", "/signup"]
 
@@ -85,6 +86,7 @@ export default function App() {
         <Route path="/newsletter" element={<NewsletterView />} />
         <Route path="/media" element={<MediaView />} />
         <Route path="/pages" element={<PagesView />} />
+        <Route path="/poll" element={<PollView />} />
         <Route path="/ad-locations" element={<AdLocationsView />} />
         <Route path="/authors" element={<AuthorsView />} />
         <Route path="/sections" element={<SectionsView />} />

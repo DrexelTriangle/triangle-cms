@@ -1,4 +1,4 @@
-import { Search, Globe, TrendingUp, Link2, AlertCircle, CheckCircle } from "lucide-react"
+import { Globe, TrendingUp, Link2, AlertCircle, CheckCircle } from "lucide-react"
 
 const SEO_ISSUES = [
   { id: 1, type: "warning", article: "Opinion: The University Should Lower Tuition", issue: "Meta description missing" },

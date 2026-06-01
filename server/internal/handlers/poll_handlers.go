@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	db "server/internal/database"
 )
 
 type pollOptionRequest struct {
@@ -14,6 +16,10 @@ type pollOptionRequest struct {
 type pollOptionRenameRequest struct {
 	OldOption string `json:"old_option"`
 	NewOption string `json:"new_option"`
+}
+
+type pollTitleRequest struct {
+	Title string `json:"title"`
 }
 
 func GetPoll(conn *sql.DB) http.Handler {
@@ -60,6 +66,41 @@ func GetPollOptions(conn *sql.DB) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"options": options})
+	})
+}
+
+func GetPollTitle(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		title, err := db.GetPollTitle(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to fetch poll title")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"title": title})
+	})
+}
+
+func PatchPollTitle(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body pollTitleRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		title := strings.TrimSpace(body.Title)
+		if title == "" {
+			writeError(w, http.StatusBadRequest, "poll title is required")
+			return
+		}
+		if len(title) > 200 {
+			writeError(w, http.StatusBadRequest, "poll title too long")
+			return
+		}
+		if err := db.SetPollTitle(r.Context(), conn, title); err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to update poll title")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"title": title})
 	})
 }
 

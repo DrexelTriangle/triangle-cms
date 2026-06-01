@@ -43,9 +43,16 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/media/{id}", http.HandlerFunc(handlers.Users))
 	mux.Handle("GET /v1/media/gallery", http.HandlerFunc(handlers.Users))
 	mux.Handle("GET /v1/homepage", handlers.GetHomepage(conn))
+	mux.Handle("GET /v1/settings/site", handlers.GetSiteSettings(conn))
 	mux.Handle("GET /v1/poll", handlers.GetPoll(conn))
+	mux.Handle("GET /v1/poll/title", handlers.GetPollTitle(conn))
 	mux.Handle("POST /v1/poll", middleware.RateLimitByIP(5, time.Minute)(handlers.PostPoll(conn)))
 	mux.Handle("GET /v1/poll/options", handlers.GetPollOptions(conn))
+	mux.Handle("PATCH /v1/poll/title", authMW(adminOnly(handlers.PatchPollTitle(conn))))
+	mux.Handle("POST /v1/poll/options", authMW(adminOnly(handlers.PostPollOption(conn))))
+	mux.Handle("PATCH /v1/poll/options", authMW(adminOnly(handlers.PatchPollOption(conn))))
+	mux.Handle("DELETE /v1/poll/options", authMW(adminOnly(handlers.DeletePollOption(conn))))
+	mux.Handle("PATCH /v1/settings/site", authMW(adminOnly(handlers.PatchSiteSettings(conn))))
 
 	if verifier != nil {
 		mux.Handle("POST /v1/authors", authMW(adminOnly(handlers.PostAuthors(conn))))
@@ -90,12 +97,15 @@ func registerProtectedRoutes(
 	mux.Handle("GET /v1/media/gallery", auth(http.HandlerFunc(handlers.Users)))
 
 	mux.Handle("GET /v1/homepage", auth(handlers.GetHomepage(conn)))
+	mux.Handle("GET /v1/settings/site", handlers.GetSiteSettings(conn))
 
 	mux.Handle("GET /v1/users/me", auth(http.HandlerFunc(handlers.GetMe)))
 	mux.Handle("GET /v1/users", auth(adminOnly(handlers.GetUsers(conn))))
 	mux.Handle("PATCH /v1/users/{id}", auth(adminOnly(handlers.PatchUser(conn))))
+	mux.Handle("PATCH /v1/settings/site", auth(adminOnly(handlers.PatchSiteSettings(conn))))
 
 	mux.Handle("POST /v1/poll/options", auth(adminOnly(handlers.PostPollOption(conn))))
+	mux.Handle("PATCH /v1/poll/title", auth(adminOnly(handlers.PatchPollTitle(conn))))
 	mux.Handle("PATCH /v1/poll/options", auth(adminOnly(handlers.PatchPollOption(conn))))
 	mux.Handle("DELETE /v1/poll/options", auth(adminOnly(handlers.DeletePollOption(conn))))
 }
