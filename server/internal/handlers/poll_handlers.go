@@ -3,9 +3,11 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
+	"server/internal/activity"
 	db "server/internal/database"
 	"server/internal/models"
 )
@@ -127,6 +129,7 @@ func PatchPollTitle(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to update poll title")
 			return
 		}
+		activity.LogRequest(r, "poll_updated", fmt.Sprintf("Poll title: %s", title))
 		writeJSON(w, http.StatusOK, models.PollTitleResponse{Title: title})
 	})
 }
@@ -166,6 +169,7 @@ func PostPollOption(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusConflict, "poll option already exists")
 			return
 		}
+		activity.LogRequest(r, "poll_updated", fmt.Sprintf("Added poll option: %s", option))
 		w.WriteHeader(http.StatusCreated)
 	})
 }
@@ -212,6 +216,7 @@ func PatchPollOption(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusNotFound, "poll option not found")
 			return
 		}
+		activity.LogRequest(r, "poll_updated", fmt.Sprintf("Renamed poll option: %s → %s", oldOption, newOption))
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
@@ -253,6 +258,7 @@ func DeletePollOption(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusNotFound, "poll option not found")
 			return
 		}
+		activity.LogRequest(r, "poll_updated", fmt.Sprintf("Deleted poll option: %s", option))
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

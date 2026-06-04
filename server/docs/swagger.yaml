@@ -1,5 +1,39 @@
 basePath: /
 definitions:
+  models.ActivityEventResponse:
+    properties:
+      action:
+        type: string
+      date:
+        type: string
+      id:
+        type: string
+      level:
+        type: string
+      message:
+        type: string
+      method:
+        type: string
+      path:
+        type: string
+      status:
+        type: integer
+      target:
+        type: string
+      user:
+        type: string
+      user_role:
+        type: string
+    type: object
+  models.ActivityResponse:
+    properties:
+      events:
+        items:
+          $ref: '#/definitions/models.ActivityEventResponse'
+        type: array
+      total_count:
+        type: integer
+    type: object
   models.Article:
     properties:
       authors:
@@ -258,11 +292,32 @@ definitions:
       slug:
         type: string
     type: object
+  models.AuthorsResponse:
+    properties:
+      authors:
+        items:
+          $ref: '#/definitions/models.AuthorOverview'
+        type: array
+      pagination:
+        $ref: '#/definitions/models.Pagination'
+    type: object
   models.CategorySummary:
     properties:
       name:
         type: string
       slug:
+        type: string
+    type: object
+  models.DevelopingStoriesResponse:
+    properties:
+      stories:
+        items:
+          type: string
+        type: array
+    type: object
+  models.DevelopingStoryRequest:
+    properties:
+      title:
         type: string
     type: object
   models.ErrorResponse:
@@ -456,6 +511,8 @@ definitions:
     type: object
   models.TaxonomyItem:
     properties:
+      article_count:
+        type: integer
       canonical_title:
         type: string
       id:
@@ -514,6 +571,30 @@ info:
   title: Triangle CMS API
   version: "1.0"
 paths:
+  /v1/activity:
+    get:
+      parameters:
+      - default: 100
+        description: Max events
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ActivityResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get recent CMS activity
+      tags:
+      - activity
   /v1/articles:
     get:
       parameters:
@@ -554,6 +635,10 @@ paths:
         in: query
         name: status
         type: string
+      - description: When true, return only soft-deleted articles
+        in: query
+        name: archived
+        type: boolean
       - description: Filter by title (partial match)
         in: query
         name: title
@@ -747,6 +832,30 @@ paths:
       summary: Replace an article
       tags:
       - articles
+  /v1/articles/{slug}/restore:
+    patch:
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Restore an archived article
+      tags:
+      - articles
   /v1/auth/callback:
     get:
       parameters:
@@ -823,9 +932,7 @@ paths:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/models.AuthorOverview'
-            type: array
+            $ref: '#/definitions/models.AuthorsResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1042,6 +1149,82 @@ paths:
       summary: List articles by author
       tags:
       - authors
+  /v1/developing-stories:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Story title
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.DevelopingStoryRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete developing story
+      tags:
+      - developing-stories
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.DevelopingStoriesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get developing stories
+      tags:
+      - developing-stories
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Story title
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.DevelopingStoryRequest'
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add developing story
+      tags:
+      - developing-stories
   /v1/health:
     get:
       produces:
@@ -1451,6 +1634,20 @@ paths:
       summary: Update site settings
       tags:
       - settings
+  /v1/settings/taxonomy/rebuild:
+    post:
+      responses:
+        "204":
+          description: No Content
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Rebuild taxonomy article counts
+      tags:
+      - settings
   /v1/subsections/{subsection_slug}/articles:
     get:
       parameters:
@@ -1808,3 +2005,4 @@ tags:
 - name: health
 - name: authors
 - name: articles
+- name: activity

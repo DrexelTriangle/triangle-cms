@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"server/internal/activity"
 	db "server/internal/database"
 	"server/internal/models"
 )
@@ -68,6 +69,7 @@ func PostDevelopingStory(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to save developing stories")
 			return
 		}
+		activity.LogRequest(r, "developing_story_added", title)
 		w.WriteHeader(http.StatusCreated)
 	})
 }
@@ -120,6 +122,7 @@ func DeleteDevelopingStory(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to save developing stories")
 			return
 		}
+		activity.LogRequest(r, "developing_story_deleted", title)
 		w.WriteHeader(http.StatusNoContent)
 	})
 }

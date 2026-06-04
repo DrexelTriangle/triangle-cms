@@ -3,9 +3,11 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
+	"server/internal/activity"
 	db "server/internal/database"
 	"server/internal/models"
 )
@@ -53,11 +55,11 @@ func GetTaxonomy(conn *sql.DB) http.HandlerFunc {
 				writeError(w, http.StatusBadRequest, "type must be one of: section, subsection, tag")
 				return
 			}
-				query = "SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy WHERE kind = ? ORDER BY id ASC"
-				args = []any{taxType}
-			} else {
-				query = "SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy ORDER BY kind ASC, id ASC"
-			}
+			query = "SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy WHERE kind = ? ORDER BY id ASC"
+			args = []any{taxType}
+		} else {
+			query = "SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy ORDER BY kind ASC, id ASC"
+		}
 
 		rows, err := conn.QueryContext(r.Context(), query, args...)
 		if err != nil {
@@ -108,10 +110,10 @@ func GetTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-			row := conn.QueryRowContext(r.Context(),
-				"SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy WHERE kind = ? AND slug = ?",
-				taxType, slug,
-			)
+		row := conn.QueryRowContext(r.Context(),
+			"SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy WHERE kind = ? AND slug = ?",
+			taxType, slug,
+		)
 		item, err := scanTaxonomyRow(row)
 		if err == sql.ErrNoRows {
 			writeError(w, http.StatusNotFound, "taxonomy item not found")
@@ -178,14 +180,19 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 			parentSlug = strings.TrimSpace(*body.ParentSlug)
 		}
 
-			_, err := db.Insert(r.Context(), conn, "site_taxonomy",
-				[]string{"id", "kind", "slug", "canonical_title", "parent_slug", "article_count"},
-				nextID, taxType, slug, title, parentSlug, 0,
-			)
+		_, err := db.Insert(r.Context(), conn, "site_taxonomy",
+			[]string{"id", "kind", "slug", "canonical_title", "parent_slug", "article_count"},
+			nextID, taxType, slug, title, parentSlug, 0,
+		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		action := "taxonomy_created"
+		if taxType == string(models.TaxonomyTypeTag) {
+			action = "tag_created"
+		}
+		activity.LogRequest(r, action, fmt.Sprintf("%s: %s", taxType, title), "slug", slug)
 		writeJSON(w, http.StatusCreated, map[string]any{"id": nextID})
 	}
 }
@@ -268,6 +275,11 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "taxonomy item not found")
 			return
 		}
+		action := "taxonomy_updated"
+		if taxType == string(models.TaxonomyTypeTag) {
+			action = "tag_updated"
+		}
+		activity.LogRequest(r, action, fmt.Sprintf("%s: %s", taxType, title), "old_slug", slug, "new_slug", newSlug)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -310,6 +322,11 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "taxonomy item not found")
 			return
 		}
+		action := "taxonomy_deleted"
+		if taxType == string(models.TaxonomyTypeTag) {
+			action = "tag_deleted"
+		}
+		activity.LogRequest(r, action, fmt.Sprintf("%s: %s", taxType, slug))
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
