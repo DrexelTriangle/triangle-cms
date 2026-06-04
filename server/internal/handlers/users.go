@@ -3,9 +3,11 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
+	"server/internal/activity"
 	db "server/internal/database"
 	"server/internal/middleware"
 	"server/internal/models"
@@ -76,7 +78,8 @@ func PatchUser(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		if _, err := db.GetUserByID(r.Context(), conn, id); err != nil {
+		currentUser, err := db.GetUserByID(r.Context(), conn, id)
+		if err != nil {
 			if err == sql.ErrNoRows {
 				writeError(w, http.StatusNotFound, "user not found")
 				return
@@ -89,6 +92,8 @@ func PatchUser(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+
+		activity.LogRequest(r, "user_role_updated", fmt.Sprintf("%s (%s → %s)", currentUser.Name, currentUser.Role, body.Role))
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

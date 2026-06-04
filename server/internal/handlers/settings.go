@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"server/internal/activity"
 	db "server/internal/database"
 	"server/internal/models"
 )
@@ -55,6 +56,7 @@ func PatchSiteSettings(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to update site settings")
 			return
 		}
+		activity.LogRequest(r, "settings_changed", "Site title updated", "site_title", siteTitle)
 		writeJSON(w, http.StatusOK, models.SiteSettingsResponse{SiteTitle: siteTitle})
 	})
 }
@@ -71,6 +73,7 @@ func PostRebuildTaxonomyCounts(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to rebuild taxonomy article counts")
 			return
 		}
+		activity.LogRequest(r, "settings_changed", "Rebuilt taxonomy article counts")
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
