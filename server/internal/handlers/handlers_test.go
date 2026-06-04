@@ -125,6 +125,28 @@ func TestAppendArticleTypeCondition_Negated(t *testing.T) {
 	}
 }
 
+func TestTaxonomyCountSlugs_CanonicalizesAndDedupes(t *testing.T) {
+	got := taxonomyCountSlugs([]string{
+		"News",
+		" news ",
+		"Academic Transformation",
+		"academic-transformation",
+		"",
+		"   ",
+		"Special Editions",
+	})
+
+	want := []string{"news", "academic-transformation", "special-editions"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for index, slug := range want {
+		if got[index] != slug {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
 func TestArticleQueryFilters_FormatsDateFiltersWithGoReferenceLayout(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/articles", nil)
 	q := url.Values{}

@@ -26,6 +26,8 @@ export default function SettingsPage() {
   const [siteTitleDraft, setSiteTitleDraft] = useState("")
   const [siteTitleSaving, setSiteTitleSaving] = useState(false)
   const [siteTitleMessage, setSiteTitleMessage] = useState<string | null>(null)
+  const [taxonomyRebuildRunning, setTaxonomyRebuildRunning] = useState(false)
+  const [taxonomyRebuildMessage, setTaxonomyRebuildMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -74,6 +76,22 @@ export default function SettingsPage() {
       setSiteTitleMessage(err instanceof Error ? err.message : "Failed to save site settings")
     } finally {
       setSiteTitleSaving(false)
+    }
+  }
+
+  async function rebuildTaxonomyCounts() {
+    setTaxonomyRebuildRunning(true)
+    setTaxonomyRebuildMessage(null)
+    try {
+      const res = await apiFetch("/v1/settings/taxonomy/rebuild", {
+        method: "POST",
+      })
+      if (!res.ok) throw new Error(`Failed to rebuild taxonomy counts (${res.status})`)
+      setTaxonomyRebuildMessage("Taxonomy article counts rebuilt.")
+    } catch (err) {
+      setTaxonomyRebuildMessage(err instanceof Error ? err.message : "Failed to rebuild taxonomy counts")
+    } finally {
+      setTaxonomyRebuildRunning(false)
     }
   }
 
@@ -148,6 +166,24 @@ export default function SettingsPage() {
             Save Site Title
           </button>
           {siteTitleMessage && <span className="text-sm text-muted-foreground">{siteTitleMessage}</span>}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
+        <h2 className="text-lg font-semibold text-foreground">Taxonomy</h2>
+        <p className="text-sm text-muted-foreground">
+          Recalculate taxonomy article counts from current article category assignments.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={rebuildTaxonomyCounts}
+            disabled={taxonomyRebuildRunning}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
+          >
+            Rebuild Taxonomy Counts
+          </button>
+          {taxonomyRebuildMessage && <span className="text-sm text-muted-foreground">{taxonomyRebuildMessage}</span>}
         </div>
       </div>
     </div>

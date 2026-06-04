@@ -23,7 +23,7 @@ func isValidTaxonomyType(taxType string) bool {
 func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, error) {
 	var item models.TaxonomyItem
 	var parentSlug sql.NullString
-	if err := row.Scan(&item.ID, &item.Type, &item.Slug, &item.CanonicalTitle, &parentSlug); err != nil {
+	if err := row.Scan(&item.ID, &item.Type, &item.Slug, &item.CanonicalTitle, &parentSlug, &item.ArticleCount); err != nil {
 		return models.TaxonomyItem{}, err
 	}
 	if parentSlug.Valid && parentSlug.String != "" {
@@ -53,11 +53,11 @@ func GetTaxonomy(conn *sql.DB) http.HandlerFunc {
 				writeError(w, http.StatusBadRequest, "type must be one of: section, subsection, tag")
 				return
 			}
-			query = "SELECT id, kind, slug, canonical_title, parent_slug FROM site_taxonomy WHERE kind = ? ORDER BY id ASC"
-			args = []any{taxType}
-		} else {
-			query = "SELECT id, kind, slug, canonical_title, parent_slug FROM site_taxonomy ORDER BY kind ASC, id ASC"
-		}
+				query = "SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy WHERE kind = ? ORDER BY id ASC"
+				args = []any{taxType}
+			} else {
+				query = "SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy ORDER BY kind ASC, id ASC"
+			}
 
 		rows, err := conn.QueryContext(r.Context(), query, args...)
 		if err != nil {
@@ -108,10 +108,10 @@ func GetTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		row := conn.QueryRowContext(r.Context(),
-			"SELECT id, kind, slug, canonical_title, parent_slug FROM site_taxonomy WHERE kind = ? AND slug = ?",
-			taxType, slug,
-		)
+			row := conn.QueryRowContext(r.Context(),
+				"SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy WHERE kind = ? AND slug = ?",
+				taxType, slug,
+			)
 		item, err := scanTaxonomyRow(row)
 		if err == sql.ErrNoRows {
 			writeError(w, http.StatusNotFound, "taxonomy item not found")
@@ -178,10 +178,10 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 			parentSlug = strings.TrimSpace(*body.ParentSlug)
 		}
 
-		_, err := db.Insert(r.Context(), conn, "site_taxonomy",
-			[]string{"id", "kind", "slug", "canonical_title", "parent_slug"},
-			nextID, taxType, slug, title, parentSlug,
-		)
+			_, err := db.Insert(r.Context(), conn, "site_taxonomy",
+				[]string{"id", "kind", "slug", "canonical_title", "parent_slug", "article_count"},
+				nextID, taxType, slug, title, parentSlug, 0,
+			)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

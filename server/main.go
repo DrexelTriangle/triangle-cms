@@ -110,14 +110,21 @@ func main() {
 		slog.Error("failed to create settings table", "error", err)
 		os.Exit(1)
 	}
-	if err := database.EnsureTaxonomyTable(context.Background(), db); err != nil {
-		slog.Error("failed to create taxonomy table", "error", err)
-		os.Exit(1)
-	}
-	if err := database.EnsurePollSettings(context.Background(), db); err != nil {
-		slog.Error("failed to seed poll settings", "error", err)
-		os.Exit(1)
-	}
+		if err := database.EnsureTaxonomyTable(context.Background(), db); err != nil {
+			slog.Error("failed to create taxonomy table", "error", err)
+			os.Exit(1)
+		}
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP")), "true") {
+			if err := database.RebuildTaxonomyArticleCounts(context.Background(), db); err != nil {
+				slog.Error("failed to rebuild taxonomy article counts", "error", err)
+				os.Exit(1)
+			}
+			slog.Info("rebuilt taxonomy article counts at startup")
+		}
+		if err := database.EnsurePollSettings(context.Background(), db); err != nil {
+			slog.Error("failed to seed poll settings", "error", err)
+			os.Exit(1)
+		}
 
 	row := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?", dbName)
 	var tableCount int

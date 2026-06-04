@@ -232,6 +232,7 @@ type TaxonomyItem struct {
 	Slug           string  `json:"slug"`
 	CanonicalTitle string  `json:"canonical_title"`
 	ParentSlug     *string `json:"parent_slug,omitempty"`
+	ArticleCount   int64   `json:"article_count"`
 }
 
 type TaxonomyInput struct {

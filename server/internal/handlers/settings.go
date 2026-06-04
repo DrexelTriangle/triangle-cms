@@ -58,3 +58,19 @@ func PatchSiteSettings(conn *sql.DB) http.Handler {
 		writeJSON(w, http.StatusOK, models.SiteSettingsResponse{SiteTitle: siteTitle})
 	})
 }
+
+// @Summary Rebuild taxonomy article counts
+// @Tags settings
+// @Success 204
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/settings/taxonomy/rebuild [post]
+func PostRebuildTaxonomyCounts(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := db.RebuildTaxonomyArticleCounts(r.Context(), conn); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to rebuild taxonomy article counts")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+}
