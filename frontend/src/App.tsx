@@ -1,5 +1,6 @@
+import { useCurrentUserRole } from "./hooks/useCurrentUserRole"
 import { Routes, Route, useLocation, Navigate } from "react-router-dom"
-import { useAuth } from "react-oidc-context"
+import { useSessionAuth } from "./auth/sessionAuth"
 import Header from "./components/Header"
 import Sidebar from "./components/Sidebar"
 import DashboardPage from "./pages/DashboardPage"
@@ -17,7 +18,6 @@ import CommentsView from "./pages/commentsView"
 import ActivityView from "./pages/activityView"
 import NewsletterView from "./pages/newsletterView"
 import SeoView from "./pages/seoView"
-import AdLocationsView from "./pages/adLocationsView"
 import PagesView from "./pages/pagesView"
 import SettingsPage from "./pages/settingsPage"
 import PollView from "./pages/pollView"
@@ -46,9 +46,27 @@ function ComingSoon({ page }: { page: string }) {
   )
 }
 
+function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { isAdmin, isLoading } = useCurrentUserRole()
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    )
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/" replace />
+  }
+
+  return <>{children}</>
+}
+
 export default function App() {
   const location = useLocation()
-  const auth = useAuth()
+  const auth = useSessionAuth()
   const isAuthRoute = AUTH_ROUTES.includes(location.pathname)
 
   if (auth.isLoading) {
@@ -70,6 +88,13 @@ export default function App() {
   }
 
   if (!auth.isAuthenticated) {
+    if (auth.hasPendingAuthFlow) {
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">Finalizing sign-in…</p>
+        </div>
+      )
+    }
     return <Navigate to="/login" replace />
   }
 
@@ -87,17 +112,35 @@ export default function App() {
         <Route path="/media" element={<MediaView />} />
         <Route path="/pages" element={<PagesView />} />
         <Route path="/poll" element={<PollView />} />
-        <Route path="/ad-locations" element={<AdLocationsView />} />
         <Route path="/authors" element={<AuthorsView />} />
         <Route path="/sections" element={<SectionsView />} />
         <Route path="/comments" element={<CommentsView />} />
         <Route path="/seo" element={<SeoView />} />
-        <Route path="/activity" element={<ActivityView />} />
-        <Route path="/users" element={<UsersView />} />
+        <Route
+          path="/activity"
+          element={(
+            <AdminOnlyRoute>
+              <ActivityView />
+            </AdminOnlyRoute>
+          )}
+        />
+        <Route
+          path="/users"
+          element={(
+            <AdminOnlyRoute>
+              <UsersView />
+            </AdminOnlyRoute>
+          )}
+        />
         <Route path="/user-settings" element={<ComingSoon page="Profile Settings" />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/articleView" element={<ArticleView excludeType="developing-stories" />} />
-        <Route path="/mediaView" element={<MediaView />} />
+        <Route
+          path="/settings"
+          element={(
+            <AdminOnlyRoute>
+              <SettingsPage />
+            </AdminOnlyRoute>
+          )}
+        />
       </Routes>
     </AppShell>
   )

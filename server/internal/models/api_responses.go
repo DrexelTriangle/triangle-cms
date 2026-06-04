@@ -74,6 +74,11 @@ type ArticlesResponse struct {
 	Pagination Pagination        `json:"pagination"`
 }
 
+type AuthorsResponse struct {
+	Authors    []AuthorOverview `json:"authors"`
+	Pagination Pagination       `json:"pagination"`
+}
+
 type SectionArticlesResponse struct {
 	Section     TaxonomySummary   `json:"section"`
 	Subsections []TaxonomySummary `json:"subsections"`
@@ -169,4 +174,12 @@ type PollOptionsResponse struct {
 
 type PollTitleResponse struct {
 	Title string `json:"title"`
+}
+
+type DevelopingStoryRequest struct {
+	Title string `json:"title"`
+}
+
+type DevelopingStoriesResponse struct {
+	Stories []string `json:"stories"`
 }

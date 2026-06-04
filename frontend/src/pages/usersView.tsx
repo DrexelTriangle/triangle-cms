@@ -1,37 +1,26 @@
-import { useState } from "react"
-import { Search, Plus, Pencil, Trash2, ShieldCheck, Shield, User } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Search, ShieldCheck, Shield } from "lucide-react"
+import { useApiFetch } from "../hooks/useApiFetch"
 
-const ROLES = ["Admin", "Editor", "Author", "Contributor", "Subscriber"] as const
+const ROLES = ["admin", "editor"] as const
 type Role = typeof ROLES[number]
 
-const USERS = [
-  { id: 1, name: "Juste Mugisha", email: "jmugisha@thetriangle.org", role: "Admin" as Role, joined: "2023-09-01", articles: 0 },
-  { id: 2, name: "Sarah Goldstein", email: "sgoldstein@thetriangle.org", role: "Editor" as Role, joined: "2023-09-05", articles: 0 },
-  { id: 3, name: "Paulie Loscalzo", email: "ploscalzo@thetriangle.org", role: "Author" as Role, joined: "2023-10-12", articles: 52 },
-  { id: 4, name: "Zarina Morgan", email: "zmorgan@thetriangle.org", role: "Author" as Role, joined: "2024-01-15", articles: 47 },
-  { id: 5, name: "Erik Heyman-Meltzer", email: "eheyman@thetriangle.org", role: "Author" as Role, joined: "2024-01-20", articles: 41 },
-  { id: 6, name: "Marcus Chen", email: "mchen@thetriangle.org", role: "Author" as Role, joined: "2024-02-03", articles: 36 },
-  { id: 7, name: "Sanjana Bandi", email: "sbandi@thetriangle.org", role: "Author" as Role, joined: "2024-02-14", articles: 31 },
-  { id: 8, name: "Nina Feinberg", email: "nfeinberg@thetriangle.org", role: "Author" as Role, joined: "2024-03-01", articles: 28 },
-  { id: 9, name: "Coco Li", email: "cli@thetriangle.org", role: "Contributor" as Role, joined: "2024-03-10", articles: 23 },
-  { id: 10, name: "Jenna Pedorenko", email: "jpedorenko@thetriangle.org", role: "Contributor" as Role, joined: "2024-03-22", articles: 22 },
-  { id: 11, name: "Ava Buckingham", email: "abuckingham@thetriangle.org", role: "Author" as Role, joined: "2024-04-05", articles: 19 },
-  { id: 12, name: "Sophie Fang", email: "sfang@thetriangle.org", role: "Contributor" as Role, joined: "2024-04-18", articles: 14 },
-  { id: 13, name: "Alex Rivera", email: "arivera@thetriangle.org", role: "Subscriber" as Role, joined: "2025-01-10", articles: 0 },
-]
+type CmsUser = {
+  id: number
+  email: string
+  name: string
+  role: Role
+  created_at: string
+}
 
 const ROLE_STYLES: Record<Role, string> = {
-  Admin: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  Editor: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
-  Author: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  Contributor: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  Subscriber: "bg-muted text-muted-foreground",
+  admin: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  editor: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
 }
 
 function RoleIcon({ role }: { role: Role }) {
-  if (role === "Admin") return <ShieldCheck className="w-3 h-3" />
-  if (role === "Editor") return <Shield className="w-3 h-3" />
-  return <User className="w-3 h-3" />
+  if (role === "admin") return <ShieldCheck className="w-3 h-3" />
+  return <Shield className="w-3 h-3" />
 }
 
 function initials(name: string) {
@@ -45,26 +34,61 @@ const AVATAR_COLORS = [
 ]
 
 export default function UsersView() {
+  const apiFetch = useApiFetch()
+  const [users, setUsers] = useState<CmsUser[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [savingUserId, setSavingUserId] = useState<number | null>(null)
   const [search, setSearch] = useState("")
-  const [roleFilter, setRoleFilter] = useState<Role | "All">("All")
+  const [roleFilter, setRoleFilter] = useState<Role | "all">("all")
 
-  const filtered = USERS.filter((u) => {
+  useEffect(() => {
+    setIsLoading(true)
+    apiFetch("/v1/users")
+      .then((r) => {
+        if (!r.ok) throw new Error(`Request failed (${r.status})`)
+        return r.json() as Promise<CmsUser[]>
+      })
+      .then((data) => {
+        setUsers(data)
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load users"))
+      .finally(() => setIsLoading(false))
+  }, [apiFetch])
+
+  const filtered = users.filter((u) => {
     const matchSearch = u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
-    const matchRole = roleFilter === "All" || u.role === roleFilter
+    const matchRole = roleFilter === "all" || u.role === roleFilter
     return matchSearch && matchRole
   })
+
+  async function updateRole(userId: number, role: Role) {
+    setSavingUserId(userId)
+    try {
+      const res = await apiFetch(`/v1/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      })
+      if (!res.ok) throw new Error(`Request failed (${res.status})`)
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update role")
+    } finally {
+      setSavingUserId(null)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Users</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{USERS.length} users total</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {isLoading ? "Loading…" : `${users.length} users total`}
+          </p>
         </div>
-        <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors" type="button">
-          <Plus className="w-4 h-4" />
-          Add New User
-        </button>
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </div>
 
       <div className="flex gap-3 flex-wrap">
@@ -78,14 +102,14 @@ export default function UsersView() {
           />
         </div>
         <div className="flex items-center gap-1 flex-wrap">
-          {(["All", ...ROLES] as const).map((r) => (
+          {(["all", ...ROLES] as const).map((r) => (
             <button
               key={r}
               type="button"
               onClick={() => setRoleFilter(r)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${roleFilter === r ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
             >
-              {r}
+              {r === "all" ? "All" : r.charAt(0).toUpperCase() + r.slice(1)}
             </button>
           ))}
         </div>
@@ -99,15 +123,18 @@ export default function UsersView() {
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Name</th>
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Email</th>
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Role</th>
-              <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden md:table-cell" scope="col">Articles</th>
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden lg:table-cell" scope="col">Joined</th>
               <th className="text-right px-4 py-3 font-semibold text-muted-foreground" scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {isLoading ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={7}>No users found.</td>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>Loading users…</td>
+              </tr>
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>No users found.</td>
               </tr>
             ) : (
               filtered.map((user, i) => (
@@ -122,25 +149,21 @@ export default function UsersView() {
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_STYLES[user.role]}`}>
                       <RoleIcon role={user.role} />
-                      {user.role}
+                      {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 hidden md:table-cell">
-                    {user.articles > 0 ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">{user.articles}</span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{user.joined}</td>
+                  <td className="px-4 py-3 text-muted-foreground hidden lg:table-cell">{new Date(user.created_at).toLocaleDateString()}</td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
-                      <button className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" type="button" title="Edit">
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" type="button" title="Delete">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                    <div className="flex items-center justify-end">
+                      <select
+                        value={user.role}
+                        disabled={savingUserId === user.id}
+                        onChange={(e) => updateRole(user.id, e.target.value as Role)}
+                        className="px-2 py-1 rounded border border-border bg-background text-xs"
+                      >
+                        <option value="editor">Editor</option>
+                        <option value="admin">Admin</option>
+                      </select>
                     </div>
                   </td>
                 </tr>

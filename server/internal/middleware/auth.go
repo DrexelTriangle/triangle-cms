@@ -3,8 +3,8 @@ package middleware
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -38,11 +38,6 @@ func RequireAuth(verifier *oidc.IDTokenVerifier, conn *sql.DB, oidcCfg auth.OIDC
 				user, session, err := db.GetUserBySessionID(r.Context(), conn, cookie.Value)
 				if err == nil {
 					if time.Now().Before(session.ExpiresAt) {
-						if strings.EqualFold(strings.TrimSpace(os.Getenv("CMS_AUTO_PROMOTE_ALL_ADMINS")), "true") && user.Role != models.RoleAdmin {
-							if err := db.UpdateUserRole(r.Context(), conn, user.ID, models.RoleAdmin); err == nil {
-								user.Role = models.RoleAdmin
-							}
-						}
 						ctx := context.WithValue(r.Context(), contextKeyUser, user)
 						next.ServeHTTP(w, r.WithContext(ctx))
 						return
@@ -51,22 +46,28 @@ func RequireAuth(verifier *oidc.IDTokenVerifier, conn *sql.DB, oidcCfg auth.OIDC
 					if session.RefreshToken != "" {
 						tr, err := auth.RefreshTokens(r.Context(), oidcCfg, session.RefreshToken)
 						if err == nil {
-							expiresIn := tr.ExpiresIn
-							if expiresIn <= 0 {
-								expiresIn = 3600
+							newRefreshToken := strings.TrimSpace(tr.RefreshToken)
+							if newRefreshToken == "" {
+								newRefreshToken = session.RefreshToken
 							}
-							newExpiry := time.Now().Add(time.Duration(expiresIn) * time.Second)
-							_ = db.UpdateSessionTokens(r.Context(), conn, session.ID, tr.AccessToken, tr.RefreshToken, newExpiry)
+							sessionTTL := auth.SessionTTL()
+							sessionMaxAge := int(sessionTTL.Seconds())
+							newExpiry := time.Now().Add(sessionTTL)
+							_ = db.UpdateSessionTokens(r.Context(), conn, session.ID, tr.AccessToken, newRefreshToken, newExpiry)
 							http.SetCookie(w, &http.Cookie{
 								Name: "sid", Value: session.ID, HttpOnly: true,
-								SameSite: http.SameSiteLaxMode, Path: "/", MaxAge: expiresIn,
+								SameSite: http.SameSiteLaxMode, Path: "/", MaxAge: sessionMaxAge,
 							})
 							ctx := context.WithValue(r.Context(), contextKeyUser, user)
 							next.ServeHTTP(w, r.WithContext(ctx))
 							return
 						}
+						slog.Warn("auth: refresh failed", "path", r.URL.Path, "error", err)
 					}
+					slog.Warn("auth: deleting expired/unrefreshable session", "path", r.URL.Path, "session_id", session.ID)
 					_ = db.DeleteSession(r.Context(), conn, session.ID)
+				} else {
+					slog.Warn("auth: session lookup failed", "path", r.URL.Path, "error", err)
 				}
 				jsonError(w, http.StatusUnauthorized, "unauthorized")
 				return

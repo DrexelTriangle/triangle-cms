@@ -110,6 +110,10 @@ func main() {
 		slog.Error("failed to create settings table", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsureTaxonomyTable(context.Background(), db); err != nil {
+		slog.Error("failed to create taxonomy table", "error", err)
+		os.Exit(1)
+	}
 	if err := database.EnsurePollSettings(context.Background(), db); err != nil {
 		slog.Error("failed to seed poll settings", "error", err)
 		os.Exit(1)
@@ -137,7 +141,7 @@ func main() {
 			SkipClientIDCheck: clientID == "",
 		})
 		frontendURL := getenvOrDefault("FRONTEND_ORIGIN", "http://localhost:5173")
-		redirectURL := getenvOrDefault("OIDC_REDIRECT_URI", frontendURL+"/v1/auth/callback")
+		redirectURL := getenvOrDefault("OIDC_REDIRECT_URI", frontendURL+"/auth/callback")
 		oidcCfg = auth.OIDCConfig{
 			ClientID:     clientID,
 			ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),

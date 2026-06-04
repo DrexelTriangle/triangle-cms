@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react"
-import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight } from "lucide-react"
+import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 
-type ArticleStatus = "Published" | "Draft"
+type ArticleStatus = "Published" | "Draft" | "Archived"
 
 type ArticleItem = {
   id: string
@@ -46,7 +46,10 @@ type ApiAuthor = {
 const PAGE_SIZE = 20
 const AUTHORS_PAGE_SIZE = 200
 
-const mapApiStatus = (status: string): ArticleStatus => (status.toLowerCase() === "published" ? "Published" : "Draft")
+const mapApiStatus = (status: string, activeTab: "all" | "trash"): ArticleStatus => {
+  if (activeTab === "trash") return "Archived"
+  return status.toLowerCase() === "published" ? "Published" : "Draft"
+}
 
 const formatArticleDate = (publishedDate?: string) => {
   if (!publishedDate) return "-"
@@ -109,6 +112,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const [page, setPage] = useState(0)
   const [articles, setArticles] = useState<ArticleItem[]>([])
   const [totalArticleCount, setTotalArticleCount] = useState(0)
+  const [trashCount, setTrashCount] = useState(0)
   const [authors, setAuthors] = useState<ApiAuthor[]>([])
   const [authorQuery, setAuthorQuery] = useState(() => loadUIState().authorQuery ?? "")
   const [selectedAuthorSlug, setSelectedAuthorSlug] = useState("")
@@ -116,8 +120,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const [dateSortDirection, setDateSortDirection] = useState<"asc" | "desc">(() => loadUIState().dateSortDirection ?? "desc")
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  const trashedItems: ArticleItem[] = []
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deletingArticleId, setDeletingArticleId] = useState<string | null>(null)
 
   useEffect(() => {
     writeSessionJSON(uiStateKey, {
@@ -176,6 +180,32 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   useEffect(() => {
     let cancelled = false
 
+    const fetchTrashCount = async () => {
+      try {
+        const params = new URLSearchParams({
+          archived: "1",
+          limit: "1",
+        })
+        if (fixedType) {
+          params.set("type", fixedType)
+        }
+        if (excludeType) {
+          params.set("exclude_type", excludeType)
+        }
+        const response = await apiFetch(`/v1/articles?${params.toString()}`)
+        if (!response.ok) return
+        const payload = (await response.json()) as ApiArticleResponse
+        const count = payload.pagination?.total_count ?? payload.pagination?.totalCount ?? 0
+        if (!cancelled) {
+          setTrashCount(count)
+        }
+      } catch {
+        if (!cancelled) {
+          setTrashCount(0)
+        }
+      }
+    }
+
     const fetchArticles = async () => {
       setIsLoading(true)
       setError(null)
@@ -187,10 +217,13 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           sort_by: "published_date",
           sort_direction: dateSortDirection,
         })
+        if (activeTab === "trash") {
+          params.set("archived", "1")
+        }
         if (selectedAuthorSlug) {
           params.set("author_slug", selectedAuthorSlug)
         }
-        if (publishedFilter !== "all") {
+        if (activeTab !== "trash" && publishedFilter !== "all") {
           params.set("status", publishedFilter)
         }
         if (searchQuery.trim()) {
@@ -206,7 +239,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         const queryKey = params.toString()
         const cache = readSessionJSON<Record<string, ArticleResultsCacheEntry>>(resultsCacheKey, {})
         const cachedEntry = cache[queryKey]
-        if (cachedEntry) {
+        const shouldUseCache = activeTab !== "trash"
+        if (shouldUseCache && cachedEntry) {
           if (!cancelled) {
             setArticles(cachedEntry.items)
             setTotalArticleCount(cachedEntry.totalArticleCount)
@@ -228,7 +262,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
             .map((author) => (author.name ?? "").trim())
             .filter((name) => name.length > 0)
             .join(", "),
-          status: mapApiStatus(item.status),
+          status: mapApiStatus(item.status, activeTab),
           date: formatArticleDate(item.published_date),
           slug: item.slug,
           featuredImage: item.featured_image,
@@ -262,12 +296,13 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       }
     }
 
+    void fetchTrashCount()
     void fetchArticles()
 
     return () => {
       cancelled = true
     }
-  }, [dateSortDirection, excludeType, fixedType, page, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
+  }, [activeTab, dateSortDirection, excludeType, fixedType, page, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
 
   const onChangeTab = (tab: "all" | "trash") => {
     setActiveTab(tab)
@@ -311,6 +346,74 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         ? "border-primary text-primary"
         : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
     }`
+
+  const clearArticleViewCache = () => {
+    if (typeof window === "undefined") return
+    const keysToDelete: string[] = []
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const key = window.sessionStorage.key(i)
+      if (key?.startsWith("articleView:")) {
+        keysToDelete.push(key)
+      }
+    }
+    for (const key of keysToDelete) {
+      window.sessionStorage.removeItem(key)
+    }
+  }
+
+  const deleteArticle = async (item: ArticleItem) => {
+    if (!item.slug || deletingArticleId) return
+    const shouldDelete = window.confirm(`Move "${item.title}" to trash?`)
+    if (!shouldDelete) return
+
+    setDeleteError(null)
+    setDeletingArticleId(item.id)
+    try {
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}`, {
+        method: "DELETE",
+      })
+      if (!response.ok) {
+        throw new Error(`Delete failed (${response.status})`)
+      }
+
+      setArticles((prev) => prev.filter((article) => article.id !== item.id))
+      setTotalArticleCount((prev) => Math.max(0, prev - 1))
+      setTrashCount((prev) => (activeTab === "all" ? prev + 1 : prev))
+      clearArticleViewCache()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to delete article."
+      setDeleteError(message)
+    } finally {
+      setDeletingArticleId(null)
+    }
+  }
+
+  const restoreArticle = async (item: ArticleItem) => {
+    if (!item.slug || deletingArticleId) return
+    const shouldRestore = window.confirm(`Restore "${item.title}"?`)
+    if (!shouldRestore) return
+
+    setDeleteError(null)
+    setDeletingArticleId(item.id)
+    try {
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}/restore`, {
+        method: "PATCH",
+      })
+      if (!response.ok) {
+        throw new Error(`Restore failed (${response.status})`)
+      }
+
+      setArticles((prev) => prev.filter((article) => article.id !== item.id))
+      setTotalArticleCount((prev) => Math.max(0, prev - 1))
+      setTrashCount((prev) => Math.max(0, prev - 1))
+      clearArticleViewCache()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to restore article."
+      setDeleteError(message)
+    } finally {
+      setDeletingArticleId(null)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -388,15 +491,16 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           </div>
         </div>
 
-        {/* Published filter */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</span>
-          <div className="flex gap-1.5">
-            <button className={filterTagClass(publishedFilter === "all")} onClick={() => setPublishedFilter("all")} type="button">All</button>
-            <button className={filterTagClass(publishedFilter === "published")} onClick={() => setPublishedFilter("published")} type="button">Published</button>
-            <button className={filterTagClass(publishedFilter === "draft")} onClick={() => setPublishedFilter("draft")} type="button">Draft</button>
+        {activeTab !== "trash" && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</span>
+            <div className="flex gap-1.5">
+              <button className={filterTagClass(publishedFilter === "all")} onClick={() => setPublishedFilter("all")} type="button">All</button>
+              <button className={filterTagClass(publishedFilter === "published")} onClick={() => setPublishedFilter("published")} type="button">Published</button>
+              <button className={filterTagClass(publishedFilter === "draft")} onClick={() => setPublishedFilter("draft")} type="button">Draft</button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -407,12 +511,17 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         <button aria-pressed={activeTab === "trash"} className={tabClass(activeTab === "trash")} onClick={() => onChangeTab("trash")} type="button">
           <Trash2 className="w-3.5 h-3.5" />
           Trash
-          <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{trashedItems.length}</span>
+          <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">{trashCount}</span>
         </button>
       </div>
 
       {/* Table */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
+        {deleteError ? (
+          <p className="px-4 py-3 text-sm text-destructive bg-destructive/10 border-b border-destructive/20">
+            {deleteError}
+          </p>
+        ) : null}
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
@@ -467,7 +576,9 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       item.status === "Published"
                         ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                        : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                        : item.status === "Draft"
+                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                          : "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200"
                     }`}>
                       {item.status}
                     </span>
@@ -475,10 +586,10 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                   <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{item.date}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
-                      {item.status === "Published" && (
+                      {activeTab !== "trash" && item.status === "Published" && (
                         <a
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-                          href={item.slug ? `http://localhost:4321/article/${encodeURIComponent(item.slug)}` : "#"}
+                          href={item.slug ? `https://www.thetriangle.org/article/${encodeURIComponent(item.slug)}` : "#"}
                           rel="noreferrer"
                           target="_blank"
                         >
@@ -499,11 +610,13 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        title="Delete"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        disabled={!item.slug || deletingArticleId === item.id}
+                        onClick={() => void (activeTab === "trash" ? restoreArticle(item) : deleteArticle(item))}
+                        title={activeTab === "trash" ? "Restore" : "Delete"}
                         type="button"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        {activeTab === "trash" ? <Undo2 className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
                       </button>
                     </div>
                   </td>

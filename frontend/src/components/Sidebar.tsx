@@ -19,12 +19,12 @@ import {
   BookOpen,
   MessageSquare,
   Activity,
-  Megaphone,
   BarChart3,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import logo from "../assets/logo.png"
+import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 
 type NavItem = {
   icon: React.ElementType
@@ -53,7 +53,6 @@ const navGroups: NavGroup[] = [
       { icon: BarChart3, label: "Poll", path: "/poll" },
       { icon: Image, label: "Media", path: "/media" },
       { icon: Mail, label: "Newsletter", path: "/newsletter" },
-      { icon: Megaphone, label: "Ad Locations", path: "/ad-locations" },
     ],
   },
   {
@@ -76,6 +75,7 @@ const navGroups: NavGroup[] = [
 ]
 
 export default function Sidebar() {
+  const { isAdmin } = useCurrentUserRole()
   const [collapsed, setCollapsed] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     "/articles": true,
@@ -94,6 +94,8 @@ export default function Sidebar() {
     return pathname === item.path
   }
 
+  const visibleNavGroups = navGroups.filter((group) => group.label !== "Admin" || isAdmin)
+
   return (
     <aside
       className={cn(
@@ -108,15 +110,15 @@ export default function Sidebar() {
           collapsed && "justify-center px-0",
         )}
       >
-        <img src={logo} alt="Delta" className="w-7 h-7 shrink-0 object-contain" />
-        {!collapsed && (
+        <img src={logo} alt="Delta" className="w-30 h-30 shrink-0 object-contain" />
+        {/* {!collapsed && (
           <span className="text-lg font-bold text-white tracking-tight truncate">Delta CMS</span>
-        )}
+        )} */}
       </div>
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2">
-        {navGroups.map((group, gi) => (
+        {visibleNavGroups.map((group, gi) => (
           <div key={gi} className="mb-1">
             {gi > 0 && <Separator className="my-2 bg-sidebar-border" />}
             {group.label && !collapsed && (

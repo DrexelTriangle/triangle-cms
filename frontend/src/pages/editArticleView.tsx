@@ -18,6 +18,10 @@ type ApiArticleDetail = {
   categories?: Array<{
     name?: string
   }>
+  authors?: Array<{
+    id?: number
+    name?: string
+  }>
 }
 
 type PatchPayload = {
@@ -28,12 +32,26 @@ type PatchPayload = {
   comment_status: string
   photo_url: string
   categories: string[]
+  authors: number[]
 }
 
 type MediaItem = {
   id: string
   url: string
   fileName: string
+}
+
+type ApiAuthor = {
+  id: number
+  display_name: string
+}
+
+type AuthorsResponse = {
+  authors?: ApiAuthor[]
+  pagination?: {
+    has_more?: boolean
+    hasMore?: boolean
+  }
 }
 
 const normalizeMediaItems = (payload: unknown): MediaItem[] => {
@@ -86,6 +104,10 @@ function EditArticleView() {
   const [photoURL, setPhotoURL] = useState("")
   const [categoriesInput, setCategoriesInput] = useState("")
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
+  const [selectedAuthorId, setSelectedAuthorId] = useState<string>("")
+  const [authors, setAuthors] = useState<ApiAuthor[]>([])
+  const [authorsLoading, setAuthorsLoading] = useState(false)
+  const [authorsError, setAuthorsError] = useState<string | null>(null)
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
   const [mediaLoading, setMediaLoading] = useState(false)
   const [mediaError, setMediaError] = useState<string | null>(null)
@@ -123,6 +145,8 @@ function EditArticleView() {
               .filter((name) => name.length > 0)
               .join(", "),
           )
+          const firstAuthorId = payload.authors?.[0]?.id
+          setSelectedAuthorId(typeof firstAuthorId === "number" ? String(firstAuthorId) : "")
         }
       } catch (err) {
         if (!cancelled) {
@@ -141,6 +165,59 @@ function EditArticleView() {
       cancelled = true
     }
   }, [slug])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchAuthors = async () => {
+      setAuthorsLoading(true)
+      setAuthorsError(null)
+      try {
+        const pageSize = 200
+        let offset = 0
+        let hasMore = true
+        const allAuthors: ApiAuthor[] = []
+
+        while (hasMore) {
+          const response = await apiFetch(`/v1/authors?limit=${pageSize}&offset=${offset}&sort_by=display_name&sort_direction=asc`)
+          if (!response.ok) {
+            throw new Error(`Authors request failed (${response.status})`)
+          }
+          const payload = (await response.json()) as ApiAuthor[] | AuthorsResponse
+          const authorList = Array.isArray(payload) ? payload : (payload.authors ?? [])
+          allAuthors.push(...authorList)
+
+          const apiHasMore = Array.isArray(payload)
+            ? undefined
+            : (payload.pagination?.has_more ?? payload.pagination?.hasMore)
+          hasMore = typeof apiHasMore === "boolean" ? apiHasMore : authorList.length === pageSize
+          offset += authorList.length
+          if (authorList.length === 0) {
+            hasMore = false
+          }
+        }
+
+        if (!cancelled) {
+          setAuthors(allAuthors)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : "Unable to load authors."
+          setAuthorsError(message)
+          setAuthors([])
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthorsLoading(false)
+        }
+      }
+    }
+
+    void fetchAuthors()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch])
 
   useEffect(() => {
     if (!imagePickerOpen) return
@@ -196,6 +273,7 @@ function EditArticleView() {
         .split(",")
         .map((category) => category.trim())
         .filter((category) => category.length > 0),
+      authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
     }
 
     try {
@@ -321,6 +399,28 @@ function EditArticleView() {
                 <option value="published">Published</option>
               </select>
             </label>
+
+            <label className={labelClass}>
+              <span className={labelTextClass}>Author</span>
+              <select
+                className={selectClass}
+                onChange={(e) => setSelectedAuthorId(e.target.value)}
+                value={selectedAuthorId}
+                disabled={authorsLoading}
+              >
+                <option value="">No author</option>
+                {authors.map((author) => (
+                  <option key={author.id} value={String(author.id)}>
+                    {author.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {authorsError ? (
+              <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+                {authorsError}
+              </p>
+            ) : null}
 
             <label className={labelClass}>
               <span className={labelTextClass}>Comment Status</span>

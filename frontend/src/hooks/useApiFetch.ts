@@ -1,15 +1,14 @@
 import { useCallback } from "react"
-import { useAuth } from "react-oidc-context"
+import { apiBaseUrl } from "../auth/urls"
 
 export function useApiFetch() {
-  const { user } = useAuth()
-  const token = user?.id_token
+  const baseUrl = apiBaseUrl()
 
   return useCallback((url: string, init?: RequestInit): Promise<Response> => {
-    const headers: Record<string, string> = {
-      ...(init?.headers as Record<string, string>),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    }
-    return fetch(url, { ...init, headers })
-  }, [token])
+    const target = url.startsWith("http://") || url.startsWith("https://")
+      ? url
+      : `${baseUrl}${url}`
+
+    return fetch(target, { ...init, credentials: "include" })
+  }, [baseUrl])
 }

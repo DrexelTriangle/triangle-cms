@@ -1,5 +1,6 @@
-import { Bell, Search } from "lucide-react"
+import { Bell } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import { useSessionAuth } from "../auth/sessionAuth"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,17 +14,13 @@ import {
 
 export default function Header() {
   const navigate = useNavigate()
+  const { user, logout } = useSessionAuth()
+  const displayName = String(user?.name ?? user?.email ?? "Editor")
+  const initials = displayName.split(" ").map((part) => part[0] ?? "").join("").slice(0, 2).toUpperCase()
+  const displayRole = user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : "Editor"
 
   return (
     <header className="h-16 flex items-center justify-between px-6 bg-card border-b border-border shrink-0">
-      <div className="relative hidden sm:block">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-        <input
-          placeholder="Search articles, authors..."
-          className="h-9 w-64 pl-9 pr-3 text-sm rounded-lg border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-        />
-      </div>
-
       <div className="flex items-center gap-3 ml-auto">
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="w-4 h-4" />
@@ -37,11 +34,11 @@ export default function Header() {
               className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-muted transition-colors focus:outline-none"
             >
               <Avatar className="h-8 w-8">
-                <AvatarFallback>JD</AvatarFallback>
+                <AvatarFallback>{initials || "ED"}</AvatarFallback>
               </Avatar>
               <div className="hidden md:block text-left">
-                <p className="text-sm font-semibold leading-none">Juste</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Editor</p>
+                <p className="text-sm font-semibold leading-none">{displayName}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{displayRole}</p>
               </div>
             </button>
           </DropdownMenuTrigger>
@@ -54,7 +51,10 @@ export default function Header() {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive focus:text-destructive focus:bg-destructive/10"
-              onClick={() => navigate("/login")}
+              onClick={async () => {
+                await logout()
+                navigate("/login", { replace: true })
+              }}
             >
               Log out
             </DropdownMenuItem>
