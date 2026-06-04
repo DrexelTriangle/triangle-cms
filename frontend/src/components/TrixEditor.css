@@ -1,0 +1,331 @@
+/* Variables use shadcn/ui HSL format: hsl(var(--name)).
+   Fallback values match the refactoring/frontend design system so this
+   renders correctly even before shadcn variables are in scope. */
+
+.trix-editor-wrapper {
+  position: relative;
+  border: 1px solid hsl(var(--border, 220 13% 91%));
+  border-radius: var(--radius, 0.5rem);
+  background: hsl(var(--card, 0 0% 100%));
+  /* No overflow:hidden; it would clip the resize handle overlay when an image
+     is selected near the editor edge. */
+}
+
+/* ── Toolbar ── */
+
+trix-toolbar .trix-button-row {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px;
+  background: hsl(var(--card, 0 0% 100%));
+  border-bottom: 1px solid hsl(var(--border, 220 13% 91%));
+}
+
+trix-toolbar .trix-button-group {
+  border: none;
+  margin: 0;
+  display: inline-flex;
+  gap: 2px;
+}
+
+trix-toolbar .trix-button-group:not(:first-child) {
+  border-left: none;
+}
+
+trix-toolbar .trix-button {
+  border: none;
+  background: transparent;
+  padding: 5px;
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  cursor: pointer;
+  color: hsl(var(--foreground, 224 71% 4%));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+}
+
+trix-toolbar .trix-button:not(:first-child) {
+  border-left: none;
+}
+
+trix-toolbar .trix-button:hover {
+  background: hsl(var(--muted, 220 14% 96%));
+}
+
+trix-toolbar .trix-button.trix-active {
+  background: hsl(var(--muted, 220 14% 96%));
+  font-weight: 600;
+}
+
+trix-toolbar .trix-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.trix-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex-shrink: 0;
+}
+
+/* ── Link dialog ── */
+
+trix-toolbar .trix-dialog {
+  background: hsl(var(--card, 0 0% 100%));
+  border-top: 1px solid hsl(var(--border, 220 13% 91%));
+  padding: 8px 10px;
+  box-shadow: none;
+}
+
+trix-toolbar .trix-dialog__link-fields {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+trix-toolbar .trix-input--dialog {
+  background: hsl(var(--background, 0 0% 98%));
+  border: 1px solid hsl(var(--border, 220 13% 91%));
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  color: hsl(var(--foreground, 224 71% 4%));
+  font-size: 13px;
+  min-height: 32px;
+  padding: 4px 10px;
+  flex: 1;
+}
+
+trix-toolbar .trix-button--dialog {
+  background: hsl(var(--background, 0 0% 98%));
+  border: 1px solid hsl(var(--border, 220 13% 91%));
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  color: hsl(var(--foreground, 224 71% 4%));
+  cursor: pointer;
+  font-size: 13px;
+  min-height: 32px;
+  padding: 4px 12px;
+}
+
+trix-toolbar .trix-button--dialog:hover {
+  background: hsl(var(--muted, 220 14% 96%));
+}
+
+/* ── Editor area ── */
+
+trix-editor.trix-content {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  padding: 1rem !important;
+  min-height: 280px;
+  line-height: 1.6;
+  color: hsl(var(--foreground, 224 71% 4%));
+  background: hsl(var(--card, 0 0% 100%));
+  font-family: inherit;
+  font-size: 14px;
+  display: block;
+}
+
+/* ── Restore styles stripped by global CSS resets (Tailwind base / kumo) ── */
+
+trix-editor.trix-content ul {
+  list-style: disc;
+  padding-left: 1.5em;
+}
+
+trix-editor.trix-content ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+
+trix-editor.trix-content a {
+  color: hsl(var(--primary, 243 75% 59%));
+  text-decoration: underline;
+  position: relative;
+  cursor: pointer;
+}
+
+/* ── Attachments (images, files, captions) ── */
+
+/* .attachment--preview is the wrapper Trix puts around each image. We need it
+   block-level + text-align: center so the inline <img> inside sits over the
+   centered <figcaption>. Don't make the inner <img> display:block, otherwise
+   the parent's text-align won't apply and it falls to the left edge. */
+trix-editor.trix-content .attachment {
+  position: relative;
+  max-width: 100%;
+}
+
+trix-editor.trix-content .attachment--preview {
+  display: block;
+  text-align: center;
+  margin: 1em auto;
+}
+
+trix-editor.trix-content .attachment img {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  cursor: move;
+}
+
+/* Caption. Trix renders <figcaption class="attachment__caption">; when the
+   attachment is selected it becomes an editable <input class="attachment__caption-editor">. */
+trix-editor.trix-content .attachment__caption {
+  display: block;
+  margin-top: 0.5em;
+  text-align: center;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground, 215 16% 47%));
+  font-style: italic;
+  line-height: 1.4;
+}
+
+trix-editor.trix-content .attachment__caption .attachment__name,
+trix-editor.trix-content .attachment__caption .attachment__size {
+  display: inline;
+}
+
+trix-editor.trix-content .attachment__caption-editor {
+  display: block;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  text-align: center;
+  font: inherit;
+  color: inherit;
+  resize: none;
+  padding: 0;
+}
+
+trix-editor.trix-content .attachment__caption-editor::placeholder {
+  color: hsl(var(--muted-foreground, 215 16% 47%));
+  opacity: 0.7;
+}
+
+/* No outline on the figure: it's a full-width centered block and an outline
+   encloses the whole row. Instead, ring the IMG itself when its enclosing
+   figure is selected. */
+trix-editor.trix-content .attachment.attachment--preview.attachment--selected img {
+  outline: 2px solid hsl(var(--primary, 243 75% 59%));
+  outline-offset: 2px;
+}
+
+/* Drag-in-progress state on the source figure. */
+trix-editor.trix-content .attachment.attachment--preview.attachment--dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/* Per-image alignment, set during a drop. Overrides the default centering
+   from .attachment--preview above. Both the inline style and the class are
+   applied at commit time for redundancy through Trix's HTML serialization. */
+trix-editor.trix-content .attachment--preview.attachment--align-left {
+  text-align: left;
+}
+trix-editor.trix-content .attachment--preview.attachment--align-center {
+  text-align: center;
+}
+trix-editor.trix-content .attachment--preview.attachment--align-right {
+  text-align: right;
+}
+
+/* Resize overlay rendered by JS into .trix-editor-wrapper, positioned over
+   the currently selected image. The overlay itself is click-through so Trix's
+   own drag-to-reorder still works; only the corner squares grab pointer events. */
+.trix-resize-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.trix-resize-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: hsl(var(--primary, 243 75% 59%));
+  border: 2px solid hsl(var(--background, 0 0% 100%));
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+}
+
+.trix-resize-handle--nw { top: -6px; left: -6px; cursor: nwse-resize; }
+.trix-resize-handle--ne { top: -6px; right: -6px; cursor: nesw-resize; }
+.trix-resize-handle--sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.trix-resize-handle--se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+
+/* Drop indicator shown only during an active drag-to-rearrange. The width and
+   horizontal position shift to hint at the alignment that will be applied on
+   drop: short bar on the left = left-align, centered short bar = center,
+   short bar on the right = right-align. */
+.trix-drop-indicator {
+  position: absolute;
+  height: 3px;
+  background: hsl(var(--primary, 243 75% 59%));
+  border-radius: 999px;
+  z-index: 6;
+  pointer-events: none;
+  transition: left 80ms ease-out, width 80ms ease-out;
+  box-shadow: 0 0 0 1px hsl(var(--background, 0 0% 100%)),
+              0 2px 6px hsl(var(--primary, 243 75% 59%) / 0.4);
+}
+
+.trix-drop-indicator::before,
+.trix-drop-indicator::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: hsl(var(--primary, 243 75% 59%));
+  transform: translateY(-50%);
+}
+.trix-drop-indicator::before { left: -4px; }
+.trix-drop-indicator::after  { right: -4px; }
+
+trix-editor.trix-content .attachment__progress {
+  position: absolute;
+  top: 50%;
+  left: 5%;
+  right: 5%;
+  height: 4px;
+  border-radius: 2px;
+  background: hsl(var(--muted, 220 14% 96%));
+  overflow: hidden;
+}
+
+trix-editor.trix-content .attachment__progress[value]::-webkit-progress-bar {
+  background: hsl(var(--muted, 220 14% 96%));
+}
+
+trix-editor.trix-content .attachment__progress[value]::-webkit-progress-value {
+  background: hsl(var(--primary, 243 75% 59%));
+}
+
+/* Hover tooltip showing the link target above the text. */
+trix-editor.trix-content a:hover::after {
+  content: attr(href);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  background: hsl(var(--foreground, 224 71% 4%));
+  color: hsl(var(--background, 0 0% 100%));
+  padding: 4px 8px;
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}

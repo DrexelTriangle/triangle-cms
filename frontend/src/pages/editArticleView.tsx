@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { ArrowLeft, Save, Image, Search, X } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
+import TrixEditor from "../components/TrixEditor"
 
 type EditableStatus = "draft" | "published"
 
@@ -376,14 +377,10 @@ function EditArticleView() {
               />
             </label>
 
-            <label className={labelClass}>
+            <div className={labelClass}>
               <span className={labelTextClass}>Content</span>
-              <textarea
-                className={`${inputClass} resize-y min-h-[320px] font-mono text-xs leading-relaxed`}
-                onChange={(e) => setContent(e.target.value)}
-                value={content}
-              />
-            </label>
+              <TrixEditor onChange={setContent} value={content} />
+            </div>
           </div>
 
           {/* Sidebar */}
