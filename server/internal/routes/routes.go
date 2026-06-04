@@ -51,17 +51,21 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/poll/title", handlers.GetPollTitle(conn))
 	mux.Handle("POST /v1/poll", middleware.RateLimitByIP(5, time.Minute)(handlers.PostPoll(conn)))
 	mux.Handle("GET /v1/poll/options", handlers.GetPollOptions(conn))
-	mux.Handle("GET /v1/developing-stories", handlers.GetDevelopingStories(conn))
-	mux.Handle("GET /v1/taxonomy", authMW(handlers.GetTaxonomy(conn)))
-	mux.Handle("PATCH /v1/poll/title", authMW(adminOnly(handlers.PatchPollTitle(conn))))
-	mux.Handle("POST /v1/poll/options", authMW(adminOnly(handlers.PostPollOption(conn))))
-	mux.Handle("PATCH /v1/poll/options", authMW(adminOnly(handlers.PatchPollOption(conn))))
-	mux.Handle("DELETE /v1/poll/options", authMW(adminOnly(handlers.DeletePollOption(conn))))
-	mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))
-	mux.Handle("DELETE /v1/developing-stories", authMW(adminOnly(handlers.DeleteDevelopingStory(conn))))
-	mux.Handle("PATCH /v1/settings/site", authMW(adminOnly(handlers.PatchSiteSettings(conn))))
+		mux.Handle("GET /v1/developing-stories", handlers.GetDevelopingStories(conn))
+		mux.Handle("GET /v1/taxonomy", authMW(handlers.GetTaxonomy(conn)))
+		mux.Handle("GET /v1/taxonomy/{type}/{slug}", authMW(handlers.GetTaxonomyItem(conn)))
+		mux.Handle("PATCH /v1/poll/title", authMW(adminOnly(handlers.PatchPollTitle(conn))))
+		mux.Handle("POST /v1/poll/options", authMW(adminOnly(handlers.PostPollOption(conn))))
+		mux.Handle("PATCH /v1/poll/options", authMW(adminOnly(handlers.PatchPollOption(conn))))
+		mux.Handle("DELETE /v1/poll/options", authMW(adminOnly(handlers.DeletePollOption(conn))))
+		mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))
+		mux.Handle("DELETE /v1/developing-stories", authMW(adminOnly(handlers.DeleteDevelopingStory(conn))))
+		mux.Handle("PATCH /v1/settings/site", authMW(adminOnly(handlers.PatchSiteSettings(conn))))
+		mux.Handle("POST /v1/taxonomy", authMW(adminOnly(handlers.PostTaxonomy(conn))))
+		mux.Handle("PUT /v1/taxonomy/{type}/{slug}", authMW(adminOnly(handlers.PutTaxonomyItem(conn))))
+		mux.Handle("DELETE /v1/taxonomy/{type}/{slug}", authMW(adminOnly(handlers.DeleteTaxonomyItem(conn))))
 
-	if verifier != nil {
+		if verifier != nil {
 		mux.Handle("POST /v1/authors", authMW(adminOnly(handlers.PostAuthors(conn))))
 		mux.Handle("PUT /v1/authors/{slug}", authMW(adminOnly(handlers.PutAuthor(conn))))
 		mux.Handle("PATCH /v1/authors/{slug}", authMW(adminOnly(handlers.PatchAuthor(conn))))
@@ -74,4 +78,3 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 		mux.Handle("DELETE /v1/articles/{slug}", authMW(handlers.DeleteArticle(conn)))
 	}
 }
-
