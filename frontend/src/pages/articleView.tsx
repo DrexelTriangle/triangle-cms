@@ -43,7 +43,8 @@ type ApiAuthor = {
   display_name: string
 }
 
-const PAGE_SIZE = 20
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
+const DEFAULT_PAGE_SIZE = 25
 const AUTHORS_PAGE_SIZE = 200
 
 const mapApiStatus = (status: string, activeTab: "all" | "trash"): ArticleStatus => {
@@ -75,6 +76,7 @@ type ArticleViewUIState = {
   authorQuery?: string
   publishedFilter?: "all" | "published" | "draft"
   dateSortDirection?: "asc" | "desc"
+  pageSize?: number
 }
 
 type ArticleResultsCacheEntry = {
@@ -110,6 +112,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const [searchQuery, setSearchQuery] = useState(() => loadUIState().searchQuery ?? "")
   const [activeTab, setActiveTab] = useState<"all" | "trash">(() => loadUIState().activeTab ?? "all")
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(() => loadUIState().pageSize ?? DEFAULT_PAGE_SIZE)
   const [articles, setArticles] = useState<ArticleItem[]>([])
   const [totalArticleCount, setTotalArticleCount] = useState(0)
   const [trashCount, setTrashCount] = useState(0)
@@ -130,8 +133,9 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       authorQuery,
       publishedFilter,
       dateSortDirection,
+      pageSize,
     } satisfies ArticleViewUIState)
-  }, [activeTab, authorQuery, dateSortDirection, publishedFilter, searchQuery, uiStateKey])
+  }, [activeTab, authorQuery, dateSortDirection, pageSize, publishedFilter, searchQuery, uiStateKey])
 
   useEffect(() => {
     let cancelled = false
@@ -213,7 +217,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       let paintedFromCache = false
       try {
         const params = new URLSearchParams({
-          limit: String(PAGE_SIZE),
+          limit: String(pageSize),
           page: String(page + 1),
           sort_by: "published_date",
           sort_direction: dateSortDirection,
@@ -275,7 +279,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         if (!cancelled) {
           setArticles(items)
           const apiTotalCount = payload.pagination?.total_count ?? payload.pagination?.totalCount
-          const fallbackTotalCount = (page * PAGE_SIZE) + items.length + (Boolean(payload.pagination?.has_more ?? payload.pagination?.hasMore) ? 1 : 0)
+          const fallbackTotalCount = (page * pageSize) + items.length + (Boolean(payload.pagination?.has_more ?? payload.pagination?.hasMore) ? 1 : 0)
           const computedTotal = typeof apiTotalCount === "number" ? apiTotalCount : fallbackTotalCount
           setTotalArticleCount(computedTotal)
           writeSessionJSON(resultsCacheKey, {
@@ -307,7 +311,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     return () => {
       cancelled = true
     }
-  }, [activeTab, dateSortDirection, excludeType, fixedType, page, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
+  }, [activeTab, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
 
   const onChangeTab = (tab: "all" | "trash") => {
     setActiveTab(tab)
@@ -332,10 +336,10 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
 
   useEffect(() => {
     setPage(0)
-  }, [selectedAuthorSlug, publishedFilter, dateSortDirection, searchQuery])
+  }, [selectedAuthorSlug, publishedFilter, dateSortDirection, searchQuery, pageSize])
 
-  const effectiveTotalCount = Math.max(totalArticleCount, (page * PAGE_SIZE) + articles.length)
-  const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / PAGE_SIZE))
+  const effectiveTotalCount = Math.max(totalArticleCount, (page * pageSize) + articles.length)
+  const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / pageSize))
   const listLabel = pageTitle.toLowerCase()
 
   const filterTagClass = (active: boolean) =>
@@ -639,7 +643,21 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
 
       {/* Pagination */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>{articles.length} article{articles.length === 1 ? "" : "s"} shown</span>
+        <div className="flex items-center gap-3">
+          <span>{articles.length} article{articles.length === 1 ? "" : "s"} shown</span>
+          <label className="flex items-center gap-1.5">
+            <span>Per page</span>
+            <select
+              className="rounded-lg border border-border bg-background px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </label>
+        </div>
         <div className="flex items-center gap-1">
           <button
             className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -662,7 +680,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           </span>
           <button
             className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            disabled={(page + 1) * PAGE_SIZE >= effectiveTotalCount}
+            disabled={(page + 1) * pageSize >= effectiveTotalCount}
             onClick={() => setPage((p) => p + 1)}
             type="button"
           >
@@ -670,7 +688,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           </button>
           <button
             className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            disabled={(page + 1) * PAGE_SIZE >= effectiveTotalCount}
+            disabled={(page + 1) * pageSize >= effectiveTotalCount}
             onClick={() => setPage(Math.max(0, totalPages - 1))}
             type="button"
           >
