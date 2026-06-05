@@ -548,13 +548,18 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "Filter by display name, login, or email (substring match)",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
                         "enum": [
                             "display_name",
-                            "created_at",
-                            "updated_at"
+                            "id"
                         ],
                         "type": "string",
-                        "description": "Sort field",
+                        "description": "Sort field (id sorts by creation order)",
                         "name": "sort_by",
                         "in": "query"
                     },
@@ -2406,6 +2411,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "content": {
+                    "type": "string"
+                },
+                "excerpt": {
                     "type": "string"
                 },
                 "is_featured": {

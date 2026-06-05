@@ -118,6 +118,8 @@ definitions:
         type: string
       content:
         type: string
+      excerpt:
+        type: string
       is_featured:
         type: boolean
       photo_url:
@@ -911,11 +913,14 @@ paths:
         in: query
         name: article_id
         type: integer
-      - description: Sort field
+      - description: Filter by display name, login, or email (substring match)
+        in: query
+        name: search
+        type: string
+      - description: Sort field (id sorts by creation order)
         enum:
         - display_name
-        - created_at
-        - updated_at
+        - id
         in: query
         name: sort_by
         type: string

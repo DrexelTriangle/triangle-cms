@@ -19,6 +19,8 @@ import (
 
 var AuthorSortByColumn = map[string]string{
 	string(models.AuthorSortByDisplayName): "display_name",
+	// authors has no timestamp columns; id is auto-increment, so it doubles as creation order.
+	string(models.AuthorSortByID): "id",
 }
 
 var ArticleSortByColumn = map[string]string{
