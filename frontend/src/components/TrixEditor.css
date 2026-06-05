@@ -118,31 +118,103 @@ trix-editor.trix-content {
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
-  padding: 1rem !important;
+  padding: 1.5rem 1.75rem !important;
   min-height: 280px;
-  line-height: 1.6;
+  /* Reads as article body, not form chrome: a notch larger than the 13-14px
+     admin UI and looser leading for sustained reading. */
+  line-height: 1.75;
   color: hsl(var(--foreground, 224 71% 4%));
   background: hsl(var(--card, 0 0% 100%));
   font-family: inherit;
-  font-size: 14px;
+  font-size: 16px;
   display: block;
 }
 
+/* ── Editorial typography ──────────────────────────────────────────────────
+   Tailwind's preflight resets heading sizes/weights to inherit and strips all
+   block margins, which collapses article content into one flat wall of text.
+   We restore a deliberate hierarchy and reading rhythm here. Headings use a
+   serif display stack to read as a newspaper masthead against the sans admin
+   chrome (system serifs only — no webfont fetch inside the CMS). */
+
+trix-editor.trix-content > * {
+  margin: 0 0 1.1em;
+}
+
+trix-editor.trix-content > *:last-child {
+  margin-bottom: 0;
+}
+
+trix-editor.trix-content h1,
+trix-editor.trix-content h2,
+trix-editor.trix-content h3,
+trix-editor.trix-content h4,
+trix-editor.trix-content h5,
+trix-editor.trix-content h6 {
+  font-family: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: hsl(var(--foreground, 224 71% 4%));
+  margin: 1.6em 0 0.5em;
+}
+
+trix-editor.trix-content > *:first-child {
+  margin-top: 0;
+}
+
+trix-editor.trix-content h1 { font-size: 1.85em; }
+trix-editor.trix-content h2 { font-size: 1.5em; }
+trix-editor.trix-content h3 { font-size: 1.25em; }
+trix-editor.trix-content h4 { font-size: 1.05em; }
+trix-editor.trix-content h5,
+trix-editor.trix-content h6 {
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: hsl(var(--muted-foreground, 215 16% 47%));
+}
+
+trix-editor.trix-content strong { font-weight: 700; }
+trix-editor.trix-content em { font-style: italic; }
+
 /* ── Restore styles stripped by global CSS resets (Tailwind base / kumo) ── */
 
-trix-editor.trix-content ul {
-  list-style: disc;
+trix-editor.trix-content ul,
+trix-editor.trix-content ol {
   padding-left: 1.5em;
 }
 
-trix-editor.trix-content ol {
-  list-style: decimal;
-  padding-left: 1.5em;
+trix-editor.trix-content ul { list-style: disc; }
+trix-editor.trix-content ol { list-style: decimal; }
+
+trix-editor.trix-content li { margin: 0.3em 0; }
+
+trix-editor.trix-content blockquote {
+  margin: 1.4em 0;
+  padding: 0.2em 0 0.2em 1.1em;
+  border-left: 3px solid hsl(var(--primary, 243 75% 59%));
+  color: hsl(var(--muted-foreground, 215 16% 47%));
+  font-style: italic;
+}
+
+trix-editor.trix-content pre {
+  margin: 1.2em 0;
+  padding: 0.9em 1.1em;
+  background: hsl(var(--muted, 220 14% 96%));
+  border: 1px solid hsl(var(--border, 220 13% 91%));
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre-wrap;
 }
 
 trix-editor.trix-content a {
   color: hsl(var(--primary, 243 75% 59%));
   text-decoration: underline;
+  text-underline-offset: 2px;
   position: relative;
   cursor: pointer;
 }

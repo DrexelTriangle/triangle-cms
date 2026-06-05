@@ -16,7 +16,6 @@ import {
   ChevronDown,
   LogOut,
   PlusCircle,
-  BookOpen,
   MessageSquare,
   Activity,
   BarChart3,
@@ -49,7 +48,6 @@ const navGroups: NavGroup[] = [
     items: [
       { icon: FileText, label: "Articles", path: "/articles" },
       { icon: TrendingUp, label: "Developing Stories", path: "/developing-stories" },
-      { icon: BookOpen, label: "Pages", path: "/pages" },
       { icon: BarChart3, label: "Poll", path: "/poll" },
       { icon: Image, label: "Media", path: "/media" },
       { icon: Mail, label: "Newsletter", path: "/newsletter" },
