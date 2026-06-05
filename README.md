@@ -159,7 +159,10 @@ DB_USER=triangle_user
 DB_PASSWORD=triangle_password
 DB_HOST=127.0.0.1
 DB_PORT=3306
+ACTIVITY_DB_PATH=./data/activity
 ```
+
+CMS activity events are stored in BadgerDB at `server/data/activity` by default for local runs, and in the `cms_activity_data` Docker volume for the Compose stack.
 
 Run Triangle CMS frontend dashboard:
 

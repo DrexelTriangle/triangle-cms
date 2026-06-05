@@ -47,13 +47,22 @@ func Logging(next http.Handler) http.Handler {
 			rec.status = http.StatusOK
 		}
 
-		slog.Info("http request",
+		args := []any{
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rec.status,
 			"bytes", rec.bytes,
 			"duration_ms", time.Since(start).Milliseconds(),
-		)
+		}
+		if user, ok := UserFromContext(r.Context()); ok && user != nil {
+			args = append(args,
+				"actor_id", user.ID,
+				"actor_name", user.Name,
+				"actor_role", string(user.Role),
+			)
+		}
+
+		slog.Info("http request", args...)
 	})
 }
 

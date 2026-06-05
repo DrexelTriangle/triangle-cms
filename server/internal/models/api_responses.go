@@ -183,3 +183,22 @@ type DevelopingStoryRequest struct {
 type DevelopingStoriesResponse struct {
 	Stories []string `json:"stories"`
 }
+
+type ActivityEventResponse struct {
+	ID        string    `json:"id"`
+	User      string    `json:"user"`
+	Action    string    `json:"action"`
+	Target    string    `json:"target"`
+	Date      time.Time `json:"date"`
+	UserRole  string    `json:"user_role,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	Level     string    `json:"level,omitempty"`
+	Method    string    `json:"method,omitempty"`
+	Path      string    `json:"path,omitempty"`
+	RawStatus int       `json:"status,omitempty"`
+}
+
+type ActivityResponse struct {
+	Events     []ActivityEventResponse `json:"events"`
+	TotalCount int                     `json:"total_count"`
+}

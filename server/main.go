@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"server/internal/activity"
 	"server/internal/auth"
 	"server/internal/database"
 	"server/internal/middleware"
@@ -31,7 +32,9 @@ const (
 	keyFilePath            = "./certs/localhost.key"
 	certFileEnv            = "TLS_CERT_FILE"
 	keyFileEnv             = "TLS_KEY_FILE"
+	activityDBPathEnv      = "ACTIVITY_DB_PATH"
 	defaultShutdownTimeout = 10 * time.Second
+	defaultActivityDBPath  = "./data/activity"
 )
 
 type httpsServer interface {
@@ -65,6 +68,7 @@ type runDeps struct {
 // @tag.name health
 // @tag.name authors
 // @tag.name articles
+// @tag.name activity
 // @securityDefinitions.apikey BearerAuth
 // @in header
 // @name Authorization
@@ -73,7 +77,18 @@ type runDeps struct {
 func main() {
 	godotenv.Load(".env")
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "cms")
+	activityStore, err := activity.OpenBadgerStore(getenvOrDefault(activityDBPathEnv, defaultActivityDBPath))
+	if err != nil {
+		slog.Error("failed to initialize activity store", "error", err)
+		os.Exit(1)
+	}
+	defer activityStore.Close()
+	activity.SetDefaultStore(activityStore)
+
+	logger := slog.New(activity.NewTeeHandler(
+		slog.NewJSONHandler(os.Stdout, nil),
+		activity.NewStoreHandler(activityStore, nil),
+	)).With("service", "cms")
 	slog.SetDefault(logger)
 
 	dbName, user, password, host, port, err := dbConfigFromEnv()
@@ -110,21 +125,21 @@ func main() {
 		slog.Error("failed to create settings table", "error", err)
 		os.Exit(1)
 	}
-		if err := database.EnsureTaxonomyTable(context.Background(), db); err != nil {
-			slog.Error("failed to create taxonomy table", "error", err)
+	if err := database.EnsureTaxonomyTable(context.Background(), db); err != nil {
+		slog.Error("failed to create taxonomy table", "error", err)
+		os.Exit(1)
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP")), "true") {
+		if err := database.RebuildTaxonomyArticleCounts(context.Background(), db); err != nil {
+			slog.Error("failed to rebuild taxonomy article counts", "error", err)
 			os.Exit(1)
 		}
-		if strings.EqualFold(strings.TrimSpace(os.Getenv("CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP")), "true") {
-			if err := database.RebuildTaxonomyArticleCounts(context.Background(), db); err != nil {
-				slog.Error("failed to rebuild taxonomy article counts", "error", err)
-				os.Exit(1)
-			}
-			slog.Info("rebuilt taxonomy article counts at startup")
-		}
-		if err := database.EnsurePollSettings(context.Background(), db); err != nil {
-			slog.Error("failed to seed poll settings", "error", err)
-			os.Exit(1)
-		}
+		slog.Info("rebuilt taxonomy article counts at startup")
+	}
+	if err := database.EnsurePollSettings(context.Background(), db); err != nil {
+		slog.Error("failed to seed poll settings", "error", err)
+		os.Exit(1)
+	}
 
 	row := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ?", dbName)
 	var tableCount int

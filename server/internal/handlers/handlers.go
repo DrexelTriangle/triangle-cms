@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"server/internal/activity"
 	db "server/internal/database"
 	"server/internal/middleware"
 	"server/internal/models"
@@ -464,17 +465,17 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 			}
 			authors = append(authors, a)
 		}
-			if err := rows.Err(); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			hasMore := offset+len(authors) < totalCount
-			writeJSON(w, http.StatusOK, models.AuthorsResponse{
-				Authors:    authors,
-				Pagination: paginationResponse(page, limit, offset, hasMore, totalCount),
-			})
+		if err := rows.Err(); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
+		hasMore := offset+len(authors) < totalCount
+		writeJSON(w, http.StatusOK, models.AuthorsResponse{
+			Authors:    authors,
+			Pagination: paginationResponse(page, limit, offset, hasMore, totalCount),
+		})
 	}
+}
 
 // @Summary Create an author
 // @Tags authors
@@ -509,6 +510,7 @@ func PostAuthors(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		activity.LogRequest(r, "author_created", body.DisplayName, "slug", slug)
 		w.WriteHeader(http.StatusCreated)
 	}
 }
@@ -597,6 +599,7 @@ func PutAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "author not found")
 			return
 		}
+		activity.LogRequest(r, "author_updated", body.DisplayName, "old_slug", slug, "new_slug", nextSlug)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -664,6 +667,14 @@ func PatchAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "author not found")
 			return
 		}
+		target := slug
+		if rawSlug, ok := body["slug"].(string); ok && strings.TrimSpace(rawSlug) != "" {
+			target = strings.TrimSpace(rawSlug)
+		}
+		if displayName, ok := body["display_name"].(string); ok && strings.TrimSpace(displayName) != "" {
+			target = strings.TrimSpace(displayName)
+		}
+		activity.LogRequest(r, "author_updated", target, "slug", slug)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -698,6 +709,7 @@ func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "author not found")
 			return
 		}
+		activity.LogRequest(r, "author_deleted", slug)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -1418,17 +1430,22 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-			if err := db.ReplaceArticleAuthors(r.Context(), conn, articleID, body.Authors); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			if err := incrementTaxonomyArticleCounts(r.Context(), conn, body.Categories); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
+		if err := db.ReplaceArticleAuthors(r.Context(), conn, articleID, body.Authors); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
+		if err := incrementTaxonomyArticleCounts(r.Context(), conn, body.Categories); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		action := "article_created"
+		if body.Status == models.ArticleStatusPublished {
+			action = "article_published"
+		}
+		activity.LogRequest(r, action, body.Title, "slug", strings.TrimSpace(body.Slug), "article_id", articleID)
+		w.WriteHeader(http.StatusCreated)
 	}
+}
 
 // @Summary Replace an article
 // @Tags articles
@@ -1468,20 +1485,20 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-			if strings.TrimSpace(body.Slug) == "" {
-				body.Slug = slug
-			} else if !isValidCanonicalSlug(body.Slug) {
-				writeError(w, http.StatusBadRequest, "slug must be canonical")
-				return
-			}
-			oldCategories, isActiveArticle, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, false)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			fields := db.ArticleToDBFields(body)
-			fields = append(fields, slug)
-			result, err := db.Update(r.Context(), conn, "articles",
+		if strings.TrimSpace(body.Slug) == "" {
+			body.Slug = slug
+		} else if !isValidCanonicalSlug(body.Slug) {
+			writeError(w, http.StatusBadRequest, "slug must be canonical")
+			return
+		}
+		oldCategories, isActiveArticle, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, false)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		fields := db.ArticleToDBFields(body)
+		fields = append(fields, slug)
+		result, err := db.Update(r.Context(), conn, "articles",
 			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url"},
 			"`slug` = ?",
 			fields...,
@@ -1499,23 +1516,24 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "article not found")
 			return
 		}
-			if err := db.ReplaceArticleAuthorsBySlug(r.Context(), conn, body.Slug, authorIDsFromOverviews(body.Authors)); err != nil {
-				if err == sql.ErrNoRows {
-					writeError(w, http.StatusNotFound, "article not found")
-					return
-				}
+		if err := db.ReplaceArticleAuthorsBySlug(r.Context(), conn, body.Slug, authorIDsFromOverviews(body.Authors)); err != nil {
+			if err == sql.ErrNoRows {
+				writeError(w, http.StatusNotFound, "article not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if isActiveArticle {
+			if err := reconcileTaxonomyArticleCounts(r.Context(), conn, oldCategories, body.Categories); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			if isActiveArticle {
-				if err := reconcileTaxonomyArticleCounts(r.Context(), conn, oldCategories, body.Categories); err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-			}
-			w.WriteHeader(http.StatusNoContent)
 		}
+		activity.LogRequest(r, "article_updated", body.Title, "slug", body.Slug)
+		w.WriteHeader(http.StatusNoContent)
 	}
+}
 
 // @Summary Partially update an article
 // @Tags articles
@@ -1555,16 +1573,16 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
-			var authorIDs *[]int64
-			oldCategories, isActiveArticle, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, false)
+		var authorIDs *[]int64
+		oldCategories, isActiveArticle, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, false)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		nextCategories := oldCategories
+		if rawAuthors, ok := body["authors"]; ok {
+			parsedIDs, err := parseAuthorIDs(rawAuthors)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			nextCategories := oldCategories
-			if rawAuthors, ok := body["authors"]; ok {
-				parsedIDs, err := parseAuthorIDs(rawAuthors)
-				if err != nil {
 				writeError(w, http.StatusBadRequest, "authors must be an array of IDs")
 				return
 			}
@@ -1604,11 +1622,11 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 						return
 					}
 					categories = append(categories, s)
-					}
-					setCols = append(setCols, column)
-					setArgs = append(setArgs, db.FormatTags(categories))
-					nextCategories = categories
-				case "published_date":
+				}
+				setCols = append(setCols, column)
+				setArgs = append(setArgs, db.FormatTags(categories))
+				nextCategories = categories
+			case "published_date":
 				s, ok := v.(string)
 				if !ok {
 					writeError(w, http.StatusBadRequest, "published_date must be an RFC3339 string")
@@ -1689,25 +1707,30 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				targetSlug = strings.TrimSpace(newSlug)
 			}
 		}
-			if authorIDs != nil {
-				if err := db.ReplaceArticleAuthorsBySlug(r.Context(), conn, targetSlug, *authorIDs); err != nil {
+		if authorIDs != nil {
+			if err := db.ReplaceArticleAuthorsBySlug(r.Context(), conn, targetSlug, *authorIDs); err != nil {
 				if err == sql.ErrNoRows {
 					writeError(w, http.StatusNotFound, "article not found")
 					return
 				}
 				writeError(w, http.StatusInternalServerError, err.Error())
-					return
-				}
+				return
 			}
-			if isActiveArticle {
-				if err := reconcileTaxonomyArticleCounts(r.Context(), conn, oldCategories, nextCategories); err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-			}
-			w.WriteHeader(http.StatusNoContent)
 		}
+		if isActiveArticle {
+			if err := reconcileTaxonomyArticleCounts(r.Context(), conn, oldCategories, nextCategories); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		target := targetSlug
+		if rawTitle, ok := body["title"].(string); ok && strings.TrimSpace(rawTitle) != "" {
+			target = strings.TrimSpace(rawTitle)
+		}
+		activity.LogRequest(r, "article_updated", target, "slug", targetSlug)
+		w.WriteHeader(http.StatusNoContent)
 	}
+}
 
 // @Summary Delete an article
 // @Tags articles
@@ -1751,6 +1774,7 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		activity.LogRequest(r, "article_deleted", slug)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -1797,6 +1821,7 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		activity.LogRequest(r, "article_restored", slug)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

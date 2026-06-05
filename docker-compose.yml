@@ -40,6 +40,7 @@ services:
       DB_PORT: 3306
       TLS_CERT_FILE: /app/certs/localhost.crt
       TLS_KEY_FILE: /app/certs/localhost.key
+      ACTIVITY_DB_PATH: /app/data/activity
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
       CMS_AUTO_PROMOTE_ALL_ADMINS: ${CMS_AUTO_PROMOTE_ALL_ADMINS:-false}
@@ -55,6 +56,8 @@ services:
       start_period: 20s
     ports:
       - "8080:8080"
+    volumes:
+      - cms_activity_data:/app/data
     networks:
       - triangle_net
 
@@ -113,6 +116,7 @@ services:
 
 volumes:
   mariadb_data:
+  cms_activity_data:
   loki_data:
   promtail_positions:
   grafana_data:
