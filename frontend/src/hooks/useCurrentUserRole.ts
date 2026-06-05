@@ -1,4 +1,4 @@
-import { useSessionAuth } from "../auth/sessionAuth"
+import { useSessionAuth } from "../auth/sessionAuthContext"
 
 export function useCurrentUserRole() {
   const { user, isLoading } = useSessionAuth()

@@ -1,6 +1,6 @@
 import { useCurrentUserRole } from "./hooks/useCurrentUserRole"
 import { Routes, Route, useLocation, Navigate } from "react-router-dom"
-import { useSessionAuth } from "./auth/sessionAuth"
+import { useSessionAuth } from "./auth/sessionAuthContext"
 import Header from "./components/Header"
 import Sidebar from "./components/Sidebar"
 import DashboardPage from "./pages/DashboardPage"

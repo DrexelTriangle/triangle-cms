@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Search, Plus, Pencil, Trash2, RefreshCw } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 
@@ -49,7 +49,7 @@ export default function SectionsView() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const loadSections = async () => {
+  const loadSections = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
@@ -69,11 +69,14 @@ export default function SectionsView() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [apiFetch])
 
   useEffect(() => {
-    void loadSections()
-  }, [apiFetch])
+    const handle = window.setTimeout(() => {
+      void loadSections()
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [loadSections])
 
   const rows = useMemo(() => {
     const parents = items

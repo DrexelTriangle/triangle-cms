@@ -24,6 +24,7 @@ const ACTION_META: Record<string, { label: string; icon: React.ElementType; colo
   author_created: { label: "Created author", icon: Users, color: "text-teal-600 bg-teal-100 dark:bg-teal-900/30 dark:text-teal-400" },
   author_updated: { label: "Updated author", icon: Users, color: "text-cyan-600 bg-cyan-100 dark:bg-cyan-900/30 dark:text-cyan-400" },
   author_deleted: { label: "Deleted author", icon: Users, color: "text-rose-600 bg-rose-100 dark:bg-rose-900/30 dark:text-rose-400" },
+  author_restored: { label: "Restored author", icon: RefreshCcw, color: "text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400" },
   user_role_updated: { label: "Updated user role", icon: UserPlus, color: "text-teal-600 bg-teal-100 dark:bg-teal-900/30 dark:text-teal-400" },
   settings_changed: { label: "Changed settings", icon: Settings, color: "text-muted-foreground bg-muted" },
   tag_created: { label: "Created tag", icon: Tag, color: "text-pink-600 bg-pink-100 dark:bg-pink-900/30 dark:text-pink-400" },
@@ -67,7 +68,6 @@ export default function ActivityView() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setIsLoading(true)
     apiFetch("/v1/activity?limit=200")
       .then((r) => {
         if (!r.ok) throw new Error(`Request failed (${r.status})`)

@@ -179,7 +179,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     return () => {
       cancelled = true
     }
-  }, [authorsCacheKey])
+  }, [apiFetch, authorsCacheKey])
 
   useEffect(() => {
     let cancelled = false
@@ -279,7 +279,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         if (!cancelled) {
           setArticles(items)
           const apiTotalCount = payload.pagination?.total_count ?? payload.pagination?.totalCount
-          const fallbackTotalCount = (page * pageSize) + items.length + (Boolean(payload.pagination?.has_more ?? payload.pagination?.hasMore) ? 1 : 0)
+          const fallbackTotalCount = (page * pageSize) + items.length + ((payload.pagination?.has_more ?? payload.pagination?.hasMore) ? 1 : 0)
           const computedTotal = typeof apiTotalCount === "number" ? apiTotalCount : fallbackTotalCount
           setTotalArticleCount(computedTotal)
           writeSessionJSON(resultsCacheKey, {
@@ -311,7 +311,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     return () => {
       cancelled = true
     }
-  }, [activeTab, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
+  }, [activeTab, apiFetch, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
 
   const onChangeTab = (tab: "all" | "trash") => {
     setActiveTab(tab)

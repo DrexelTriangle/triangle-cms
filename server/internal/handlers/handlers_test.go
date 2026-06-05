@@ -180,3 +180,33 @@ func TestArticleQueryFilters_FormatsDateFiltersWithGoReferenceLayout(t *testing.
 		t.Fatalf("expected formatted creation_date argument %q in args %v", "2026-05-17 00:00:00", stringArgs)
 	}
 }
+
+func TestAuthorArchiveCondition_DefaultsToActiveAuthors(t *testing.T) {
+	got := authorArchiveCondition(url.Values{})
+
+	if got != "a.`archived_at` IS NULL" {
+		t.Fatalf("got %q, want active author condition", got)
+	}
+}
+
+func TestAuthorArchiveCondition_ArchivedTrueSelectsTrash(t *testing.T) {
+	values := url.Values{}
+	values.Set("archived", "1")
+
+	got := authorArchiveCondition(values)
+
+	if got != "a.`archived_at` IS NOT NULL" {
+		t.Fatalf("got %q, want archived author condition", got)
+	}
+}
+
+func TestAuthorArchiveCondition_ArchivedFalseSelectsActive(t *testing.T) {
+	values := url.Values{}
+	values.Set("archived", "false")
+
+	got := authorArchiveCondition(values)
+
+	if got != "a.`archived_at` IS NULL" {
+		t.Fatalf("got %q, want active author condition", got)
+	}
+}

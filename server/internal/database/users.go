@@ -18,6 +18,14 @@ func EnsureArticlesSchema(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
+func EnsureAuthorsSchema(ctx context.Context, conn *sql.DB) error {
+	_, err := conn.ExecContext(ctx, `
+		ALTER TABLE authors
+		ADD COLUMN IF NOT EXISTS archived_at DATETIME NULL DEFAULT NULL
+	`)
+	return err
+}
+
 func EnsureUsersTable(ctx context.Context, conn *sql.DB) error {
 	_, err := conn.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS cms_users (

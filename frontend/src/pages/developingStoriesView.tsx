@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { FormEvent } from "react"
 import { Plus, Trash2, RefreshCw } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -20,7 +20,7 @@ function DevelopingStoriesView() {
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadStories = async () => {
+  const loadStories = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
@@ -33,11 +33,14 @@ function DevelopingStoriesView() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [apiFetch])
 
   useEffect(() => {
-    void loadStories()
-  }, [])
+    const handle = window.setTimeout(() => {
+      void loadStories()
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [loadStories])
 
   const addStory = async (e: FormEvent) => {
     e.preventDefault()
@@ -63,7 +66,7 @@ function DevelopingStoriesView() {
   }
 
   const deleteStory = async (title: string) => {
-    if (!confirm(`Delete developing story \"${title}\"?`)) return
+    if (!confirm(`Delete developing story "${title}"?`)) return
 
     setIsSaving(true)
     setError(null)
@@ -159,7 +162,7 @@ function DevelopingStoriesView() {
             ) : filteredStories.length === 0 ? (
               <tr>
                 <td className="px-4 py-8 text-center text-muted-foreground" colSpan={2}>
-                  {searchQuery ? `No results for \"${searchQuery}\"` : "No developing stories found."}
+                  {searchQuery ? `No results for "${searchQuery}"` : "No developing stories found."}
                 </td>
               </tr>
             ) : (

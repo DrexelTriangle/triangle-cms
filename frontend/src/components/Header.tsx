@@ -1,6 +1,6 @@
 import { Bell } from "lucide-react"
 import { useNavigate } from "react-router-dom"
-import { useSessionAuth } from "../auth/sessionAuth"
+import { useSessionAuth } from "../auth/sessionAuthContext"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {

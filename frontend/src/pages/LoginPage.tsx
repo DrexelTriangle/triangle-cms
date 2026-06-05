@@ -1,7 +1,7 @@
 import { ArrowRight } from "lucide-react"
 import { useMemo } from "react"
 import { useLocation } from "react-router-dom"
-import { useSessionAuth } from "../auth/sessionAuth"
+import { useSessionAuth } from "../auth/sessionAuthContext"
 
 function LoginPage() {
   const auth = useSessionAuth()

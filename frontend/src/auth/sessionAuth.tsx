@@ -1,24 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { SessionAuthContext, type SessionAuthValue, type User } from "./sessionAuthContext"
 import { apiBaseUrl, authBaseUrl } from "./urls"
-
-type User = {
-  id: number
-  email: string
-  name: string
-  role: string
-}
-
-type SessionAuthValue = {
-  user: User | null
-  isLoading: boolean
-  isAuthenticated: boolean
-  hasPendingAuthFlow: boolean
-  refresh: () => Promise<void>
-  login: () => void
-  logout: () => Promise<void>
-}
-
-const SessionAuthContext = createContext<SessionAuthValue | null>(null)
 
 async function fetchCurrentUser() {
   const res = await fetch(`${apiBaseUrl()}/v1/users/me`, { credentials: "include" })
@@ -88,12 +70,4 @@ export function SessionAuthProvider({ children }: { children: React.ReactNode })
   }), [hasPendingAuthFlow, isLoading, login, logout, refresh, user])
 
   return <SessionAuthContext.Provider value={value}>{children}</SessionAuthContext.Provider>
-}
-
-export function useSessionAuth() {
-  const ctx = useContext(SessionAuthContext)
-  if (!ctx) {
-    throw new Error("useSessionAuth must be used within SessionAuthProvider")
-  }
-  return ctx
 }
