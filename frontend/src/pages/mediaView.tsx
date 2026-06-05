@@ -67,7 +67,7 @@ function MediaView() {
     }
     void fetchMedia()
     return () => { cancelled = true }
-  }, [])
+  }, [apiFetch])
 
   const filtered = mediaItems.filter((item) =>
     item.fileName.toLowerCase().includes(searchQuery.trim().toLowerCase()),

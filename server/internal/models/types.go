@@ -72,6 +72,7 @@ type Author struct {
 	Email       string     `json:"email,omitempty"`
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
+	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
 }
 
 type AuthorOverview struct {
@@ -80,6 +81,7 @@ type AuthorOverview struct {
 	DisplayName  string `json:"display_name"`
 	Email        string `json:"email,omitempty"`
 	ArticleCount int    `json:"article_count"`
+	Archived     bool   `json:"archived"`
 }
 
 type AuthorInput struct {

@@ -71,6 +71,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 		mux.Handle("POST /v1/authors", authMW(adminOnly(handlers.PostAuthors(conn))))
 		mux.Handle("PUT /v1/authors/{slug}", authMW(adminOnly(handlers.PutAuthor(conn))))
 		mux.Handle("PATCH /v1/authors/{slug}", authMW(adminOnly(handlers.PatchAuthor(conn))))
+		mux.Handle("PATCH /v1/authors/{slug}/restore", authMW(adminOnly(handlers.RestoreAuthor(conn))))
 		mux.Handle("DELETE /v1/authors/{slug}", authMW(adminOnly(handlers.DeleteAuthor(conn))))
 
 		mux.Handle("POST /v1/articles", authMW(handlers.PostArticles(conn)))

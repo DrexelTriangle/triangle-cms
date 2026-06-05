@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { FormEvent } from "react"
 import { Pencil, Plus, Trash2, RefreshCw } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -43,7 +43,7 @@ export default function PollView() {
     return options.map((option) => ({ option, votes: counts[option] ?? 0 }))
   }, [options, counts])
 
-  const loadPoll = async () => {
+  const loadPoll = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
@@ -71,7 +71,7 @@ export default function PollView() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [apiFetch])
 
   const savePollTitle = async () => {
     const title = pollTitleDraft.trim()
@@ -95,8 +95,11 @@ export default function PollView() {
   }
 
   useEffect(() => {
-    loadPoll()
-  }, [])
+    const handle = window.setTimeout(() => {
+      void loadPoll()
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [loadPoll])
 
   const addOption = async (e: FormEvent) => {
     e.preventDefault()
@@ -152,7 +155,7 @@ export default function PollView() {
   }
 
   const deleteOption = async (option: string) => {
-    if (!confirm(`Delete poll option \"${option}\"?`)) return
+    if (!confirm(`Delete poll option "${option}"?`)) return
 
     setIsSaving(true)
     setError(null)

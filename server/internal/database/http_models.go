@@ -32,7 +32,7 @@ var ArticleSortByColumn = map[string]string{
 	string(models.ArticleSortByCommentStatus): "comment_status",
 }
 
-var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email", "login"}
+var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email", "login", "archived_at"}
 
 var ArticleColumns = []string{
 	"id", "title", "slug", "description", "text", "excerpt", "tags", "categories",
@@ -72,7 +72,8 @@ func ScanAuthor(rows *sql.Rows) (models.Author, error) {
 	var lastName sql.NullString
 	var email sql.NullString
 	var login sql.NullString
-	err := rows.Scan(&a.ID, &displayName, &firstName, &lastName, &email, &login)
+	var archivedAt sql.NullTime
+	err := rows.Scan(&a.ID, &displayName, &firstName, &lastName, &email, &login, &archivedAt)
 	if err != nil {
 		return models.Author{}, err
 	}
@@ -93,6 +94,10 @@ func ScanAuthor(rows *sql.Rows) (models.Author, error) {
 	} else {
 		a.Slug = normalizeSlug(a.DisplayName)
 	}
+	if archivedAt.Valid {
+		t := archivedAt.Time
+		a.ArchivedAt = &t
+	}
 	return a, nil
 }
 
@@ -101,7 +106,8 @@ func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 	var displayName sql.NullString
 	var login sql.NullString
 	var email sql.NullString
-	err := rows.Scan(&a.ID, &displayName, &login, &email, &a.ArticleCount)
+	var archivedAt sql.NullTime
+	err := rows.Scan(&a.ID, &displayName, &login, &email, &a.ArticleCount, &archivedAt)
 	if err != nil {
 		return models.AuthorOverview{}, err
 	}
@@ -117,6 +123,7 @@ func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 	if email.Valid {
 		a.Email = email.String
 	}
+	a.Archived = archivedAt.Valid
 	return a, nil
 }
 

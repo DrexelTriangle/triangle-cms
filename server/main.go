@@ -108,6 +108,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := database.EnsureAuthorsSchema(context.Background(), db); err != nil {
+		slog.Error("failed to migrate authors schema", "error", err)
+		os.Exit(1)
+	}
+
 	if err := database.EnsureUsersTable(context.Background(), db); err != nil {
 		slog.Error("failed to create users table", "error", err)
 		os.Exit(1)

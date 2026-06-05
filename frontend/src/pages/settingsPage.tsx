@@ -2,7 +2,7 @@ import { LogOut } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useNavigate } from "react-router-dom"
-import { useSessionAuth } from "../auth/sessionAuth"
+import { useSessionAuth } from "../auth/sessionAuthContext"
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

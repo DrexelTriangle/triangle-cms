@@ -186,7 +186,7 @@ function EditArticleView() {
     return () => {
       cancelled = true
     }
-  }, [slug, isNew])
+  }, [apiFetch, slug, isNew])
 
   useEffect(() => {
     let cancelled = false
@@ -275,7 +275,7 @@ function EditArticleView() {
     return () => {
       cancelled = true
     }
-  }, [imagePickerOpen, mediaItems.length, photoURL])
+  }, [apiFetch, imagePickerOpen, mediaItems.length, photoURL])
 
   const saveArticle = async (nextStatus?: EditableStatus) => {
     setIsSaving(true)

@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { useSessionAuth } from "../auth/sessionAuth"
+import { useSessionAuth } from "../auth/sessionAuthContext"
 import { authBaseUrl } from "../auth/urls"
 
 export default function AuthCallback() {

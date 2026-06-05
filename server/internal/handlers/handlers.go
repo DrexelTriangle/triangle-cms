@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -360,6 +361,21 @@ func paginationResponse(page, limit, offset int, hasMore bool, totalCount int) m
 	}
 }
 
+func authorArchiveCondition(q url.Values) string {
+	if _, archivedProvided := q["archived"]; archivedProvided {
+		archivedRaw := strings.ToLower(strings.TrimSpace(q.Get("archived")))
+		switch archivedRaw {
+		case "", "1", "true", "yes":
+			return "a.`archived_at` IS NOT NULL"
+		case "0", "false", "no":
+			return "a.`archived_at` IS NULL"
+		default:
+			return "a.`archived_at` IS NOT NULL"
+		}
+	}
+	return "a.`archived_at` IS NULL"
+}
+
 func authorIDsFromOverviews(authors []models.AuthorOverview) []int64 {
 	ids := make([]int64, 0, len(authors))
 	for _, author := range authors {
@@ -399,6 +415,7 @@ func parseAuthorIDs(raw any) ([]int64, error) {
 // @Param offset query int false "Offset"
 // @Param article_id query int false "Filter by article ID"
 // @Param search query string false "Filter by display name, login, or email (substring match)"
+// @Param archived query bool false "When true, return only soft-deleted authors"
 // @Param sort_by query string false "Sort field (id sorts by creation order)" Enums(display_name,id)
 // @Param sort_direction query string false "Sort direction" Enums(asc,desc)
 // @Success 200 {object} models.AuthorsResponse
@@ -426,15 +443,17 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 		var args []any
 
 		if articleID > 0 {
-			conditions = append(conditions, "`id` IN (SELECT `author_id` FROM `articles_authors` WHERE `articles_id` = ?)")
+			conditions = append(conditions, "a.`id` IN (SELECT `author_id` FROM `articles_authors` WHERE `articles_id` = ?)")
 			args = append(args, articleID)
 		}
 
 		if search := strings.TrimSpace(q.Get("search")); search != "" {
 			like := "%" + search + "%"
-			conditions = append(conditions, "(`display_name` LIKE ? OR `login` LIKE ? OR `email` LIKE ?)")
+			conditions = append(conditions, "(a.`display_name` LIKE ? OR a.`login` LIKE ? OR a.`email` LIKE ?)")
 			args = append(args, like, like, like)
 		}
+
+		conditions = append(conditions, authorArchiveCondition(q))
 
 		countQuery := "SELECT COUNT(*) FROM `authors` a"
 		if len(conditions) > 0 {
@@ -446,11 +465,11 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		query := "SELECT a.`id`, a.`display_name`, a.`login`, a.`email`, COUNT(aa.`articles_id`) AS `article_count` FROM `authors` a LEFT JOIN `articles_authors` aa ON a.`id` = aa.`author_id`"
+		query := "SELECT a.`id`, a.`display_name`, a.`login`, a.`email`, COUNT(aa.`articles_id`) AS `article_count`, a.`archived_at` FROM `authors` a LEFT JOIN `articles_authors` aa ON a.`id` = aa.`author_id`"
 		if len(conditions) > 0 {
 			query += " WHERE " + strings.Join(conditions, " AND ")
 		}
-		query += " GROUP BY a.`id`, a.`display_name`, a.`login`, a.`email`"
+		query += " GROUP BY a.`id`, a.`display_name`, a.`login`, a.`email`, a.`archived_at`"
 		if sortBy == "" {
 			query += " ORDER BY a.`id` DESC"
 		}
@@ -538,7 +557,7 @@ func GetAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
-		rows, err := db.Select(r.Context(), conn, "authors", db.AuthorColumns, "`login` = ?", slug)
+		rows, err := db.Select(r.Context(), conn, "authors", db.AuthorColumns, "`login` = ? AND `archived_at` IS NULL", slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -590,7 +609,7 @@ func PutAuthor(conn *sql.DB) http.HandlerFunc {
 		}
 		result, err := db.Update(r.Context(), conn, "authors",
 			[]string{"display_name", "first_name", "last_name", "email", "login"},
-			"`login` = ?",
+			"`login` = ? AND `archived_at` IS NULL",
 			body.DisplayName, body.FirstName, body.LastName, body.Email, nextSlug, slug,
 		)
 		if err != nil {
@@ -660,7 +679,7 @@ func PatchAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "no valid fields to update")
 			return
 		}
-		result, err := db.Update(r.Context(), conn, "authors", setCols, "`login` = ?", append(setArgs, slug)...)
+		result, err := db.Update(r.Context(), conn, "authors", setCols, "`login` = ? AND `archived_at` IS NULL", append(setArgs, slug)...)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -702,7 +721,7 @@ func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
-		result, err := db.Delete(r.Context(), conn, "authors", "`login` = ?", slug)
+		result, err := conn.ExecContext(r.Context(), "UPDATE `authors` SET `archived_at` = NOW() WHERE `login` = ? AND `archived_at` IS NULL", slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -717,6 +736,41 @@ func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 		activity.LogRequest(r, "author_deleted", slug)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// @Summary Restore an archived author
+// @Tags authors
+// @Param slug path string true "Author slug"
+// @Success 204
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/authors/{slug}/restore [patch]
+func RestoreAuthor(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := strings.TrimSpace(r.PathValue("slug"))
+		if !isValidCanonicalSlug(slug) {
+			writeError(w, http.StatusBadRequest, "slug must be canonical")
+			return
+		}
+		result, err := conn.ExecContext(r.Context(), "UPDATE `authors` SET `archived_at` = NULL WHERE `login` = ? AND `archived_at` IS NOT NULL", slug)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if rowsAffected == 0 {
+			writeError(w, http.StatusNotFound, "author not found")
+			return
+		}
+		activity.LogRequest(r, "author_restored", slug)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -744,7 +798,7 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		authorRows, err := db.Select(r.Context(), conn, "authors", db.AuthorColumns, "`login` = ?", slug)
+		authorRows, err := db.Select(r.Context(), conn, "authors", db.AuthorColumns, "`login` = ? AND `archived_at` IS NULL", slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1083,7 +1137,7 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	}
 
 	if params.AuthorSlug != "" {
-		conditions = append(conditions, "`id` IN (SELECT aa.`articles_id` FROM `articles_authors` aa JOIN `authors` au ON au.`id` = aa.`author_id` WHERE au.`login` = ?)")
+		conditions = append(conditions, "`id` IN (SELECT aa.`articles_id` FROM `articles_authors` aa JOIN `authors` au ON au.`id` = aa.`author_id` WHERE au.`login` = ? AND au.`archived_at` IS NULL)")
 		args = append(args, params.AuthorSlug)
 	}
 
