@@ -11,6 +11,72 @@ if (typeof window !== "undefined" && window.Trix) {
   window.Trix.config.attachments.preview.caption.size = false
 }
 
+const IMAGE_CONTENT_TYPES: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  avif: "image/avif",
+  svg: "image/svg+xml",
+}
+
+const contentTypeForUrl = (url: string): string => {
+  const ext = url.split(/[?#]/)[0].split(".").pop()?.toLowerCase() ?? ""
+  return IMAGE_CONTENT_TYPES[ext] ?? "image/jpeg"
+}
+
+// Trix only restores an image's caption when it's carried in the attachment's
+// data attributes. Article HTML imported from WordPress instead puts the
+// caption in a plain caption element (block editor: <figure><figcaption>;
+// classic editor: <div class="wp-caption">…<* class="wp-caption-text">), which
+// Trix's parser drops onto the next line as body text — the caption "isn't
+// picked up by the editor". Rewrite those into Trix's native attachment format
+// so loadHTML keeps the caption bound to the image. Containers already
+// round-tripped through Trix (they carry data-trix-attachment) are skipped, so
+// this is idempotent.
+const restoreFigureCaptions = (html: string): string => {
+  if (typeof window === "undefined" || !window.DOMParser) return html
+  if (!html.includes("<figure") && !html.includes("wp-caption")) return html
+
+  const doc = new DOMParser().parseFromString(html, "text/html")
+  let changed = false
+
+  for (const container of Array.from(doc.querySelectorAll("figure, .wp-caption"))) {
+    if (container.hasAttribute("data-trix-attachment")) continue
+    // Only the simple single-image case is safe to rebuild. Galleries and
+    // nested captioned figures hold more than one image (or another caption
+    // container); reconstructing them from a single <img> would silently drop
+    // the rest, so leave those untouched.
+    if (container.querySelectorAll("img").length !== 1) continue
+    if (container.querySelector("figure, .wp-caption")) continue
+
+    const img = container.querySelector("img")
+    const src = img?.getAttribute("src")?.trim()
+    const caption = container.querySelector("figcaption, .wp-caption-text")?.textContent?.trim()
+    if (!img || !src || !caption) continue
+
+    const basename = src.split("/").pop()?.split(/[?#]/)[0]
+    const replacement = doc.createElement("figure")
+    replacement.setAttribute("data-trix-attachment", JSON.stringify({
+      contentType: contentTypeForUrl(src),
+      url: src,
+      filename: img.getAttribute("alt")?.trim() || basename || "image",
+      // Force inline preview: Trix's previewablePattern excludes svg/avif and
+      // any extension-less CDN URL, which would otherwise render as a file stub.
+      previewable: true,
+    }))
+    replacement.setAttribute("data-trix-attributes", JSON.stringify({ presentation: "gallery", caption }))
+    const newImg = doc.createElement("img")
+    newImg.setAttribute("src", src)
+    replacement.appendChild(newImg)
+    container.replaceWith(replacement)
+    changed = true
+  }
+
+  return changed ? doc.body.innerHTML : html
+}
+
 type TrixEditorProps = {
   value: string
   onChange: (html: string) => void
@@ -28,7 +94,7 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     const editor = editorRef.current
     if (!editor) return
     if (value !== lastEmittedRef.current) {
-      editor.editor.loadHTML(value)
+      editor.editor.loadHTML(restoreFigureCaptions(value))
       lastEmittedRef.current = value
     }
   }, [value])
