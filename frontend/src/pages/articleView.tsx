@@ -210,6 +210,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       setIsLoading(true)
       setError(null)
 
+      let paintedFromCache = false
       try {
         const params = new URLSearchParams({
           limit: String(PAGE_SIZE),
@@ -240,13 +241,16 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         const cache = readSessionJSON<Record<string, ArticleResultsCacheEntry>>(resultsCacheKey, {})
         const cachedEntry = cache[queryKey]
         const shouldUseCache = activeTab !== "trash"
-        if (shouldUseCache && cachedEntry) {
+        // Stale-while-revalidate: paint cached results immediately (no spinner),
+        // then always refetch in the background so the list can't stay stale
+        // after a create/edit/delete.
+        paintedFromCache = Boolean(shouldUseCache && cachedEntry)
+        if (paintedFromCache && cachedEntry) {
           if (!cancelled) {
             setArticles(cachedEntry.items)
             setTotalArticleCount(cachedEntry.totalArticleCount)
             setIsLoading(false)
           }
-          return
         }
 
         const response = await apiFetch(`/v1/articles?${params.toString()}`)
@@ -283,7 +287,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           } satisfies Record<string, ArticleResultsCacheEntry>)
         }
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && !paintedFromCache) {
+          // Keep the already-painted cached results if a background refresh fails.
           const message = err instanceof Error ? err.message : "Unable to load articles."
           setError(message)
           setArticles([])
@@ -422,6 +427,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
         <button
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          onClick={() => navigate(fixedType === "developing-stories" ? "/developing-stories/new" : "/articles/new")}
           type="button"
         >
           <Plus className="w-4 h-4" aria-hidden="true" />
@@ -561,6 +567,10 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                         alt=""
                         className="w-12 h-10 object-cover rounded-md bg-muted flex-shrink-0"
                         src={item.featuredImage}
+                        // The image proxy blocks cross-origin referers (returns 403),
+                        // so suppress the Referer header to let the thumbnail load.
+                        referrerPolicy="no-referrer"
+                        loading="lazy"
                       />
                     ) : (
                       <div className="w-12 h-10 rounded-md bg-muted flex items-center justify-center flex-shrink-0">

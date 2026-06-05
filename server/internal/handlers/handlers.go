@@ -1418,7 +1418,7 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 		}
 		fields := db.ArticleInputToDBFields(body)
 		result, err := db.Insert(r.Context(), conn, "articles",
-			[]string{"title", "slug", "description", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url"},
+			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata"},
 			fields...,
 		)
 		if err != nil {

@@ -141,6 +141,7 @@ type ArticleInput struct {
 	Slug          string        `json:"slug,omitempty"`
 	Authors       []int64       `json:"authors"`
 	Content       string        `json:"content"`
+	Excerpt       string        `json:"excerpt,omitempty"`
 	Categories    []string      `json:"categories"`
 	PhotoURL      string        `json:"photo_url"`
 	IsFeatured    bool          `json:"is_featured"`

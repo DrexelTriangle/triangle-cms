@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"regexp"
 	"strconv"
 	"strings"
@@ -39,6 +40,11 @@ var ArticleColumns = []string{
 
 const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`"
 const wordpressImageBaseURL = "https://www.thetriangle.org"
+
+// wordpressImageProxyBaseURL is where legacy WordPress uploads are actually
+// served from. The bare /wp-content/ paths 404; they must be routed through the
+// site's /proxy/ handler.
+const wordpressImageProxyBaseURL = wordpressImageBaseURL + "/proxy"
 
 func BuildOrderLimit(query, sortBy, sortDir string, sortColumnMap map[string]string, limit, offset int) string {
 	if col, ok := sortColumnMap[sortBy]; ok && sortBy != "" {
@@ -177,18 +183,30 @@ func normalizePhotoURL(value string) string {
 	lowered := strings.ToLower(trimmed)
 	switch {
 	case strings.HasPrefix(lowered, "http://"), strings.HasPrefix(lowered, "https://"):
-		return trimmed
+		return proxyTriangleWPContent(trimmed)
 	case strings.HasPrefix(trimmed, "//"):
-		return "https:" + trimmed
+		return proxyTriangleWPContent("https:" + trimmed)
 	case strings.HasPrefix(lowered, "www.thetriangle.org/"):
-		return "https://" + trimmed
+		return proxyTriangleWPContent("https://" + trimmed)
 	case strings.HasPrefix(lowered, "wp-content/"):
-		return wordpressImageBaseURL + "/" + trimmed
+		return wordpressImageProxyBaseURL + "/" + trimmed
 	case strings.HasPrefix(trimmed, "/wp-content/"):
-		return wordpressImageBaseURL + trimmed
+		return wordpressImageProxyBaseURL + trimmed
 	default:
 		return trimmed
 	}
+}
+
+// proxyTriangleWPContent rewrites Triangle-hosted wp-content URLs to route
+// through the image proxy (…/wp-content/… → …/proxy/wp-content/…) where the
+// legacy uploads are actually served. URLs that already target /proxy/ or point
+// elsewhere are returned unchanged.
+func proxyTriangleWPContent(url string) string {
+	const bareWPContent = wordpressImageBaseURL + "/wp-content/"
+	if strings.HasPrefix(url, bareWPContent) {
+		return wordpressImageProxyBaseURL + strings.TrimPrefix(url, wordpressImageBaseURL)
+	}
+	return url
 }
 
 func parseStringListField(value sql.NullString) []string {
@@ -407,6 +425,7 @@ func ReplaceArticleAuthors(ctx context.Context, conn *sql.DB, articleID int64, a
 		return err
 	}
 
+	authorNames := make([]string, 0, len(authorIDs))
 	if len(authorIDs) > 0 {
 		nextID, err := nextArticleAuthorLinkIDTx(ctx, tx)
 		if err != nil {
@@ -424,7 +443,33 @@ func ReplaceArticleAuthors(ctx context.Context, conn *sql.DB, articleID int64, a
 			); err != nil {
 				return fmt.Errorf("insert article author relation %s: %w", strconv.FormatInt(authorID, 10), err)
 			}
+
+			var displayName string
+			if err = tx.QueryRowContext(ctx, "SELECT `display_name` FROM `authors` WHERE `id` = ?", authorID).Scan(&displayName); err != nil {
+				return fmt.Errorf("lookup author %s: %w", strconv.FormatInt(authorID, 10), err)
+			}
+			authorNames = append(authorNames, displayName)
 		}
+	}
+
+	// Keep the denormalized `authors`/`author_ids` columns in sync with the join
+	// table; article list/filter queries read these columns directly.
+	idsForJSON := authorIDs
+	if idsForJSON == nil {
+		idsForJSON = []int64{}
+	}
+	authorIDsJSON, err := json.Marshal(idsForJSON)
+	if err != nil {
+		return fmt.Errorf("marshal author ids: %w", err)
+	}
+	if _, err = tx.ExecContext(
+		ctx,
+		"UPDATE articles SET `authors` = ?, `author_ids` = ? WHERE id = ?",
+		FormatTags(authorNames),
+		string(authorIDsJSON),
+		articleID,
+	); err != nil {
+		return fmt.Errorf("sync denormalized authors: %w", err)
 	}
 
 	return tx.Commit()
@@ -485,6 +530,24 @@ func normalizeCommentStatus(commentStatus string) string {
 
 var slugDelimiterPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
+var htmlTagPattern = regexp.MustCompile(`<[^>]*>`)
+
+// deriveExcerpt builds a plain-text excerpt from HTML article content by
+// stripping tags, collapsing whitespace, and truncating to a word limit.
+func deriveExcerpt(content string) string {
+	text := htmlTagPattern.ReplaceAllString(content, " ")
+	text = html.UnescapeString(text)
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return ""
+	}
+	const maxWords = 50
+	if len(words) > maxWords {
+		return strings.Join(words[:maxWords], " ") + "…"
+	}
+	return strings.Join(words, " ")
+}
+
 func normalizeSlug(value string) string {
 	s := strings.ToLower(strings.TrimSpace(value))
 	if s == "" {
@@ -517,11 +580,17 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		slug = normalizeSlug(body.Title)
 	}
 
+	excerpt := strings.TrimSpace(body.Excerpt)
+	if excerpt == "" {
+		excerpt = deriveExcerpt(body.Content)
+	}
+
 	return []any{
 		body.Title,
 		slug,
 		nil,
 		body.Content,
+		excerpt,
 		FormatTags(body.Categories),
 		publishedAt,
 		nil,
@@ -529,6 +598,11 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		false,
 		normalizeCommentStatus(body.CommentStatus),
 		normalizePhotoURL(body.PhotoURL),
+		// Default tags/metadata to empty JSON so list filters that don't
+		// COALESCE these columns (e.g. exclude_type) don't drop new articles
+		// on a NULL comparison.
+		"[]",
+		"{}",
 	}
 }
 
