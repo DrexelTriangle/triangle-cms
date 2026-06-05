@@ -20,7 +20,8 @@ type AuthorsResponse = {
   }
 }
 
-const PAGE_SIZE = 50
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
+const DEFAULT_PAGE_SIZE = 50
 
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
@@ -39,11 +40,12 @@ function AuthorsView() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [totalAuthorCount, setTotalAuthorCount] = useState(0)
 
   useEffect(() => {
     setIsLoading(true)
-    apiFetch(`/v1/authors?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}&sort_by=display_name&sort_direction=asc`)
+    apiFetch(`/v1/authors?limit=${pageSize}&offset=${page * pageSize}&sort_by=display_name&sort_direction=asc`)
       .then((r) => {
         if (!r.ok) throw new Error(`Request failed (${r.status})`)
         return r.json() as Promise<Author[] | AuthorsResponse>
@@ -52,25 +54,25 @@ function AuthorsView() {
         const items = Array.isArray(data) ? data : (data.authors ?? [])
         setAuthors(items)
         const apiTotalCount = Array.isArray(data) ? undefined : (data.pagination?.total_count ?? data.pagination?.totalCount)
-        const hasMore = Array.isArray(data) ? (items.length === PAGE_SIZE) : Boolean(data.pagination?.has_more ?? data.pagination?.hasMore)
-        const fallbackTotalCount = (page * PAGE_SIZE) + items.length + (hasMore ? 1 : 0)
+        const hasMore = Array.isArray(data) ? (items.length === pageSize) : Boolean(data.pagination?.has_more ?? data.pagination?.hasMore)
+        const fallbackTotalCount = (page * pageSize) + items.length + (hasMore ? 1 : 0)
         setTotalAuthorCount(typeof apiTotalCount === "number" ? apiTotalCount : fallbackTotalCount)
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load authors"))
       .finally(() => setIsLoading(false))
-  }, [apiFetch, page])
+  }, [apiFetch, page, pageSize])
 
   useEffect(() => {
     setPage(0)
-  }, [search])
+  }, [search, pageSize])
 
   const filtered = authors.filter((a) =>
     a.display_name.toLowerCase().includes(search.toLowerCase()) ||
     (a.email ?? "").toLowerCase().includes(search.toLowerCase()) ||
     a.slug.toLowerCase().includes(search.toLowerCase())
   )
-  const effectiveTotalCount = Math.max(totalAuthorCount, (page * PAGE_SIZE) + authors.length)
-  const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / PAGE_SIZE))
+  const effectiveTotalCount = Math.max(totalAuthorCount, (page * pageSize) + authors.length)
+  const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / pageSize))
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -158,7 +160,21 @@ function AuthorsView() {
       </div>
 
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>{filtered.length} author{filtered.length === 1 ? "" : "s"} shown</span>
+        <div className="flex items-center gap-3">
+          <span>{filtered.length} author{filtered.length === 1 ? "" : "s"} shown</span>
+          <label className="flex items-center gap-1.5">
+            <span>Per page</span>
+            <select
+              className="rounded-lg border border-border bg-background px-2 py-1 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </label>
+        </div>
         <div className="flex items-center gap-1">
           <button
             className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -181,7 +197,7 @@ function AuthorsView() {
           </span>
           <button
             className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            disabled={(page + 1) * PAGE_SIZE >= effectiveTotalCount}
+            disabled={(page + 1) * pageSize >= effectiveTotalCount}
             onClick={() => setPage((p) => p + 1)}
             type="button"
           >
@@ -189,7 +205,7 @@ function AuthorsView() {
           </button>
           <button
             className="p-1.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            disabled={(page + 1) * PAGE_SIZE >= effectiveTotalCount}
+            disabled={(page + 1) * pageSize >= effectiveTotalCount}
             onClick={() => setPage(Math.max(0, totalPages - 1))}
             type="button"
           >
