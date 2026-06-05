@@ -31,6 +31,7 @@ type AuthorSortBy string
 
 const (
 	AuthorSortByDisplayName AuthorSortBy = "display_name"
+	AuthorSortByID          AuthorSortBy = "id"
 	AuthorSortByCreatedAt   AuthorSortBy = "created_at"
 	AuthorSortByUpdatedAt   AuthorSortBy = "updated_at"
 )

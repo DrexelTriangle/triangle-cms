@@ -398,7 +398,8 @@ func parseAuthorIDs(raw any) ([]int64, error) {
 // @Param limit query int false "Max results" default(20)
 // @Param offset query int false "Offset"
 // @Param article_id query int false "Filter by article ID"
-// @Param sort_by query string false "Sort field" Enums(display_name,created_at,updated_at)
+// @Param search query string false "Filter by display name, login, or email (substring match)"
+// @Param sort_by query string false "Sort field (id sorts by creation order)" Enums(display_name,id)
 // @Param sort_direction query string false "Sort direction" Enums(asc,desc)
 // @Success 200 {object} models.AuthorsResponse
 // @Failure 500 {object} models.ErrorResponse
@@ -427,6 +428,12 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 		if articleID > 0 {
 			conditions = append(conditions, "`id` IN (SELECT `author_id` FROM `articles_authors` WHERE `articles_id` = ?)")
 			args = append(args, articleID)
+		}
+
+		if search := strings.TrimSpace(q.Get("search")); search != "" {
+			like := "%" + search + "%"
+			conditions = append(conditions, "(`display_name` LIKE ? OR `login` LIKE ? OR `email` LIKE ?)")
+			args = append(args, like, like, like)
 		}
 
 		countQuery := "SELECT COUNT(*) FROM `authors` a"
