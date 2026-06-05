@@ -97,22 +97,32 @@ func TestNormalizePhotoURL(t *testing.T) {
 		{
 			name:  "wp content without leading slash",
 			input: "wp-content/uploads/2016/03/image.jpg",
-			want:  "https://www.thetriangle.org/wp-content/uploads/2016/03/image.jpg",
+			want:  "https://www.thetriangle.org/proxy/wp-content/uploads/2016/03/image.jpg",
 		},
 		{
 			name:  "wp content with leading slash",
 			input: "/wp-content/uploads/2016/03/image.jpg",
-			want:  "https://www.thetriangle.org/wp-content/uploads/2016/03/image.jpg",
+			want:  "https://www.thetriangle.org/proxy/wp-content/uploads/2016/03/image.jpg",
 		},
 		{
 			name:  "host without scheme",
 			input: "www.thetriangle.org/wp-content/uploads/2016/03/image.jpg",
-			want:  "https://www.thetriangle.org/wp-content/uploads/2016/03/image.jpg",
+			want:  "https://www.thetriangle.org/proxy/wp-content/uploads/2016/03/image.jpg",
 		},
 		{
 			name:  "protocol relative",
 			input: "//www.thetriangle.org/wp-content/uploads/2016/03/image.jpg",
-			want:  "https://www.thetriangle.org/wp-content/uploads/2016/03/image.jpg",
+			want:  "https://www.thetriangle.org/proxy/wp-content/uploads/2016/03/image.jpg",
+		},
+		{
+			name:  "absolute triangle wp content gets proxied",
+			input: "https://www.thetriangle.org/wp-content/uploads/2016/03/image.jpg",
+			want:  "https://www.thetriangle.org/proxy/wp-content/uploads/2016/03/image.jpg",
+		},
+		{
+			name:  "already proxied unchanged",
+			input: "https://www.thetriangle.org/proxy/wp-content/uploads/2016/03/image.jpg",
+			want:  "https://www.thetriangle.org/proxy/wp-content/uploads/2016/03/image.jpg",
 		},
 		{
 			name:  "other relative unchanged",

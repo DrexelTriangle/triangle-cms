@@ -54,6 +54,22 @@ type AuthorsResponse = {
   }
 }
 
+// ArticleView caches list results in sessionStorage keyed by query; clear those
+// entries so the list refetches after an article is created or edited.
+const clearArticleListCache = () => {
+  if (typeof window === "undefined") return
+  const keysToDelete: string[] = []
+  for (let i = 0; i < window.sessionStorage.length; i += 1) {
+    const key = window.sessionStorage.key(i)
+    if (key?.startsWith("articleView:") && key.endsWith(":results")) {
+      keysToDelete.push(key)
+    }
+  }
+  for (const key of keysToDelete) {
+    window.sessionStorage.removeItem(key)
+  }
+}
+
 const normalizeMediaItems = (payload: unknown): MediaItem[] => {
   const asRecord = (value: unknown): Record<string, unknown> | null => (value && typeof value === "object" ? (value as Record<string, unknown>) : null)
   const root = asRecord(payload)
@@ -90,7 +106,9 @@ function EditArticleView() {
   const apiFetch = useApiFetch()
   const { slug: rawSlug } = useParams<{ slug: string }>()
   const slug = useMemo(() => (rawSlug ? decodeURIComponent(rawSlug) : ""), [rawSlug])
+  const isNew = !rawSlug
 
+  const [slugInput, setSlugInput] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -115,6 +133,10 @@ function EditArticleView() {
   const [customImageURL, setCustomImageURL] = useState("")
 
   useEffect(() => {
+    if (isNew) {
+      setIsLoading(false)
+      return
+    }
     if (!slug) {
       setError("Missing article slug.")
       setIsLoading(false)
@@ -164,7 +186,7 @@ function EditArticleView() {
     return () => {
       cancelled = true
     }
-  }, [slug])
+  }, [slug, isNew])
 
   useEffect(() => {
     let cancelled = false
@@ -256,27 +278,64 @@ function EditArticleView() {
   }, [imagePickerOpen, mediaItems.length, photoURL])
 
   const saveArticle = async (nextStatus?: EditableStatus) => {
-    if (!slug) return
-
     setIsSaving(true)
     setError(null)
     setSuccessMessage(null)
 
-    const payload: PatchPayload = {
-      title: title.trim(),
-      excerpt: excerpt.trim(),
-      content: content.trim(),
-      status: nextStatus ?? status,
-      comment_status: commentStatus.trim() || "open",
-      photo_url: photoURL.trim(),
-      categories: categoriesInput
-        .split(",")
-        .map((category) => category.trim())
-        .filter((category) => category.length > 0),
-      authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
-    }
+    const effectiveStatus = nextStatus ?? status
+    const categories = categoriesInput
+      .split(",")
+      .map((category) => category.trim())
+      .filter((category) => category.length > 0)
 
     try {
+      if (isNew) {
+        if (!title.trim()) {
+          throw new Error("A title is required.")
+        }
+        if (!selectedAuthorId && categories.length === 0) {
+          throw new Error("Add at least one author or category so the article shows up in the list.")
+        }
+        const createPayload = {
+          title: title.trim(),
+          slug: slugInput.trim(),
+          content: content.trim(),
+          excerpt: excerpt.trim(),
+          status: effectiveStatus,
+          comment_status: commentStatus.trim() || "open",
+          photo_url: photoURL.trim(),
+          categories,
+          authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
+        }
+        const response = await apiFetch("/v1/articles", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(createPayload),
+        })
+        if (!response.ok) {
+          throw new Error(`Create failed (${response.status})`)
+        }
+        clearArticleListCache()
+        setSuccessMessage("Article created.")
+        navigate("/articles")
+        return
+      }
+
+      if (!slug) return
+
+      const payload: PatchPayload = {
+        title: title.trim(),
+        excerpt: excerpt.trim(),
+        content: content.trim(),
+        status: effectiveStatus,
+        comment_status: commentStatus.trim() || "open",
+        photo_url: photoURL.trim(),
+        categories,
+        authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
+      }
+
       const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`, {
         method: "PATCH",
         headers: {
@@ -290,6 +349,7 @@ function EditArticleView() {
       if (nextStatus) {
         setStatus(nextStatus)
       }
+      clearArticleListCache()
       setSuccessMessage("Article saved.")
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save article."
@@ -316,7 +376,7 @@ function EditArticleView() {
           <ArrowLeft className="w-4 h-4" aria-hidden="true" />
           Back
         </button>
-        <h1 className="text-2xl font-bold text-foreground">Edit Article</h1>
+        <h1 className="text-2xl font-bold text-foreground">{isNew ? "New Article" : "Edit Article"}</h1>
       </div>
 
       {isLoading ? (
@@ -336,7 +396,7 @@ function EditArticleView() {
               <span className={labelTextClass}>Featured Image</span>
               {photoURL ? (
                 <div className="flex items-start gap-3 p-3 rounded-lg border border-border bg-muted/30">
-                  <img alt="Selected featured" className="w-24 h-16 object-cover rounded-md flex-shrink-0" src={photoURL} />
+                  <img alt="Selected featured" className="w-24 h-16 object-cover rounded-md flex-shrink-0" src={photoURL} referrerPolicy="no-referrer" />
                   <div className="flex flex-col gap-2">
                     <button
                       className="text-xs font-medium text-primary hover:underline text-left"
@@ -389,7 +449,17 @@ function EditArticleView() {
 
             <label className={labelClass}>
               <span className={labelTextClass}>Slug</span>
-              <input className={`${inputClass} bg-muted/50 text-muted-foreground cursor-default`} readOnly type="text" value={slug} />
+              {isNew ? (
+                <input
+                  className={inputClass}
+                  onChange={(e) => setSlugInput(e.target.value)}
+                  placeholder="Auto-generated from title if left blank"
+                  type="text"
+                  value={slugInput}
+                />
+              ) : (
+                <input className={`${inputClass} bg-muted/50 text-muted-foreground cursor-default`} readOnly type="text" value={slug} />
+              )}
             </label>
 
             <label className={labelClass}>
@@ -528,6 +598,8 @@ function EditArticleView() {
                           alt={item.fileName || "Media"}
                           className="w-full aspect-square object-cover rounded-md bg-muted"
                           src={item.url}
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
                         />
                         <span className="text-xs text-muted-foreground truncate w-full">{item.fileName || item.url}</span>
                       </button>

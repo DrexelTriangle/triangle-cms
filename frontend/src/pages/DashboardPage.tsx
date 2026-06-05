@@ -341,7 +341,7 @@ export default function DashboardPage() {
             <ExternalLink className="w-3.5 h-3.5" />
             View site
           </Button>
-          <Button size="sm" className="gap-1.5" onClick={() => navigate("/articles")}>
+          <Button size="sm" className="gap-1.5" onClick={() => navigate("/articles/new")}>
             <Plus className="w-3.5 h-3.5" />
             New article
           </Button>
@@ -562,7 +562,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="px-3 pb-3 space-y-1">
               {[
-                { label: "Write new article", icon: PenLine, path: "/articles", badge: null },
+                { label: "Write new article", icon: PenLine, path: "/articles/new", badge: null },
                 { label: "Manage authors", icon: Users, path: "/authors", badge: null },
                 { label: "Developing stories", icon: TrendingUp, path: "/developing-stories", badge: "Live" },
                 { label: "Upload media", icon: FileText, path: "/media", badge: null },

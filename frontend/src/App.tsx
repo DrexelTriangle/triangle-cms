@@ -106,7 +106,7 @@ export default function App() {
         <Route path="/articles/:slug/edit" element={<EditArticleView />} />
         <Route path="/developing-stories" element={<DevelopingStoriesView />} />
         <Route path="/developing-stories/:slug/edit" element={<EditArticleView />} />
-        <Route path="/articles/new" element={<ComingSoon page="New Article" />} />
+        <Route path="/articles/new" element={<EditArticleView />} />
         <Route path="/developing-stories/new" element={<ComingSoon page="New Developing Story" />} />
         <Route path="/newsletter" element={<NewsletterView />} />
         <Route path="/media" element={<MediaView />} />
