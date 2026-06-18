@@ -13,7 +13,58 @@ import (
 func EnsureArticlesSchema(ctx context.Context, conn *sql.DB) error {
 	_, err := conn.ExecContext(ctx, `
 		ALTER TABLE articles
-		ADD COLUMN IF NOT EXISTS archived_at DATETIME NULL DEFAULT NULL
+		ADD COLUMN IF NOT EXISTS archived_at DATETIME NULL DEFAULT NULL,
+		ADD COLUMN IF NOT EXISTS focus_keyword LONGTEXT NULL DEFAULT NULL,
+		ADD COLUMN IF NOT EXISTS meta_description LONGTEXT NULL DEFAULT NULL,
+		ADD COLUMN IF NOT EXISTS seo_title LONGTEXT NULL DEFAULT NULL
+	`)
+	return err
+}
+
+// BackfillArticleSEOFromYoast copies focus keyphrase / meta description / SEO
+// title from the WordPress `seo` export (yoast_tag_data JSON) into the article
+// columns. It only fills blanks, so editor changes are never overwritten, and it
+// records a one-time flag in cms_settings so it doesn't run again. It's a no-op
+// when the export table isn't present (e.g. production without the seed import).
+func BackfillArticleSEOFromYoast(ctx context.Context, conn *sql.DB) error {
+	var seoTableExists int
+	if err := conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'seo'",
+	).Scan(&seoTableExists); err != nil {
+		return err
+	}
+	if seoTableExists == 0 {
+		return nil
+	}
+
+	var done string
+	switch err := conn.QueryRowContext(ctx,
+		"SELECT value_text FROM cms_settings WHERE key_name = 'articles_seo_backfilled' LIMIT 1",
+	).Scan(&done); err {
+	case nil:
+		if strings.TrimSpace(done) == "1" {
+			return nil
+		}
+	case sql.ErrNoRows:
+		// Not yet backfilled.
+	default:
+		return err
+	}
+
+	if _, err := conn.ExecContext(ctx, `
+		UPDATE articles a
+		JOIN seo s ON s.article_id = a.id
+		SET
+			a.focus_keyword    = COALESCE(NULLIF(a.focus_keyword, ''),    NULLIF(JSON_VALUE(s.yoast_tag_data, '$._yoast_wpseo_focuskw'), '')),
+			a.meta_description = COALESCE(NULLIF(a.meta_description, ''), NULLIF(JSON_VALUE(s.yoast_tag_data, '$._yoast_wpseo_metadesc'), '')),
+			a.seo_title        = COALESCE(NULLIF(a.seo_title, ''),        NULLIF(JSON_VALUE(s.yoast_tag_data, '$._yoast_wpseo_title'), ''))
+	`); err != nil {
+		return err
+	}
+
+	_, err := conn.ExecContext(ctx, `
+		INSERT INTO cms_settings (key_name, value_text) VALUES ('articles_seo_backfilled', '1')
+		ON DUPLICATE KEY UPDATE value_text = '1'
 	`)
 	return err
 }

@@ -1090,7 +1090,7 @@ type ArticleParams struct {
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
 	q := r.URL.Query()
 	conditions, args := articleQueryFilters(r, params)
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url` FROM `articles`"
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title` FROM `articles`"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -1443,9 +1443,9 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 			FeaturedImage: a.PhotoURL,
 			Authors:       authors,
 			SEO: models.SEOResponse{
-				SEOTitle:        "",
-				MetaDescription: "",
-				FocusKeyword:    "",
+				SEOTitle:        a.SEOTitle,
+				MetaDescription: a.MetaDescription,
+				FocusKeyword:    a.FocusKeyword,
 				CanonicalURL:    "",
 				Tags:            seoTags,
 			},
@@ -1479,7 +1479,7 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 		}
 		fields := db.ArticleInputToDBFields(body)
 		result, err := db.Insert(r.Context(), conn, "articles",
-			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata"},
+			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title"},
 			fields...,
 		)
 		if err != nil {
@@ -1560,7 +1560,7 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		fields := db.ArticleToDBFields(body)
 		fields = append(fields, slug)
 		result, err := db.Update(r.Context(), conn, "articles",
-			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url"},
+			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "focus_keyword", "meta_description", "seo_title"},
 			"`slug` = ?",
 			fields...,
 		)
@@ -1652,16 +1652,19 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		var setCols []string
 		var setArgs []any
 		columnByJSONField := map[string]string{
-			"title":          "title",
-			"slug":           "slug",
-			"excerpt":        "excerpt",
-			"content":        "text",
-			"categories":     "categories",
-			"published_date": "pub_date",
-			"is_featured":    "priority",
-			"status":         "pub_date",
-			"comment_status": "comment_status",
-			"photo_url":      "photo_url",
+			"title":            "title",
+			"slug":             "slug",
+			"excerpt":          "excerpt",
+			"content":          "text",
+			"categories":       "categories",
+			"published_date":   "pub_date",
+			"is_featured":      "priority",
+			"status":           "pub_date",
+			"comment_status":   "comment_status",
+			"photo_url":        "photo_url",
+			"focus_keyword":    "focus_keyword",
+			"meta_description": "meta_description",
+			"seo_title":        "seo_title",
 		}
 		for jsonField, column := range columnByJSONField {
 			v, ok := body[jsonField]
