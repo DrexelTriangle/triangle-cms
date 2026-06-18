@@ -151,6 +151,35 @@ type SiteSettingsPatchRequest struct {
 	SiteTitle string `json:"site_title"`
 }
 
+// SEOSettings holds the site-wide SEO / social defaults.
+type SEOSettings struct {
+	OGTitle       string `json:"og_title"`
+	OGDescription string `json:"og_description"`
+	SitemapURL    string `json:"sitemap_url"`
+	RobotsURL     string `json:"robots_url"`
+}
+
+type SEOSettingsResponse = SEOSettings
+
+type SEOSettingsPatchRequest = SEOSettings
+
+// SEOIssue is a single SEO problem found on a published article.
+type SEOIssue struct {
+	ArticleID int64  `json:"article_id"`
+	Slug      string `json:"slug"`
+	Title     string `json:"title"`
+	Type      string `json:"type"` // "error" | "warning"
+	Issue     string `json:"issue"`
+}
+
+// SEOAuditResponse is the result of scanning published articles for SEO issues.
+// Issues is capped server-side; TotalIssues is the full count before capping.
+type SEOAuditResponse struct {
+	Issues         []SEOIssue `json:"issues"`
+	TotalIssues    int        `json:"total_issues"`
+	PublishedCount int        `json:"published_count"`
+}
+
 type PollOptionRequest struct {
 	Option string `json:"option"`
 }

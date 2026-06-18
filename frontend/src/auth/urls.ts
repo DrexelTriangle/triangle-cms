@@ -9,3 +9,9 @@ export function apiBaseUrl() {
 export function authBaseUrl() {
   return trimTrailingSlashes(import.meta.env.VITE_AUTH_BASE_URL ?? "https://localhost:8080")
 }
+
+// Public-facing site origin, used to build article permalinks (e.g. so Yoast can
+// tell internal links from outbound ones).
+export function publicSiteUrl() {
+  return trimTrailingSlashes(import.meta.env.VITE_PUBLIC_SITE_URL ?? "https://www.thetriangle.org")
+}

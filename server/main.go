@@ -130,6 +130,13 @@ func main() {
 		slog.Error("failed to create settings table", "error", err)
 		os.Exit(1)
 	}
+	// One-time backfill of the new SEO columns from the WordPress Yoast export so
+	// imported articles keep their original focus keyphrase / meta description /
+	// SEO title. No-op when the export table is absent or already applied.
+	if err := database.BackfillArticleSEOFromYoast(context.Background(), db); err != nil {
+		slog.Error("failed to backfill article SEO from Yoast export", "error", err)
+		os.Exit(1)
+	}
 	if err := database.EnsureTaxonomyTable(context.Background(), db); err != nil {
 		slog.Error("failed to create taxonomy table", "error", err)
 		os.Exit(1)

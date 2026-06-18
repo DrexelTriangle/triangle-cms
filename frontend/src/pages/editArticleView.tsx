@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from "react"
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowLeft, Save, Image, Search, X } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { publicSiteUrl } from "../auth/urls"
 import TrixEditor from "../components/TrixEditor"
+
+// Lazy-loaded so the heavy yoastseo bundle only loads when editing an article.
+const SeoAnalysis = lazy(() => import("../components/SeoAnalysis"))
 
 type EditableStatus = "draft" | "published"
 
@@ -22,6 +26,11 @@ type ApiArticleDetail = {
     id?: number
     name?: string
   }>
+  seo?: {
+    seo_title?: string
+    meta_description?: string
+    focus_keyword?: string
+  }
 }
 
 type PatchPayload = {
@@ -33,6 +42,9 @@ type PatchPayload = {
   photo_url: string
   categories: string[]
   authors: number[]
+  focus_keyword: string
+  meta_description: string
+  seo_title: string
 }
 
 type MediaItem = {
@@ -53,6 +65,12 @@ type AuthorsResponse = {
     hasMore?: boolean
   }
 }
+
+// Stored comment_status data isn't perfectly clean (e.g. "Open" vs "open", stray
+// whitespace), so fuzzy-match it to the canonical enum the dropdown expects.
+// The ETL pipeline normalizes the source, but this keeps the editor resilient.
+const normalizeCommentStatus = (raw: string | undefined): string =>
+  (raw ?? "").trim().toLowerCase() === "closed" ? "closed" : "open"
 
 // ArticleView caches list results in sessionStorage keyed by query; clear those
 // entries so the list refetches after an article is created or edited.
@@ -116,11 +134,22 @@ function EditArticleView() {
 
   const [title, setTitle] = useState("")
   const [excerpt, setExcerpt] = useState("")
+  const excerptRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = excerptRef.current
+    if (!el) return
+    el.style.height = "auto"
+    el.style.height = `${el.scrollHeight}px`
+  }, [excerpt])
   const [content, setContent] = useState("")
   const [status, setStatus] = useState<EditableStatus>("draft")
   const [commentStatus, setCommentStatus] = useState("open")
   const [photoURL, setPhotoURL] = useState("")
   const [categoriesInput, setCategoriesInput] = useState("")
+  const [keyphrase, setKeyphrase] = useState("")
+  const [metaDescription, setMetaDescription] = useState("")
+  const [seoTitle, setSeoTitle] = useState("")
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
   const [selectedAuthorId, setSelectedAuthorId] = useState<string>("")
   const [authors, setAuthors] = useState<ApiAuthor[]>([])
@@ -157,9 +186,14 @@ function EditArticleView() {
         if (!cancelled) {
           setTitle(payload.title ?? "")
           setExcerpt(payload.excerpt ?? "")
+          setKeyphrase(payload.seo?.focus_keyword ?? "")
+          setSeoTitle(payload.seo?.seo_title ?? "")
+          // Fall back to the excerpt as a starting point when no meta description
+          // has been saved yet.
+          setMetaDescription(payload.seo?.meta_description ?? payload.excerpt ?? "")
           setContent(payload.content ?? "")
           setStatus((payload.status ?? "draft").toLowerCase() === "published" ? "published" : "draft")
-          setCommentStatus(payload.comment_status ?? "open")
+          setCommentStatus(normalizeCommentStatus(payload.comment_status))
           setPhotoURL(payload.featured_image ?? "")
           setCategoriesInput(
             (payload.categories ?? [])
@@ -306,6 +340,9 @@ function EditArticleView() {
           photo_url: photoURL.trim(),
           categories,
           authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
+          focus_keyword: keyphrase.trim(),
+          meta_description: metaDescription.trim(),
+          seo_title: seoTitle.trim(),
         }
         const response = await apiFetch("/v1/articles", {
           method: "POST",
@@ -334,6 +371,9 @@ function EditArticleView() {
         photo_url: photoURL.trim(),
         categories,
         authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
+        focus_keyword: keyphrase.trim(),
+        meta_description: metaDescription.trim(),
+        seo_title: seoTitle.trim(),
       }
 
       const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`, {
@@ -359,7 +399,7 @@ function EditArticleView() {
     }
   }
 
-  const inputClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
+  const inputClass ="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const labelClass = "flex flex-col gap-1.5"
   const labelTextClass = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
@@ -431,7 +471,8 @@ function EditArticleView() {
             <label className={labelClass}>
               <span className={labelTextClass}>Excerpt</span>
               <textarea
-                className={`${inputClass} resize-y min-h-[80px]`}
+                ref={excerptRef}
+                className={`${inputClass} resize-none overflow-hidden min-h-[80px]`}
                 onChange={(e) => setExcerpt(e.target.value)}
                 value={excerpt}
               />
@@ -444,7 +485,8 @@ function EditArticleView() {
           </div>
 
           {/* Sidebar */}
-          <aside className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
+          <aside className="flex flex-col gap-6">
+            <div className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
             <h2 className="text-base font-semibold text-foreground">Publish</h2>
 
             <label className={labelClass}>
@@ -494,12 +536,48 @@ function EditArticleView() {
 
             <label className={labelClass}>
               <span className={labelTextClass}>Comment Status</span>
-              <input className={inputClass} onChange={(e) => setCommentStatus(e.target.value)} type="text" value={commentStatus} />
+              <select className={selectClass} onChange={(e) => setCommentStatus(e.target.value)} value={commentStatus}>
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+              </select>
             </label>
 
             <label className={labelClass}>
               <span className={labelTextClass}>Categories (comma-separated)</span>
               <input className={inputClass} onChange={(e) => setCategoriesInput(e.target.value)} type="text" value={categoriesInput} />
+            </label>
+
+            <label className={labelClass}>
+              <span className={labelTextClass}>Focus Keyphrase</span>
+              <input
+                className={inputClass}
+                onChange={(e) => setKeyphrase(e.target.value)}
+                placeholder="e.g. campus housing"
+                type="text"
+                value={keyphrase}
+              />
+            </label>
+
+            <label className={labelClass}>
+              <span className={labelTextClass}>SEO Title</span>
+              <input
+                className={inputClass}
+                onChange={(e) => setSeoTitle(e.target.value)}
+                placeholder="Defaults to the article title"
+                type="text"
+                value={seoTitle}
+              />
+            </label>
+
+            <label className={labelClass}>
+              <span className={labelTextClass}>Meta Description</span>
+              <textarea
+                className={`${inputClass} resize-y min-h-[72px]`}
+                onChange={(e) => setMetaDescription(e.target.value)}
+                placeholder="Search-result summary (aim for under 156 characters)"
+                value={metaDescription}
+              />
+              <span className="text-[11px] text-muted-foreground">{metaDescription.length} characters</span>
             </label>
 
             {error && (
@@ -532,6 +610,24 @@ function EditArticleView() {
                 {isSaving ? "Publishing..." : "Publish"}
               </button>
             </div>
+            </div>
+
+            <Suspense
+              fallback={(
+                <div className="rounded-xl border border-border bg-card p-6 text-xs text-muted-foreground">
+                  Loading SEO analysis…
+                </div>
+              )}
+            >
+              <SeoAnalysis
+                content={content}
+                keyphrase={keyphrase}
+                title={seoTitle.trim() || title}
+                description={metaDescription}
+                slug={isNew ? slugInput : slug}
+                permalink={`${publicSiteUrl()}/${isNew ? slugInput : slug}`}
+              />
+            </Suspense>
           </aside>
         </div>
       )}

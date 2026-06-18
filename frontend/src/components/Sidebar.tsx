@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import logo from "../assets/logo.png"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
+import { useSessionAuth } from "../auth/sessionAuthContext"
 
 type NavItem = {
   icon: React.ElementType
@@ -74,6 +75,7 @@ const navGroups: NavGroup[] = [
 
 export default function Sidebar() {
   const { isAdmin } = useCurrentUserRole()
+  const { logout } = useSessionAuth()
   const [collapsed, setCollapsed] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     "/articles": true,
@@ -203,7 +205,9 @@ export default function Sidebar() {
       <div className={cn("px-2 py-3 border-t border-sidebar-border space-y-0.5 shrink-0")}>
         <button
           type="button"
-          onClick={() => navigate("/login")}
+          onClick={() => {
+            void logout().finally(() => navigate("/login"))
+          }}
           className={cn(
             "w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors",
             collapsed && "justify-center px-2",

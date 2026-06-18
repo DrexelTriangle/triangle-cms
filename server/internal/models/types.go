@@ -109,20 +109,23 @@ type AuthorListParams struct {
 }
 
 type Article struct {
-	Title         string           `json:"title"`
-	ID            int64            `json:"id"`
-	Authors       []AuthorOverview `json:"authors"`
-	Content       string           `json:"content"`
-	Categories    []string         `json:"categories"`
-	Tags          []string         `json:"-"`
-	Excerpt       string           `json:"excerpt"`
-	Slug          string           `json:"slug"`
-	PhotoURL      string           `json:"photo_url"`
-	IsFeatured    bool             `json:"is_featured"`
-	Status        ArticleStatus    `json:"status"`
-	CommentStatus string           `json:"comment_status"`
-	CreatedAt     *time.Time       `json:"creation_date,omitempty"`
-	PublishedAt   *time.Time       `json:"published_date,omitempty"`
+	Title           string           `json:"title"`
+	ID              int64            `json:"id"`
+	Authors         []AuthorOverview `json:"authors"`
+	Content         string           `json:"content"`
+	Categories      []string         `json:"categories"`
+	Tags            []string         `json:"-"`
+	Excerpt         string           `json:"excerpt"`
+	Slug            string           `json:"slug"`
+	PhotoURL        string           `json:"photo_url"`
+	IsFeatured      bool             `json:"is_featured"`
+	Status          ArticleStatus    `json:"status"`
+	CommentStatus   string           `json:"comment_status"`
+	FocusKeyword    string           `json:"focus_keyword"`
+	MetaDescription string           `json:"meta_description"`
+	SEOTitle        string           `json:"seo_title"`
+	CreatedAt       *time.Time       `json:"creation_date,omitempty"`
+	PublishedAt     *time.Time       `json:"published_date,omitempty"`
 }
 
 type ArticleOverview struct {
@@ -140,28 +143,34 @@ type ArticleOverview struct {
 }
 
 type ArticleInput struct {
-	Title         string        `json:"title"`
-	Slug          string        `json:"slug,omitempty"`
-	Authors       []int64       `json:"authors"`
-	Content       string        `json:"content"`
-	Excerpt       string        `json:"excerpt,omitempty"`
-	Categories    []string      `json:"categories"`
-	PhotoURL      string        `json:"photo_url"`
-	IsFeatured    bool          `json:"is_featured"`
-	Status        ArticleStatus `json:"status"`
-	CommentStatus string        `json:"comment_status,omitempty"`
+	Title           string        `json:"title"`
+	Slug            string        `json:"slug,omitempty"`
+	Authors         []int64       `json:"authors"`
+	Content         string        `json:"content"`
+	Excerpt         string        `json:"excerpt,omitempty"`
+	Categories      []string      `json:"categories"`
+	PhotoURL        string        `json:"photo_url"`
+	IsFeatured      bool          `json:"is_featured"`
+	Status          ArticleStatus `json:"status"`
+	CommentStatus   string        `json:"comment_status,omitempty"`
+	FocusKeyword    string        `json:"focus_keyword,omitempty"`
+	MetaDescription string        `json:"meta_description,omitempty"`
+	SEOTitle        string        `json:"seo_title,omitempty"`
 }
 
 type ArticlePatch struct {
-	Title         *string        `json:"title,omitempty"`
-	Authors       *[]int64       `json:"authors,omitempty"`
-	Content       *string        `json:"content,omitempty"`
-	Categories    *[]string      `json:"categories,omitempty"`
-	Excerpt       *string        `json:"excerpt,omitempty"`
-	PhotoURL      *string        `json:"photo_url,omitempty"`
-	IsFeatured    *bool          `json:"is_featured,omitempty"`
-	Status        *ArticleStatus `json:"status,omitempty"`
-	CommentStatus *string        `json:"comment_status,omitempty"`
+	Title           *string        `json:"title,omitempty"`
+	Authors         *[]int64       `json:"authors,omitempty"`
+	Content         *string        `json:"content,omitempty"`
+	Categories      *[]string      `json:"categories,omitempty"`
+	Excerpt         *string        `json:"excerpt,omitempty"`
+	PhotoURL        *string        `json:"photo_url,omitempty"`
+	IsFeatured      *bool          `json:"is_featured,omitempty"`
+	Status          *ArticleStatus `json:"status,omitempty"`
+	CommentStatus   *string        `json:"comment_status,omitempty"`
+	FocusKeyword    *string        `json:"focus_keyword,omitempty"`
+	MetaDescription *string        `json:"meta_description,omitempty"`
+	SEOTitle        *string        `json:"seo_title,omitempty"`
 }
 
 type ArticleListParams struct {

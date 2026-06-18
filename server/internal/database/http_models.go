@@ -38,9 +38,10 @@ var ArticleColumns = []string{
 	"id", "title", "slug", "description", "text", "excerpt", "tags", "categories",
 	"pub_date", "mod_date", "priority", "breaking_news",
 	"comment_status", "photo_url",
+	"focus_keyword", "meta_description", "seo_title",
 }
 
-const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`"
+const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`, a.`focus_keyword`, a.`meta_description`, a.`seo_title`"
 const wordpressImageBaseURL = "https://www.thetriangle.org"
 
 // wordpressImageProxyBaseURL is where legacy WordPress uploads are actually
@@ -129,27 +130,40 @@ func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 
 func ScanArticle(rows *sql.Rows) (models.Article, error) {
 	var (
-		a             models.Article
-		slug          sql.NullString
-		description   sql.NullString
-		text          sql.NullString
-		excerpt       sql.NullString
-		tags          sql.NullString
-		categories    sql.NullString
-		pubDate       sql.NullTime
-		priority      sql.NullBool
-		commentStatus sql.NullString
-		photoURL      sql.NullString
-		ignoredMod    sql.NullTime
-		ignoredBreak  sql.NullBool
+		a               models.Article
+		slug            sql.NullString
+		description     sql.NullString
+		text            sql.NullString
+		excerpt         sql.NullString
+		tags            sql.NullString
+		categories      sql.NullString
+		pubDate         sql.NullTime
+		priority        sql.NullBool
+		commentStatus   sql.NullString
+		photoURL        sql.NullString
+		ignoredMod      sql.NullTime
+		ignoredBreak    sql.NullBool
+		focusKeyword    sql.NullString
+		metaDescription sql.NullString
+		seoTitle        sql.NullString
 	)
 	err := rows.Scan(
 		&a.ID, &a.Title, &slug, &description, &text, &excerpt, &tags, &categories,
 		&pubDate, &ignoredMod, &priority, &ignoredBreak,
 		&commentStatus, &photoURL,
+		&focusKeyword, &metaDescription, &seoTitle,
 	)
 	if err != nil {
 		return models.Article{}, err
+	}
+	if focusKeyword.Valid {
+		a.FocusKeyword = focusKeyword.String
+	}
+	if metaDescription.Valid {
+		a.MetaDescription = metaDescription.String
+	}
+	if seoTitle.Valid {
+		a.SEOTitle = seoTitle.String
 	}
 	if text.Valid {
 		a.Content = text.String
@@ -175,7 +189,7 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		a.IsFeatured = priority.Bool
 	}
 	if commentStatus.Valid {
-		a.CommentStatus = strings.TrimSpace(commentStatus.String)
+		a.CommentStatus = normalizeCommentStatus(commentStatus.String)
 	}
 	if photoURL.Valid {
 		a.PhotoURL = normalizePhotoURL(photoURL.String)
@@ -374,7 +388,7 @@ func SearchArticles(ctx context.Context, conn *sql.DB, term string, limit, offse
 	}
 
 	like := "%" + trimmedTerm + "%"
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url` FROM `articles` " +
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title` FROM `articles` " +
 		"WHERE `pub_date` IS NOT NULL AND (`title` LIKE ? OR `tags` LIKE ? OR `text` LIKE ?) " +
 		"ORDER BY CASE " +
 		"WHEN `title` LIKE ? THEN 1 " +
@@ -530,9 +544,15 @@ func defaultCommentStatus() string {
 	return "open"
 }
 
+// normalizeCommentStatus forces the value to the canonical open/closed enum,
+// matching the ETL pipeline (ArticleTranslator._normalizeCommentStatus) and the
+// CMS editor dropdown. WordPress exports and ad-hoc API writes carry mixed
+// casing/whitespace ("Open", " closed"); anything that isn't an explicit
+// "closed" falls back to "open" (the WordPress default). Applied on both read
+// and write so all three layers agree on a single representation.
 func normalizeCommentStatus(commentStatus string) string {
-	if v := strings.TrimSpace(commentStatus); v != "" {
-		return v
+	if strings.EqualFold(strings.TrimSpace(commentStatus), "closed") {
+		return "closed"
 	}
 	return defaultCommentStatus()
 }
@@ -612,6 +632,9 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		// on a NULL comparison.
 		"[]",
 		"{}",
+		strings.TrimSpace(body.FocusKeyword),
+		strings.TrimSpace(body.MetaDescription),
+		strings.TrimSpace(body.SEOTitle),
 	}
 }
 
@@ -634,5 +657,8 @@ func ArticleToDBFields(body models.Article) []any {
 		false,
 		normalizeCommentStatus(body.CommentStatus),
 		normalizePhotoURL(body.PhotoURL),
+		strings.TrimSpace(body.FocusKeyword),
+		strings.TrimSpace(body.MetaDescription),
+		strings.TrimSpace(body.SEOTitle),
 	}
 }
