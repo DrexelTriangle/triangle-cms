@@ -11,3 +11,4 @@
 /.env
 frontend/.env
 server/data/
+..env.un~
