@@ -13,7 +13,10 @@ FROM alpine:3.21
 WORKDIR /app
 
 COPY --from=builder /bin/cms /app/cms
-COPY certs /app/certs
+
+# TLS certificates are NOT baked into the image. They are environment-specific
+# secrets and are provided at runtime (bind mount / Nginx termination). See
+# docker-compose.yml and scripts/generate_certs.sh.
 
 EXPOSE 8080
 ENTRYPOINT ["/app/cms"]

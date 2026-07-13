@@ -1,0 +1,11 @@
+# Keep secrets and machine-specific state out of the build context / image.
+certs/
+.env
+.env.*
+data/
+cover.out
+report.json
+
+# Editor / VCS noise
+*.un~
+.git

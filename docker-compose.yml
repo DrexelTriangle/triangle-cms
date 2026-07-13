@@ -58,6 +58,10 @@ services:
       - "8080:8080"
     volumes:
       - cms_activity_data:/app/data
+      # TLS certs are mounted at runtime (not baked into the image). Generate
+      # local dev certs with scripts/generate_certs.sh. In production these are
+      # provided by the host / replaced by Nginx TLS termination.
+      - ./server/certs:/app/certs:ro
     networks:
       - triangle_net
 
