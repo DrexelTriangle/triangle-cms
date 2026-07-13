@@ -28,6 +28,11 @@ export default function SettingsPage() {
   const [siteTitleMessage, setSiteTitleMessage] = useState<string | null>(null)
   const [taxonomyRebuildRunning, setTaxonomyRebuildRunning] = useState(false)
   const [taxonomyRebuildMessage, setTaxonomyRebuildMessage] = useState<string | null>(null)
+  const [breakingEnabled, setBreakingEnabled] = useState(false)
+  const [breakingText, setBreakingText] = useState("")
+  const [breakingSaved, setBreakingSaved] = useState<{ enabled: boolean; text: string }>({ enabled: false, text: "" })
+  const [breakingSaving, setBreakingSaving] = useState(false)
+  const [breakingMessage, setBreakingMessage] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -52,6 +57,62 @@ export default function SettingsPage() {
       cancelled = true
     }
   }, [apiFetch])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadBreakingNews() {
+      try {
+        const res = await apiFetch("/v1/settings/breaking-news")
+        if (!res.ok) throw new Error(`Failed to load breaking-news settings (${res.status})`)
+        const body = (await res.json()) as { enabled?: boolean; text?: string }
+        const enabled = Boolean(body.enabled)
+        const text = String(body.text ?? "")
+        if (!cancelled) {
+          setBreakingEnabled(enabled)
+          setBreakingText(text)
+          setBreakingSaved({ enabled, text })
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setBreakingMessage(err instanceof Error ? err.message : "Failed to load breaking-news settings")
+        }
+      }
+    }
+    loadBreakingNews()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch])
+
+  async function saveBreakingNews() {
+    const text = breakingText.trim()
+    if (breakingEnabled && !text) {
+      setBreakingMessage("Banner text is required when the banner is enabled")
+      return
+    }
+
+    setBreakingSaving(true)
+    setBreakingMessage(null)
+    try {
+      const res = await apiFetch("/v1/settings/breaking-news", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: breakingEnabled, text }),
+      })
+      if (!res.ok) throw new Error(`Failed to save breaking-news settings (${res.status})`)
+      const body = (await res.json()) as { enabled?: boolean; text?: string }
+      const savedEnabled = Boolean(body.enabled)
+      const savedText = String(body.text ?? "")
+      setBreakingEnabled(savedEnabled)
+      setBreakingText(savedText)
+      setBreakingSaved({ enabled: savedEnabled, text: savedText })
+      setBreakingMessage("Saved")
+    } catch (err) {
+      setBreakingMessage(err instanceof Error ? err.message : "Failed to save breaking-news settings")
+    } finally {
+      setBreakingSaving(false)
+    }
+  }
 
   async function saveSiteTitle() {
     const nextTitle = siteTitleDraft.trim()
@@ -166,6 +227,46 @@ export default function SettingsPage() {
             Save Site Title
           </button>
           {siteTitleMessage && <span className="text-sm text-muted-foreground">{siteTitleMessage}</span>}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
+        <h2 className="text-lg font-semibold text-foreground">Breaking News Banner</h2>
+        <p className="text-sm text-muted-foreground">
+          Show a breaking-news banner across the top of the public homepage.
+        </p>
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={breakingEnabled}
+            onChange={(e) => setBreakingEnabled(e.target.checked)}
+            className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/40"
+          />
+          <span className="text-sm text-foreground">Enable banner</span>
+        </label>
+        <div className="flex flex-col gap-2 max-w-xl">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Banner Text</label>
+          <input
+            value={breakingText}
+            onChange={(e) => setBreakingText(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            placeholder="Breaking news headline"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={saveBreakingNews}
+            disabled={
+              breakingSaving ||
+              (breakingEnabled && breakingText.trim() === "") ||
+              (breakingEnabled === breakingSaved.enabled && breakingText.trim() === breakingSaved.text)
+            }
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
+          >
+            Save Banner
+          </button>
+          {breakingMessage && <span className="text-sm text-muted-foreground">{breakingMessage}</span>}
         </div>
       </div>
 

@@ -134,6 +134,7 @@ type HomepageDevelopingStory struct {
 }
 
 type HomepageResponse struct {
+	BreakingNews      BreakingNewsSettings      `json:"breaking_news"`
 	DevelopingStories []HomepageDevelopingStory `json:"developingstories"`
 	News              []ArticleListItem         `json:"news"`
 	Opinion           []ArticleListItem         `json:"opinion"`
@@ -150,6 +151,17 @@ type SiteSettingsResponse struct {
 type SiteSettingsPatchRequest struct {
 	SiteTitle string `json:"site_title"`
 }
+
+// BreakingNewsSettings controls the breaking-news banner shown on the public
+// homepage: whether it is visible and the text it displays.
+type BreakingNewsSettings struct {
+	Enabled bool   `json:"enabled"`
+	Text    string `json:"text"`
+}
+
+type BreakingNewsSettingsResponse = BreakingNewsSettings
+
+type BreakingNewsSettingsPatchRequest = BreakingNewsSettings
 
 // SEOSettings holds the site-wide SEO / social defaults.
 type SEOSettings struct {
