@@ -61,6 +61,60 @@ func PatchSiteSettings(conn *sql.DB) http.Handler {
 	})
 }
 
+// @Summary Get breaking-news banner settings
+// @Tags settings
+// @Produce json
+// @Success 200 {object} models.BreakingNewsSettingsResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/settings/breaking-news [get]
+func GetBreakingNews(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		settings, err := db.GetBreakingNews(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to fetch breaking-news settings")
+			return
+		}
+		writeJSON(w, http.StatusOK, settings)
+	})
+}
+
+// @Summary Update breaking-news banner settings
+// @Tags settings
+// @Accept json
+// @Produce json
+// @Param body body models.BreakingNewsSettingsPatchRequest true "Breaking-news settings"
+// @Success 200 {object} models.BreakingNewsSettingsResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/settings/breaking-news [patch]
+func PatchBreakingNews(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body models.BreakingNewsSettingsPatchRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+
+		body.Text = strings.TrimSpace(body.Text)
+		if body.Enabled && body.Text == "" {
+			writeError(w, http.StatusBadRequest, "text is required when the banner is enabled")
+			return
+		}
+
+		if err := db.SetBreakingNews(r.Context(), conn, body); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update breaking-news settings")
+			return
+		}
+		state := "disabled"
+		if body.Enabled {
+			state = "enabled"
+		}
+		activity.LogRequest(r, "settings_changed", "Breaking-news banner updated", "breaking_news", state)
+		writeJSON(w, http.StatusOK, body)
+	})
+}
+
 // @Summary Rebuild taxonomy article counts
 // @Tags settings
 // @Success 204
