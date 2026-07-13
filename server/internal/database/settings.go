@@ -18,6 +18,12 @@ const (
 	keySEORobotsURL     = "seo_robots_url"
 )
 
+// Breaking-news banner settings keys, stored in the cms_settings key-value table.
+const (
+	keyBreakingNewsEnabled = "breaking_news_enabled"
+	keyBreakingNewsText    = "breaking_news_text"
+)
+
 var seoSettingDefaults = map[string]string{
 	keySEOOGTitle:       "The Triangle | Drexel University's Independent Student Newspaper",
 	keySEOOGDescription: "Award-winning independent student journalism at Drexel University since 1925.",
@@ -59,6 +65,37 @@ func SetSiteTitle(ctx context.Context, conn *sql.DB, title string) error {
 		normalized = defaultSiteTitle
 	}
 	return setSetting(ctx, conn, "site_title", normalized)
+}
+
+// GetBreakingNews returns the breaking-news banner settings, defaulting to
+// disabled with empty text when unset.
+func GetBreakingNews(ctx context.Context, conn *sql.DB) (models.BreakingNewsSettings, error) {
+	enabled, err := getSetting(ctx, conn, keyBreakingNewsEnabled, "false")
+	if err != nil {
+		return models.BreakingNewsSettings{}, err
+	}
+	// getSetting falls back when the stored value is blank, so an empty banner
+	// text is read directly rather than through getSetting's fallback handling.
+	var text string
+	if err := conn.QueryRowContext(ctx, "SELECT value_text FROM cms_settings WHERE key_name = ? LIMIT 1", keyBreakingNewsText).Scan(&text); err != nil && err != sql.ErrNoRows {
+		return models.BreakingNewsSettings{}, err
+	}
+	return models.BreakingNewsSettings{
+		Enabled: enabled == "true",
+		Text:    strings.TrimSpace(text),
+	}, nil
+}
+
+// SetBreakingNews persists the breaking-news banner settings.
+func SetBreakingNews(ctx context.Context, conn *sql.DB, s models.BreakingNewsSettings) error {
+	enabled := "false"
+	if s.Enabled {
+		enabled = "true"
+	}
+	if err := setSetting(ctx, conn, keyBreakingNewsEnabled, enabled); err != nil {
+		return err
+	}
+	return setSetting(ctx, conn, keyBreakingNewsText, strings.TrimSpace(s.Text))
 }
 
 // getSetting reads a single cms_settings value, returning fallback when the key

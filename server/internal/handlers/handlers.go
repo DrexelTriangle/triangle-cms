@@ -1913,6 +1913,11 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 		}
 		_, _, offset := listParams(r, 20)
 		excerptWords := excerptWordLimit(r, 50)
+		breakingNews, err := db.GetBreakingNews(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		storyTitles, err := db.GetDevelopingStories(r.Context(), conn)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -1935,6 +1940,7 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 		}
 
 		sectionArticles := models.HomepageResponse{
+			BreakingNews:      breakingNews,
 			DevelopingStories: developingStories,
 		}
 
