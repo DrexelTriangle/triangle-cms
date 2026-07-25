@@ -84,5 +84,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 		mux.Handle("PATCH /v1/articles/{slug}", authMW(handlers.PatchArticle(conn)))
 		mux.Handle("PATCH /v1/articles/{slug}/restore", authMW(handlers.RestoreArticle(conn)))
 		mux.Handle("DELETE /v1/articles/{slug}", authMW(handlers.DeleteArticle(conn)))
+		mux.Handle("PUT /v1/articles/{slug}/edit-lock", authMW(handlers.AcquireArticleEditLock(conn)))
+		mux.Handle("DELETE /v1/articles/{slug}/edit-lock", authMW(handlers.ReleaseArticleEditLock(conn)))
 	}
 }

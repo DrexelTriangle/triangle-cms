@@ -1526,6 +1526,8 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
+		unlock := articleEditLocks.Lock(slug)
+		defer unlock()
 		if user, ok := middleware.UserFromContext(r.Context()); ok && user.Role != models.RoleAdmin {
 			if user.AuthorID == nil {
 				writeError(w, http.StatusForbidden, "forbidden")
@@ -1614,6 +1616,8 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
+		unlock := articleEditLocks.Lock(slug)
+		defer unlock()
 		if user, ok := middleware.UserFromContext(r.Context()); ok && user.Role != models.RoleAdmin {
 			if user.AuthorID == nil {
 				writeError(w, http.StatusForbidden, "forbidden")
@@ -1811,6 +1815,8 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
+		unlock := articleEditLocks.Lock(slug)
+		defer unlock()
 		user, ok := middleware.UserFromContext(r.Context())
 		if !ok || (user.Role != models.RoleAdmin && user.Role != models.RoleEditor) {
 			writeError(w, http.StatusForbidden, "forbidden")
@@ -1858,6 +1864,8 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
+		unlock := articleEditLocks.Lock(slug)
+		defer unlock()
 		user, ok := middleware.UserFromContext(r.Context())
 		if !ok || (user.Role != models.RoleAdmin && user.Role != models.RoleEditor) {
 			writeError(w, http.StatusForbidden, "forbidden")
