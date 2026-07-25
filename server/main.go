@@ -32,9 +32,7 @@ const (
 	keyFilePath            = "./certs/localhost.key"
 	certFileEnv            = "TLS_CERT_FILE"
 	keyFileEnv             = "TLS_KEY_FILE"
-	activityDBPathEnv      = "ACTIVITY_DB_PATH"
 	defaultShutdownTimeout = 10 * time.Second
-	defaultActivityDBPath  = "./data/activity"
 )
 
 type httpsServer interface {
@@ -77,7 +75,22 @@ type runDeps struct {
 func main() {
 	godotenv.Load(".env")
 
-	activityStore, err := activity.OpenBadgerStore(getenvOrDefault(activityDBPathEnv, defaultActivityDBPath))
+	dbName, user, password, host, port, err := dbConfigFromEnv()
+	if err != nil {
+		slog.Error("invalid database configuration", "error", err)
+		os.Exit(1)
+	}
+
+	db, err := database.InitializeConnection(context.Background(), dbName, user, password, host, port)
+	if err != nil {
+		slog.Error("database initialization failed", "error", err, "host", host, "port", port, "db_name", dbName)
+		os.Exit(1)
+	}
+
+	// Activity/audit log is stored in the shared MariaDB database (not an embedded
+	// on-disk store), so multiple CMS instances can record and read the same
+	// history without holding an exclusive directory lock.
+	activityStore, err := activity.NewSQLStore(context.Background(), db)
 	if err != nil {
 		slog.Error("failed to initialize activity store", "error", err)
 		os.Exit(1)
@@ -90,18 +103,6 @@ func main() {
 		activity.NewStoreHandler(activityStore, nil),
 	)).With("service", "cms")
 	slog.SetDefault(logger)
-
-	dbName, user, password, host, port, err := dbConfigFromEnv()
-	if err != nil {
-		slog.Error("invalid database configuration", "error", err)
-		os.Exit(1)
-	}
-
-	db, err := database.InitializeConnection(context.Background(), dbName, user, password, host, port)
-	if err != nil {
-		slog.Error("database initialization failed", "error", err, "host", host, "port", port, "db_name", dbName)
-		os.Exit(1)
-	}
 
 	if err := database.EnsureArticlesSchema(context.Background(), db); err != nil {
 		slog.Error("failed to migrate articles schema", "error", err)

@@ -34,7 +34,12 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -subj "/CN=localhost" \
   -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
 
-chmod 600 "$key"
+# World-readable: this is a disposable, non-committed, self-signed localhost dev
+# key. The CMS container runs as a non-root user (UID 10001, see server/Dockerfile)
+# and reads this file over a bind mount, where its host owner UID won't match, so
+# 0600 would deny access and break TLS startup. Production keys are provisioned by
+# ops with ownership/perms scoped to the runtime user (or TLS is terminated at Nginx).
+chmod 644 "$key"
 echo "Generated self-signed dev cert:"
 echo "  ${crt}"
 echo "  ${key}"
