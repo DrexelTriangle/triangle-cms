@@ -7,7 +7,7 @@ export function apiBaseUrl() {
 }
 
 export function authBaseUrl() {
-  return trimTrailingSlashes(import.meta.env.VITE_AUTH_BASE_URL ?? "https://localhost:8080")
+  return trimTrailingSlashes(import.meta.env.VITE_AUTH_BASE_URL ?? "")
 }
 
 // Public-facing site origin, used to build article permalinks (e.g. so Yoast can

@@ -1,0 +1,77 @@
+# Delta application stack: two complete release slots. Delta runs only the
+# frontend containers, backend containers, host Nginx, and the self-hosted
+# GitHub Actions runner. MariaDB/MaxScale live elsewhere; the backend receives
+# their reachable address through DB_* environment variables.
+#
+# Deployments start the inactive slot, wait for both container health checks,
+# then atomically switch host Nginx to the matching frontend/backend pair.
+#
+# Required host-only env file: cms.env. It must not be committed.
+
+name: triangle-cms
+
+x-backend-base: &backend-base
+  image: ${CMS_BACKEND_IMAGE:-ghcr.io/drexeltriangle/triangle-cms-backend}:${CMS_IMAGE_TAG:?CMS_IMAGE_TAG is required}
+  restart: unless-stopped
+  stop_grace_period: 15s
+  environment:
+    CMS_SERVER_MODE: internal-http
+    DB_NAME: ${DB_NAME:?DB_NAME is required}
+    DB_USER: ${DB_USER:?DB_USER is required}
+    DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    DB_HOST: ${DB_HOST:?DB_HOST is required}
+    DB_PORT: ${DB_PORT:-3306}
+    OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:?OIDC_ISSUER_URL is required}
+    OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?OIDC_CLIENT_ID is required}
+    OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?OIDC_CLIENT_SECRET is required}
+    FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?FRONTEND_ORIGIN is required}
+    OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:?OIDC_REDIRECT_URI is required}
+    CMS_SESSION_TTL_SECONDS: ${CMS_SESSION_TTL_SECONDS:-604800}
+    CMS_AUTO_PROMOTE_ALL_ADMINS: ${CMS_AUTO_PROMOTE_ALL_ADMINS:-false}
+    CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP: ${CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP:-false}
+  healthcheck:
+    test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/v1/health/db || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 20s
+  networks:
+    - triangle_net
+
+x-frontend-base: &frontend-base
+  image: ${CMS_FRONTEND_IMAGE:-ghcr.io/drexeltriangle/triangle-cms-frontend}:${CMS_IMAGE_TAG:?CMS_IMAGE_TAG is required}
+  restart: unless-stopped
+  stop_grace_period: 10s
+  healthcheck:
+    test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 10s
+  networks:
+    - triangle_net
+
+services:
+  backend-blue:
+    <<: *backend-base
+    ports:
+      - "127.0.0.1:8081:8080"
+
+  frontend-blue:
+    <<: *frontend-base
+    ports:
+      - "127.0.0.1:8091:8080"
+
+  backend-green:
+    <<: *backend-base
+    ports:
+      - "127.0.0.1:8082:8080"
+
+  frontend-green:
+    <<: *frontend-base
+    ports:
+      - "127.0.0.1:8092:8080"
+
+networks:
+  triangle_net:
+    driver: bridge

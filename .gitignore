@@ -11,4 +11,7 @@
 /.env
 frontend/.env
 server/data/
+deploy/*.env
+!deploy/*.env.example
+deploy/runner/
 ..env.un~

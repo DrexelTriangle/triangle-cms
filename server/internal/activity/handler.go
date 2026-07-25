@@ -123,6 +123,14 @@ func (h *StoreHandler) Handle(ctx context.Context, record slog.Record) error {
 		}
 	}
 
+	// Only audit events are persisted to the store. General log records still
+	// reach stdout (and Loki) via the other tee'd handler; duplicating them in
+	// the database would be unbounded write-amplification for data no reader
+	// queries — /v1/activity only ever lists kind="activity".
+	if entry.Kind != "activity" {
+		return nil
+	}
+
 	return h.store.Write(ctx, entry)
 }
 

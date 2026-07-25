@@ -32,12 +32,14 @@ const (
 	keyFilePath            = "./certs/localhost.key"
 	certFileEnv            = "TLS_CERT_FILE"
 	keyFileEnv             = "TLS_KEY_FILE"
-	activityDBPathEnv      = "ACTIVITY_DB_PATH"
+	serverModeEnv          = "CMS_SERVER_MODE"
+	serverModeHTTPS        = "https"
+	serverModeInternalHTTP = "internal-http"
 	defaultShutdownTimeout = 10 * time.Second
-	defaultActivityDBPath  = "./data/activity"
 )
 
 type httpsServer interface {
+	ListenAndServe() error
 	ListenAndServeTLS(certFile, keyFile string) error
 	Shutdown(ctx context.Context) error
 	Close() error
@@ -49,7 +51,7 @@ type stdHTTPServer struct {
 
 type runDeps struct {
 	loadX509KeyPair func(certFile, keyFile string) (tls.Certificate, error)
-	newServer       func(cert tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer
+	newServer       func(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer
 	signalCh        <-chan os.Signal
 	signalNotify    func(c chan<- os.Signal, sig ...os.Signal)
 	signalStop      func(c chan<- os.Signal)
@@ -77,7 +79,22 @@ type runDeps struct {
 func main() {
 	godotenv.Load(".env")
 
-	activityStore, err := activity.OpenBadgerStore(getenvOrDefault(activityDBPathEnv, defaultActivityDBPath))
+	dbName, user, password, host, port, err := dbConfigFromEnv()
+	if err != nil {
+		slog.Error("invalid database configuration", "error", err)
+		os.Exit(1)
+	}
+
+	db, err := database.InitializeConnection(context.Background(), dbName, user, password, host, port)
+	if err != nil {
+		slog.Error("database initialization failed", "error", err, "host", host, "port", port, "db_name", dbName)
+		os.Exit(1)
+	}
+
+	// Activity/audit log is stored in the shared MariaDB database (not an embedded
+	// on-disk store), so multiple CMS instances can record and read the same
+	// history without holding an exclusive directory lock.
+	activityStore, err := activity.NewSQLStore(context.Background(), db)
 	if err != nil {
 		slog.Error("failed to initialize activity store", "error", err)
 		os.Exit(1)
@@ -90,18 +107,6 @@ func main() {
 		activity.NewStoreHandler(activityStore, nil),
 	)).With("service", "cms")
 	slog.SetDefault(logger)
-
-	dbName, user, password, host, port, err := dbConfigFromEnv()
-	if err != nil {
-		slog.Error("invalid database configuration", "error", err)
-		os.Exit(1)
-	}
-
-	db, err := database.InitializeConnection(context.Background(), dbName, user, password, host, port)
-	if err != nil {
-		slog.Error("database initialization failed", "error", err, "host", host, "port", port, "db_name", dbName)
-		os.Exit(1)
-	}
 
 	if err := database.EnsureArticlesSchema(context.Background(), db); err != nil {
 		slog.Error("failed to migrate articles schema", "error", err)
@@ -235,15 +240,17 @@ func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig) run
 	}
 }
 
-func newDefaultServer(cert tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
+func newDefaultServer(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
+	tlsConfig := (*tls.Config)(nil)
+	if cert != nil {
+		tlsConfig = &tls.Config{Certificates: []tls.Certificate{*cert}}
+	}
 	return &stdHTTPServer{
 		Server: &http.Server{
-			Addr:    ":8080",
-			Handler: middleware.Chain(mux, middleware.Logging, middleware.Recovery),
-			TLSConfig: &tls.Config{
-				Certificates: []tls.Certificate{cert},
-			},
-			ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
+			Addr:      ":8080",
+			Handler:   middleware.Chain(mux, middleware.Logging, middleware.Recovery),
+			TLSConfig: tlsConfig,
+			ErrorLog:  slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		},
 	}
 }
@@ -265,12 +272,24 @@ func run(deps runDeps, conn *sql.DB) error {
 		deps.shutdownTimeout = defaultShutdownTimeout
 	}
 
-	certPath := getenvOrDefault(certFileEnv, certFilePath)
-	keyPath := getenvOrDefault(keyFileEnv, keyFilePath)
+	mode := strings.TrimSpace(os.Getenv(serverModeEnv))
+	if mode == "" {
+		mode = serverModeHTTPS
+	}
+	if mode != serverModeHTTPS && mode != serverModeInternalHTTP {
+		return fmt.Errorf("%s must be %q or %q, got %q", serverModeEnv, serverModeHTTPS, serverModeInternalHTTP, mode)
+	}
 
-	cert, err := deps.loadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		return fmt.Errorf("tls certificate load failed: %w", err)
+	var cert *tls.Certificate
+	if mode == serverModeHTTPS {
+		certPath := getenvOrDefault(certFileEnv, certFilePath)
+		keyPath := getenvOrDefault(keyFileEnv, keyFilePath)
+
+		loadedCert, err := deps.loadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			return fmt.Errorf("tls certificate load failed: %w", err)
+		}
+		cert = &loadedCert
 	}
 
 	mux := http.NewServeMux()
@@ -279,7 +298,12 @@ func run(deps runDeps, conn *sql.DB) error {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		err := server.ListenAndServeTLS("", "")
+		var err error
+		if mode == serverModeInternalHTTP {
+			err = server.ListenAndServe()
+		} else {
+			err = server.ListenAndServeTLS("", "")
+		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 			return

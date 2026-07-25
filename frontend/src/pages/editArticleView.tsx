@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowLeft, Save, Image, Search, X } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -131,6 +131,11 @@ function EditArticleView() {
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  // Name of another editor currently holding the edit lock, or null when we
+  // hold it (or it's a new article). When set, editing is blocked so nobody
+  // starts work they won't be able to save.
+  const [lockedBy, setLockedBy] = useState<string | null>(null)
+  const [lockChecking, setLockChecking] = useState(false)
 
   const [title, setTitle] = useState("")
   const [excerpt, setExcerpt] = useState("")
@@ -221,6 +226,54 @@ function EditArticleView() {
       cancelled = true
     }
   }, [apiFetch, slug, isNew])
+
+  // Try to claim an advisory edit lock while this article is open. If someone
+  // else already holds it we surface who, block editing, and keep re-checking
+  // so the editor unblocks automatically once they leave. The lock is released
+  // on unmount (and on tab close via keepalive) and refreshed on a heartbeat so
+  // an abandoned session frees it after the server-side TTL.
+  const acquireLock = useCallback(async (): Promise<void> => {
+    if (isNew || !slug) return
+    setLockChecking(true)
+    try {
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}/edit-lock`, { method: "PUT" })
+      if (response.status === 409) {
+        const payload = (await response.json().catch(() => null)) as { holder_name?: string } | null
+        setLockedBy(payload?.holder_name?.trim() || "another editor")
+        return
+      }
+      // On success (or an unexpected error) don't block on an advisory lock.
+      setLockedBy(null)
+    } catch {
+      setLockedBy(null)
+    } finally {
+      setLockChecking(false)
+    }
+  }, [apiFetch, slug, isNew])
+
+  useEffect(() => {
+    if (isNew || !slug) return
+    let released = false
+
+    void acquireLock()
+    const heartbeat = window.setInterval(() => { void acquireLock() }, 30_000)
+
+    const release = () => {
+      if (released) return
+      released = true
+      void apiFetch(`/v1/articles/${encodeURIComponent(slug)}/edit-lock`, {
+        method: "DELETE",
+        keepalive: true,
+      }).catch(() => {})
+    }
+    window.addEventListener("beforeunload", release)
+
+    return () => {
+      window.clearInterval(heartbeat)
+      window.removeEventListener("beforeunload", release)
+      release()
+    }
+  }, [apiFetch, slug, isNew, acquireLock])
 
   useEffect(() => {
     let cancelled = false
@@ -422,6 +475,32 @@ function EditArticleView() {
       {isLoading ? (
         <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
           Loading article...
+        </div>
+      ) : lockedBy ? (
+        <div className="rounded-xl border border-border bg-card p-8 flex flex-col items-center gap-4 text-center">
+          <h2 className="text-lg font-semibold text-foreground">This article is being edited</h2>
+          <p className="max-w-md text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{lockedBy}</span> is currently editing this article.
+            To avoid overwriting each other's work, editing is locked until they're done. This page will
+            unlock automatically once they leave.
+          </p>
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={lockChecking}
+              onClick={() => void acquireLock()}
+              type="button"
+            >
+              {lockChecking ? "Checking..." : "Check again"}
+            </button>
+            <button
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-muted/70 transition-colors"
+              onClick={() => navigate(-1)}
+              type="button"
+            >
+              Back
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">

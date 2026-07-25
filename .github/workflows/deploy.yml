@@ -1,0 +1,80 @@
+name: Deploy Delta
+
+on:
+  workflow_run:
+    workflows:
+      - Publish Images
+    branches:
+      - main
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      image_sha:
+        description: Full commit SHA image tag to deploy
+        required: true
+
+concurrency:
+  group: delta-production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.name == 'Publish Images' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.event == 'workflow_run'
+      )
+    runs-on:
+      - self-hosted
+      - drexel-vpn
+      - delta
+      - triangle-cms
+    environment: production
+    steps:
+      - name: Resolve SHA
+        id: sha
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual deployments treat image_sha strictly as data: an immutable
+            # GHCR tag that must already exist. It is never used as a checkout
+            # ref, script source, Compose source, or env-file source.
+            sha="${{ inputs.image_sha }}"
+          else
+            # Automatic deployments come only from the trusted automatic
+            # Publish Images workflow, which itself only publishes CI-validated
+            # pushes to main. The publish workflow run head_sha is the image tag.
+            sha="${{ github.event.workflow_run.head_sha }}"
+          fi
+          if [[ ! "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "invalid full commit SHA: $sha" >&2
+            exit 1
+          fi
+          echo "value=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted deployment code
+        uses: actions/checkout@v4
+        with:
+          # Trust boundary: deployment code comes from the protected default
+          # branch/workflow revision, not from the data-only image SHA.
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy inactive slot and switch Nginx
+        env:
+          ENV_FILE: ${{ vars.DELTA_CMS_ENV_FILE }}
+          NGINX_ACTIVE_INCLUDE: ${{ vars.DELTA_NGINX_ACTIVE_INCLUDE }}
+          PUBLIC_BASE_URL: ${{ vars.DELTA_PUBLIC_BASE_URL }}
+        run: deploy/scripts/deploy.sh "${{ steps.sha.outputs.value }}"
