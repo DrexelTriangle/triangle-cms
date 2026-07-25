@@ -14,11 +14,19 @@ import (
 )
 
 type fakeServer struct {
+	listenHTTPFn   func() error
 	listenFn       func(certFile, keyFile string) error
 	shutdownFn     func(ctx context.Context) error
 	closeFn        func() error
 	shutdownCalled bool
 	closeCalled    bool
+}
+
+func (f *fakeServer) ListenAndServe() error {
+	if f.listenHTTPFn != nil {
+		return f.listenHTTPFn()
+	}
+	return nil
 }
 
 func (f *fakeServer) ListenAndServeTLS(certFile, keyFile string) error {
@@ -50,7 +58,7 @@ func TestRun_TLSLoadFailure(t *testing.T) {
 		loadX509KeyPair: func(certFile, keyFile string) (tls.Certificate, error) {
 			return tls.Certificate{}, errors.New("bad certificate")
 		},
-		newServer: func(cert tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
+		newServer: func(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
 			newServerCalled = true
 			return &fakeServer{}
 		},
@@ -65,6 +73,51 @@ func TestRun_TLSLoadFailure(t *testing.T) {
 	}
 	if newServerCalled {
 		t.Fatal("expected server not to be created on cert load failure")
+	}
+}
+
+func TestRun_InternalHTTPModeSkipsTLSLoad(t *testing.T) {
+	t.Setenv(serverModeEnv, serverModeInternalHTTP)
+
+	loadTLSCalled := false
+	var gotCert *tls.Certificate
+	srv := &fakeServer{}
+
+	err := run(runDeps{
+		loadX509KeyPair: func(certFile, keyFile string) (tls.Certificate, error) {
+			loadTLSCalled = true
+			return tls.Certificate{}, nil
+		},
+		newServer: func(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
+			gotCert = cert
+			return srv
+		},
+		signalCh: make(chan os.Signal, 1),
+	}, nil)
+
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if loadTLSCalled {
+		t.Fatal("expected internal HTTP mode not to load TLS certificates")
+	}
+	if gotCert != nil {
+		t.Fatal("expected no TLS certificate in internal HTTP mode")
+	}
+}
+
+func TestRun_InvalidServerMode(t *testing.T) {
+	t.Setenv(serverModeEnv, "plain-http")
+
+	err := run(runDeps{
+		signalCh: make(chan os.Signal, 1),
+	}, nil)
+
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if !strings.Contains(err.Error(), serverModeEnv) {
+		t.Fatalf("expected server mode error, got %v", err)
 	}
 }
 
@@ -105,7 +158,7 @@ func TestRun_ServerExitError(t *testing.T) {
 		loadX509KeyPair: func(certFile, keyFile string) (tls.Certificate, error) {
 			return tls.Certificate{}, nil
 		},
-		newServer: func(cert tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
+		newServer: func(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
 			return srv
 		},
 		signalCh: make(chan os.Signal, 1),
@@ -142,7 +195,7 @@ func TestRun_GracefulShutdownOnSignal(t *testing.T) {
 		loadX509KeyPair: func(certFile, keyFile string) (tls.Certificate, error) {
 			return tls.Certificate{}, nil
 		},
-		newServer: func(cert tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
+		newServer: func(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
 			return srv
 		},
 		signalCh:        sigCh,
@@ -183,7 +236,7 @@ func TestRun_ShutdownFailureCallsClose(t *testing.T) {
 		loadX509KeyPair: func(certFile, keyFile string) (tls.Certificate, error) {
 			return tls.Certificate{}, nil
 		},
-		newServer: func(cert tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
+		newServer: func(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
 			return srv
 		},
 		signalCh:        sigCh,

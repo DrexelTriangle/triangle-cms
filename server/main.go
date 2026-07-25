@@ -32,10 +32,14 @@ const (
 	keyFilePath            = "./certs/localhost.key"
 	certFileEnv            = "TLS_CERT_FILE"
 	keyFileEnv             = "TLS_KEY_FILE"
+	serverModeEnv          = "CMS_SERVER_MODE"
+	serverModeHTTPS        = "https"
+	serverModeInternalHTTP = "internal-http"
 	defaultShutdownTimeout = 10 * time.Second
 )
 
 type httpsServer interface {
+	ListenAndServe() error
 	ListenAndServeTLS(certFile, keyFile string) error
 	Shutdown(ctx context.Context) error
 	Close() error
@@ -47,7 +51,7 @@ type stdHTTPServer struct {
 
 type runDeps struct {
 	loadX509KeyPair func(certFile, keyFile string) (tls.Certificate, error)
-	newServer       func(cert tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer
+	newServer       func(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer
 	signalCh        <-chan os.Signal
 	signalNotify    func(c chan<- os.Signal, sig ...os.Signal)
 	signalStop      func(c chan<- os.Signal)
@@ -236,15 +240,17 @@ func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig) run
 	}
 }
 
-func newDefaultServer(cert tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
+func newDefaultServer(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Logger) httpsServer {
+	tlsConfig := (*tls.Config)(nil)
+	if cert != nil {
+		tlsConfig = &tls.Config{Certificates: []tls.Certificate{*cert}}
+	}
 	return &stdHTTPServer{
 		Server: &http.Server{
-			Addr:    ":8080",
-			Handler: middleware.Chain(mux, middleware.Logging, middleware.Recovery),
-			TLSConfig: &tls.Config{
-				Certificates: []tls.Certificate{cert},
-			},
-			ErrorLog: slog.NewLogLogger(logger.Handler(), slog.LevelError),
+			Addr:      ":8080",
+			Handler:   middleware.Chain(mux, middleware.Logging, middleware.Recovery),
+			TLSConfig: tlsConfig,
+			ErrorLog:  slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		},
 	}
 }
@@ -266,12 +272,24 @@ func run(deps runDeps, conn *sql.DB) error {
 		deps.shutdownTimeout = defaultShutdownTimeout
 	}
 
-	certPath := getenvOrDefault(certFileEnv, certFilePath)
-	keyPath := getenvOrDefault(keyFileEnv, keyFilePath)
+	mode := strings.TrimSpace(os.Getenv(serverModeEnv))
+	if mode == "" {
+		mode = serverModeHTTPS
+	}
+	if mode != serverModeHTTPS && mode != serverModeInternalHTTP {
+		return fmt.Errorf("%s must be %q or %q, got %q", serverModeEnv, serverModeHTTPS, serverModeInternalHTTP, mode)
+	}
 
-	cert, err := deps.loadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		return fmt.Errorf("tls certificate load failed: %w", err)
+	var cert *tls.Certificate
+	if mode == serverModeHTTPS {
+		certPath := getenvOrDefault(certFileEnv, certFilePath)
+		keyPath := getenvOrDefault(keyFileEnv, keyFilePath)
+
+		loadedCert, err := deps.loadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			return fmt.Errorf("tls certificate load failed: %w", err)
+		}
+		cert = &loadedCert
 	}
 
 	mux := http.NewServeMux()
@@ -280,7 +298,12 @@ func run(deps runDeps, conn *sql.DB) error {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		err := server.ListenAndServeTLS("", "")
+		var err error
+		if mode == serverModeInternalHTTP {
+			err = server.ListenAndServe()
+		} else {
+			err = server.ListenAndServeTLS("", "")
+		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 			return
