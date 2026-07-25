@@ -49,13 +49,38 @@ a manual server task:
 3. Register a self-hosted GitHub Actions runner on Delta inside the Drexel VPN.
    Apply the labels `drexel-vpn`, `delta`, and `triangle-cms`.
 4. Allow the runner user to run Docker and reload/test Nginx. Prefer narrow
-   sudoers rules for `nginx -t` and `nginx -s reload`.
+   sudoers rules only for `/usr/sbin/nginx -t` and
+   `/usr/sbin/nginx -s reload`.
 5. Place the host-only production env file at the path configured by
    `DELTA_CMS_ENV_FILE`. Do not put it in git.
 6. Install `nginx/triangle-cms.conf` as an enabled Nginx site.
-7. Seed `/etc/nginx/triangle-cms-active-upstreams.conf` from the example include.
+7. Create the narrow runtime-state directory and seed the active upstream
+   include:
+
+   ```bash
+   sudo install -d \
+     -o triangle-runner \
+     -g triangle-runner \
+     -m 0750 \
+     /etc/nginx/triangle-cms
+
+   sudo install \
+     -o triangle-runner \
+     -g triangle-runner \
+     -m 0644 \
+     deploy/nginx/triangle-cms-active-upstreams.conf.example \
+     /etc/nginx/triangle-cms/active-upstreams.conf
+   ```
+
 8. Validate Nginx and reload it once during bootstrap.
 9. Confirm the runner can pull GHCR images and run `docker compose`.
+
+Keep `/etc/nginx` root-owned and non-writable by the runner. Only
+`/etc/nginx/triangle-cms` is writable runtime state for deployments, scoped to
+the generated active upstream include. The directory should be owned by
+`triangle-runner:triangle-runner` with mode `0750`; the active include should be
+owned by `triangle-runner:triangle-runner` with mode `0644`. The host Nginx site
+such as `/etc/nginx/sites-available/triangle-cms.conf` remains root-owned.
 
 ## Required Host Environment
 
@@ -88,7 +113,7 @@ through the admin endpoint after deploys when needed.
 Configure these as GitHub Environment variables for `production`:
 
 - `DELTA_CMS_ENV_FILE` - absolute path to the host-only `cms.env`.
-- `DELTA_NGINX_ACTIVE_INCLUDE` - usually `/etc/nginx/triangle-cms-active-upstreams.conf`.
+- `DELTA_NGINX_ACTIVE_INCLUDE` - usually `/etc/nginx/triangle-cms/active-upstreams.conf`.
 - `DELTA_PUBLIC_BASE_URL` - initial HTTP VPN URL or hostname for smoke tests.
 
 Production database passwords, OIDC secrets, runner registration tokens,
@@ -120,6 +145,7 @@ deploy/scripts/deploy.sh <full-commit-sha>
 The script:
 
 - Acquires an exclusive `flock`.
+- Runs deployment preflight checks before pulling images or starting containers.
 - Reads the active slot from the Nginx include.
 - Pulls the exact frontend/backend SHA images.
 - Starts only the inactive frontend/backend services.
@@ -131,6 +157,12 @@ The script:
 - Keeps the previous slot running for fast rollback.
 
 It never runs `docker compose down -v` and never deletes persistent data.
+
+The deployment preflight fails before pulling images, starting containers, or
+switching Nginx if the active include directory is missing or not writable, an
+existing active include is not readable and writable, the active slot is not
+`blue` or `green`, `cms.env` is missing or unreadable, or Nginx validation/reload
+privileges are not available.
 
 ## Rollback
 
