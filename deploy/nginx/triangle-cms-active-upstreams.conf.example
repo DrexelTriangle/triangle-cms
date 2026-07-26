@@ -1,5 +1,5 @@
 # Generated atomically by deploy/scripts/deploy.sh and deploy/scripts/rollback.sh.
-# Copy to /etc/nginx/triangle-cms-active-upstreams.conf during bootstrap.
+# Copy to /etc/nginx/triangle-cms/active-upstreams.conf during bootstrap.
 set $triangle_cms_slot blue;
 set $triangle_cms_frontend http://127.0.0.1:8091;
 set $triangle_cms_backend http://127.0.0.1:8081;

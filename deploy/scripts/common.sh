@@ -7,7 +7,8 @@ REPO_DIR="$(cd "${DEPLOY_DIR}/.." && pwd)"
 
 COMPOSE_FILE="${COMPOSE_FILE:-${DEPLOY_DIR}/compose.cms.yml}"
 ENV_FILE="${ENV_FILE:-${DEPLOY_DIR}/cms.env}"
-NGINX_ACTIVE_INCLUDE="${NGINX_ACTIVE_INCLUDE:-/etc/nginx/triangle-cms-active-upstreams.conf}"
+NGINX_ACTIVE_INCLUDE="${NGINX_ACTIVE_INCLUDE:-/etc/nginx/triangle-cms/active-upstreams.conf}"
+NGINX_BIN="${NGINX_BIN:-/usr/sbin/nginx}"
 PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-http://127.0.0.1}"
 DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/triangle-cms-deploy.lock}"
 BACKEND_HEALTH_TIMEOUT="${BACKEND_HEALTH_TIMEOUT:-180}"
@@ -24,6 +25,18 @@ require_file() {
     echo "required file not found: ${path}" >&2
     exit 1
   fi
+}
+
+require_readable_file() {
+	local path="$1"
+	if [[ ! -f "${path}" ]]; then
+		echo "required file not found: ${path}" >&2
+		return 1
+	fi
+	if [[ ! -r "${path}" ]]; then
+		echo "required file is not readable: ${path}" >&2
+		return 1
+	fi
 }
 
 acquire_deploy_lock() {
@@ -122,9 +135,9 @@ nginx_test() {
 		echo "NGINX_TEST_CMD/NGINX_RELOAD_CMD are test-only; set DEPLOY_TEST_MODE=1 outside production" >&2
 		return 2
 	elif command -v sudo >/dev/null 2>&1; then
-		sudo nginx -t
+		sudo -n "${NGINX_BIN}" -t
 	else
-    nginx -t
+		"${NGINX_BIN}" -t
   fi
 }
 
@@ -135,10 +148,74 @@ nginx_reload() {
 		echo "NGINX_TEST_CMD/NGINX_RELOAD_CMD are test-only; set DEPLOY_TEST_MODE=1 outside production" >&2
 		return 2
 	elif command -v sudo >/dev/null 2>&1; then
-		sudo nginx -s reload
+		sudo -n "${NGINX_BIN}" -s reload
 	else
-    nginx -s reload
+		"${NGINX_BIN}" -s reload
   fi
+}
+
+nginx_reload_privilege_available() {
+	if [[ "${DEPLOY_TEST_MODE:-0}" == "1" && -n "${NGINX_RELOAD_CHECK_CMD:-}" ]]; then
+		bash -lc "${NGINX_RELOAD_CHECK_CMD}"
+	elif [[ -n "${NGINX_RELOAD_CHECK_CMD:-}" ]]; then
+		echo "NGINX_RELOAD_CHECK_CMD is test-only; set DEPLOY_TEST_MODE=1 outside production" >&2
+		return 2
+	elif command -v sudo >/dev/null 2>&1; then
+		sudo -n -l "${NGINX_BIN}" -s reload >/dev/null 2>&1
+	else
+		[[ "$(id -u)" == "0" && -x "${NGINX_BIN}" ]]
+	fi
+}
+
+deployment_preflight() {
+	local include_dir probe
+	include_dir="$(dirname "${NGINX_ACTIVE_INCLUDE}")"
+
+	if [[ ! -d "${include_dir}" ]]; then
+		echo "deployment preflight failed: active include directory does not exist: ${include_dir}" >&2
+		return 1
+	fi
+	if [[ ! -w "${include_dir}" ]]; then
+		echo "deployment preflight failed: runner cannot write active include directory: ${include_dir}" >&2
+		return 1
+	fi
+	if ! probe="$(mktemp "${include_dir}/.triangle-cms-preflight.XXXXXX")"; then
+		echo "deployment preflight failed: runner cannot create files in active include directory: ${include_dir}" >&2
+		return 1
+	fi
+	rm -f "${probe}"
+
+	if [[ -e "${NGINX_ACTIVE_INCLUDE}" ]]; then
+		if [[ ! -f "${NGINX_ACTIVE_INCLUDE}" ]]; then
+			echo "deployment preflight failed: active include is not a regular file: ${NGINX_ACTIVE_INCLUDE}" >&2
+			return 1
+		fi
+		if [[ ! -r "${NGINX_ACTIVE_INCLUDE}" ]]; then
+			echo "deployment preflight failed: active include is not readable: ${NGINX_ACTIVE_INCLUDE}" >&2
+			return 1
+		fi
+		if [[ ! -w "${NGINX_ACTIVE_INCLUDE}" ]]; then
+			echo "deployment preflight failed: active include is not writable: ${NGINX_ACTIVE_INCLUDE}" >&2
+			return 1
+		fi
+	fi
+
+	if ! active_slot >/dev/null; then
+		echo "deployment preflight failed: active slot value is invalid" >&2
+		return 1
+	fi
+	if ! require_readable_file "${ENV_FILE}"; then
+		echo "deployment preflight failed: cms.env is missing or unreadable: ${ENV_FILE}" >&2
+		return 1
+	fi
+	if ! nginx_test; then
+		echo "deployment preflight failed: Nginx validation is not available or failed" >&2
+		return 1
+	fi
+	if ! nginx_reload_privilege_available; then
+		echo "deployment preflight failed: Nginx reload privilege is not available for ${NGINX_BIN} -s reload" >&2
+		return 1
+	fi
 }
 
 http_get() {

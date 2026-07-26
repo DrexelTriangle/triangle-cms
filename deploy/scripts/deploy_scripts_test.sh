@@ -22,6 +22,15 @@ assert_file_contains() {
   grep -q "${pattern}" "${path}" || fail "expected ${path} to contain ${pattern}"
 }
 
+assert_file_not_contains() {
+  local path="$1"
+  local pattern="$2"
+  [[ -f "${path}" ]] || fail "expected file to exist: ${path}"
+  if grep -q "${pattern}" "${path}"; then
+    fail "expected ${path} not to contain ${pattern}"
+  fi
+}
+
 assert_no_switch_temps() {
   local dir="$1"
   if find "${dir}" -maxdepth 1 -type d -name 'triangle-cms-switch.*' | grep -q .; then
@@ -29,11 +38,15 @@ assert_no_switch_temps() {
   fi
 }
 
+assert_no_docker_invocations() {
+  [[ ! -s "${FAKE_DOCKER_LOG}" ]] || fail "expected no docker invocations"
+}
+
 make_case() {
   local name="$1"
   local dir="${TEST_ROOT}/${name}"
-  mkdir -p "${dir}/bin"
-  NGINX_ACTIVE_INCLUDE="${dir}/active.conf"
+  mkdir -p "${dir}/bin" "${dir}/triangle-cms"
+  NGINX_ACTIVE_INCLUDE="${dir}/triangle-cms/active-upstreams.conf"
   ENV_FILE="${dir}/cms.env"
   COMPOSE_FILE="${dir}/compose.yml"
   DEPLOY_LOCK_FILE="${dir}/deploy.lock"
@@ -44,13 +57,16 @@ make_case() {
   DEPLOY_TEST_MODE=1
   NGINX_TEST_CMD='exit "${FAKE_NGINX_TEST_STATUS:-0}"'
   NGINX_RELOAD_CMD='exit "${FAKE_NGINX_RELOAD_STATUS:-0}"'
+  NGINX_RELOAD_CHECK_CMD='exit "${FAKE_NGINX_RELOAD_CHECK_STATUS:-0}"'
   FAKE_NGINX_TEST_STATUS=0
   FAKE_NGINX_RELOAD_STATUS=0
+  FAKE_NGINX_RELOAD_CHECK_STATUS=0
   FAIL_READINESS=0
   FAIL_PUBLIC=0
   export NGINX_ACTIVE_INCLUDE ENV_FILE COMPOSE_FILE DEPLOY_LOCK_FILE PUBLIC_BASE_URL
   export BACKEND_HEALTH_TIMEOUT FRONTEND_HEALTH_TIMEOUT PUBLIC_HEALTH_TIMEOUT
-  export DEPLOY_TEST_MODE NGINX_TEST_CMD NGINX_RELOAD_CMD FAKE_NGINX_TEST_STATUS FAKE_NGINX_RELOAD_STATUS
+  export DEPLOY_TEST_MODE NGINX_TEST_CMD NGINX_RELOAD_CMD NGINX_RELOAD_CHECK_CMD
+  export FAKE_NGINX_TEST_STATUS FAKE_NGINX_RELOAD_STATUS FAKE_NGINX_RELOAD_CHECK_STATUS
   export FAIL_READINESS FAIL_PUBLIC
   : > "${ENV_FILE}"
   : > "${COMPOSE_FILE}"
@@ -82,6 +98,16 @@ EOF
   export FAKE_DOCKER_LOG FAKE_CURL_LOG
   PATH="${dir}/bin:${PATH}"
   export PATH
+}
+
+run_deploy_expect_failure_without_docker() {
+  local sha
+  sha="0123456789abcdef0123456789abcdef01234567"
+  write_fake_bin "${CASE_DIR}"
+  if "${SCRIPT_DIR}/deploy.sh" "${sha}"; then
+    fail "expected deploy preflight failure"
+  fi
+  assert_no_docker_invocations
 }
 
 test_first_deployment_switch() {
@@ -145,6 +171,54 @@ test_reload_failure_restores_include() {
   assert_no_switch_temps "${dir}"
 }
 
+test_missing_include_directory_preflight_fails_before_pull() {
+  local dir
+  make_case missing_include_dir
+  dir="${CASE_DIR}"
+  NGINX_ACTIVE_INCLUDE="${dir}/missing/active-upstreams.conf"
+  export NGINX_ACTIVE_INCLUDE
+  run_deploy_expect_failure_without_docker
+}
+
+test_non_writable_include_directory_preflight_fails_before_pull() {
+  local dir
+  make_case non_writable_include_dir
+  dir="${CASE_DIR}"
+  chmod 0500 "${dir}/triangle-cms"
+  run_deploy_expect_failure_without_docker
+  chmod 0750 "${dir}/triangle-cms"
+}
+
+test_existing_non_writable_include_preflight_fails_before_pull() {
+  local dir
+  make_case non_writable_include
+  dir="${CASE_DIR}"
+  write_include_file blue "${NGINX_ACTIVE_INCLUDE}"
+  chmod 0444 "${NGINX_ACTIVE_INCLUDE}"
+  run_deploy_expect_failure_without_docker
+  chmod 0644 "${NGINX_ACTIVE_INCLUDE}"
+}
+
+test_invalid_active_slot_preflight_fails_before_pull() {
+  make_case invalid_active_slot
+  echo 'set $triangle_cms_slot purple;' > "${NGINX_ACTIVE_INCLUDE}"
+  run_deploy_expect_failure_without_docker
+}
+
+test_successful_deployment_preflight() {
+  make_case successful_preflight
+  write_include_file blue "${NGINX_ACTIVE_INCLUDE}"
+  deployment_preflight
+}
+
+test_nginx_reload_privilege_preflight_fails_before_pull() {
+  make_case reload_privilege
+  write_include_file blue "${NGINX_ACTIVE_INCLUDE}"
+  FAKE_NGINX_RELOAD_CHECK_STATUS=1
+  export FAKE_NGINX_RELOAD_CHECK_STATUS
+  run_deploy_expect_failure_without_docker
+}
+
 test_failed_readiness_leaves_active_slot() {
   local dir sha
   make_case readiness
@@ -203,14 +277,37 @@ test_lock_contention() {
   exec 8>&-
 }
 
+test_host_nginx_health_uses_default_type() {
+  local nginx_conf="${SCRIPT_DIR}/../nginx/triangle-cms.conf"
+  assert_file_contains "${nginx_conf}" 'default_type text/plain'
+  assert_file_not_contains "${nginx_conf}" 'add_header Content-Type text/plain'
+}
+
+test_no_old_production_include_path_references() {
+  local old_path
+  old_path="/etc/nginx/triangle-cms"
+  old_path="${old_path}-active-upstreams.conf"
+  if git grep -n -- "${old_path}" -- .; then
+    fail "found old production include path reference"
+  fi
+}
+
 test_first_deployment_switch
 test_blue_to_green_switch
 test_malformed_active_include_fails
 test_nginx_test_failure_restores_include
 test_reload_failure_restores_include
+test_missing_include_directory_preflight_fails_before_pull
+test_non_writable_include_directory_preflight_fails_before_pull
+test_existing_non_writable_include_preflight_fails_before_pull
+test_invalid_active_slot_preflight_fails_before_pull
+test_successful_deployment_preflight
+test_nginx_reload_privilege_preflight_fails_before_pull
 test_failed_readiness_leaves_active_slot
 test_failed_public_smoke_rolls_back
 test_invalid_and_malicious_sha
 test_lock_contention
+test_host_nginx_health_uses_default_type
+test_no_old_production_include_path_references
 
 echo "deploy script tests passed"

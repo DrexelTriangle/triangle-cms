@@ -4,8 +4,8 @@ set -Eeuo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 require_file "${COMPOSE_FILE}"
-require_file "${ENV_FILE}"
 acquire_deploy_lock
+deployment_preflight
 
 current_slot="$(active_slot)"
 validate_slot "${current_slot}"
