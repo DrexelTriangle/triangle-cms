@@ -1,0 +1,62 @@
+[mysqld]
+# =============================================================================
+# Triangle CMS — MariaDB READ REPLICA config.
+# Runs on its OWN physical server (separate from the primary), replicating
+# asynchronously from the primary via GTID. Serves READ traffic only.
+# Mounted read-only at /etc/mysql/conf.d/replica.cnf (see
+# deploy/compose.mariadb-replica.yml).
+# =============================================================================
+
+# --- InnoDB memory (dedicated ~8 GB DB host) ---------------------------------
+innodb_buffer_pool_size          = 5G
+innodb_buffer_pool_instances     = 4
+# MySQL-only variable; mariadbd refuses to start if it is set. See primary.cnf.
+innodb_log_file_size             = 512M
+innodb_log_buffer_size           = 32M
+
+# --- Durability: relaxed on the replica ---------------------------------------
+# A read replica can re-fetch anything it loses on crash from the primary via
+# GTID, so we trade per-commit fsyncs for throughput on apply. Never do this on
+# the primary.
+innodb_flush_log_at_trx_commit   = 2
+sync_binlog                      = 0
+innodb_flush_method              = O_DIRECT
+
+# --- Concurrency / caches ----------------------------------------------------
+max_connections                  = 300     # replica typically fields more read conns
+thread_cache_size                = 64
+table_open_cache                 = 4000
+table_definition_cache           = 2000
+innodb_read_io_threads           = 8
+innodb_write_io_threads          = 8
+innodb_io_capacity               = 1000    # raise on NVMe
+innodb_io_capacity_max           = 2000
+
+# --- Protocol / timeouts -----------------------------------------------------
+max_allowed_packet               = 64M
+wait_timeout                     = 600
+interactive_timeout              = 600
+
+# --- Character set -----------------------------------------------------------
+character-set-server             = utf8mb4
+collation-server                 = utf8mb4_unicode_ci
+
+# --- Slow query log ----------------------------------------------------------
+slow_query_log                   = 1
+slow_query_log_file              = /var/lib/mysql/slow-query.log
+long_query_time                  = 1
+
+# --- Replication: REPLICA ----------------------------------------------------
+server_id                        = 2         # MUST be unique per node
+read_only                        = ON        # app read user has no SUPER, so this blocks stray writes
+relay_log                        = /var/lib/mysql/relay-bin
+relay_log_index                  = /var/lib/mysql/relay-bin.index
+gtid_domain_id                   = 1         # must match the primary
+gtid_strict_mode                 = ON
+log_slave_updates                = ON        # own binlog → usable as a backup source / for chaining
+log_bin                          = /var/lib/mysql/mysql-bin
+binlog_format                    = ROW
+binlog_expire_logs_seconds       = 604800
+# Parallel apply keeps replication lag low under write bursts from the primary.
+slave_parallel_threads           = 4
+slave_parallel_mode              = optimistic
