@@ -49,5 +49,18 @@ services:
     networks:
       - triangle_net
 
+  # Production cannot express this -- the database is external there, so the
+  # backend just retries until the endpoint answers. Here the DB is a sibling
+  # service, so wait for it and keep the startup logs clean.
+  backend-blue:
+    depends_on:
+      mariadb-dev:
+        condition: service_healthy
+
+  backend-green:
+    depends_on:
+      mariadb-dev:
+        condition: service_healthy
+
 volumes:
   mariadb_dev_data:
