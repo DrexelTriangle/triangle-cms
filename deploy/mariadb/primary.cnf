@@ -1,21 +1,34 @@
 [mysqld]
+# --- Network ------------------------------------------------------------------
+# Listen on this host's internal NIC only. Ubuntu's stock 50-server.cnf binds to
+# 127.0.0.1, which would make the primary unreachable from MaxScale, so this file
+# MUST sort after it (installed as 70-triangle-primary.cnf). Local admin still
+# works over the unix socket. Firewall 3306 to the MaxScale and replica hosts
+# only — nothing else should reach the database directly.
+bind-address                     = 10.248.40.154
+
 # =============================================================================
 # Triangle CMS — MariaDB PRIMARY (writes) tuning + replication source config.
-# Target host: ~8 GB RAM, shared with two CMS slots + observability.
-# Mounted read-only at /etc/mysql/conf.d/primary.cnf (see deploy/compose.cms.yml).
+# Target host: THETRIANGLE-DB1-LXC, a dedicated 4 vCPU / 4 GB unprivileged LXC.
+# Installed natively at /etc/mysql/mariadb.conf.d/50-triangle-primary.cnf.
 # =============================================================================
 
 # --- InnoDB memory: the single most important knob ---------------------------
-# THE buffer pool caches data+indexes in RAM. This primary runs on its OWN
-# physical server (dedicated ~8 GB), so it takes ~65% of RAM, leaving room for
-# the OS, connection buffers, and per-thread sort/join memory. If this box ever
-# also runs the CMS slots, drop this to ~2G. On 16 GB raise toward 10G.
-innodb_buffer_pool_size          = 5G
-innodb_buffer_pool_instances     = 4
+# The buffer pool caches data+indexes in RAM. The entire `triangle` dataset is
+# ~92 MB, so 1G holds all of it many times over with room for growth; the rest of
+# the 4 GB stays available for the OS, connection buffers, and per-thread
+# sort/join memory. Raise toward 2G only if the dataset grows past ~1 GB — going
+# bigger on a 4 GB host buys nothing and risks the OOM killer.
+innodb_buffer_pool_size          = 1G
+# NOTE: innodb_buffer_pool_instances was REMOVED in MariaDB 10.6 and is not a
+# system variable in 11.x. mariadbd silently accepts and ignores it as a startup
+# option (verified against 11.7), so it is simply omitted here.
+#
 # innodb_redo_log_capacity is MySQL 8.0.30+, NOT MariaDB. Setting it makes
 # mariadbd refuse to start ("unknown variable"). MariaDB sizes the redo log with
-# innodb_log_file_size.
-innodb_log_file_size             = 512M
+# innodb_log_file_size. 256M is far more than this write volume needs and keeps
+# crash recovery fast.
+innodb_log_file_size             = 256M
 innodb_log_buffer_size           = 32M
 
 # --- Durability: full ACID on the primary (do not weaken) --------------------

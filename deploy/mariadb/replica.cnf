@@ -3,15 +3,16 @@
 # Triangle CMS — MariaDB READ REPLICA config.
 # Runs on its OWN physical server (separate from the primary), replicating
 # asynchronously from the primary via GTID. Serves READ traffic only.
-# Mounted read-only at /etc/mysql/conf.d/replica.cnf (see
-# deploy/compose.mariadb-replica.yml).
+# Installed natively at /etc/mysql/mariadb.conf.d/50-triangle-replica.cnf.
 # =============================================================================
 
-# --- InnoDB memory (dedicated ~8 GB DB host) ---------------------------------
-innodb_buffer_pool_size          = 5G
-innodb_buffer_pool_instances     = 4
-# MySQL-only variable; mariadbd refuses to start if it is set. See primary.cnf.
-innodb_log_file_size             = 512M
+# --- InnoDB memory -----------------------------------------------------------
+# Sized to match the primary; see the rationale in primary.cnf. Adjust the two
+# together if the DB hosts are ever resized.
+innodb_buffer_pool_size          = 1G
+# innodb_buffer_pool_instances was removed in MariaDB 10.6; see primary.cnf.
+# innodb_redo_log_capacity is MySQL-only and DOES block startup. See primary.cnf.
+innodb_log_file_size             = 256M
 innodb_log_buffer_size           = 32M
 
 # --- Durability: relaxed on the replica ---------------------------------------

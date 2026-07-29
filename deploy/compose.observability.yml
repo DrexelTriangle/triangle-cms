@@ -1,0 +1,77 @@
+# Observability stack (Loki + Promtail + Grafana), deployed and upgraded
+# independently of the CMS. This is intentionally a SEPARATE Compose project from
+# compose.cms.yml: a CMS deploy must never `docker compose down` this stack, and
+# an observability change must never touch the CMS slots or MariaDB.
+#
+# Promtail scrapes container logs from the host's /var/lib/docker/containers, so
+# it collects CMS stdout regardless of the CMS being on a different network.
+#
+# Usage (from this directory):
+#   docker compose -f compose.observability.yml --env-file cms.env up -d
+#
+# Grafana admin credentials come from cms.env (host-only, not committed).
+
+name: triangle-observability
+
+services:
+  loki:
+    image: grafana/loki:3.5.6
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    healthcheck:
+      test: ["CMD", "loki", "-verify-config=true", "-config.file=/etc/loki/config.yaml"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - ../observability/loki-config.yml:/etc/loki/config.yaml:ro,z
+      - loki_data:/loki
+    networks:
+      - observability_net
+
+  promtail:
+    image: grafana/promtail:3.5.6
+    restart: unless-stopped
+    user: "0:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command: ["-config.file=/etc/promtail/config.yml"]
+    depends_on:
+      loki:
+        condition: service_healthy
+    volumes:
+      - ../observability/promtail-config.yml:/etc/promtail/config.yml:ro,z
+      - promtail_positions:/tmp
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro,z
+    networks:
+      - observability_net
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    restart: unless-stopped
+    depends_on:
+      loki:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../observability/grafana/provisioning/datasources/loki.yml:/etc/grafana/provisioning/datasources/loki.yml:ro,z
+    networks:
+      - observability_net
+
+volumes:
+  loki_data:
+  promtail_positions:
+  grafana_data:
+
+networks:
+  observability_net:
+    driver: bridge

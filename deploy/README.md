@@ -142,6 +142,26 @@ curl -I http://localhost/wp-content/uploads/YYYY/MM/name.jpg
 
 Expect `200` with `Cache-Control: public, max-age=2592000, immutable`.
 
+### Media library
+
+Serving the files is independent of *listing* them. The CMS media page reads a
+`media` table, which starts empty: the rsynced corpus is on disk but unknown to
+the database. After the media rsync completes, populate it once from the CMS
+(Media -> Reindex) or directly:
+
+```bash
+curl -X POST https://localhost/v1/media/index   # admin session required
+```
+
+It walks `MEDIA_ROOT/wp-content/uploads`, skips WordPress's generated `-WxH`
+thumbnails, and inserts a row per original. It is idempotent and safe to re-run —
+already-indexed files are skipped and any alt text set in the CMS is preserved —
+so re-run it after any later out-of-band rsync. Uploads through the CMS index
+themselves and need no reindex.
+
+Note this walks the whole tree, so on a large corpus over CephFS the first run
+takes a while; run it once at cutover rather than on a schedule.
+
 ### Disk
 
 Blue/green keeps two frontend and two backend images resident, plus whatever

@@ -1,0 +1,73 @@
+# MaxScale — read/write splitting proxy for Triangle CMS.
+# Mounted read-only at /etc/maxscale.cnf. Backend addresses and credentials come
+# from environment variables (substitute_variables=true), set by the compose
+# service: PRIMARY_HOST, REPLICA_HOST, MARIADB_PORT, MAXSCALE_USER, MAXSCALE_PASSWORD.
+
+[maxscale]
+threads=auto
+# Allow $ENV references below to be replaced with environment variables. On the
+# native install these come from a root-only systemd EnvironmentFile
+# (/etc/maxscale.secrets.d/backend.env) so the service password is never written
+# into this world-readable file.
+substitute_variables=true
+
+# MUST be set explicitly on a container host. MaxScale defaults this to ~15% of
+# system memory, but inside an LXC whose cgroup limit reads "max" it sees the
+# Proxmox HOST's RAM, not the container's — on a 4 GB container it sized the
+# cache at 9.38 GiB, which would invite the OOM killer. The CMS issues a small,
+# highly repetitive query set, so a small cache is all it needs.
+query_classifier_cache_size=64M
+
+# --- Backend servers (on their own physical hosts) ---------------------------
+[primary]
+type=server
+address=$PRIMARY_HOST
+port=$MARIADB_PORT
+protocol=MariaDBBackend
+
+[replica]
+type=server
+address=$REPLICA_HOST
+port=$MARIADB_PORT
+protocol=MariaDBBackend
+
+# --- Monitor: discovers which node is primary vs replica ---------------------
+[MariaDB-Monitor]
+type=monitor
+module=mariadbmon
+servers=primary,replica
+user=$MAXSCALE_USER
+password=$MAXSCALE_PASSWORD
+monitor_interval=2000ms
+# Keep replicas read-only automatically. Automated failover is OFF by default:
+# promoting a replica on a 2-node async pair risks split-brain/data loss and
+# should be a deliberate ops action. See deploy/mariadb/README.md to enable.
+enforce_read_only_slaves=true
+auto_rejoin=true
+auto_failover=false
+
+# --- Service: read/write split router ----------------------------------------
+[Read-Write-Split]
+type=service
+router=readwritesplit
+servers=primary,replica
+user=$MAXSCALE_USER
+password=$MAXSCALE_PASSWORD
+# Route reads to the replica but guarantee a session sees its own prior writes
+# (MaxScale waits for the replica to reach the write's GTID). Fixes replica-lag
+# read-after-write without any app change.
+causal_reads=local
+causal_reads_timeout=10s
+# Replay an in-flight transaction on the new primary if a backend drops, so a
+# failover doesn't surface transient errors to the CMS.
+transaction_replay=true
+master_reconnection=true
+# If the primary is unreachable, fail writes but keep serving reads.
+master_failure_mode=fail_on_write
+
+# --- Listener the CMS connects to --------------------------------------------
+[Read-Write-Listener]
+type=listener
+service=Read-Write-Split
+protocol=MariaDBClient
+port=4006
