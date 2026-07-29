@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from "react"
 import "trix"
 import "trix/dist/trix.css"
 import "./TrixEditor.css"
+import { apiBaseUrl } from "../auth/urls"
 
 // Show the filename in the auto-generated caption under attachments, but hide
 // the file size this matches the upstream Trix demo's defaults and gives users an
@@ -125,7 +126,10 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       if (!attachment.file) return
 
       const xhr = new XMLHttpRequest()
-      xhr.open("POST", "/v1/media", true)
+      xhr.open("POST", `${apiBaseUrl()}/v1/media`, true)
+      // The upload endpoint is session-authenticated, and the API commonly runs
+      // on a different origin than the CMS, where XHR omits cookies by default.
+      xhr.withCredentials = true
 
       xhr.upload.onprogress = (progressEvent: ProgressEvent) => {
         if (progressEvent.lengthComputable) {
@@ -133,35 +137,23 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         }
       }
 
-      // On failure we deliberately keep the attachment in the editor: Trix
-      // shows a local blob-URL preview as soon as the file is added, so the
-      // user gets an image they can move, caption, and rearrange even when
-      // /v1/media is missing. The blob URL won't survive a page reload (the
-      // saved HTML needs the real server URL) but the in-editor UX works.
+      // On failure the attachment stays in the editor on its local blob-URL
+      // preview, so the image can still be moved, captioned, and rearranged.
+      // That preview does not survive a reload — the saved HTML needs the real
+      // server URL — so a failed upload has to be retried.
       xhr.onload = () => {
         if (xhr.status === 201) {
           try {
             const { url } = JSON.parse(xhr.responseText) as { url: string }
             attachment.setAttributes({ url, href: url })
-            attachment.setUploadProgress(100)
           } catch {
-            if (import.meta.env.DEV) {
-              console.warn("TrixEditor: POST /v1/media returned 201 but body was not { url: string } JSON. Keeping local preview.")
-            }
-            attachment.setUploadProgress(100)
+            // 201 with an unexpected body: nothing to attach, keep the preview.
           }
-        } else {
-          if (import.meta.env.DEV) {
-            console.warn(`TrixEditor: POST /v1/media returned ${xhr.status.toString()}. Keeping local preview; image will not persist after reload until backend is wired up.`)
-          }
-          attachment.setUploadProgress(100)
         }
+        attachment.setUploadProgress(100)
       }
 
       xhr.onerror = () => {
-        if (import.meta.env.DEV) {
-          console.warn("TrixEditor: POST /v1/media network error. Keeping local preview; image will not persist after reload until backend is wired up.")
-        }
         attachment.setUploadProgress(100)
       }
 

@@ -1,5 +1,18 @@
 basePath: /
 definitions:
+  handlers.articleEditLockResponse:
+    properties:
+      expires_at:
+        type: string
+      held_by_self:
+        type: boolean
+      holder_id:
+        type: integer
+      holder_name:
+        type: string
+      slug:
+        type: string
+    type: object
   models.ActivityEventResponse:
     properties:
       action:
@@ -34,6 +47,48 @@ definitions:
       total_count:
         type: integer
     type: object
+  models.AdminCommentResponse:
+    properties:
+      article_id:
+        type: integer
+      article_slug:
+        type: string
+      article_title:
+        type: string
+      author_email:
+        type: string
+      author_name:
+        type: string
+      author_url:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      created_at_gmt:
+        type: string
+      id:
+        type: integer
+      parent_id:
+        type: integer
+      status:
+        type: string
+      type:
+        type: string
+    type: object
+  models.AdminCommentsResponse:
+    properties:
+      comments:
+        items:
+          $ref: '#/definitions/models.AdminCommentResponse'
+        type: array
+      counts:
+        additionalProperties:
+          type: integer
+        type: object
+      pagination:
+        $ref: '#/definitions/models.Pagination'
+    type: object
   models.Article:
     properties:
       authors:
@@ -52,13 +107,19 @@ definitions:
         type: string
       excerpt:
         type: string
+      focus_keyword:
+        type: string
       id:
         type: integer
       is_featured:
         type: boolean
+      meta_description:
+        type: string
       photo_url:
         type: string
       published_date:
+        type: string
+      seo_title:
         type: string
       slug:
         type: string
@@ -66,6 +127,17 @@ definitions:
         $ref: '#/definitions/models.ArticleStatus'
       title:
         type: string
+    type: object
+  models.ArticleCommentsResponse:
+    properties:
+      article_slug:
+        type: string
+      comments:
+        items:
+          $ref: '#/definitions/models.CommentResponse'
+        type: array
+      total_count:
+        type: integer
     type: object
   models.ArticleDetailResponse:
     properties:
@@ -120,9 +192,15 @@ definitions:
         type: string
       excerpt:
         type: string
+      focus_keyword:
+        type: string
       is_featured:
         type: boolean
+      meta_description:
+        type: string
       photo_url:
+        type: string
+      seo_title:
         type: string
       slug:
         type: string
@@ -176,9 +254,15 @@ definitions:
         type: string
       excerpt:
         type: string
+      focus_keyword:
+        type: string
       is_featured:
         type: boolean
+      meta_description:
+        type: string
       photo_url:
+        type: string
+      seo_title:
         type: string
       status:
         $ref: '#/definitions/models.ArticleStatus'
@@ -209,6 +293,8 @@ definitions:
     type: object
   models.Author:
     properties:
+      archived_at:
+        type: string
       created_at:
         type: string
       display_name:
@@ -261,6 +347,8 @@ definitions:
     type: object
   models.AuthorOverview:
     properties:
+      archived:
+        type: boolean
       article_count:
         type: integer
       display_name:
@@ -303,11 +391,73 @@ definitions:
       pagination:
         $ref: '#/definitions/models.Pagination'
     type: object
+  models.BreakingNewsSettings:
+    properties:
+      enabled:
+        type: boolean
+      text:
+        type: string
+    type: object
+  models.BreakingNewsSettingsPatchRequest:
+    properties:
+      enabled:
+        type: boolean
+      text:
+        type: string
+    type: object
+  models.BreakingNewsSettingsResponse:
+    properties:
+      enabled:
+        type: boolean
+      text:
+        type: string
+    type: object
   models.CategorySummary:
     properties:
       name:
         type: string
       slug:
+        type: string
+    type: object
+  models.CommentInput:
+    properties:
+      author_email:
+        type: string
+      author_name:
+        type: string
+      author_url:
+        type: string
+      content:
+        type: string
+      parent_id:
+        type: integer
+    type: object
+  models.CommentResponse:
+    properties:
+      article_id:
+        type: integer
+      author_name:
+        type: string
+      author_url:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      created_at_gmt:
+        type: string
+      id:
+        type: integer
+      parent_id:
+        type: integer
+      status:
+        type: string
+      type:
+        type: string
+    type: object
+  models.CommentStatusPatchRequest:
+    properties:
+      status:
         type: string
     type: object
   models.DevelopingStoriesResponse:
@@ -360,6 +510,8 @@ definitions:
     type: object
   models.HomepageResponse:
     properties:
+      breaking_news:
+        $ref: '#/definitions/models.BreakingNewsSettings'
       candp:
         items:
           $ref: '#/definitions/models.ArticleListItem'
@@ -389,6 +541,105 @@ definitions:
           $ref: '#/definitions/models.ArticleListItem'
         type: array
     type: object
+  models.Media:
+    properties:
+      alt_text:
+        type: string
+      caption:
+        type: string
+      created_at:
+        type: string
+      file_name:
+        type: string
+      height:
+        type: integer
+      id:
+        type: integer
+      mime_type:
+        type: string
+      path:
+        type: string
+      size_bytes:
+        type: integer
+      updated_at:
+        type: string
+      url:
+        type: string
+      width:
+        type: integer
+    type: object
+  models.MediaGalleryResponse:
+    properties:
+      media:
+        items:
+          $ref: '#/definitions/models.MediaOverview'
+        type: array
+    type: object
+  models.MediaIndexResponse:
+    properties:
+      added:
+        type: integer
+      scanned:
+        type: integer
+      skipped:
+        type: integer
+    type: object
+  models.MediaOverview:
+    properties:
+      alt_text:
+        type: string
+      file_name:
+        type: string
+      height:
+        type: integer
+      id:
+        type: integer
+      mime_type:
+        type: string
+      path:
+        type: string
+      size_bytes:
+        type: integer
+      url:
+        type: string
+      width:
+        type: integer
+    type: object
+  models.MediaPatch:
+    properties:
+      alt_text:
+        type: string
+      caption:
+        type: string
+      file_name:
+        type: string
+    type: object
+  models.MediaResponse:
+    properties:
+      media:
+        items:
+          $ref: '#/definitions/models.Media'
+        type: array
+      pagination:
+        $ref: '#/definitions/models.Pagination'
+    type: object
+  models.MediaUploadResponse:
+    properties:
+      content_type:
+        type: string
+      height:
+        type: integer
+      id:
+        type: integer
+      path:
+        type: string
+      size:
+        type: integer
+      url:
+        type: string
+      width:
+        type: integer
+    type: object
   models.Pagination:
     properties:
       has_more:
@@ -410,6 +661,18 @@ definitions:
           type: integer
         type: object
     type: object
+  models.PollListResponse:
+    properties:
+      polls:
+        items:
+          $ref: '#/definitions/models.PollView'
+        type: array
+    type: object
+  models.PollOptionNameRequest:
+    properties:
+      option:
+        type: string
+    type: object
   models.PollOptionRenameRequest:
     properties:
       new_option:
@@ -422,12 +685,43 @@ definitions:
       option:
         type: string
     type: object
+  models.PollOptionView:
+    properties:
+      id:
+        type: integer
+      option:
+        type: string
+      percentage:
+        type: number
+      votes:
+        type: integer
+    type: object
   models.PollOptionsResponse:
     properties:
       options:
         items:
           type: string
         type: array
+    type: object
+  models.PollRequest:
+    properties:
+      ends_at:
+        type: string
+      options:
+        items:
+          type: string
+        type: array
+      question:
+        type: string
+      starts_at:
+        type: string
+      status:
+        type: string
+    type: object
+  models.PollResponse:
+    properties:
+      poll:
+        $ref: '#/definitions/models.PollView'
     type: object
   models.PollTitleRequest:
     properties:
@@ -439,6 +733,25 @@ definitions:
       title:
         type: string
     type: object
+  models.PollView:
+    properties:
+      ends_at:
+        type: string
+      id:
+        type: integer
+      options:
+        items:
+          $ref: '#/definitions/models.PollOptionView'
+        type: array
+      question:
+        type: string
+      starts_at:
+        type: string
+      status:
+        type: string
+      total_votes:
+        type: integer
+    type: object
   models.Role:
     enum:
     - editor
@@ -447,6 +760,31 @@ definitions:
     x-enum-varnames:
     - RoleEditor
     - RoleAdmin
+  models.SEOAuditResponse:
+    properties:
+      issues:
+        items:
+          $ref: '#/definitions/models.SEOIssue'
+        type: array
+      published_count:
+        type: integer
+      total_issues:
+        type: integer
+    type: object
+  models.SEOIssue:
+    properties:
+      article_id:
+        type: integer
+      issue:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+      type:
+        description: '"error" | "warning"'
+        type: string
+    type: object
   models.SEOResponse:
     properties:
       canonical_url:
@@ -461,6 +799,28 @@ definitions:
         items:
           $ref: '#/definitions/models.CategorySummary'
         type: array
+    type: object
+  models.SEOSettingsPatchRequest:
+    properties:
+      og_description:
+        type: string
+      og_title:
+        type: string
+      robots_url:
+        type: string
+      sitemap_url:
+        type: string
+    type: object
+  models.SEOSettingsResponse:
+    properties:
+      og_description:
+        type: string
+      og_title:
+        type: string
+      robots_url:
+        type: string
+      sitemap_url:
+        type: string
     type: object
   models.SectionArticlesResponse:
     properties:
@@ -834,6 +1194,124 @@ paths:
       summary: Replace an article
       tags:
       - articles
+  /v1/articles/{slug}/comments:
+    get:
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ArticleCommentsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List approved comments for an article
+      tags:
+      - articles
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      - description: Comment
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.CommentInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.CommentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Submit a comment for an article
+      tags:
+      - articles
+  /v1/articles/{slug}/edit-lock:
+    delete:
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Release the editing lock for an article
+      tags:
+      - articles
+    put:
+      parameters:
+      - description: Article slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.articleEditLockResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handlers.articleEditLockResponse'
+      security:
+      - BearerAuth: []
+      summary: Acquire or refresh the editing lock for an article
+      tags:
+      - articles
   /v1/articles/{slug}/restore:
     patch:
       parameters:
@@ -917,6 +1395,10 @@ paths:
         in: query
         name: search
         type: string
+      - description: When true, return only soft-deleted authors
+        in: query
+        name: archived
+        type: boolean
       - description: Sort field (id sorts by creation order)
         enum:
         - display_name
@@ -1154,6 +1636,151 @@ paths:
       summary: List articles by author
       tags:
       - authors
+  /v1/authors/{slug}/restore:
+    patch:
+      parameters:
+      - description: Author slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Restore an archived author
+      tags:
+      - authors
+  /v1/comments:
+    get:
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 25
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - description: Filter by status
+        enum:
+        - all
+        - pending
+        - approved
+        - spam
+        - trash
+        in: query
+        name: status
+        type: string
+      - description: Search comment content, author, email, or article
+        in: query
+        name: search
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AdminCommentsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List comments for CMS moderation
+      tags:
+      - comments
+  /v1/comments/{id}:
+    delete:
+      parameters:
+      - description: Comment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a comment
+      tags:
+      - comments
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Comment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Status update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.CommentStatusPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AdminCommentResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a comment status
+      tags:
+      - comments
   /v1/developing-stories:
     delete:
       consumes:
@@ -1282,38 +1909,259 @@ paths:
       - homepage
   /v1/media:
     get:
+      parameters:
+      - description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 50
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - description: Filter by file name, alt text, or caption
+        in: query
+        name: search
+        type: string
+      - description: Filter by MIME type; a trailing slash (image/) matches the family
+        in: query
+        name: mime_type
+        type: string
+      - description: Sort field
+        enum:
+        - file_name
+        - created_at
+        - updated_at
+        - size_bytes
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction
+        enum:
+        - asc
+        - desc
+        in: query
+        name: sort_direction
+        type: string
       produces:
       - application/json
       responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.MediaResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List media
+      tags:
+      - media
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: Image file
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.MediaUploadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "415":
+          description: Unsupported Media Type
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
         "501":
           description: Not Implemented
           schema:
             $ref: '#/definitions/models.ErrorResponse'
-      summary: Media endpoint placeholder
+      security:
+      - BearerAuth: []
+      summary: Upload a media asset
       tags:
       - media
   /v1/media/{id}:
+    delete:
+      parameters:
+      - description: Media ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Remove the library entry but leave the file on disk
+        in: query
+        name: keep_file
+        type: boolean
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a media asset
+      tags:
+      - media
     get:
+      parameters:
+      - description: Media ID
+        in: path
+        name: id
+        required: true
+        type: integer
       produces:
       - application/json
       responses:
-        "501":
-          description: Not Implemented
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Media'
+        "400":
+          description: Bad Request
           schema:
             $ref: '#/definitions/models.ErrorResponse'
-      summary: Media endpoint placeholder
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a media asset
+      tags:
+      - media
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Media ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.MediaPatch'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Media'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update media metadata
       tags:
       - media
   /v1/media/gallery:
     get:
+      parameters:
+      - default: 50
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - description: Filter by file name, alt text, or caption
+        in: query
+        name: search
+        type: string
       produces:
       - application/json
       responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.MediaGalleryResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List media for a picker
+      tags:
+      - media
+  /v1/media/index:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.MediaIndexResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
         "501":
           description: Not Implemented
           schema:
             $ref: '#/definitions/models.ErrorResponse'
-      summary: Media endpoint placeholder
+      security:
+      - BearerAuth: []
+      summary: Reindex the media filesystem
       tags:
       - media
   /v1/poll:
@@ -1355,6 +2203,10 @@ paths:
             $ref: '#/definitions/models.PollCountsResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/models.ErrorResponse'
         "500":
@@ -1435,10 +2287,6 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Rename poll option
@@ -1459,6 +2307,10 @@ paths:
           description: Created
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/models.ErrorResponse'
         "409":
@@ -1507,6 +2359,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -1514,6 +2370,278 @@ paths:
       security:
       - BearerAuth: []
       summary: Update poll title
+      tags:
+      - poll
+  /v1/polls:
+    get:
+      description: 'Public poll archive: every poll an editor has published, newest
+        first. Drafts are excluded.'
+      parameters:
+      - description: Max polls to return (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      - description: Polls to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PollListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List published polls
+      tags:
+      - poll
+    post:
+      consumes:
+      - application/json
+      description: Creating a poll with status "active" closes whichever poll was
+        previously active.
+      parameters:
+      - description: Poll
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.PollRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.PollResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a poll
+      tags:
+      - poll
+  /v1/polls/{id}:
+    delete:
+      description: Permanently removes the poll and its recorded results.
+      parameters:
+      - description: Poll ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a poll
+      tags:
+      - poll
+    get:
+      parameters:
+      - description: Poll ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PollResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get a single poll
+      tags:
+      - poll
+    patch:
+      consumes:
+      - application/json
+      description: Omitted fields are left unchanged; an explicit null on starts_at
+        or ends_at clears that date.
+      parameters:
+      - description: Poll ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Poll fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.PollRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PollResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a poll
+      tags:
+      - poll
+  /v1/polls/{id}/options:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Poll ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Poll option
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.PollOptionNameRequest'
+      responses:
+        "201":
+          description: Created
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add an option to a poll
+      tags:
+      - poll
+  /v1/polls/{id}/options/{option_id}:
+    delete:
+      parameters:
+      - description: Poll ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Option ID
+        in: path
+        name: option_id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete an option from a poll
+      tags:
+      - poll
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Poll ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Option ID
+        in: path
+        name: option_id
+        required: true
+        type: integer
+      - description: New option name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.PollOptionNameRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Rename an option on a poll
+      tags:
+      - poll
+  /v1/polls/manage:
+    get:
+      description: Editor-facing listing. Separate from GET /v1/polls so unpublished
+        questions are never reachable without admin auth.
+      parameters:
+      - description: Max polls to return (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      - description: Polls to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.PollListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List all polls including drafts
       tags:
       - poll
   /v1/search:
@@ -1593,6 +2721,116 @@ paths:
       summary: List articles by section
       tags:
       - articles
+  /v1/seo/audit:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SEOAuditResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Audit published articles for SEO issues
+      tags:
+      - settings
+  /v1/settings/breaking-news:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.BreakingNewsSettingsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get breaking-news banner settings
+      tags:
+      - settings
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Breaking-news settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.BreakingNewsSettingsPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.BreakingNewsSettingsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update breaking-news banner settings
+      tags:
+      - settings
+  /v1/settings/seo:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SEOSettingsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get site-wide SEO / social defaults
+      tags:
+      - settings
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: SEO settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.SEOSettingsPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SEOSettingsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update site-wide SEO / social defaults
+      tags:
+      - settings
   /v1/settings/site:
     get:
       produces:

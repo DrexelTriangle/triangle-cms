@@ -183,8 +183,12 @@ type ArticleListParams struct {
 	Status        ArticleStatus
 }
 
+// Media is one asset in the library. Path is the canonical wp-content-relative
+// location on the media filesystem and is the row's stable identity; URL is that
+// path rendered through MEDIA_BASE_URL for display and is not stored.
 type Media struct {
 	ID        int64      `json:"id"`
+	Path      string     `json:"path"`
 	FileName  string     `json:"file_name"`
 	URL       string     `json:"url"`
 	MimeType  string     `json:"mime_type"`
@@ -199,6 +203,7 @@ type Media struct {
 
 type MediaOverview struct {
 	ID        int64  `json:"id"`
+	Path      string `json:"path"`
 	FileName  string `json:"file_name"`
 	URL       string `json:"url"`
 	MimeType  string `json:"mime_type"`

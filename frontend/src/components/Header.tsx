@@ -1,8 +1,6 @@
-import { Bell } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useSessionAuth } from "../auth/sessionAuthContext"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,11 +20,6 @@ export default function Header() {
   return (
     <header className="h-16 flex items-center justify-between px-6 bg-card border-b border-border shrink-0">
       <div className="flex items-center gap-3 ml-auto">
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />
-        </Button>
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button

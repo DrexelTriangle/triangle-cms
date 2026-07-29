@@ -9,25 +9,6 @@ import (
 	"testing"
 )
 
-func TestUsersHandler_NotImplemented(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/v1/media", nil)
-	rec := httptest.NewRecorder()
-
-	Users(rec, req)
-
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("expected %d, got %d", http.StatusNotImplemented, rec.Code)
-	}
-
-	var body map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("failed to decode response body: %v", err)
-	}
-	if body["error"] != "not implemented" {
-		t.Fatalf("expected error %q, got %q", "not implemented", body["error"])
-	}
-}
-
 func TestGetMe_UnauthorizedWithoutUserInContext(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/users/me", nil)
 	rec := httptest.NewRecorder()
@@ -44,6 +25,41 @@ func TestGetMe_UnauthorizedWithoutUserInContext(t *testing.T) {
 	}
 	if body["error"] != "unauthorized" {
 		t.Fatalf("expected error %q, got %q", "unauthorized", body["error"])
+	}
+}
+
+func TestGetComments_InvalidStatus(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/comments?status=deleted", nil)
+	rec := httptest.NewRecorder()
+
+	GetComments(nil)(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestPatchComment_InvalidID(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPatch, "/v1/comments/not-a-number", strings.NewReader(`{"status":"approved"}`))
+	req.SetPathValue("id", "not-a-number")
+	rec := httptest.NewRecorder()
+
+	PatchComment(nil)(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestPatchComment_InvalidStatus(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPatch, "/v1/comments/12", strings.NewReader(`{"status":"deleted"}`))
+	req.SetPathValue("id", "12")
+	rec := httptest.NewRecorder()
+
+	PatchComment(nil)(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d", http.StatusBadRequest, rec.Code)
 	}
 }
 
