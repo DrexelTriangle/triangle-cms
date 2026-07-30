@@ -27,9 +27,18 @@ type MediaResponse = {
 }
 
 type IndexReport = {
+  walked?: number
   scanned?: number
   added?: number
   skipped?: number
+}
+
+type IndexStatus = {
+  running: boolean
+  started_at?: string
+  finished_at?: string
+  progress?: IndexReport
+  error?: string
 }
 
 const PAGE_SIZE = 60
@@ -73,6 +82,8 @@ function MediaView() {
   const [selected, setSelected] = useState<MediaItem | null>(null)
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const [isIndexing, setIsIndexing] = useState(false)
+  const [indexProgress, setIndexProgress] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
 
   // Debounce so typing doesn't fire a request per keystroke; the filter itself
   // is applied server-side because the library is far too large to filter here.
@@ -117,7 +128,7 @@ function MediaView() {
 
     void load()
     return () => controller.abort()
-  }, [fetchPage])
+  }, [fetchPage, reloadToken])
 
   const loadMore = async () => {
     setIsLoadingMore(true)
@@ -133,7 +144,10 @@ function MediaView() {
     }
   }
 
-  const refresh = () => setSearch((current) => current)
+  // Bumping a token is what actually re-runs the load effect. Re-setting `search`
+  // to its current value does not: React bails out of a same-value setState, so
+  // the effect never re-fires and the list silently stays stale.
+  const refresh = useCallback(() => setReloadToken((n) => n + 1), [])
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -223,6 +237,32 @@ function MediaView() {
     }
   }
 
+  // The index walks ~145k filesystem entries and takes minutes, so the server
+  // runs it in the background and we poll. A synchronous request could never
+  // finish: Nginx cuts an upstream read at 60s and Cloudflare at ~100s.
+  const pollIndexStatus = useCallback(async (): Promise<boolean> => {
+    const response = await apiFetch("/v1/media/index")
+    if (!response.ok) throw new Error(await errorMessage(response, `Status check failed (${response.status})`))
+    const status = (await response.json()) as IndexStatus
+
+    const p = status.progress
+    if (status.running) {
+      setIndexProgress(
+        `Indexing… ${String(p?.walked ?? 0)} files scanned, ${String(p?.added ?? 0)} added`,
+      )
+      return true
+    }
+
+    setIndexProgress(null)
+    if (status.error) {
+      setError(`Reindex failed: ${status.error}`)
+    } else if (status.finished_at) {
+      setNotice(`Indexed ${String(p?.scanned ?? 0)} assets — ${String(p?.added ?? 0)} new, ${String(p?.skipped ?? 0)} already known.`)
+      if ((p?.added ?? 0) > 0) refresh()
+    }
+    return false
+  }, [apiFetch, refresh])
+
   const handleReindex = async () => {
     setIsIndexing(true)
     setError(null)
@@ -230,15 +270,19 @@ function MediaView() {
 
     try {
       const response = await apiFetch("/v1/media/index", { method: "POST" })
-      if (!response.ok) {
+      // 409 means one is already running — join its progress rather than error.
+      if (!response.ok && response.status !== 409) {
         setError(await errorMessage(response, `Reindex failed (${response.status})`))
+        setIsIndexing(false)
         return
       }
-      const report = (await response.json()) as IndexReport
-      setNotice(`Indexed ${String(report.scanned ?? 0)} files — ${String(report.added ?? 0)} new.`)
-      if ((report.added ?? 0) > 0) refresh()
+
+      while (await pollIndexStatus()) {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to reindex media.")
+      setIndexProgress(null)
     } finally {
       setIsIndexing(false)
     }
@@ -268,7 +312,7 @@ function MediaView() {
               type="button"
             >
               <RefreshCw className={`w-4 h-4 ${isIndexing ? "animate-spin" : ""}`} aria-hidden="true" />
-              {isIndexing ? "Indexing..." : "Reindex"}
+              {indexProgress ?? (isIndexing ? "Starting…" : "Reindex")}
             </button>
             <input
               accept="image/jpeg,image/png,image/gif,image/webp"

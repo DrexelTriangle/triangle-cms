@@ -583,6 +583,21 @@ definitions:
         type: integer
       skipped:
         type: integer
+      walked:
+        type: integer
+    type: object
+  models.MediaIndexStatusResponse:
+    properties:
+      error:
+        type: string
+      finished_at:
+        type: string
+      progress:
+        $ref: '#/definitions/models.MediaIndexResponse'
+      running:
+        type: boolean
+      started_at:
+        type: string
     type: object
   models.MediaOverview:
     properties:
@@ -2143,16 +2158,29 @@ paths:
       tags:
       - media
   /v1/media/index:
-    post:
+    get:
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.MediaIndexResponse'
-        "500":
-          description: Internal Server Error
+            $ref: '#/definitions/models.MediaIndexStatusResponse'
+      security:
+      - BearerAuth: []
+      summary: Media reindex status
+      tags:
+      - media
+    post:
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/models.MediaIndexStatusResponse'
+        "409":
+          description: Conflict
           schema:
             $ref: '#/definitions/models.ErrorResponse'
         "501":
@@ -2161,7 +2189,7 @@ paths:
             $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: Reindex the media filesystem
+      summary: Start a media filesystem reindex
       tags:
       - media
   /v1/poll:

@@ -52,7 +52,10 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/media/gallery", authMW(handlers.GetMediaGallery(conn)))
 	mux.Handle("GET /v1/media/{id}", authMW(handlers.GetMediaItem(conn)))
 	mux.Handle("POST /v1/media", authMW(adminOnly(handlers.PostMedia(conn))))
+	// Indexing runs in the background (the walk outlives any proxy timeout), so
+	// starting it and polling its progress are separate endpoints.
 	mux.Handle("POST /v1/media/index", authMW(adminOnly(handlers.PostMediaIndex(conn))))
+	mux.Handle("GET /v1/media/index", authMW(adminOnly(handlers.GetMediaIndexStatus())))
 	mux.Handle("PATCH /v1/media/{id}", authMW(handlers.PatchMediaItem(conn)))
 	mux.Handle("DELETE /v1/media/{id}", authMW(adminOnly(handlers.DeleteMediaItem(conn))))
 	mux.Handle("GET /v1/homepage", handlers.GetHomepage(conn))

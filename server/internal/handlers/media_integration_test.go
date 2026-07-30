@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 
@@ -248,5 +249,84 @@ func TestMediaHTTP_GetMissingItemIs404(t *testing.T) {
 	GetMediaItem(conn).ServeHTTP(rec, mediaIDRequest(t, http.MethodGet, "/v1/media/999999", 999999, ""))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+// The whole point of the async index: the walk must outlive the request that
+// started it. This asserts POST returns 202 immediately and the work completes
+// afterwards, which the previous synchronous version could not do behind a
+// proxy that cuts idle upstream reads at 60s.
+func TestMediaHTTP_IndexRunsInBackground(t *testing.T) {
+	conn := mediaHTTPTestDB(t)
+	root := t.TempDir()
+	t.Setenv("MEDIA_ROOT", root)
+
+	for _, rel := range []string{
+		"wp-content/uploads/2019/05/campus.jpg",
+		"wp-content/uploads/2019/05/campus-150x150.jpg", // derivative, must be skipped
+		"wp-content/uploads/2020/11/protest.png",
+	} {
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(abs, []byte("x"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	// Ensure the shared job is idle, and release it however this test exits.
+	if !mediaIndexer.tryStart() {
+		t.Fatal("package index job was unexpectedly busy")
+	}
+	mediaIndexer.finish(models.MediaIndexResponse{}, nil)
+
+	start := time.Now()
+	rec := httptest.NewRecorder()
+	PostMediaIndex(conn).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/media/index", nil))
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body = %s", rec.Code, rec.Body.String())
+	}
+	// "Immediately" — the handler must not be doing the walk inline.
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("POST took %v; it should return before the walk finishes", elapsed)
+	}
+
+	deadline := time.Now().Add(30 * time.Second)
+	var status models.MediaIndexStatusResponse
+	for {
+		statusRec := httptest.NewRecorder()
+		GetMediaIndexStatus().ServeHTTP(statusRec, httptest.NewRequest(http.MethodGet, "/v1/media/index", nil))
+		if err := json.Unmarshal(statusRec.Body.Bytes(), &status); err != nil {
+			t.Fatalf("decode status: %v", err)
+		}
+		if !status.Running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("index did not finish within 30s")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if status.Error != "" {
+		t.Fatalf("index reported error: %s", status.Error)
+	}
+	if status.FinishedAt == nil || status.StartedAt == nil {
+		t.Fatalf("expected both timestamps, got %+v", status)
+	}
+	if status.Progress.Added != 2 {
+		t.Fatalf("added = %d, want 2 (the derivative must be skipped)", status.Progress.Added)
+	}
+
+	// And the rows are really there, written by the background goroutine after
+	// the request had already returned.
+	_, total, err := db.ListMedia(context.Background(), conn, models.MediaListParams{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("media rows = %d, want 2", total)
 	}
 }

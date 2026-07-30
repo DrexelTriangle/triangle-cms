@@ -366,11 +366,25 @@ type MediaUploadResponse struct {
 	Height      int    `json:"height,omitempty"`
 }
 
-// MediaIndexResponse reports what a filesystem reindex found. Scanned counts
-// every eligible file walked; Added counts rows newly inserted; Skipped counts
-// files already present in the library.
+// MediaIndexResponse reports what a filesystem reindex found. Walked counts
+// every filesystem entry visited (the corpus is mostly WordPress derivatives
+// that are skipped before any stat, so this is the only counter that moves
+// steadily); Scanned counts eligible files; Added counts rows newly inserted;
+// Skipped counts files already present in the library.
 type MediaIndexResponse struct {
+	Walked  int `json:"walked"`
 	Scanned int `json:"scanned"`
 	Added   int `json:"added"`
 	Skipped int `json:"skipped"`
+}
+
+// MediaIndexStatusResponse describes an index run. The walk takes minutes on a
+// large corpus, far longer than proxies allow a request to hang, so it runs in
+// the background and is polled through this shape.
+type MediaIndexStatusResponse struct {
+	Running    bool               `json:"running"`
+	StartedAt  *time.Time         `json:"started_at,omitempty"`
+	FinishedAt *time.Time         `json:"finished_at,omitempty"`
+	Progress   MediaIndexResponse `json:"progress"`
+	Error      string             `json:"error,omitempty"`
 }

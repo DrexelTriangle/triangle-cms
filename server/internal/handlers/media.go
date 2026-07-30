@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -8,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"log/slog"
+	"sync"
 	// Register decoders so image.DecodeConfig can report dimensions for the
 	// common legacy formats. WebP/AVIF simply report no dimensions (best effort).
 	_ "image/gif"
@@ -37,6 +40,9 @@ const (
 	// the Nginx `location /wp-content/` root that serves them.
 	uploadsSubdir  = "wp-content/uploads"
 	maxBaseNameLen = 100
+	// mediaIndexTimeout bounds a background index run so a wedged filesystem
+	// cannot leave the job permanently "running" and block every later attempt.
+	mediaIndexTimeout = 2 * time.Hour
 )
 
 // allowedImageTypes maps a sniffed content type to its canonical extension. Only
@@ -595,15 +601,94 @@ func DeleteMediaItem(conn *sql.DB) http.Handler {
 	})
 }
 
-// PostMediaIndex walks the media filesystem and adds any asset missing from the
-// library. This is how the migrated CephFS corpus enters the library, and it is
-// safe to re-run: existing entries keep whatever alt text they already have.
+// mediaIndexJob tracks the single in-flight index run for this process.
 //
-// @Summary Reindex the media filesystem
+// The walk takes minutes on the real corpus (~145k filesystem entries, most of
+// them WordPress derivatives that are skipped), which is far longer than the
+// proxies in front of this service allow a request to hang: Nginx cuts an
+// upstream read at 60s by default and Cloudflare at ~100s. Running it inside the
+// request meant the client disconnect cancelled the walk, so a full index could
+// never complete over HTTP. It now runs in the background on a context that
+// outlives the request, and callers poll for progress.
+type mediaIndexJob struct {
+	mu         sync.Mutex
+	running    bool
+	startedAt  time.Time
+	finishedAt time.Time
+	progress   models.MediaIndexResponse
+	err        string
+}
+
+// tryStart claims the job. It returns false when a run is already in flight, so
+// an impatient second click extends nothing and corrupts nothing.
+func (j *mediaIndexJob) tryStart() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.running {
+		return false
+	}
+	j.running = true
+	j.startedAt = time.Now().UTC()
+	j.finishedAt = time.Time{}
+	j.progress = models.MediaIndexResponse{}
+	j.err = ""
+	return true
+}
+
+func (j *mediaIndexJob) setProgress(p models.MediaIndexResponse) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.progress = p
+}
+
+func (j *mediaIndexJob) finish(p models.MediaIndexResponse, err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.running = false
+	j.finishedAt = time.Now().UTC()
+	j.progress = p
+	if err != nil {
+		j.err = err.Error()
+	}
+}
+
+func (j *mediaIndexJob) status() models.MediaIndexStatusResponse {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	status := models.MediaIndexStatusResponse{
+		Running:  j.running,
+		Progress: j.progress,
+		Error:    j.err,
+	}
+	if !j.startedAt.IsZero() {
+		started := j.startedAt
+		status.StartedAt = &started
+	}
+	if !j.finishedAt.IsZero() {
+		finished := j.finishedAt
+		status.FinishedAt = &finished
+	}
+	return status
+}
+
+// One job per process. Blue/green means two backends could in principle index at
+// once, but only one slot serves traffic, and the unique key on media.path makes
+// a concurrent run wasteful rather than harmful (duplicates count as skips).
+var mediaIndexer = &mediaIndexJob{}
+
+// PostMediaIndex starts a background walk of the media filesystem, adding any
+// asset missing from the library. This is how the migrated CephFS corpus enters
+// the library, and it is safe to re-run: existing entries keep whatever alt text
+// they already have.
+//
+// It returns 202 immediately; poll GET /v1/media/index for progress.
+//
+// @Summary Start a media filesystem reindex
 // @Tags media
 // @Produce json
-// @Success 200 {object} models.MediaIndexResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Success 202 {object} models.MediaIndexStatusResponse
+// @Failure 409 {object} models.ErrorResponse
 // @Failure 501 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/media/index [post]
@@ -615,15 +700,46 @@ func PostMediaIndex(conn *sql.DB) http.Handler {
 			return
 		}
 
-		report, err := db.IndexMediaRoot(r.Context(), conn, root, uploadsSubdir)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+		if !mediaIndexer.tryStart() {
+			writeError(w, http.StatusConflict, "a media index is already running")
 			return
 		}
 
-		activity.LogRequest(r, "media_indexed", "Media library reindexed",
-			"added", strconv.Itoa(report.Added), "scanned", strconv.Itoa(report.Scanned))
-		writeJSON(w, http.StatusOK, report)
+		activity.LogRequest(r, "media_index_started", "Media library reindex started")
+
+		// Deliberately NOT r.Context(): the request returns immediately, so the
+		// walk must not be cancelled when the client disconnects.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), mediaIndexTimeout)
+			defer cancel()
+
+			report, err := db.IndexMediaRootWithProgress(ctx, conn, root, uploadsSubdir, mediaIndexer.setProgress)
+			mediaIndexer.finish(report, err)
+			if err != nil {
+				slog.Error("media index failed", "error", err,
+					"walked", report.Walked, "added", report.Added)
+				return
+			}
+			slog.Info("media index complete",
+				"walked", report.Walked, "scanned", report.Scanned,
+				"added", report.Added, "skipped", report.Skipped)
+		}()
+
+		writeJSON(w, http.StatusAccepted, mediaIndexer.status())
+	})
+}
+
+// GetMediaIndexStatus reports the progress of the current or most recent index.
+//
+// @Summary Media reindex status
+// @Tags media
+// @Produce json
+// @Success 200 {object} models.MediaIndexStatusResponse
+// @Security BearerAuth
+// @Router /v1/media/index [get]
+func GetMediaIndexStatus() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, mediaIndexer.status())
 	})
 }
 

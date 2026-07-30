@@ -150,7 +150,8 @@ the database. After the media rsync completes, populate it once from the CMS
 (Media -> Reindex) or directly:
 
 ```bash
-curl -X POST https://localhost/v1/media/index   # admin session required
+curl -X POST https://localhost/v1/media/index   # admin session required; returns 202
+curl https://localhost/v1/media/index           # poll progress
 ```
 
 It walks `MEDIA_ROOT/wp-content/uploads`, skips WordPress's generated `-WxH`
@@ -159,8 +160,17 @@ already-indexed files are skipped and any alt text set in the CMS is preserved â
 so re-run it after any later out-of-band rsync. Uploads through the CMS index
 themselves and need no reindex.
 
-Note this walks the whole tree, so on a large corpus over CephFS the first run
-takes a while; run it once at cutover rather than on a schedule.
+**The index runs in the background.** `POST` returns `202` immediately and `GET`
+reports `{running, progress:{walked, scanned, added, skipped}, error}`; a second
+`POST` while one is in flight returns `409`. This is not cosmetic: the real corpus
+is ~145k filesystem entries and the walk takes minutes, while Nginx cuts an idle
+upstream read at 60s and Cloudflare at ~100s. A synchronous version was cancelled
+by those proxies every time and could never finish. A run is capped at two hours
+so a wedged filesystem cannot leave the job stuck "running" forever.
+
+Progress is reported per entry *walked* rather than per file indexed, because the
+corpus is mostly derivatives that are skipped without a stat â€” counting only
+indexed files would look frozen for long stretches.
 
 ### Disk
 
