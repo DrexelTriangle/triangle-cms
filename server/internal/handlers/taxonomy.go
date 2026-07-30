@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -33,6 +34,68 @@ func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, 
 		item.ParentSlug = &s
 	}
 	return item, nil
+}
+
+func taxonomyItemArticleCount(ctx context.Context, conn *sql.DB, taxType, slug string) (int64, error) {
+	var count int64
+	err := conn.QueryRowContext(ctx,
+		"SELECT article_count FROM site_taxonomy WHERE kind = ? AND slug = ?",
+		taxType, slug,
+	).Scan(&count)
+	return count, err
+}
+
+func taxonomyItemExists(ctx context.Context, conn *sql.DB, taxType, slug string) (bool, error) {
+	var exists int
+	err := conn.QueryRowContext(ctx,
+		"SELECT 1 FROM site_taxonomy WHERE kind = ? AND slug = ? LIMIT 1",
+		taxType, slug,
+	).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func taxonomySectionHasChildren(ctx context.Context, conn *sql.DB, sectionSlug string) (bool, error) {
+	var exists int
+	err := conn.QueryRowContext(ctx,
+		"SELECT 1 FROM site_taxonomy WHERE kind = ? AND parent_slug = ? LIMIT 1",
+		string(models.TaxonomyTypeSubsection), sectionSlug,
+	).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func validateTaxonomyParent(ctx context.Context, conn *sql.DB, taxType string, parentSlug *string) (any, error) {
+	if parentSlug == nil || strings.TrimSpace(*parentSlug) == "" {
+		if taxType == string(models.TaxonomyTypeSubsection) {
+			return nil, fmt.Errorf("parent_slug is required for subsections")
+		}
+		return nil, nil
+	}
+
+	parent := strings.TrimSpace(*parentSlug)
+	if !isValidCanonicalSlug(parent) {
+		return nil, fmt.Errorf("parent_slug must be canonical")
+	}
+	if taxType != string(models.TaxonomyTypeSubsection) {
+		return nil, fmt.Errorf("parent_slug is only allowed for subsections")
+	}
+	if conn == nil {
+		return parent, nil
+	}
+
+	exists, err := taxonomyItemExists(ctx, conn, string(models.TaxonomyTypeSection), parent)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fmt.Errorf("parent_slug must reference an existing section")
+	}
+	return parent, nil
 }
 
 // @Summary List taxonomy items
@@ -159,12 +222,10 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "canonical_title is required")
 			return
 		}
-		if body.ParentSlug != nil {
-			ps := strings.TrimSpace(*body.ParentSlug)
-			if ps != "" && !isValidCanonicalSlug(ps) {
-				writeError(w, http.StatusBadRequest, "parent_slug must be canonical")
-				return
-			}
+		parentSlug, err := validateTaxonomyParent(r.Context(), conn, taxType, body.ParentSlug)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
 		}
 
 		var nextID int64
@@ -173,12 +234,7 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		var parentSlug any
-		if body.ParentSlug != nil && strings.TrimSpace(*body.ParentSlug) != "" {
-			parentSlug = strings.TrimSpace(*body.ParentSlug)
-		}
-
-		_, err := db.Insert(r.Context(), conn, "site_taxonomy",
+		_, err = db.Insert(r.Context(), conn, "site_taxonomy",
 			[]string{"id", "kind", "slug", "canonical_title", "parent_slug", "article_count"},
 			nextID, taxType, slug, title, parentSlug, 0,
 		)
@@ -242,17 +298,36 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			}
 		}
 
-		if body.ParentSlug != nil {
-			ps := strings.TrimSpace(*body.ParentSlug)
-			if ps != "" && !isValidCanonicalSlug(ps) {
-				writeError(w, http.StatusBadRequest, "parent_slug must be canonical")
+		parentSlug, err := validateTaxonomyParent(r.Context(), conn, taxType, body.ParentSlug)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if newSlug != slug && conn != nil {
+			count, err := taxonomyItemArticleCount(r.Context(), conn, taxType, slug)
+			if err == sql.ErrNoRows {
+				writeError(w, http.StatusNotFound, "taxonomy item not found")
 				return
 			}
-		}
-
-		var parentSlug any
-		if body.ParentSlug != nil && strings.TrimSpace(*body.ParentSlug) != "" {
-			parentSlug = strings.TrimSpace(*body.ParentSlug)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if count > 0 {
+				writeError(w, http.StatusBadRequest, "slug cannot be changed while articles use this taxonomy item")
+				return
+			}
+			if taxType == string(models.TaxonomyTypeSection) {
+				hasChildren, err := taxonomySectionHasChildren(r.Context(), conn, slug)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				if hasChildren {
+					writeError(w, http.StatusBadRequest, "section slug cannot be changed while subsections use it")
+					return
+				}
+			}
 		}
 
 		result, err := db.Update(r.Context(), conn, "site_taxonomy",
@@ -304,6 +379,32 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 		if !isValidCanonicalSlug(slug) {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
+		}
+		if conn != nil {
+			count, err := taxonomyItemArticleCount(r.Context(), conn, taxType, slug)
+			if err == sql.ErrNoRows {
+				writeError(w, http.StatusNotFound, "taxonomy item not found")
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if count > 0 {
+				writeError(w, http.StatusBadRequest, "taxonomy item cannot be deleted while articles use it")
+				return
+			}
+			if taxType == string(models.TaxonomyTypeSection) {
+				hasChildren, err := taxonomySectionHasChildren(r.Context(), conn, slug)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				if hasChildren {
+					writeError(w, http.StatusBadRequest, "section cannot be deleted while subsections use it")
+					return
+				}
+			}
 		}
 
 		result, err := db.Delete(r.Context(), conn, "site_taxonomy", "kind = ? AND slug = ?", taxType, slug)

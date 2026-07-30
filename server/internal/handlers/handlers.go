@@ -828,7 +828,7 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		params, err := normalizeAndValidateArticleParams(ArticleParams{
+		params, err := normalizeAndValidateArticleParams(r.Context(), conn, ArticleParams{
 			AuthorSlug: slug,
 			Section:    r.URL.Query().Get("section_slug"),
 			Subsection: r.URL.Query().Get("subsection_slug"),
@@ -899,7 +899,7 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 // @Router /v1/articles [get]
 func GetArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		params, err := normalizeAndValidateArticleParams(ArticleParams{
+		params, err := normalizeAndValidateArticleParams(r.Context(), conn, ArticleParams{
 			AuthorSlug: r.URL.Query().Get("author_slug"),
 			Section:    r.URL.Query().Get("section_slug"),
 			Subsection: r.URL.Query().Get("subsection_slug"),
@@ -956,7 +956,7 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 // @Router /v1/sections/{section_slug}/articles [get]
 func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		params, err := normalizeAndValidateArticleParams(ArticleParams{
+		params, err := normalizeAndValidateArticleParams(r.Context(), conn, ArticleParams{
 			AuthorSlug: r.URL.Query().Get("author_slug"),
 			Section:    r.PathValue("section_slug"),
 			Subsection: r.URL.Query().Get("subsection_slug"),
@@ -1031,7 +1031,7 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 // @Router /v1/subsections/{subsection_slug}/articles [get]
 func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		params, err := normalizeAndValidateArticleParams(ArticleParams{
+		params, err := normalizeAndValidateArticleParams(r.Context(), conn, ArticleParams{
 			AuthorSlug: r.URL.Query().Get("author_slug"),
 			Section:    r.URL.Query().Get("section_slug"),
 			Subsection: r.PathValue("subsection_slug"),

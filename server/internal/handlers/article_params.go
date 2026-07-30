@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
 	db "server/internal/database"
+	"server/internal/models"
 )
 
 var allowedSubsectionsBySection = map[string]map[string]struct{}{
@@ -47,7 +50,7 @@ var allowedSubsectionsBySection = map[string]map[string]struct{}{
 	},
 }
 
-func normalizeAndValidateArticleParams(params ArticleParams) (ArticleParams, error) {
+func normalizeAndValidateArticleParams(ctx context.Context, conn *sql.DB, params ArticleParams) (ArticleParams, error) {
 	params.AuthorSlug = strings.TrimSpace(params.AuthorSlug)
 	params.Section = normalizeSectionSlug(params.Section)
 	params.Subsection = strings.ToLower(strings.TrimSpace(params.Subsection))
@@ -57,13 +60,20 @@ func normalizeAndValidateArticleParams(params ArticleParams) (ArticleParams, err
 	}
 
 	if params.Section != "" {
-		if _, ok := allowedSubsectionsBySection[params.Section]; !ok {
+		ok, err := taxonomySectionExists(ctx, conn, params.Section)
+		if err != nil {
+			return ArticleParams{}, err
+		}
+		if !ok {
 			return ArticleParams{}, fmt.Errorf("invalid section_slug")
 		}
 	}
 
 	if params.Subsection != "" {
-		parentSection, ok := sectionForSubsection(params.Subsection)
+		parentSection, ok, err := parentSectionForSubsection(ctx, conn, params.Subsection)
+		if err != nil {
+			return ArticleParams{}, err
+		}
 		if !ok {
 			return ArticleParams{}, fmt.Errorf("invalid subsection_slug")
 		}
@@ -81,11 +91,43 @@ func normalizeSectionSlug(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-func sectionForSubsection(subsection string) (string, bool) {
+func taxonomySectionExists(ctx context.Context, conn *sql.DB, section string) (bool, error) {
+	if conn == nil {
+		_, ok := allowedSubsectionsBySection[section]
+		return ok, nil
+	}
+
+	var exists int
+	err := conn.QueryRowContext(ctx,
+		"SELECT 1 FROM site_taxonomy WHERE kind = ? AND slug = ? LIMIT 1",
+		string(models.TaxonomyTypeSection), section,
+	).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func parentSectionForSubsection(ctx context.Context, conn *sql.DB, subsection string) (string, bool, error) {
+	if conn != nil {
+		var parent sql.NullString
+		err := conn.QueryRowContext(ctx,
+			"SELECT parent_slug FROM site_taxonomy WHERE kind = ? AND slug = ? LIMIT 1",
+			string(models.TaxonomyTypeSubsection), subsection,
+		).Scan(&parent)
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+		return parent.String, parent.Valid && parent.String != "", nil
+	}
+
 	for section, subsections := range allowedSubsectionsBySection {
 		if _, ok := subsections[subsection]; ok {
-			return section, true
+			return section, true, nil
 		}
 	}
-	return "", false
+	return "", false, nil
 }

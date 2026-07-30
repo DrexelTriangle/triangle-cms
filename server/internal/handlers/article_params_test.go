@@ -1,6 +1,9 @@
 package handlers
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestNormalizeSectionSlug(t *testing.T) {
 	cases := []struct {
@@ -21,9 +24,21 @@ func TestNormalizeSectionSlug(t *testing.T) {
 }
 
 func TestNormalizeAndValidateArticleParams_RejectsUnknownSectionSlug(t *testing.T) {
-	if _, err := normalizeAndValidateArticleParams(ArticleParams{
+	if _, err := normalizeAndValidateArticleParams(context.Background(), nil, ArticleParams{
 		Section: "candp",
 	}); err == nil {
 		t.Fatal("expected error for unknown section_slug")
+	}
+}
+
+func TestNormalizeAndValidateArticleParams_FallbackAllowsKnownColumn(t *testing.T) {
+	got, err := normalizeAndValidateArticleParams(context.Background(), nil, ArticleParams{
+		Subsection: "the-love-triangle",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Section != "columns" {
+		t.Fatalf("section = %q, want columns", got.Section)
 	}
 }
