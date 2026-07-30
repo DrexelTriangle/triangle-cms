@@ -292,3 +292,40 @@ func TestDeleteMediaRow(t *testing.T) {
 		t.Fatalf("second delete err = %v, want sql.ErrNoRows", err)
 	}
 }
+
+// The index reports progress as it walks, which is what lets the HTTP layer run
+// it in the background and be polled. A tree smaller than progressInterval must
+// still produce a final report rather than silently never calling back.
+func TestIndexMediaRootWithProgress_ReportsProgress(t *testing.T) {
+	conn := mediaTestDB(t)
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeFile(t, root, "wp-content/uploads/2021/01/one.jpg")
+	writeFile(t, root, "wp-content/uploads/2021/01/two.png")
+	writeFile(t, root, "wp-content/uploads/2021/02/three.gif")
+
+	var updates []models.MediaIndexResponse
+	report, err := IndexMediaRootWithProgress(ctx, conn, root, "wp-content/uploads",
+		func(p models.MediaIndexResponse) { updates = append(updates, p) })
+	if err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	if len(updates) == 0 {
+		t.Fatal("expected at least one progress callback")
+	}
+	final := updates[len(updates)-1]
+	if final.Added != report.Added || final.Scanned != report.Scanned {
+		t.Fatalf("last callback %+v disagrees with returned report %+v", final, report)
+	}
+	if report.Added != 3 {
+		t.Fatalf("added = %d, want 3", report.Added)
+	}
+	// Walked counts every entry visited (files AND directories), so it must
+	// exceed the three indexed files — that is what makes it a useful progress
+	// signal on a corpus that is mostly skipped derivatives.
+	if report.Walked <= report.Added {
+		t.Fatalf("walked = %d, expected it to exceed added = %d", report.Walked, report.Added)
+	}
+}

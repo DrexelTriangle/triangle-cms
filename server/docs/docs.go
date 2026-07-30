@@ -1732,6 +1732,28 @@ const docTemplate = `{
             }
         },
         "/v1/media/index": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "media"
+                ],
+                "summary": "Media reindex status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.MediaIndexStatusResponse"
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -1744,16 +1766,16 @@ const docTemplate = `{
                 "tags": [
                     "media"
                 ],
-                "summary": "Reindex the media filesystem",
+                "summary": "Start a media filesystem reindex",
                 "responses": {
-                    "200": {
-                        "description": "OK",
+                    "202": {
+                        "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/models.MediaIndexResponse"
+                            "$ref": "#/definitions/models.MediaIndexStatusResponse"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/models.ErrorResponse"
                         }
@@ -4497,6 +4519,29 @@ const docTemplate = `{
                 },
                 "skipped": {
                     "type": "integer"
+                },
+                "walked": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.MediaIndexStatusResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "progress": {
+                    "$ref": "#/definitions/models.MediaIndexResponse"
+                },
+                "running": {
+                    "type": "boolean"
+                },
+                "started_at": {
+                    "type": "string"
                 }
             }
         },

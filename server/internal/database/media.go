@@ -338,16 +338,41 @@ func MediaPathInUse(ctx context.Context, conn *sql.DB, relPath string) (bool, er
 	return false, fmt.Errorf("check media usage: %w", err)
 }
 
+// progressInterval is how many filesystem entries the indexer walks between
+// progress callbacks. The corpus is mostly WordPress derivatives that are
+// skipped without a stat, so reporting per *indexed* file would appear frozen
+// for long stretches; reporting per entry walked keeps the count moving.
+const progressInterval = 500
+
 // IndexMediaRoot walks the uploads tree under root and inserts a library row for
 // every asset not already recorded, so the migrated CephFS corpus shows up
 // without a separate migration step. It is idempotent: existing paths are
 // counted as skipped and left untouched, preserving any alt text already set.
 func IndexMediaRoot(ctx context.Context, conn *sql.DB, root, uploadsSubdir string) (models.MediaIndexResponse, error) {
+	return IndexMediaRootWithProgress(ctx, conn, root, uploadsSubdir, nil)
+}
+
+// IndexMediaRootWithProgress is IndexMediaRoot with periodic progress reporting.
+// onProgress (may be nil) is called from the walking goroutine every
+// progressInterval entries and once at the end, so it must not block.
+func IndexMediaRootWithProgress(
+	ctx context.Context,
+	conn *sql.DB,
+	root, uploadsSubdir string,
+	onProgress func(models.MediaIndexResponse),
+) (models.MediaIndexResponse, error) {
 	var report models.MediaIndexResponse
 
 	known, err := knownMediaPaths(ctx, conn)
 	if err != nil {
 		return report, err
+	}
+
+	report.Walked = 0
+	notify := func() {
+		if onProgress != nil {
+			onProgress(report)
+		}
 	}
 
 	uploadsDir := filepath.Join(root, filepath.FromSlash(uploadsSubdir))
@@ -361,6 +386,11 @@ func IndexMediaRoot(ctx context.Context, conn *sql.DB, root, uploadsSubdir strin
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
+		}
+
+		report.Walked++
+		if report.Walked%progressInterval == 0 {
+			notify()
 		}
 		if entry.IsDir() {
 			return nil
@@ -404,11 +434,15 @@ func IndexMediaRoot(ctx context.Context, conn *sql.DB, root, uploadsSubdir strin
 	})
 	if walkErr != nil {
 		if os.IsNotExist(walkErr) {
+			notify()
 			return report, nil
 		}
 		return report, fmt.Errorf("index media: %w", walkErr)
 	}
 
+	// Always report the final tally: a tree smaller than progressInterval would
+	// otherwise never fire the callback at all.
+	notify()
 	return report, nil
 }
 

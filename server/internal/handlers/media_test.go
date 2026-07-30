@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
@@ -12,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"server/internal/models"
 )
 
 func pngBytes(t *testing.T, w, h int) []byte {
@@ -239,5 +243,101 @@ func TestMediaIDParam(t *testing.T) {
 				t.Fatalf("mediaIDParam(%q) = (%d, %v), want (%d, %v)", tt.id, got, ok, tt.want, tt.wantOK)
 			}
 		})
+	}
+}
+
+// The index job must survive the request that started it — that is the whole
+// point of making it asynchronous — and must not allow two concurrent runs.
+func TestMediaIndexJob_Lifecycle(t *testing.T) {
+	job := &mediaIndexJob{}
+
+	if got := job.status(); got.Running || got.StartedAt != nil || got.FinishedAt != nil {
+		t.Fatalf("fresh job should be idle, got %+v", got)
+	}
+
+	if !job.tryStart() {
+		t.Fatal("first tryStart should claim the job")
+	}
+	if job.tryStart() {
+		t.Fatal("second tryStart must be refused while running")
+	}
+
+	running := job.status()
+	if !running.Running || running.StartedAt == nil {
+		t.Fatalf("running status = %+v, want Running with StartedAt", running)
+	}
+	if running.FinishedAt != nil {
+		t.Fatal("FinishedAt must be unset while running")
+	}
+
+	job.setProgress(models.MediaIndexResponse{Walked: 1200, Scanned: 40, Added: 12})
+	if got := job.status().Progress; got.Walked != 1200 || got.Added != 12 {
+		t.Fatalf("progress = %+v, want walked 1200 / added 12", got)
+	}
+
+	job.finish(models.MediaIndexResponse{Walked: 2000, Scanned: 80, Added: 20, Skipped: 60}, nil)
+	done := job.status()
+	if done.Running || done.FinishedAt == nil || done.Error != "" {
+		t.Fatalf("finished status = %+v, want idle with FinishedAt and no error", done)
+	}
+	if done.Progress.Added != 20 || done.Progress.Skipped != 60 {
+		t.Fatalf("final progress = %+v", done.Progress)
+	}
+
+	// A completed run must not block the next one, and starting again clears the
+	// previous result rather than reporting stale counts as current.
+	if !job.tryStart() {
+		t.Fatal("a finished job should be startable again")
+	}
+	if got := job.status(); got.Progress.Added != 0 || got.FinishedAt != nil {
+		t.Fatalf("restarted job should reset counters, got %+v", got)
+	}
+}
+
+func TestMediaIndexJob_RecordsFailure(t *testing.T) {
+	job := &mediaIndexJob{}
+	job.tryStart()
+	job.finish(models.MediaIndexResponse{Walked: 10}, context.DeadlineExceeded)
+
+	got := job.status()
+	if got.Running {
+		t.Fatal("job should not be running after finish")
+	}
+	if got.Error != context.DeadlineExceeded.Error() {
+		t.Fatalf("Error = %q, want %q", got.Error, context.DeadlineExceeded.Error())
+	}
+}
+
+func TestPostMediaIndex_SecondRequestConflicts(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+
+	// Claim the shared job so the handler sees a run already in flight, then
+	// release it so later tests are unaffected.
+	if !mediaIndexer.tryStart() {
+		t.Fatal("expected the package job to be idle at test start")
+	}
+	t.Cleanup(func() { mediaIndexer.finish(models.MediaIndexResponse{}, nil) })
+
+	rec := httptest.NewRecorder()
+	PostMediaIndex(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/media/index", nil))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetMediaIndexStatus_ReportsIdle(t *testing.T) {
+	rec := httptest.NewRecorder()
+	GetMediaIndexStatus().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/media/index", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var status models.MediaIndexStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if status.Running {
+		t.Fatal("expected the shared job to be idle")
 	}
 }
