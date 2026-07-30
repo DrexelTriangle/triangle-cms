@@ -280,3 +280,29 @@ func TestArticleQueryFilters_EditorKeepsDraftAndArchivedFilters(t *testing.T) {
 		t.Fatalf("editor must keep the archived filter, got %q", joined)
 	}
 }
+
+// The single-article endpoint is public AND returns the full article body, so
+// the anonymous restriction matters more here than on the listing.
+func TestArticleDetailCondition_AnonymousSeesOnlyLiveArticles(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles/some-slug", nil)
+
+	got := articleDetailCondition(req)
+
+	if !strings.Contains(got, "`pub_date` IS NOT NULL") {
+		t.Fatalf("anonymous lookup must exclude drafts, got %q", got)
+	}
+	if !strings.Contains(got, "`archived_at` IS NULL") {
+		t.Fatalf("anonymous lookup must exclude archived articles, got %q", got)
+	}
+}
+
+func TestArticleDetailCondition_EditorSeesEverything(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles/some-slug", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Role: models.RoleAdmin}))
+
+	got := articleDetailCondition(req)
+
+	if got != "`slug` = ?" {
+		t.Fatalf("editor lookup must not be narrowed, got %q", got)
+	}
+}

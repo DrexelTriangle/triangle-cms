@@ -45,7 +45,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/authors/{slug}/articles", optionalAuth(handlers.GetAuthorArticles(conn)))
 
 	mux.Handle("GET /v1/articles", optionalAuth(handlers.GetArticles(conn)))
-	mux.Handle("GET /v1/articles/{slug}", handlers.GetArticle(conn))
+	mux.Handle("GET /v1/articles/{slug}", optionalAuth(handlers.GetArticle(conn)))
 	mux.Handle("GET /v1/articles/{slug}/comments", handlers.GetArticleComments(conn))
 	mux.Handle("POST /v1/articles/{slug}/comments", middleware.RateLimitByIP(5, time.Minute)(handlers.PostArticleComment(conn, spamChecker)))
 	mux.Handle("GET /v1/search", handlers.GetSearch(conn))
