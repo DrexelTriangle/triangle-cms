@@ -1,0 +1,68 @@
+name: Rollback Delta
+
+# Manual only. Rollback switches Nginx back to the other slot, which is already
+# running the previous release, so it pulls no images and needs no registry
+# access. Without this workflow the only way to invoke rollback.sh is an SSH
+# session into Delta from inside the VPN — during an incident, which is exactly
+# when that is hardest.
+on:
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: 'Slot to activate ("auto" picks the currently inactive one)'
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - blue
+          - green
+
+# Deliberately the SAME group as Deploy Delta, so a rollback can never interleave
+# with a deployment. deploy.sh/rollback.sh also take an exclusive flock on the
+# host, so this is belt and braces.
+concurrency:
+  group: delta-production-deploy
+  cancel-in-progress: false
+
+# No packages:read — rollback never pulls an image.
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    runs-on:
+      - self-hosted
+      - drexel-vpn
+      - delta
+      - triangle-cms
+    environment: production
+    steps:
+      - name: Checkout trusted deployment code
+        uses: actions/checkout@v4
+        with:
+          # Same trust boundary as deploy.yml: deployment code always comes from
+          # the protected default branch.
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Switch Nginx to the target slot
+        env:
+          ENV_FILE: ${{ vars.DELTA_CMS_ENV_FILE }}
+          NGINX_ACTIVE_INCLUDE: ${{ vars.DELTA_NGINX_ACTIVE_INCLUDE }}
+          PUBLIC_BASE_URL: ${{ vars.DELTA_PUBLIC_BASE_URL }}
+          # Read into the environment rather than interpolated into the script
+          # body, so the input is data and never shell syntax.
+          SLOT: ${{ inputs.slot }}
+        run: |
+          case "${SLOT}" in
+            auto)
+              deploy/scripts/rollback.sh
+              ;;
+            blue|green)
+              deploy/scripts/rollback.sh "${SLOT}"
+              ;;
+            *)
+              echo "invalid slot: ${SLOT}" >&2
+              exit 2
+              ;;
+          esac
