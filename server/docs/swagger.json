@@ -111,13 +111,13 @@
                             "published"
                         ],
                         "type": "string",
-                        "description": "Filter by status",
+                        "description": "Filter by status. Ignored for unauthenticated callers, who always get published only.",
                         "name": "status",
                         "in": "query"
                     },
                     {
                         "type": "boolean",
-                        "description": "When true, return only soft-deleted articles",
+                        "description": "When true, return only soft-deleted articles. Ignored for unauthenticated callers.",
                         "name": "archived",
                         "in": "query"
                     },
@@ -736,7 +736,7 @@
                     },
                     {
                         "type": "boolean",
-                        "description": "When true, return only soft-deleted authors",
+                        "description": "When true, return only soft-deleted authors. Ignored for unauthenticated callers.",
                         "name": "archived",
                         "in": "query"
                     },
@@ -3165,11 +3165,6 @@
         },
         "/v1/taxonomy": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -3281,11 +3276,6 @@
         },
         "/v1/taxonomy/{type}/{slug}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],

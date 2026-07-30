@@ -370,8 +370,10 @@ func paginationResponse(page, limit, offset int, hasMore bool, totalCount int) m
 	}
 }
 
-func authorArchiveCondition(q url.Values) string {
-	if _, archivedProvided := q["archived"]; archivedProvided {
+// authorArchiveCondition honours ?archived only for an identified editor.
+// /v1/authors is public, and soft-deleted authors are not public information.
+func authorArchiveCondition(q url.Values, isEditor bool) string {
+	if _, archivedProvided := q["archived"]; archivedProvided && isEditor {
 		archivedRaw := strings.ToLower(strings.TrimSpace(q.Get("archived")))
 		switch archivedRaw {
 		case "", "1", "true", "yes":
@@ -424,7 +426,7 @@ func parseAuthorIDs(raw any) ([]int64, error) {
 // @Param offset query int false "Offset"
 // @Param article_id query int false "Filter by article ID"
 // @Param search query string false "Filter by display name, login, or email (substring match)"
-// @Param archived query bool false "When true, return only soft-deleted authors"
+// @Param archived query bool false "When true, return only soft-deleted authors. Ignored for unauthenticated callers."
 // @Param sort_by query string false "Sort field (id sorts by creation order)" Enums(display_name,id)
 // @Param sort_direction query string false "Sort direction" Enums(asc,desc)
 // @Success 200 {object} models.AuthorsResponse
@@ -462,7 +464,8 @@ func GetAuthors(conn *sql.DB) http.HandlerFunc {
 			args = append(args, like, like, like)
 		}
 
-		conditions = append(conditions, authorArchiveCondition(q))
+		_, isEditor := middleware.UserFromContext(r.Context())
+		conditions = append(conditions, authorArchiveCondition(q, isEditor))
 
 		countQuery := "SELECT COUNT(*) FROM `authors` a"
 		if len(conditions) > 0 {
@@ -882,8 +885,8 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 // @Param author_slug query string false "Filter by author slug"
 // @Param section_slug query string false "Filter by section slug"
 // @Param subsection_slug query string false "Filter by subsection slug"
-// @Param status query string false "Filter by status" Enums(draft,published)
-// @Param archived query bool false "When true, return only soft-deleted articles"
+// @Param status query string false "Filter by status. Ignored for unauthenticated callers, who always get published only." Enums(draft,published)
+// @Param archived query bool false "When true, return only soft-deleted articles. Ignored for unauthenticated callers."
 // @Param title query string false "Filter by title (partial match)"
 // @Param slug query string false "Filter by slug (partial match)"
 // @Param sort_by query string false "Sort field" Enums(title,slug,creation_date,published_date,status,comment_status)
@@ -1131,7 +1134,17 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	var args []any
 
 	conditions = append(conditions, "((TRIM(COALESCE(`authors`, '')) <> '' AND TRIM(`authors`) <> '[]') OR (TRIM(COALESCE(`categories`, '')) <> '' AND TRIM(`categories`) <> '[]'))")
-	if _, archivedProvided := q["archived"]; archivedProvided {
+
+	// /v1/articles is public, so an anonymous caller is pinned to the published,
+	// non-archived view and the `archived`/`status` query params are ignored for
+	// them. Without this, anyone could enumerate unpublished drafts
+	// (?status=draft) or soft-deleted articles (?archived=true) — the listing is
+	// excerpt-only, but unpublished headlines still must not leak. Editors are
+	// identified by OptionalAuth on the route and keep the full filter set.
+	_, isEditor := middleware.UserFromContext(r.Context())
+	if !isEditor {
+		conditions = append(conditions, "`pub_date` IS NOT NULL", "`archived_at` IS NULL")
+	} else if _, archivedProvided := q["archived"]; archivedProvided {
 		archivedRaw := strings.ToLower(strings.TrimSpace(q.Get("archived")))
 		switch archivedRaw {
 		case "", "1", "true", "yes":
@@ -1158,7 +1171,7 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 		appendCategorySlugCondition(&conditions, &args, params.Subsection)
 	}
 
-	if status := strings.TrimSpace(q.Get("status")); status != "" {
+	if status := strings.TrimSpace(q.Get("status")); status != "" && isEditor {
 		switch strings.ToLower(status) {
 		case string(models.ArticleStatusDraft):
 			conditions = append(conditions, "`pub_date` IS NULL")
