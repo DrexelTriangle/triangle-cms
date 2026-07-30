@@ -1,10 +1,19 @@
 [mysqld]
 # =============================================================================
-# Triangle CMS — MariaDB READ REPLICA config.
-# Runs on its OWN physical server (separate from the primary), replicating
-# asynchronously from the primary via GTID. Serves READ traffic only.
-# Installed natively at /etc/mysql/mariadb.conf.d/50-triangle-replica.cnf.
+# Triangle CMS — MariaDB READ REPLICA (DB2) config. NOT YET DEPLOYED: DB2 does
+# not exist as of 2026-07-30, so this is the config to install when it lands.
+# Runs on its OWN host (separate from DB1), replicating asynchronously from the
+# primary via GTID. Serves READ traffic only.
+# Installed natively at /etc/mysql/mariadb.conf.d/70-triangle-replica.cnf — the
+# 70- prefix is load-bearing, see bind-address below.
 # =============================================================================
+
+# --- Network ------------------------------------------------------------------
+# UNCOMMENT AND SET to DB2's internal NIC address before starting MariaDB.
+# Ubuntu's stock 50-server.cnf binds 127.0.0.1, which would leave the replica
+# unreachable from both MaxScale and the primary; this file must sort after it.
+# Firewall 3306 to the MaxScale and primary hosts only.
+# bind-address                   = 10.248.40.xxx
 
 # --- InnoDB memory -----------------------------------------------------------
 # Sized to match the primary; see the rationale in primary.cnf. Adjust the two
