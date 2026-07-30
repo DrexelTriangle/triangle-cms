@@ -265,7 +265,35 @@ def snapshot_counts(compose: list[str]) -> dict[str, str]:
 # --------------------------------------------------------------------------
 
 
-def confirm(args: argparse.Namespace, compose: list[str], volume: str | None) -> None:
+def embeddings_outlook(args: argparse.Namespace, etl_dir: Path) -> tuple[bool, str]:
+    """Will this run end up with article embeddings, and why/why not?
+
+    Answered BEFORE the destructive confirmation. The seed always replaces
+    article_embeddings -- with a real table, or with a placeholder that drops it
+    -- so "no embeddings" is a decision to destroy the ones you have, and the
+    user has to be able to see that while they can still say no.
+    """
+    if args.no_embeddings:
+        return False, "--no-embeddings was passed, so none will be generated"
+
+    existing = etl_dir / "logs" / "sql" / "article_embeddings.sql"
+    if not args.skip_etl:
+        return True, "the ETL will generate them (--generate-embeddings)"
+
+    # --skip-etl: whatever is already on disk is what gets loaded.
+    if not existing.is_file():
+        return False, f"--skip-etl was passed and {existing} does not exist"
+    if "VECTOR" not in existing.read_text(encoding="utf-8", errors="replace")[:4096]:
+        return False, f"--skip-etl was passed and {existing.name} has no VECTOR column"
+    return True, f"reusing {existing.name} ({existing.stat().st_size // 1024} KiB)"
+
+
+def confirm(
+    args: argparse.Namespace,
+    compose: list[str],
+    volume: str | None,
+    etl_dir: Path,
+) -> None:
     print("\n" + "=" * 72)
     print("  DESTRUCTIVE: this rebuilds the local dev database from scratch.")
     print("=" * 72)
@@ -287,6 +315,21 @@ def confirm(args: argparse.Namespace, compose: list[str], volume: str | None) ->
             print(f"    {table:<20} {count:>10}")
     else:
         print("\n  (The database is not currently queryable, so nothing to report.)")
+
+    # Stated here, not after the ETL runs: by then the database is already gone
+    # and there is nothing left to decide.
+    will_embed, why = embeddings_outlook(args, etl_dir)
+    if will_embed:
+        print(f"\n  Embeddings: YES -- {why}.")
+    else:
+        current = counts.get("article_embeddings")
+        print(f"\n  Embeddings: NO -- {why}.")
+        if current and current != "0":
+            print(f"    The seed replaces article_embeddings, so the {current} rows you have now")
+            print("    are destroyed and NOT regenerated. Related-articles on")
+            print("    /v1/articles/{slug} will come back empty until you re-run with embeddings.")
+        else:
+            print("    Related-articles on /v1/articles/{slug} will be empty.")
 
     print("\n  NOT affected: production, Loki/Grafana volumes, and files on disk.")
     print("  This script only ever talks to the local Docker stack.\n")
@@ -458,7 +501,7 @@ def main() -> int:
         info(f"seed to: {SEED_DIR}")
 
         volume = compose_volume_name()
-        confirm(args, compose, volume)
+        confirm(args, compose, volume, etl_dir)
 
         if args.skip_etl:
             step("Reusing existing ETL SQL (--skip-etl)")
