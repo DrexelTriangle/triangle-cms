@@ -227,6 +227,7 @@ const docTemplate = `{
         },
         "/v1/articles/{slug}": {
             "get": {
+                "description": "Public. Unauthenticated callers only see published, non-archived articles; anything else answers 404, the same as an unknown slug. An authenticated editor sees drafts and archived articles too.",
                 "produces": [
                     "application/json"
                 ],

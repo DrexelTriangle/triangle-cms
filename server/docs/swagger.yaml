@@ -1113,6 +1113,9 @@ paths:
       tags:
       - articles
     get:
+      description: Public. Unauthenticated callers only see published, non-archived
+        articles; anything else answers 404, the same as an unknown slug. An authenticated
+        editor sees drafts and archived articles too.
       parameters:
       - description: Article slug
         in: path

@@ -322,7 +322,11 @@ func GetRelatedArticlesBySlug(ctx context.Context, conn *sql.DB, slug string, k 
 		"JOIN article_embeddings AS src_vec ON src_vec.article_id = src.id " +
 		"JOIN article_embeddings AS cand_vec ON cand_vec.article_id <> src.id " +
 		"JOIN articles AS a ON a.id = cand_vec.article_id " +
-		"WHERE src.slug = ? " +
+		// "Related reading" is surfaced on the public article page, so a
+		// candidate must be live content regardless of who is asking -- an
+		// unpublished or soft-deleted article is not something to link to from
+		// anywhere, including the CMS preview.
+		"WHERE src.slug = ? AND a.pub_date IS NOT NULL AND a.archived_at IS NULL " +
 		"ORDER BY VEC_DISTANCE_EUCLIDEAN(cand_vec.embedding, src_vec.embedding), a.id DESC " +
 		"LIMIT ?"
 

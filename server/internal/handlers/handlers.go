@@ -1353,7 +1353,22 @@ func GetSearch(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
+// articleDetailCondition builds the WHERE clause for a single-article lookup.
+// The endpoint is public and returns the FULL article body, so an anonymous
+// caller is restricted to live content: knowing or guessing a slug must not
+// hand out an unpublished draft or a soft-deleted article. A miss falls through
+// to the same 404 as a nonexistent slug, so the response never reveals that the
+// article exists. Editors are identified by OptionalAuth on the route and still
+// see everything.
+func articleDetailCondition(r *http.Request) string {
+	if _, isEditor := middleware.UserFromContext(r.Context()); isEditor {
+		return "`slug` = ?"
+	}
+	return "`slug` = ? AND `pub_date` IS NOT NULL AND `archived_at` IS NULL"
+}
+
 // @Summary Get an article by slug
+// @Description Public. Unauthenticated callers only see published, non-archived articles; anything else answers 404, the same as an unknown slug. An authenticated editor sees drafts and archived articles too.
 // @Tags articles
 // @Produce json
 // @Param slug path string true "Article slug"
@@ -1369,7 +1384,13 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
-		rows, err := db.Select(r.Context(), conn, "articles", db.ArticleColumns, "`slug` = ?", slug)
+		// This endpoint is public and returns the FULL article body, so an
+		// anonymous caller is restricted to live content: knowing or guessing a
+		// slug must not hand out an unpublished draft or a soft-deleted article.
+		// The miss falls through to the same 404 as a nonexistent slug, so the
+		// response does not reveal that the article exists at all. Editors are
+		// identified by OptionalAuth on the route and still see everything.
+		rows, err := db.Select(r.Context(), conn, "articles", db.ArticleColumns, articleDetailCondition(r), slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
