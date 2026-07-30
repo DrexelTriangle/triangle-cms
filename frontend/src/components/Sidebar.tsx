@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import {
   LayoutDashboard,
@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
 import logo from "../assets/logo.png"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
+import { useApiFetch } from "../hooks/useApiFetch"
 import { useSessionAuth } from "../auth/sessionAuthContext"
 
 type NavItem = {
@@ -59,7 +60,7 @@ const navGroups: NavGroup[] = [
     items: [
       { icon: Users, label: "Authors", path: "/authors" },
       { icon: Layers, label: "Sections", path: "/sections" },
-      { icon: MessageSquare, label: "Comments", path: "/comments", badge: 3 },
+      { icon: MessageSquare, label: "Comments", path: "/comments" },
       { icon: Search, label: "SEO", path: "/seo" },
     ],
   },
@@ -76,7 +77,9 @@ const navGroups: NavGroup[] = [
 export default function Sidebar() {
   const { isAdmin } = useCurrentUserRole()
   const { logout } = useSessionAuth()
+  const apiFetch = useApiFetch()
   const [collapsed, setCollapsed] = useState(false)
+  const [pendingCommentCount, setPendingCommentCount] = useState(0)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     "/articles": true,
   })
@@ -95,6 +98,30 @@ export default function Sidebar() {
   }
 
   const visibleNavGroups = navGroups.filter((group) => group.label !== "Admin" || isAdmin)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadPendingCommentCount = async () => {
+      try {
+        const response = await apiFetch("/v1/comments?limit=1&status=pending")
+        if (!response.ok) return
+        const body = await response.json() as { counts?: { pending?: number } }
+        if (!cancelled) {
+          setPendingCommentCount(body.counts?.pending ?? 0)
+        }
+      } catch {
+        if (!cancelled) {
+          setPendingCommentCount(0)
+        }
+      }
+    }
+
+    void loadPendingCommentCount()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch])
 
   return (
     <aside
@@ -131,6 +158,7 @@ export default function Sidebar() {
               const active = isActive(item)
               const hasChildren = item.children && item.children.length > 0
               const open = openGroups[item.path]
+              const badge = item.path === "/comments" ? pendingCommentCount : item.badge
 
               return (
                 <div key={item.path}>
@@ -156,9 +184,9 @@ export default function Sidebar() {
                     {!collapsed && (
                       <>
                         <span className="flex-1 truncate text-left">{item.label}</span>
-                        {item.badge ? (
+                        {badge ? (
                           <span className="ml-auto px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-primary/20 text-primary min-w-[18px] text-center leading-none">
-                            {item.badge}
+                            {badge}
                           </span>
                         ) : null}
                         {hasChildren && (

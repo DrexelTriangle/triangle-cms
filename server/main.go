@@ -117,6 +117,14 @@ func main() {
 		slog.Error("failed to migrate authors schema", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsureCommentsTable(context.Background(), db); err != nil {
+		slog.Error("failed to create comments table", "error", err)
+		os.Exit(1)
+	}
+	if err := database.EnsureMediaTable(context.Background(), db); err != nil {
+		slog.Error("failed to create media table", "error", err)
+		os.Exit(1)
+	}
 
 	if err := database.EnsureUsersTable(context.Background(), db); err != nil {
 		slog.Error("failed to create users table", "error", err)
@@ -124,6 +132,10 @@ func main() {
 	}
 	if err := database.EnsurePollsTable(context.Background(), db); err != nil {
 		slog.Error("failed to create poll table", "error", err)
+		os.Exit(1)
+	}
+	if err := database.EnsurePollsSchema(context.Background(), db); err != nil {
+		slog.Error("failed to create poll archive tables", "error", err)
 		os.Exit(1)
 	}
 
@@ -155,6 +167,12 @@ func main() {
 	}
 	if err := database.EnsurePollSettings(context.Background(), db); err != nil {
 		slog.Error("failed to seed poll settings", "error", err)
+		os.Exit(1)
+	}
+	// Runs after the settings table exists, since the legacy poll question lives
+	// in cms_settings. No-op once cms_polls has any row.
+	if err := database.MigrateLegacyPoll(context.Background(), db); err != nil {
+		slog.Error("failed to migrate legacy poll", "error", err)
 		os.Exit(1)
 	}
 

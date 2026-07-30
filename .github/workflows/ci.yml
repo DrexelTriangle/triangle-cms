@@ -78,6 +78,16 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
+  # The deployment scripts are the least reversible code in the repo, so their
+  # test suite runs on every PR. It stubs docker/curl/nginx on PATH and needs no
+  # daemon, database, or privileges.
+  deploy-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy script tests
+        run: deploy/scripts/deploy_scripts_test.sh
+
   compose-validation:
     runs-on: ubuntu-latest
     steps:

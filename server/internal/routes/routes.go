@@ -34,14 +34,27 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/authors/{slug}/articles", authMW(handlers.GetAuthorArticles(conn)))
 
 	mux.Handle("GET /v1/articles", authMW(handlers.GetArticles(conn)))
-	mux.Handle("GET /v1/articles/{slug}", authMW(handlers.GetArticle(conn)))
+	mux.Handle("GET /v1/articles/{slug}", handlers.GetArticle(conn))
+	mux.Handle("GET /v1/articles/{slug}/comments", handlers.GetArticleComments(conn))
+	mux.Handle("POST /v1/articles/{slug}/comments", middleware.RateLimitByIP(5, time.Minute)(handlers.PostArticleComment(conn)))
 	mux.Handle("GET /v1/search", authMW(handlers.GetSearch(conn)))
 	mux.Handle("GET /v1/sections/{section_slug}/articles", handlers.GetSectionArticles(conn))
 	mux.Handle("GET /v1/subsections/{subsection_slug}/articles", handlers.GetSubsectionArticles(conn))
+	mux.Handle("GET /v1/comments", authMW(handlers.GetComments(conn)))
+	mux.Handle("PATCH /v1/comments/{id}", authMW(handlers.PatchComment(conn)))
+	mux.Handle("DELETE /v1/comments/{id}", authMW(handlers.DeleteComment(conn)))
 
-	mux.Handle("GET /v1/media", http.HandlerFunc(handlers.Users))
-	mux.Handle("GET /v1/media/{id}", http.HandlerFunc(handlers.Users))
-	mux.Handle("GET /v1/media/gallery", http.HandlerFunc(handlers.Users))
+	// The media library is editor-facing: the assets themselves are served
+	// publicly by Nginx off the CephFS mount, but the catalogue is not.
+	// "gallery" and "index" are literal segments, so Go's mux prefers them over
+	// /v1/media/{id}.
+	mux.Handle("GET /v1/media", authMW(handlers.GetMedia(conn)))
+	mux.Handle("GET /v1/media/gallery", authMW(handlers.GetMediaGallery(conn)))
+	mux.Handle("GET /v1/media/{id}", authMW(handlers.GetMediaItem(conn)))
+	mux.Handle("POST /v1/media", authMW(adminOnly(handlers.PostMedia(conn))))
+	mux.Handle("POST /v1/media/index", authMW(adminOnly(handlers.PostMediaIndex(conn))))
+	mux.Handle("PATCH /v1/media/{id}", authMW(handlers.PatchMediaItem(conn)))
+	mux.Handle("DELETE /v1/media/{id}", authMW(adminOnly(handlers.DeleteMediaItem(conn))))
 	mux.Handle("GET /v1/homepage", handlers.GetHomepage(conn))
 	mux.Handle("GET /v1/settings/site", handlers.GetSiteSettings(conn))
 	mux.Handle("GET /v1/settings/seo", handlers.GetSEOSettings(conn))
@@ -55,6 +68,11 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/poll/title", handlers.GetPollTitle(conn))
 	mux.Handle("POST /v1/poll", middleware.RateLimitByIP(5, time.Minute)(handlers.PostPoll(conn)))
 	mux.Handle("GET /v1/poll/options", handlers.GetPollOptions(conn))
+
+	// Poll archive. GET /v1/polls is public and hides drafts; the editor-facing
+	// listing that includes them is a separate admin-gated path.
+	mux.Handle("GET /v1/polls", handlers.GetPolls(conn))
+	mux.Handle("GET /v1/polls/{id}", handlers.GetPollByID(conn))
 	mux.Handle("GET /v1/developing-stories", handlers.GetDevelopingStories(conn))
 	mux.Handle("GET /v1/taxonomy", authMW(handlers.GetTaxonomy(conn)))
 	mux.Handle("GET /v1/taxonomy/{type}/{slug}", authMW(handlers.GetTaxonomyItem(conn)))
@@ -62,6 +80,14 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("POST /v1/poll/options", authMW(adminOnly(handlers.PostPollOption(conn))))
 	mux.Handle("PATCH /v1/poll/options", authMW(adminOnly(handlers.PatchPollOption(conn))))
 	mux.Handle("DELETE /v1/poll/options", authMW(adminOnly(handlers.DeletePollOption(conn))))
+	// "manage" is a literal segment, so Go's mux prefers it over /v1/polls/{id}.
+	mux.Handle("GET /v1/polls/manage", authMW(adminOnly(handlers.GetPollsManage(conn))))
+	mux.Handle("POST /v1/polls", authMW(adminOnly(handlers.PostPollRecord(conn))))
+	mux.Handle("PATCH /v1/polls/{id}", authMW(adminOnly(handlers.PatchPollRecord(conn))))
+	mux.Handle("DELETE /v1/polls/{id}", authMW(adminOnly(handlers.DeletePollRecord(conn))))
+	mux.Handle("POST /v1/polls/{id}/options", authMW(adminOnly(handlers.PostPollRecordOption(conn))))
+	mux.Handle("PATCH /v1/polls/{id}/options/{option_id}", authMW(adminOnly(handlers.PatchPollRecordOption(conn))))
+	mux.Handle("DELETE /v1/polls/{id}/options/{option_id}", authMW(adminOnly(handlers.DeletePollRecordOption(conn))))
 	mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))
 	mux.Handle("DELETE /v1/developing-stories", authMW(adminOnly(handlers.DeleteDevelopingStory(conn))))
 	mux.Handle("PATCH /v1/settings/site", authMW(adminOnly(handlers.PatchSiteSettings(conn))))

@@ -82,6 +82,96 @@ the generated active upstream include. The directory should be owned by
 owned by `triangle-runner:triangle-runner` with mode `0644`. The host Nginx site
 such as `/etc/nginx/sites-available/triangle-cms.conf` remains root-owned.
 
+### Installing the Nginx site
+
+Steps 6-8 above, concretely. The repo is not checked out on Delta, so copy the
+two files over first (from a workstation, at the repo root):
+
+```bash
+scp deploy/nginx/triangle-cms.conf \
+    deploy/nginx/triangle-cms-active-upstreams.conf.example \
+    <user>@<delta>:/tmp/
+```
+
+Then on Delta:
+
+```bash
+sudo cp /tmp/triangle-cms.conf /etc/nginx/sites-available/triangle-cms.conf
+sudo ln -sf /etc/nginx/sites-available/triangle-cms.conf /etc/nginx/sites-enabled/
+
+sudo install -d -o triangle-runner -g triangle-runner -m 0750 /etc/nginx/triangle-cms
+sudo install -o triangle-runner -g triangle-runner -m 0644 \
+  /tmp/triangle-cms-active-upstreams.conf.example \
+  /etc/nginx/triangle-cms/active-upstreams.conf
+
+# The stock default site also matches `server_name _` and can win the vhost pick.
+sudo rm -f /etc/nginx/sites-enabled/default
+
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Nginx will not start without `active-upstreams.conf`, since the site `include`s
+it unconditionally. A passing `nginx -t` *before* the site is enabled only
+validates the stock config and proves nothing.
+
+### Media serving
+
+`location /wp-content/` reads the migrated WordPress corpus straight off CephFS.
+It has no dependency on the containers, the runner, or the database, so it can be
+brought up on its own before the rest of the stack exists. `/` and `/v1/` return
+502 until a slot is deployed; that is expected and does not affect media.
+
+Verify the mount and that the Nginx worker user can traverse to it:
+
+```bash
+mountpoint /mnt/cephfs
+sudo -u www-data ls /mnt/cephfs/media/wp-content/uploads >/dev/null && echo ok
+```
+
+A failure there is almost always missing execute permission on a path component
+(`sudo chmod o+x /mnt/cephfs /mnt/cephfs/media`), not the Nginx config. On
+RHEL-family hosts SELinux blocks the read separately; check `ausearch -m avc -ts
+recent` and set `httpd_read_user_content`.
+
+Smoke test with a real file:
+
+```bash
+find /mnt/cephfs/media/wp-content/uploads -name '*.jpg' | head -1
+curl -I http://localhost/wp-content/uploads/YYYY/MM/name.jpg
+```
+
+Expect `200` with `Cache-Control: public, max-age=2592000, immutable`.
+
+### Media library
+
+Serving the files is independent of *listing* them. The CMS media page reads a
+`media` table, which starts empty: the rsynced corpus is on disk but unknown to
+the database. After the media rsync completes, populate it once from the CMS
+(Media -> Reindex) or directly:
+
+```bash
+curl -X POST https://localhost/v1/media/index   # admin session required
+```
+
+It walks `MEDIA_ROOT/wp-content/uploads`, skips WordPress's generated `-WxH`
+thumbnails, and inserts a row per original. It is idempotent and safe to re-run —
+already-indexed files are skipped and any alt text set in the CMS is preserved —
+so re-run it after any later out-of-band rsync. Uploads through the CMS index
+themselves and need no reindex.
+
+Note this walks the whole tree, so on a large corpus over CephFS the first run
+takes a while; run it once at cutover rather than on a schedule.
+
+### Disk
+
+Blue/green keeps two frontend and two backend images resident, plus whatever
+prior tags have not been reaped. Delta's root filesystem is small (15 GB), so
+prune before it fills:
+
+```bash
+docker image prune -af --filter 'until=168h'
+```
+
 ## Required Host Environment
 
 Copy `cms.env.example` to the private host env path and fill it with real values.
@@ -103,6 +193,12 @@ The file must contain the exact immutable image tag for the active deployment:
 - `CMS_SESSION_TTL_SECONDS`
 - `CMS_AUTO_PROMOTE_ALL_ADMINS`
 - `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP`
+- `MEDIA_HOST_PATH` - host path to the CephFS media tree, bind-mounted into the
+  backend. Defaults to `/mnt/cephfs/media`.
+- `MEDIA_ROOT` - the same tree as seen *inside* the container. Leave at
+  `/mnt/cephfs/media` unless the bind-mount target changes.
+- `MEDIA_BASE_URL` - public origin that serves `/wp-content/`, used to build
+  media URLs returned by the upload endpoint. Empty yields relative URLs.
 
 Keep `CMS_AUTO_PROMOTE_ALL_ADMINS=false` and
 `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP=false` in production. Rebuild taxonomy

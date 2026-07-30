@@ -1,0 +1,43 @@
+# Triangle CMS — MariaDB PRIMARY (writes), on its OWN physical server.
+# Tuned by deploy/mariadb/primary.cnf. Source of GTID replication to the replica
+# and the backend that MaxScale routes writes to.
+#
+# Usage on the primary host:
+#   docker compose -f compose.mariadb-primary.yml --env-file cms.env up -d
+#
+# 3306 is published on the host's internal NIC (MARIADB_BIND_ADDR) so the replica
+# server AND the MaxScale/app host can reach it. Firewall it to exactly those two
+# IPs — nothing else should touch the database directly.
+
+name: triangle-mariadb-primary
+
+services:
+  mariadb-primary:
+    image: mariadb:11.7
+    restart: unless-stopped
+    command: ["--log-error=/var/lib/mysql/error.log"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-triangle}
+      MARIADB_USER: ${MARIADB_USER:-triangle_user}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
+      # Consumed by the init scripts that create the replication and MaxScale users.
+      REPL_USER: ${REPL_USER:?REPL_USER is required}
+      REPL_PASSWORD: ${REPL_PASSWORD:?REPL_PASSWORD is required}
+      MAXSCALE_USER: ${MAXSCALE_USER:?MAXSCALE_USER is required}
+      MAXSCALE_PASSWORD: ${MAXSCALE_PASSWORD:?MAXSCALE_PASSWORD is required}
+    volumes:
+      - mariadb_primary_data:/var/lib/mysql
+      - ./mariadb/primary.cnf:/etc/mysql/conf.d/primary.cnf:ro,z
+      - ./mariadb/primary-initdb:/docker-entrypoint-initdb.d:ro,z
+    ports:
+      - "${MARIADB_BIND_ADDR:-127.0.0.1}:${MARIADB_PORT_FORWARD:-3306}:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  mariadb_primary_data:

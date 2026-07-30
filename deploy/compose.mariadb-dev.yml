@@ -1,0 +1,66 @@
+# Triangle CMS — THROWAWAY MariaDB for a Delta dry run. NOT for production.
+#
+# Production runs a primary + read replica behind MaxScale on dedicated hosts
+# (compose.mariadb-primary.yml / compose.mariadb-replica.yml). Those are tuned
+# for dedicated 8 GB boxes and will OOM on Delta, which has ~3.8 GB total and is
+# also running both CMS slots. This file exists purely so the CMS can be brought
+# up end-to-end before that hardware is provisioned.
+#
+# It is an OVERLAY on compose.cms.yml, so the database joins the same
+# `triangle_net` bridge and the backend can reach it by service name:
+#
+#   docker compose -f compose.cms.yml -f compose.mariadb-dev.yml \
+#     --env-file cms.env up -d
+#
+# With that, cms.env sets DB_HOST=mariadb-dev and DB_PORT=3306.
+#
+# Tear this down when the real DB host lands — repoint DB_HOST at MaxScale and
+# drop the second -f flag. The named volume below is deliberately distinct from
+# the production volume names so it can be removed without ambiguity:
+#
+#   docker compose -f compose.cms.yml -f compose.mariadb-dev.yml down
+#   docker volume rm triangle-cms_mariadb_dev_data
+
+services:
+  mariadb-dev:
+    image: mariadb:11.7
+    restart: unless-stopped
+    command: ["--log-error=/var/lib/mysql/error.log"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD is required}
+      # Unlike the production primary, this node DOES create the app database and
+      # user on first init — there is no replication or provisioning step here.
+      MARIADB_DATABASE: ${DB_NAME:?DB_NAME is required}
+      MARIADB_USER: ${DB_USER:?DB_USER is required}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - mariadb_dev_data:/var/lib/mysql
+      - ./mariadb/dev.cnf:/etc/mysql/conf.d/dev.cnf:ro,z
+    # Loopback only. Nothing outside Delta should reach this, and the backend
+    # talks to it over triangle_net rather than through the host.
+    ports:
+      - "127.0.0.1:${MARIADB_PORT_FORWARD:-3306}:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - triangle_net
+
+  # Production cannot express this -- the database is external there, so the
+  # backend just retries until the endpoint answers. Here the DB is a sibling
+  # service, so wait for it and keep the startup logs clean.
+  backend-blue:
+    depends_on:
+      mariadb-dev:
+        condition: service_healthy
+
+  backend-green:
+    depends_on:
+      mariadb-dev:
+        condition: service_healthy
+
+volumes:
+  mariadb_dev_data:

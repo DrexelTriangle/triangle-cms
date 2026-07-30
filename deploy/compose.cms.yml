@@ -29,6 +29,14 @@ x-backend-base: &backend-base
     CMS_SESSION_TTL_SECONDS: ${CMS_SESSION_TTL_SECONDS:-604800}
     CMS_AUTO_PROMOTE_ALL_ADMINS: ${CMS_AUTO_PROMOTE_ALL_ADMINS:-false}
     CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP: ${CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP:-false}
+    # Media: legacy WP uploads migrated to CephFS. The upload endpoint writes new
+    # assets under MEDIA_ROOT; MEDIA_BASE_URL is the public host that serves them.
+    MEDIA_ROOT: ${MEDIA_ROOT:-/mnt/cephfs/media}
+    MEDIA_BASE_URL: ${MEDIA_BASE_URL:-}
+  volumes:
+    # CephFS media tree (host). rw so the upload endpoint can store new files;
+    # host Nginx serves the same tree read-only (see deploy/nginx/triangle-cms.conf).
+    - ${MEDIA_HOST_PATH:-/mnt/cephfs/media}:/mnt/cephfs/media:rw
   healthcheck:
     test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/v1/health/db || exit 1"]
     interval: 10s

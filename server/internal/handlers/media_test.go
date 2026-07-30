@@ -1,0 +1,243 @@
+package handlers
+
+import (
+	"bytes"
+	"image"
+	"image/color"
+	"image/png"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func pngBytes(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	img.Set(0, 0, color.RGBA{R: 1, G: 2, B: 3, A: 255})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func uploadRequest(t *testing.T, filename string, content []byte) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile(mediaFormField, filename)
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := fw.Write(content); err != nil {
+		t.Fatalf("write content: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/media", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return req
+}
+
+// The rejection paths all answer before the handler reaches the database, so a
+// nil connection is enough to exercise them.
+
+func TestPostMedia_RejectsNonImage(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+	rec := httptest.NewRecorder()
+	PostMedia(nil).ServeHTTP(rec, uploadRequest(t, "notes.txt", []byte("this is plainly text, not an image at all")))
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPostMedia_NotConfigured(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", "")
+	rec := httptest.NewRecorder()
+	PostMedia(nil).ServeHTTP(rec, uploadRequest(t, "pic.png", pngBytes(t, 2, 2)))
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want 501", rec.Code)
+	}
+}
+
+func TestPostMediaIndex_NotConfigured(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", "")
+	rec := httptest.NewRecorder()
+	PostMediaIndex(nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/media/index", nil))
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want 501", rec.Code)
+	}
+}
+
+func TestSanitizeBaseName(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"slugifies and drops extension", "My Photo (final).PNG", "my-photo-final"},
+		// Everything before the last separator is discarded, so a traversal
+		// attempt collapses to the bare file name.
+		{"discards directory components", "../../etc/passwd.png", "passwd"},
+		{"discards windows separators", `C:\Users\me\pic.png`, "pic"},
+		{"falls back when nothing survives", "!!!.png", "file"},
+		{"truncates very long names", strings.Repeat("a", 300) + ".png", strings.Repeat("a", maxBaseNameLen)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeBaseName(tt.in); got != tt.want {
+				t.Fatalf("sanitizeBaseName(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// storeUpload is where the corpus-safety guarantees live: it must never
+// overwrite an existing asset and must not leave partial temp files behind.
+func TestStoreUpload_NeverClobbers(t *testing.T) {
+	dir := t.TempDir()
+	content := pngBytes(t, 4, 4)
+
+	first, _, err := storeUpload(dir, "pic", ".png", bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("first store: %v", err)
+	}
+	second, size, err := storeUpload(dir, "pic", ".png", bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("second store: %v", err)
+	}
+
+	if first != "pic.png" || second != "pic-1.png" {
+		t.Fatalf("names = %q, %q; want pic.png, pic-1.png", first, second)
+	}
+	if size != int64(len(content)) {
+		t.Fatalf("size = %d, want %d", size, len(content))
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected exactly 2 files, got %d", len(entries))
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".upload-") {
+			t.Fatalf("leftover temp file: %s", entry.Name())
+		}
+	}
+}
+
+func TestUploadURL(t *testing.T) {
+	rel := "wp-content/uploads/2026/07/pic.png"
+
+	t.Run("root-relative when unset", func(t *testing.T) {
+		t.Setenv("MEDIA_BASE_URL", "")
+		if got := uploadURL(rel); got != "/"+rel {
+			t.Fatalf("uploadURL = %q, want %q", got, "/"+rel)
+		}
+	})
+
+	t.Run("joined to base without doubling the slash", func(t *testing.T) {
+		t.Setenv("MEDIA_BASE_URL", "https://media.example.org/")
+		if got, want := uploadURL(rel), "https://media.example.org/"+rel; got != want {
+			t.Fatalf("uploadURL = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestResolveMediaPath(t *testing.T) {
+	root := t.TempDir()
+
+	t.Run("resolves a stored path", func(t *testing.T) {
+		got, ok := resolveMediaPath(root, "wp-content/uploads/2026/07/pic.png")
+		if !ok {
+			t.Fatal("expected the path to resolve")
+		}
+		want := filepath.Join(root, "wp-content", "uploads", "2026", "07", "pic.png")
+		if got != want {
+			t.Fatalf("resolveMediaPath = %q, want %q", got, want)
+		}
+	})
+
+	// A stored path is always server-generated, so this is defence in depth
+	// against a hand-edited row rather than reachable user input. Traversal is
+	// neutralized rather than rejected: cleaning against a leading "/" collapses
+	// the ".." segments away, so the result must still land inside root.
+	for _, traversal := range []string{"../outside.png", "wp-content/../../outside.png", "./../../../etc/passwd"} {
+		t.Run("contains "+traversal, func(t *testing.T) {
+			got, ok := resolveMediaPath(root, traversal)
+			if !ok {
+				return // refusing outright is also acceptable
+			}
+			if !strings.HasPrefix(got, filepath.Clean(root)+string(os.PathSeparator)) {
+				t.Fatalf("resolveMediaPath(%q) = %q, which escapes root %q", traversal, got, root)
+			}
+		})
+	}
+
+	for _, empty := range []string{"", "/", "   ", "..", "../.."} {
+		t.Run("refuses empty "+empty, func(t *testing.T) {
+			if _, ok := resolveMediaPath(root, empty); ok {
+				t.Fatalf("expected %q to be refused", empty)
+			}
+		})
+	}
+}
+
+func TestBoolParam(t *testing.T) {
+	tests := []struct {
+		query string
+		want  bool
+	}{
+		{"", false},
+		{"keep_file", true},
+		{"keep_file=", true},
+		{"keep_file=true", true},
+		{"keep_file=1", true},
+		{"keep_file=false", false},
+		{"keep_file=0", false},
+		{"keep_file=no", false},
+	}
+
+	for _, tt := range tests {
+		t.Run("?"+tt.query, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodDelete, "/v1/media/1?"+tt.query, nil)
+			if got := boolParam(req, "keep_file"); got != tt.want {
+				t.Fatalf("boolParam(%q) = %v, want %v", tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMediaIDParam(t *testing.T) {
+	tests := []struct {
+		id     string
+		want   int64
+		wantOK bool
+	}{
+		{"1", 1, true},
+		{"4096", 4096, true},
+		{"0", 0, false},
+		{"-3", 0, false},
+		{"abc", 0, false},
+		{"", 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run("id="+tt.id, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/media/"+tt.id, nil)
+			req.SetPathValue("id", tt.id)
+			got, ok := mediaIDParam(req)
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("mediaIDParam(%q) = (%d, %v), want (%d, %v)", tt.id, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
