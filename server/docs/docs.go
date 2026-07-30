@@ -114,13 +114,13 @@ const docTemplate = `{
                             "published"
                         ],
                         "type": "string",
-                        "description": "Filter by status",
+                        "description": "Filter by status. Ignored for unauthenticated callers, who always get published only.",
                         "name": "status",
                         "in": "query"
                     },
                     {
                         "type": "boolean",
-                        "description": "When true, return only soft-deleted articles",
+                        "description": "When true, return only soft-deleted articles. Ignored for unauthenticated callers.",
                         "name": "archived",
                         "in": "query"
                     },
@@ -739,7 +739,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "boolean",
-                        "description": "When true, return only soft-deleted authors",
+                        "description": "When true, return only soft-deleted authors. Ignored for unauthenticated callers.",
                         "name": "archived",
                         "in": "query"
                     },
@@ -3168,11 +3168,6 @@ const docTemplate = `{
         },
         "/v1/taxonomy": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],
@@ -3284,11 +3279,6 @@ const docTemplate = `{
         },
         "/v1/taxonomy/{type}/{slug}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "produces": [
                     "application/json"
                 ],

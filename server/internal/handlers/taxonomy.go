@@ -42,7 +42,6 @@ func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, 
 // @Success 200 {array} models.TaxonomyItem
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Security BearerAuth
 // @Router /v1/taxonomy [get]
 func GetTaxonomy(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +93,6 @@ func GetTaxonomy(conn *sql.DB) http.HandlerFunc {
 // @Failure 400 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Security BearerAuth
 // @Router /v1/taxonomy/{type}/{slug} [get]
 func GetTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

@@ -1005,14 +1005,16 @@ paths:
         in: query
         name: subsection_slug
         type: string
-      - description: Filter by status
+      - description: Filter by status. Ignored for unauthenticated callers, who always
+          get published only.
         enum:
         - draft
         - published
         in: query
         name: status
         type: string
-      - description: When true, return only soft-deleted articles
+      - description: When true, return only soft-deleted articles. Ignored for unauthenticated
+          callers.
         in: query
         name: archived
         type: boolean
@@ -1410,7 +1412,8 @@ paths:
         in: query
         name: search
         type: string
-      - description: When true, return only soft-deleted authors
+      - description: When true, return only soft-deleted authors. Ignored for unauthenticated
+          callers.
         in: query
         name: archived
         type: boolean
@@ -2999,8 +3002,6 @@ paths:
             additionalProperties:
               type: string
             type: object
-      security:
-      - BearerAuth: []
       summary: List taxonomy items
       tags:
       - taxonomy
@@ -3125,8 +3126,6 @@ paths:
             additionalProperties:
               type: string
             type: object
-      security:
-      - BearerAuth: []
       summary: Get a taxonomy item
       tags:
       - taxonomy

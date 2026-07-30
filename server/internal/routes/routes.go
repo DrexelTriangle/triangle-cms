@@ -29,17 +29,27 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	}
 	adminOnly := middleware.RequireAdmin
 
-	mux.Handle("GET /v1/authors", authMW(handlers.GetAuthors(conn)))
-	mux.Handle("GET /v1/authors/{slug}", authMW(handlers.GetAuthor(conn)))
-	mux.Handle("GET /v1/authors/{slug}/articles", authMW(handlers.GetAuthorArticles(conn)))
+	// Public, but identity-aware: these endpoints serve the public site and must
+	// answer anonymous callers, while an authenticated editor gets the wider
+	// view (drafts, archived rows) that the CMS UI needs. OptionalAuth resolves
+	// a session when one is present and lets the request through when it is not;
+	// the handlers branch on middleware.UserFromContext.
+	optionalAuth := func(h http.Handler) http.Handler { return h }
+	if verifier != nil {
+		optionalAuth = middleware.OptionalAuth(verifier, conn, oidcCfg)
+	}
 
-	mux.Handle("GET /v1/articles", authMW(handlers.GetArticles(conn)))
+	mux.Handle("GET /v1/authors", optionalAuth(handlers.GetAuthors(conn)))
+	mux.Handle("GET /v1/authors/{slug}", handlers.GetAuthor(conn))
+	mux.Handle("GET /v1/authors/{slug}/articles", optionalAuth(handlers.GetAuthorArticles(conn)))
+
+	mux.Handle("GET /v1/articles", optionalAuth(handlers.GetArticles(conn)))
 	mux.Handle("GET /v1/articles/{slug}", handlers.GetArticle(conn))
 	mux.Handle("GET /v1/articles/{slug}/comments", handlers.GetArticleComments(conn))
 	mux.Handle("POST /v1/articles/{slug}/comments", middleware.RateLimitByIP(5, time.Minute)(handlers.PostArticleComment(conn)))
-	mux.Handle("GET /v1/search", authMW(handlers.GetSearch(conn)))
-	mux.Handle("GET /v1/sections/{section_slug}/articles", handlers.GetSectionArticles(conn))
-	mux.Handle("GET /v1/subsections/{subsection_slug}/articles", handlers.GetSubsectionArticles(conn))
+	mux.Handle("GET /v1/search", handlers.GetSearch(conn))
+	mux.Handle("GET /v1/sections/{section_slug}/articles", optionalAuth(handlers.GetSectionArticles(conn)))
+	mux.Handle("GET /v1/subsections/{subsection_slug}/articles", optionalAuth(handlers.GetSubsectionArticles(conn)))
 	mux.Handle("GET /v1/comments", authMW(handlers.GetComments(conn)))
 	mux.Handle("PATCH /v1/comments/{id}", authMW(handlers.PatchComment(conn)))
 	mux.Handle("DELETE /v1/comments/{id}", authMW(handlers.DeleteComment(conn)))
@@ -77,8 +87,8 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/polls", handlers.GetPolls(conn))
 	mux.Handle("GET /v1/polls/{id}", handlers.GetPollByID(conn))
 	mux.Handle("GET /v1/developing-stories", handlers.GetDevelopingStories(conn))
-	mux.Handle("GET /v1/taxonomy", authMW(handlers.GetTaxonomy(conn)))
-	mux.Handle("GET /v1/taxonomy/{type}/{slug}", authMW(handlers.GetTaxonomyItem(conn)))
+	mux.Handle("GET /v1/taxonomy", handlers.GetTaxonomy(conn))
+	mux.Handle("GET /v1/taxonomy/{type}/{slug}", handlers.GetTaxonomyItem(conn))
 	mux.Handle("PATCH /v1/poll/title", authMW(adminOnly(handlers.PatchPollTitle(conn))))
 	mux.Handle("POST /v1/poll/options", authMW(adminOnly(handlers.PostPollOption(conn))))
 	mux.Handle("PATCH /v1/poll/options", authMW(adminOnly(handlers.PatchPollOption(conn))))

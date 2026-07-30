@@ -7,6 +7,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"server/internal/middleware"
+	"server/internal/models"
 )
 
 func TestGetMe_UnauthorizedWithoutUserInContext(t *testing.T) {
@@ -198,7 +201,7 @@ func TestArticleQueryFilters_FormatsDateFiltersWithGoReferenceLayout(t *testing.
 }
 
 func TestAuthorArchiveCondition_DefaultsToActiveAuthors(t *testing.T) {
-	got := authorArchiveCondition(url.Values{})
+	got := authorArchiveCondition(url.Values{}, true)
 
 	if got != "a.`archived_at` IS NULL" {
 		t.Fatalf("got %q, want active author condition", got)
@@ -209,7 +212,7 @@ func TestAuthorArchiveCondition_ArchivedTrueSelectsTrash(t *testing.T) {
 	values := url.Values{}
 	values.Set("archived", "1")
 
-	got := authorArchiveCondition(values)
+	got := authorArchiveCondition(values, true)
 
 	if got != "a.`archived_at` IS NOT NULL" {
 		t.Fatalf("got %q, want archived author condition", got)
@@ -220,9 +223,60 @@ func TestAuthorArchiveCondition_ArchivedFalseSelectsActive(t *testing.T) {
 	values := url.Values{}
 	values.Set("archived", "false")
 
-	got := authorArchiveCondition(values)
+	got := authorArchiveCondition(values, true)
 
 	if got != "a.`archived_at` IS NULL" {
 		t.Fatalf("got %q, want active author condition", got)
+	}
+}
+
+func TestAuthorArchiveCondition_AnonymousIgnoresArchivedParam(t *testing.T) {
+	values := url.Values{}
+	values.Set("archived", "true")
+
+	got := authorArchiveCondition(values, false)
+
+	if got != "a.`archived_at` IS NULL" {
+		t.Fatalf("got %q, want anonymous callers pinned to active authors", got)
+	}
+}
+
+// The article listing is public, so an anonymous caller must never be able to
+// widen it to drafts or soft-deleted rows via query params.
+func TestArticleQueryFilters_AnonymousIsPinnedToPublished(t *testing.T) {
+	for _, query := range []string{"", "?status=draft", "?archived=true", "?status=draft&archived=true"} {
+		t.Run("anonymous "+query, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/v1/articles"+query, nil)
+			conditions, _ := articleQueryFilters(req, ArticleParams{})
+			joined := strings.Join(conditions, " AND ")
+
+			if !strings.Contains(joined, "`pub_date` IS NOT NULL") {
+				t.Fatalf("anonymous listing must be published-only, got %q", joined)
+			}
+			if !strings.Contains(joined, "`archived_at` IS NULL") {
+				t.Fatalf("anonymous listing must exclude archived, got %q", joined)
+			}
+			if strings.Contains(joined, "`pub_date` IS NULL") {
+				t.Fatalf("anonymous listing must not select drafts, got %q", joined)
+			}
+			if strings.Contains(joined, "`archived_at` IS NOT NULL") {
+				t.Fatalf("anonymous listing must not select archived, got %q", joined)
+			}
+		})
+	}
+}
+
+func TestArticleQueryFilters_EditorKeepsDraftAndArchivedFilters(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles?status=draft&archived=true", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Role: models.RoleAdmin}))
+
+	conditions, _ := articleQueryFilters(req, ArticleParams{})
+	joined := strings.Join(conditions, " AND ")
+
+	if !strings.Contains(joined, "`pub_date` IS NULL") {
+		t.Fatalf("editor must keep the draft filter, got %q", joined)
+	}
+	if !strings.Contains(joined, "`archived_at` IS NOT NULL") {
+		t.Fatalf("editor must keep the archived filter, got %q", joined)
 	}
 }

@@ -42,12 +42,10 @@ var ArticleColumns = []string{
 }
 
 const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`, a.`focus_keyword`, a.`meta_description`, a.`seo_title`"
-const wordpressImageBaseURL = "https://www.thetriangle.org"
 
-// wordpressImageProxyBaseURL is where legacy WordPress uploads are actually
-// served from. The bare /wp-content/ paths 404; they must be routed through the
-// site's /proxy/ handler.
-const wordpressImageProxyBaseURL = wordpressImageBaseURL + "/proxy"
+// Image/photo URLs are canonicalized upstream in the WordPress ETL (see
+// wordpress-etl Utils/MediaURL) so `photo_url` and inline body images are stored
+// as final, servable URLs. The CMS stores and returns them verbatim.
 
 func BuildOrderLimit(query, sortBy, sortDir string, sortColumnMap map[string]string, limit, offset int) string {
 	if col, ok := sortColumnMap[sortBy]; ok && sortBy != "" {
@@ -192,44 +190,9 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		a.CommentStatus = normalizeCommentStatus(commentStatus.String)
 	}
 	if photoURL.Valid {
-		a.PhotoURL = normalizePhotoURL(photoURL.String)
+		a.PhotoURL = photoURL.String
 	}
 	return a, nil
-}
-
-func normalizePhotoURL(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return ""
-	}
-
-	lowered := strings.ToLower(trimmed)
-	switch {
-	case strings.HasPrefix(lowered, "http://"), strings.HasPrefix(lowered, "https://"):
-		return proxyTriangleWPContent(trimmed)
-	case strings.HasPrefix(trimmed, "//"):
-		return proxyTriangleWPContent("https:" + trimmed)
-	case strings.HasPrefix(lowered, "www.thetriangle.org/"):
-		return proxyTriangleWPContent("https://" + trimmed)
-	case strings.HasPrefix(lowered, "wp-content/"):
-		return wordpressImageProxyBaseURL + "/" + trimmed
-	case strings.HasPrefix(trimmed, "/wp-content/"):
-		return wordpressImageProxyBaseURL + trimmed
-	default:
-		return trimmed
-	}
-}
-
-// proxyTriangleWPContent rewrites Triangle-hosted wp-content URLs to route
-// through the image proxy (…/wp-content/… → …/proxy/wp-content/…) where the
-// legacy uploads are actually served. URLs that already target /proxy/ or point
-// elsewhere are returned unchanged.
-func proxyTriangleWPContent(url string) string {
-	const bareWPContent = wordpressImageBaseURL + "/wp-content/"
-	if strings.HasPrefix(url, bareWPContent) {
-		return wordpressImageProxyBaseURL + strings.TrimPrefix(url, wordpressImageBaseURL)
-	}
-	return url
 }
 
 func parseStringListField(value sql.NullString) []string {
@@ -389,7 +352,9 @@ func SearchArticles(ctx context.Context, conn *sql.DB, term string, limit, offse
 
 	like := "%" + trimmedTerm + "%"
 	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title` FROM `articles` " +
-		"WHERE `pub_date` IS NOT NULL AND (`title` LIKE ? OR `tags` LIKE ? OR `text` LIKE ?) " +
+		// Search is public, so it stays pinned to live content: published and not
+		// soft-deleted. Archived rows were previously reachable here.
+		"WHERE `pub_date` IS NOT NULL AND `archived_at` IS NULL AND (`title` LIKE ? OR `tags` LIKE ? OR `text` LIKE ?) " +
 		"ORDER BY CASE " +
 		"WHEN `title` LIKE ? THEN 1 " +
 		"WHEN `tags` LIKE ? THEN 2 " +
@@ -626,7 +591,7 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		body.IsFeatured,
 		false,
 		normalizeCommentStatus(body.CommentStatus),
-		normalizePhotoURL(body.PhotoURL),
+		body.PhotoURL,
 		// Default tags/metadata to empty JSON so list filters that don't
 		// COALESCE these columns (e.g. exclude_type) don't drop new articles
 		// on a NULL comparison.
@@ -656,7 +621,7 @@ func ArticleToDBFields(body models.Article) []any {
 		body.IsFeatured,
 		false,
 		normalizeCommentStatus(body.CommentStatus),
-		normalizePhotoURL(body.PhotoURL),
+		body.PhotoURL,
 		strings.TrimSpace(body.FocusKeyword),
 		strings.TrimSpace(body.MetaDescription),
 		strings.TrimSpace(body.SEOTitle),

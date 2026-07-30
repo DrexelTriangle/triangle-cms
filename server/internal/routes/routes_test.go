@@ -1,13 +1,74 @@
 package routes
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"server/internal/auth"
 	"testing"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	_ "github.com/go-sql-driver/mysql"
 )
+
+// TestRegister_ReadEndpointsPublicWithVerifier proves that content read
+// endpoints are reachable without authentication even when an OIDC verifier is
+// configured (verifier != nil), while privileged endpoints stay gated. A
+// missing token makes RequireAuth return 401 before it ever touches the DB or
+// network, so a 401 means "gated" and any other status means the request
+// reached the handler. The DB points at a dead address so public handlers fail
+// fast (non-401) rather than requiring a live database.
+func TestRegister_ReadEndpointsPublicWithVerifier(t *testing.T) {
+	verifier := oidc.NewVerifier("https://issuer.example", nil, &oidc.Config{
+		ClientID:          "test",
+		SkipClientIDCheck: true,
+	})
+	conn, err := sql.Open("mysql", "u:p@tcp(127.0.0.1:1)/db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer conn.Close()
+
+	mux := http.NewServeMux()
+	Register(mux, conn, verifier, auth.OIDCConfig{})
+
+	public := []string{
+		"/v1/articles",
+		"/v1/articles/some-slug",
+		"/v1/search",
+		"/v1/authors",
+		"/v1/authors/some-author",
+		"/v1/taxonomy",
+	}
+	for _, path := range public {
+		t.Run("public "+path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code == http.StatusUnauthorized {
+				t.Fatalf("expected %s to be public, got 401", path)
+			}
+		})
+	}
+
+	gated := []string{
+		"/v1/activity",
+		"/v1/users",
+		"/v1/users/me",
+		"/v1/seo/audit",
+		"/v1/media",
+	}
+	for _, path := range gated {
+		t.Run("gated "+path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected %s to require auth (401), got %d", path, rec.Code)
+			}
+		})
+	}
+}
 
 func TestRegister_PublicRoute(t *testing.T) {
 	mux := http.NewServeMux()
