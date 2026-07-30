@@ -11,18 +11,9 @@ import sys
 from pathlib import Path
 
 
-TAXONOMY_SQL = """DROP TABLE IF EXISTS site_taxonomy;
-CREATE TABLE site_taxonomy (
-  id BIGINT PRIMARY KEY,
-  kind VARCHAR(32) NOT NULL,
-  slug VARCHAR(255) NOT NULL,
-  canonical_title VARCHAR(255) NOT NULL,
-  parent_slug VARCHAR(255) NULL,
-  article_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
-  UNIQUE KEY uq_site_taxonomy_kind_slug (kind, slug)
-);
-
-INSERT INTO site_taxonomy (id, kind, slug, canonical_title, parent_slug, article_count) VALUES
+# Seed ROWS only. The table definition comes from the canonical schema file --
+# see canonical_schema() and server/internal/database/schema/README.md.
+TAXONOMY_ROWS_SQL = """INSERT INTO site_taxonomy (id, kind, slug, canonical_title, parent_slug, article_count) VALUES
   (1, 'section', 'news', 'News', NULL, 0),
   (2, 'section', 'sports', 'Sports', NULL, 0),
   (3, 'section', 'opinion', 'Opinion', NULL, 0),
@@ -64,37 +55,32 @@ PLACEHOLDER_EMBEDDINGS_SQL = """DROP TABLE IF EXISTS article_embeddings;
 -- No article_embeddings.sql found in ETL output.
 """
 
-POLL_COUNTS_SQL = """DROP TABLE IF EXISTS cms_poll_counts;
-CREATE TABLE cms_poll_counts (
-  option_name VARCHAR(128) NOT NULL,
-  vote_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (option_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-"""
-
-COMMENTS_SQL_PLACEHOLDER = """CREATE TABLE IF NOT EXISTS comments (
-  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  article_id BIGINT NULL,
-  wp_post_id BIGINT NULL,
-  parent_id BIGINT NULL,
-  author_name LONGTEXT,
-  author_email LONGTEXT,
-  author_url LONGTEXT,
-  author_ip VARCHAR(255),
-  author_user_id BIGINT,
-  content LONGTEXT,
-  created_at DATETIME,
-  created_at_gmt DATETIME,
-  status VARCHAR(32),
-  `type` VARCHAR(32),
-  INDEX idx_comments_article_status_created (article_id, status, created_at_gmt),
-  INDEX idx_comments_wp_post_id (wp_post_id),
-  INDEX idx_comments_parent_id (parent_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-"""
-
 NO_AUTO_VALUE_ON_ZERO_PREAMBLE = "SET sql_mode = CONCAT(@@sql_mode, ',NO_AUTO_VALUE_ON_ZERO');\n"
+
+# Canonical table definitions, shared with the CMS. The same files are embedded
+# into the binary and executed at startup (server/internal/database/schema.go),
+# so a seeded dev database and production cannot drift apart. Never inline a
+# CREATE TABLE for a CMS-owned table here -- that is the bug this replaced.
+SCHEMA_DIR_PARTS = ("server", "internal", "database", "schema")
+
+
+def canonical_schema(root_dir: Path, table: str, *, drop_first: bool = False) -> str:
+    """Return the canonical CREATE TABLE for `table`, as a runnable statement."""
+    path = root_dir.joinpath(*SCHEMA_DIR_PARTS) / f"{table}.sql"
+    try:
+        body = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        print(f"Missing canonical schema for {table}: {path} ({exc})", file=sys.stderr)
+        print("The CMS embeds these files; the checkout is incomplete.", file=sys.stderr)
+        raise SystemExit(1)
+
+    statement = f"{body};\n"
+    if drop_first:
+        # Seed files are re-runnable and own their table outright, so they start
+        # from a clean one rather than layering onto whatever is there.
+        statement = f"DROP TABLE IF EXISTS {table};\n{statement}"
+    return statement
+
 
 USAGE_ERROR = """Could not determine WordPress ETL SQL source directory.
 
@@ -176,11 +162,47 @@ def ensure_pattern(path: Path, pattern: str, label: str) -> None:
         raise SystemExit(1)
 
 
+# Matches an actual statement that turns the mode on, not a mere mention of the
+# name. A bare substring test also matches a comment, which would silently skip
+# the preamble and let the id=0 row be renumbered on load.
+SQL_MODE_SET_PATTERN = re.compile(
+    r"^\s*SET\b[^;]*\bsql_mode\b[^;]*\bNO_AUTO_VALUE_ON_ZERO\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Any statement that writes rows; such a file must carry the sql_mode preamble.
+INSERT_PATTERN = re.compile(r"^\s*(INSERT|REPLACE|LOAD\s+DATA)\b", re.IGNORECASE | re.MULTILINE)
+
+
+def has_no_auto_value_on_zero(text: str) -> bool:
+    return SQL_MODE_SET_PATTERN.search(text) is not None
+
+
 def copy_sql_with_mariadb_mode(src: Path, dest: Path) -> None:
+    """Copy an ETL artifact, guaranteeing NO_AUTO_VALUE_ON_ZERO is in effect.
+
+    `articles` has a legitimate row with id = 0. Without this mode MariaDB
+    treats 0 in an AUTO_INCREMENT column as "assign the next value", so that row
+    silently becomes id = 1 (or whatever is next) and every articles_authors /
+    seo row pointing at 0 is orphaned. sql_mode is session-scoped and each seed
+    file is loaded in its own session, so the statement has to lead every file
+    that inserts rows -- it cannot be set once globally for the batch.
+    """
     text = src.read_text(encoding="utf-8", errors="replace")
-    if "NO_AUTO_VALUE_ON_ZERO" not in text:
+    if not has_no_auto_value_on_zero(text):
         text = NO_AUTO_VALUE_ON_ZERO_PREAMBLE + text
     dest.write_text(text, encoding="utf-8")
+
+    # Verify what actually landed on disk rather than trusting the branch above:
+    # this is the last point at which the mistake is cheap to catch.
+    written = dest.read_text(encoding="utf-8")
+    if INSERT_PATTERN.search(written) and not has_no_auto_value_on_zero(written):
+        print(
+            f"refusing to emit {dest.name}: it inserts rows without "
+            "NO_AUTO_VALUE_ON_ZERO, which would renumber the articles id=0 row",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
 
 def main() -> int:
@@ -324,12 +346,17 @@ def main() -> int:
     else:
         out_embeddings.write_text(PLACEHOLDER_EMBEDDINGS_SQL, encoding="utf-8")
 
-    out_taxonomy.write_text(TAXONOMY_SQL, encoding="utf-8")
-    out_poll_counts.write_text(POLL_COUNTS_SQL, encoding="utf-8")
+    out_taxonomy.write_text(
+        canonical_schema(root_dir, "site_taxonomy", drop_first=True) + "\n" + TAXONOMY_ROWS_SQL,
+        encoding="utf-8",
+    )
+    out_poll_counts.write_text(
+        canonical_schema(root_dir, "cms_poll_counts", drop_first=True), encoding="utf-8"
+    )
     if comments_sql is not None:
         copy_sql_with_mariadb_mode(comments_sql, out_comments)
     else:
-        out_comments.write_text(COMMENTS_SQL_PLACEHOLDER, encoding="utf-8")
+        out_comments.write_text(canonical_schema(root_dir, "comments"), encoding="utf-8")
 
     print(f"Imported ETL SQL into: {out_dir}")
     print(f"  01-authors.sql <- {authors_sql}")
