@@ -73,6 +73,27 @@ CREATE TABLE cms_poll_counts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 """
 
+COMMENTS_SQL_PLACEHOLDER = """CREATE TABLE IF NOT EXISTS comments (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  article_id BIGINT NULL,
+  wp_post_id BIGINT NULL,
+  parent_id BIGINT NULL,
+  author_name LONGTEXT,
+  author_email LONGTEXT,
+  author_url LONGTEXT,
+  author_ip VARCHAR(255),
+  author_user_id BIGINT,
+  content LONGTEXT,
+  created_at DATETIME,
+  created_at_gmt DATETIME,
+  status VARCHAR(32),
+  `type` VARCHAR(32),
+  INDEX idx_comments_article_status_created (article_id, status, created_at_gmt),
+  INDEX idx_comments_wp_post_id (wp_post_id),
+  INDEX idx_comments_parent_id (parent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+"""
+
 NO_AUTO_VALUE_ON_ZERO_PREAMBLE = "SET sql_mode = CONCAT(@@sql_mode, ',NO_AUTO_VALUE_ON_ZERO');\n"
 
 USAGE_ERROR = """Could not determine WordPress ETL SQL source directory.
@@ -91,6 +112,7 @@ The resolved source must contain ETL SQL files:
 
 Optional ETL SQL file:
   - article_embeddings.sql
+  - comments.sql
 
 Examples:
   python ./scripts/generate_wordpress_sql.py ../wordpress-etl
@@ -260,6 +282,17 @@ def main() -> int:
             src_grandparent / "sql" / "article_embeddings.sql",
         ]
     )
+    comments_sql = first_existing_file(
+        [
+            src_dir / "comments.sql",
+            src_parent / "comments.sql",
+            src_parent / "logs" / "sql" / "comments.sql",
+            src_parent / "sql" / "comments.sql",
+            src_grandparent / "comments.sql",
+            src_grandparent / "logs" / "sql" / "comments.sql",
+            src_grandparent / "sql" / "comments.sql",
+        ]
+    )
 
     authors_sql = require_file(authors_sql, "authors.sql")
     articles_sql = require_file(articles_sql, "articles.sql")
@@ -279,6 +312,7 @@ def main() -> int:
     out_embeddings = out_dir / "05-article-embeddings.sql"
     out_taxonomy = out_dir / "06-taxonomy.sql"
     out_poll_counts = out_dir / "07-poll-counts.sql"
+    out_comments = out_dir / "08-comments.sql"
 
     copy_sql_with_mariadb_mode(authors_sql, out_authors)
     copy_sql_with_mariadb_mode(articles_sql, out_articles)
@@ -292,6 +326,10 @@ def main() -> int:
 
     out_taxonomy.write_text(TAXONOMY_SQL, encoding="utf-8")
     out_poll_counts.write_text(POLL_COUNTS_SQL, encoding="utf-8")
+    if comments_sql is not None:
+        copy_sql_with_mariadb_mode(comments_sql, out_comments)
+    else:
+        out_comments.write_text(COMMENTS_SQL_PLACEHOLDER, encoding="utf-8")
 
     print(f"Imported ETL SQL into: {out_dir}")
     print(f"  01-authors.sql <- {authors_sql}")
@@ -304,6 +342,10 @@ def main() -> int:
         print("  05-article-embeddings.sql <- placeholder (no ETL embeddings artifact found)")
     print("  06-taxonomy.sql <- cms static taxonomy seed")
     print("  07-poll-counts.sql <- cms poll counts schema seed")
+    if comments_sql is not None:
+        print(f"  08-comments.sql <- {comments_sql}")
+    else:
+        print("  08-comments.sql <- placeholder (no ETL comments artifact found)")
     return 0
 
 

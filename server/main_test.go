@@ -147,6 +147,32 @@ func TestRun_TLSLoadPathsFromEnv(t *testing.T) {
 	}
 }
 
+func TestAkismetCheckerFromEnvDisabledWithoutAPIKey(t *testing.T) {
+	t.Setenv(akismetAPIKeyEnv, "")
+	t.Setenv(akismetBlogURLEnv, "")
+
+	checker, err := akismetCheckerFromEnv()
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if checker != nil {
+		t.Fatal("expected nil checker when API key is unset")
+	}
+}
+
+func TestAkismetCheckerFromEnvRequiresBlogURLWhenAPIKeyIsSet(t *testing.T) {
+	t.Setenv(akismetAPIKeyEnv, "test-key")
+	t.Setenv(akismetBlogURLEnv, "")
+
+	_, err := akismetCheckerFromEnv()
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), akismetBlogURLEnv) {
+		t.Fatalf("expected blog URL error, got %v", err)
+	}
+}
+
 func TestRun_ServerExitError(t *testing.T) {
 	srv := &fakeServer{
 		listenFn: func(certFile, keyFile string) error {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"server/internal/activity"
+	"server/internal/akismet"
 	"server/internal/auth"
 	"server/internal/database"
 	"server/internal/middleware"
@@ -35,6 +36,8 @@ const (
 	serverModeEnv          = "CMS_SERVER_MODE"
 	serverModeHTTPS        = "https"
 	serverModeInternalHTTP = "internal-http"
+	akismetAPIKeyEnv       = "AKISMET_API_KEY"
+	akismetBlogURLEnv      = "AKISMET_BLOG_URL"
 	defaultShutdownTimeout = 10 * time.Second
 )
 
@@ -58,6 +61,7 @@ type runDeps struct {
 	shutdownTimeout time.Duration
 	oidcVerifier    *oidc.IDTokenVerifier
 	oidcCfg         auth.OIDCConfig
+	spamChecker     akismet.Checker
 }
 
 // @title Triangle CMS API
@@ -213,7 +217,18 @@ func main() {
 		slog.Warn("AUTH DISABLED: protected routes are NOT registered; only public read routes are available")
 	}
 
-	if err := run(defaultRunDeps(verifier, oidcCfg), db); err != nil {
+	spamChecker, err := akismetCheckerFromEnv()
+	if err != nil {
+		slog.Error("invalid Akismet configuration", "error", err)
+		os.Exit(1)
+	}
+	if spamChecker == nil {
+		slog.Warn("Akismet comment spam filtering disabled: AKISMET_API_KEY not set")
+	} else {
+		slog.Info("Akismet comment spam filtering enabled")
+	}
+
+	if err := run(defaultRunDeps(verifier, oidcCfg, spamChecker), db); err != nil {
 		slog.Error("server terminated", "error", err)
 		os.Exit(1)
 	}
@@ -246,7 +261,7 @@ func dbConfigFromEnv() (dbName, user, password, host string, port int, err error
 	return dbName, user, password, host, port, nil
 }
 
-func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig) runDeps {
+func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker) runDeps {
 	return runDeps{
 		loadX509KeyPair: tls.LoadX509KeyPair,
 		newServer:       newDefaultServer,
@@ -255,6 +270,7 @@ func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig) run
 		shutdownTimeout: defaultShutdownTimeout,
 		oidcVerifier:    verifier,
 		oidcCfg:         oidcCfg,
+		spamChecker:     spamChecker,
 	}
 }
 
@@ -311,7 +327,7 @@ func run(deps runDeps, conn *sql.DB) error {
 	}
 
 	mux := http.NewServeMux()
-	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg)
+	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker)
 	server := deps.newServer(cert, mux, slog.Default())
 
 	serverErr := make(chan error, 1)
@@ -369,4 +385,21 @@ func getenvOrDefault(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func akismetCheckerFromEnv() (akismet.Checker, error) {
+	apiKey := strings.TrimSpace(os.Getenv(akismetAPIKeyEnv))
+	if apiKey == "" {
+		return nil, nil
+	}
+
+	blogURL := strings.TrimSpace(os.Getenv(akismetBlogURLEnv))
+	if blogURL == "" {
+		return nil, fmt.Errorf("%s is required when %s is set", akismetBlogURLEnv, akismetAPIKeyEnv)
+	}
+
+	return akismet.NewClient(akismet.Config{
+		APIKey:  apiKey,
+		BlogURL: blogURL,
+	})
 }

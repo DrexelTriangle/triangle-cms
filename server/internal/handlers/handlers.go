@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"server/internal/activity"
+	"server/internal/akismet"
 	db "server/internal/database"
 	"server/internal/middleware"
 	"server/internal/models"
@@ -1548,7 +1550,7 @@ func GetArticleComments(conn *sql.DB) http.HandlerFunc {
 // @Failure 413 {object} models.ErrorResponse
 // @Failure 500 {object} models.ErrorResponse
 // @Router /v1/articles/{slug}/comments [post]
-func PostArticleComment(conn *sql.DB) http.HandlerFunc {
+func PostArticleComment(conn *sql.DB, spamChecker akismet.Checker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := strings.TrimSpace(r.PathValue("slug"))
 		if !isValidCanonicalSlug(slug) {
@@ -1620,6 +1622,29 @@ func PostArticleComment(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		now := time.Now().UTC()
+		status := "approved"
+		if spamChecker != nil {
+			isSpam, err := spamChecker.CheckComment(r.Context(), akismet.Comment{
+				UserIP:      clientIP(r),
+				UserAgent:   r.UserAgent(),
+				Referrer:    r.Referer(),
+				Permalink:   articlePermalink(r, slug),
+				Type:        "comment",
+				Author:      body.AuthorName,
+				AuthorEmail: body.AuthorEmail,
+				AuthorURL:   body.AuthorURL,
+				Content:     body.Content,
+				CreatedAt:   now,
+			})
+			if err != nil {
+				status = "pending"
+				slog.Warn("akismet comment check failed; comment requires moderation", "article_slug", slug, "error", err)
+			} else if isSpam {
+				status = "spam"
+			}
+		}
+
 		comment, err := db.CreateComment(r.Context(), conn, db.CreateCommentParams{
 			ArticleID:   articleID,
 			ParentID:    body.ParentID,
@@ -1628,9 +1653,9 @@ func PostArticleComment(conn *sql.DB) http.HandlerFunc {
 			AuthorURL:   body.AuthorURL,
 			AuthorIP:    clientIP(r),
 			Content:     body.Content,
-			Status:      "approved",
+			Status:      status,
 			Type:        "comment",
-			CreatedAt:   time.Now().UTC(),
+			CreatedAt:   now,
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -1650,6 +1675,26 @@ func PostArticleComment(conn *sql.DB) http.HandlerFunc {
 			Type:         comment.Type,
 		})
 	}
+}
+
+func articlePermalink(r *http.Request, slug string) string {
+	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+		scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+		if scheme == "" {
+			scheme = "https"
+		}
+		return scheme + "://" + forwardedHost + "/article/" + slug
+	}
+
+	if r.Host != "" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		return scheme + "://" + r.Host + "/article/" + slug
+	}
+
+	return "/article/" + slug
 }
 
 func adminCommentResponse(comment db.AdminComment) models.AdminCommentResponse {
