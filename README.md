@@ -187,6 +187,33 @@ npm run dev -- --port 4321
 
 Scalene: `http://localhost:4321`
 
+## Rebuild the local DB from the ETL (Advanced)
+
+One command for the whole chain — run the ETL (with embeddings), regenerate the
+seed SQL, recreate the local database from it, verify, and restart the CMS:
+
+```bash
+python ./scripts/reseed_from_etl.py
+```
+
+```bash
+python ./scripts/reseed_from_etl.py --skip-etl       # reuse the ETL's existing logs/sql
+python ./scripts/reseed_from_etl.py --no-embeddings  # skip the slow model step
+python ./scripts/reseed_from_etl.py --yes            # no confirmation prompt
+```
+
+**This is destructive.** The seed files are mounted into
+`docker-entrypoint-initdb.d`, which MariaDB replays only on a first-time init,
+so a genuine re-seed means deleting the `mariadb_data` volume. That takes local
+`cms_users`, `cms_sessions`, `cms_settings`, polls and the media catalogue with
+it — not just imported content. The script prints exactly what will be lost,
+with current row counts, and makes you type `reseed`. It refuses to run without
+a TTY unless `--yes` is passed.
+
+`--no-embeddings` writes a placeholder that **drops** `article_embeddings`, so
+related-articles on `/v1/articles/{slug}` comes back empty until you re-run with
+embeddings.
+
 ## ETL SQL Script (Advanced)
 
 Default usage:
