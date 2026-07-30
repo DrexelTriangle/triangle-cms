@@ -21,6 +21,7 @@ type ApiArticleDetail = {
   featured_image?: string
   categories?: Array<{
     name?: string
+    slug?: string
   }>
   authors?: Array<{
     id?: number
@@ -58,6 +59,14 @@ type ApiAuthor = {
   display_name: string
 }
 
+type TaxonomyItem = {
+  id: number
+  type: string
+  slug: string
+  canonical_title: string
+  parent_slug?: string | null
+}
+
 type AuthorsResponse = {
   authors?: ApiAuthor[]
   pagination?: {
@@ -71,6 +80,13 @@ type AuthorsResponse = {
 // The ETL pipeline normalizes the source, but this keeps the editor resilient.
 const normalizeCommentStatus = (raw: string | undefined): string =>
   (raw ?? "").trim().toLowerCase() === "closed" ? "closed" : "open"
+
+const slugifyCategory = (value: string): string =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
 
 // ArticleView caches list results in sessionStorage keyed by query; clear those
 // entries so the list refetches after an article is created or edited.
@@ -151,7 +167,8 @@ function EditArticleView() {
   const [status, setStatus] = useState<EditableStatus>("draft")
   const [commentStatus, setCommentStatus] = useState("open")
   const [photoURL, setPhotoURL] = useState("")
-  const [categoriesInput, setCategoriesInput] = useState("")
+  const [selectedCategorySlugs, setSelectedCategorySlugs] = useState<string[]>([])
+  const [legacyCategoryTitlesBySlug, setLegacyCategoryTitlesBySlug] = useState<Record<string, string>>({})
   const [keyphrase, setKeyphrase] = useState("")
   const [metaDescription, setMetaDescription] = useState("")
   const [seoTitle, setSeoTitle] = useState("")
@@ -160,6 +177,9 @@ function EditArticleView() {
   const [authors, setAuthors] = useState<ApiAuthor[]>([])
   const [authorsLoading, setAuthorsLoading] = useState(false)
   const [authorsError, setAuthorsError] = useState<string | null>(null)
+  const [taxonomyItems, setTaxonomyItems] = useState<TaxonomyItem[]>([])
+  const [taxonomyLoading, setTaxonomyLoading] = useState(false)
+  const [taxonomyError, setTaxonomyError] = useState<string | null>(null)
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
   const [mediaLoading, setMediaLoading] = useState(false)
   const [mediaError, setMediaError] = useState<string | null>(null)
@@ -200,12 +220,19 @@ function EditArticleView() {
           setStatus((payload.status ?? "draft").toLowerCase() === "published" ? "published" : "draft")
           setCommentStatus(normalizeCommentStatus(payload.comment_status))
           setPhotoURL(payload.featured_image ?? "")
-          setCategoriesInput(
-            (payload.categories ?? [])
-              .map((category) => (category.name ?? "").trim())
-              .filter((name) => name.length > 0)
-              .join(", "),
-          )
+          const legacyCategories: Record<string, string> = {}
+          const categorySlugs = (payload.categories ?? [])
+            .map((category) => {
+              const name = (category.name ?? "").trim()
+              const categorySlug = slugifyCategory(category.slug ?? name)
+              if (categorySlug && name) {
+                legacyCategories[categorySlug] = name
+              }
+              return categorySlug
+            })
+            .filter((categorySlug) => categorySlug.length > 0)
+          setLegacyCategoryTitlesBySlug(legacyCategories)
+          setSelectedCategorySlugs([...new Set(categorySlugs)])
           const firstAuthorId = payload.authors?.[0]?.id
           setSelectedAuthorId(typeof firstAuthorId === "number" ? String(firstAuthorId) : "")
         }
@@ -329,6 +356,44 @@ function EditArticleView() {
   }, [apiFetch])
 
   useEffect(() => {
+    let cancelled = false
+
+    const fetchTaxonomy = async () => {
+      setTaxonomyLoading(true)
+      setTaxonomyError(null)
+      try {
+        const response = await apiFetch("/v1/taxonomy")
+        if (!response.ok) {
+          throw new Error(`Taxonomy request failed (${response.status})`)
+        }
+        const payload = (await response.json()) as TaxonomyItem[]
+        if (!cancelled) {
+          setTaxonomyItems(
+            (Array.isArray(payload) ? payload : []).filter(
+              (item) => item.type === "section" || item.type === "subsection",
+            ),
+          )
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : "Unable to load sections."
+          setTaxonomyError(message)
+          setTaxonomyItems([])
+        }
+      } finally {
+        if (!cancelled) {
+          setTaxonomyLoading(false)
+        }
+      }
+    }
+
+    void fetchTaxonomy()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch])
+
+  useEffect(() => {
     if (!imagePickerOpen) return
     let cancelled = false
 
@@ -370,9 +435,13 @@ function EditArticleView() {
     setSuccessMessage(null)
 
     const effectiveStatus = nextStatus ?? status
-    const categories = categoriesInput
-      .split(",")
-      .map((category) => category.trim())
+    const taxonomyBySlug = new Map(taxonomyItems.map((item) => [item.slug, item]))
+    const categories = selectedCategorySlugs
+      .map((categorySlug) => (
+        taxonomyBySlug.get(categorySlug)?.canonical_title
+        ?? legacyCategoryTitlesBySlug[categorySlug]
+        ?? categorySlug
+      ).trim())
       .filter((category) => category.length > 0)
 
     try {
@@ -456,6 +525,43 @@ function EditArticleView() {
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const labelClass = "flex flex-col gap-1.5"
   const labelTextClass = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+  const taxonomyBySlug = useMemo(() => new Map(taxonomyItems.map((item) => [item.slug, item])), [taxonomyItems])
+  const categoryGroups = useMemo(() => {
+    const sections = taxonomyItems
+      .filter((item) => item.type === "section")
+      .sort((left, right) => left.canonical_title.localeCompare(right.canonical_title))
+    const subsectionsByParent = new Map<string, TaxonomyItem[]>()
+    for (const item of taxonomyItems) {
+      if (item.type !== "subsection") continue
+      const parentSlug = item.parent_slug ?? ""
+      if (!subsectionsByParent.has(parentSlug)) {
+        subsectionsByParent.set(parentSlug, [])
+      }
+      subsectionsByParent.get(parentSlug)?.push(item)
+    }
+    for (const subsections of subsectionsByParent.values()) {
+      subsections.sort((left, right) => left.canonical_title.localeCompare(right.canonical_title))
+    }
+    return sections.map((section) => ({
+      section,
+      subsections: subsectionsByParent.get(section.slug) ?? [],
+    }))
+  }, [taxonomyItems])
+  const legacyCategoryChoices = useMemo(() => (
+    selectedCategorySlugs
+      .filter((categorySlug) => !taxonomyBySlug.has(categorySlug))
+      .map((categorySlug) => ({
+        slug: categorySlug,
+        title: legacyCategoryTitlesBySlug[categorySlug] ?? categorySlug,
+      }))
+  ), [legacyCategoryTitlesBySlug, selectedCategorySlugs, taxonomyBySlug])
+  const toggleCategory = (categorySlug: string) => {
+    setSelectedCategorySlugs((current) => (
+      current.includes(categorySlug)
+        ? current.filter((slugValue) => slugValue !== categorySlug)
+        : [...current, categorySlug]
+    ))
+  }
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -621,10 +727,67 @@ function EditArticleView() {
               </select>
             </label>
 
-            <label className={labelClass}>
-              <span className={labelTextClass}>Categories (comma-separated)</span>
-              <input className={inputClass} onChange={(e) => setCategoriesInput(e.target.value)} type="text" value={categoriesInput} />
-            </label>
+            <div className={labelClass}>
+              <span className={labelTextClass}>Sections</span>
+              <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-background p-2">
+                {taxonomyLoading ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">Loading sections...</p>
+                ) : categoryGroups.length === 0 && legacyCategoryChoices.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">No sections available.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {categoryGroups.map(({ section, subsections }) => (
+                      <div key={section.slug} className="flex flex-col gap-1">
+                        <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
+                          <input
+                            checked={selectedCategorySlugs.includes(section.slug)}
+                            className="h-4 w-4 rounded border-border"
+                            onChange={() => toggleCategory(section.slug)}
+                            type="checkbox"
+                          />
+                          <span className="font-medium text-foreground">{section.canonical_title}</span>
+                        </label>
+                        {subsections.length > 0 ? (
+                          <div className="ml-6 flex flex-col gap-0.5">
+                            {subsections.map((subsection) => (
+                              <label key={subsection.slug} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
+                                <input
+                                  checked={selectedCategorySlugs.includes(subsection.slug)}
+                                  className="h-4 w-4 rounded border-border"
+                                  onChange={() => toggleCategory(subsection.slug)}
+                                  type="checkbox"
+                                />
+                                <span className="text-muted-foreground">{subsection.canonical_title}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                    {legacyCategoryChoices.length > 0 ? (
+                      <div className="border-t border-border pt-2">
+                        {legacyCategoryChoices.map((category) => (
+                          <label key={category.slug} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
+                            <input
+                              checked={selectedCategorySlugs.includes(category.slug)}
+                              className="h-4 w-4 rounded border-border"
+                              onChange={() => toggleCategory(category.slug)}
+                              type="checkbox"
+                            />
+                            <span className="text-muted-foreground">{category.title}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+              {taxonomyError ? (
+                <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+                  {taxonomyError}
+                </p>
+              ) : null}
+            </div>
 
             <label className={labelClass}>
               <span className={labelTextClass}>Focus Keyphrase</span>
