@@ -3,6 +3,9 @@
 /server/certs/*.key
 /server/.env
 /server/**/*.sql
+# ...except the canonical table definitions, which are source, not generated
+# output: the CMS go:embeds them, so a checkout without them does not compile.
+!/server/internal/database/schema/*.sql
 /report.json
 .vscode/settings.json
 .codex
