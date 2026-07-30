@@ -10,7 +10,8 @@ bind-address                     = 10.248.40.154
 # =============================================================================
 # Triangle CMS — MariaDB PRIMARY (writes) tuning + replication source config.
 # Target host: THETRIANGLE-DB1-LXC, a dedicated 4 vCPU / 4 GB unprivileged LXC.
-# Installed natively at /etc/mysql/mariadb.conf.d/50-triangle-primary.cnf.
+# Installed natively at /etc/mysql/mariadb.conf.d/70-triangle-primary.cnf — the
+# 70- prefix is load-bearing, see the bind-address note above.
 # =============================================================================
 
 # --- InnoDB memory: the single most important knob ---------------------------

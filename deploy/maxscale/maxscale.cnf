@@ -1,7 +1,13 @@
 # MaxScale — read/write splitting proxy for Triangle CMS.
-# Mounted read-only at /etc/maxscale.cnf. Backend addresses and credentials come
-# from environment variables (substitute_variables=true), set by the compose
-# service: PRIMARY_HOST, REPLICA_HOST, MARIADB_PORT, MAXSCALE_USER, MAXSCALE_PASSWORD.
+#
+# Deployed to THETRIANGLE-MAXSCALE (10.248.40.183) as /etc/maxscale.cnf, from a
+# native apt install of MaxScale 24.02 — see deploy/mariadb/README.md. Backend
+# addresses and credentials come from environment variables
+# (substitute_variables=true): PRIMARY_HOST, REPLICA_HOST, MARIADB_PORT,
+# MAXSCALE_USER, MAXSCALE_PASSWORD, supplied by the systemd drop-in
+# /etc/systemd/system/maxscale.service.d/10-backend-env.conf, which reads
+# /etc/maxscale.secrets.d/backend.env (0640 root:maxscale). This file itself is
+# world-readable 0644, so no secret may be written into it directly.
 
 [maxscale]
 threads=auto
