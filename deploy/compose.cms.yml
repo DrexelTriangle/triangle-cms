@@ -29,6 +29,8 @@ x-backend-base: &backend-base
     CMS_SESSION_TTL_SECONDS: ${CMS_SESSION_TTL_SECONDS:-604800}
     CMS_AUTO_PROMOTE_ALL_ADMINS: ${CMS_AUTO_PROMOTE_ALL_ADMINS:-false}
     CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP: ${CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP:-false}
+    AKISMET_API_KEY: ${AKISMET_API_KEY:-}
+    AKISMET_BLOG_URL: ${AKISMET_BLOG_URL:-}
     # Media: legacy WP uploads migrated to CephFS. The upload endpoint writes new
     # assets under MEDIA_ROOT; MEDIA_BASE_URL is the public host that serves them.
     MEDIA_ROOT: ${MEDIA_ROOT:-/mnt/cephfs/media}

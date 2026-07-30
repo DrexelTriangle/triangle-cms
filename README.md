@@ -214,6 +214,8 @@ Generated files:
 - `04-seo.sql`
 - `05-article-embeddings.sql` (real file when available, placeholder otherwise)
 - `06-taxonomy.sql`
+- `07-poll-counts.sql`
+- `08-comments.sql` (real file when available, empty table placeholder otherwise)
 
 ## API Docs (Swagger)
 

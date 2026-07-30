@@ -203,6 +203,9 @@ The file must contain the exact immutable image tag for the active deployment:
 - `CMS_SESSION_TTL_SECONDS`
 - `CMS_AUTO_PROMOTE_ALL_ADMINS`
 - `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP`
+- `AKISMET_API_KEY` - optional; leave empty to disable comment spam filtering.
+- `AKISMET_BLOG_URL` - full public site URL Akismet should associate with
+  comment checks. Required when `AKISMET_API_KEY` is set.
 - `MEDIA_HOST_PATH` - host path to the CephFS media tree, bind-mounted into the
   backend. Defaults to `/mnt/cephfs/media`.
 - `MEDIA_ROOT` - the same tree as seen *inside* the container. Leave at
