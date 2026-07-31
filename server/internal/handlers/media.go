@@ -157,6 +157,7 @@ func PostMedia(conn *sql.DB) http.Handler {
 		relDir := path.Join(uploadsSubdir, now.Format("2006"), now.Format("01"))
 		absDir := filepath.Join(root, filepath.FromSlash(relDir))
 		if err := os.MkdirAll(absDir, 0o775); err != nil {
+			slog.Error("media upload: create directory", "dir", absDir, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to create upload directory")
 			return
 		}
@@ -164,6 +165,13 @@ func PostMedia(conn *sql.DB) http.Handler {
 		base := sanitizeBaseName(header.Filename)
 		name, written, err := storeUpload(absDir, base, ext, file)
 		if err != nil {
+			// Worth a log line rather than just a 500: the message the client
+			// gets cannot say whether the media volume is full, unmounted, or
+			// simply not writable by this container's uid, and those need very
+			// different fixes. A permission error here is easy to mistake for a
+			// mkdir failure, since MkdirAll returns nil for a directory that
+			// already exists -- which every migrated YYYY/MM directory does.
+			slog.Error("media upload: store file", "dir", absDir, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to store upload")
 			return
 		}

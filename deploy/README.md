@@ -148,6 +148,35 @@ curl -I http://localhost/wp-content/uploads/YYYY/MM/name.jpg
 
 Expect `200` with `Cache-Control: public, max-age=2592000, immutable`.
 
+### Making the media tree writable (uploads)
+
+The checks above only prove Nginx can *read*. `POST /v1/media` also has to
+**write**, and the rsynced corpus arrives owned by whoever ran the rsync
+(`tadmin`), mode 755, while the backend container runs as uid **10001**. Nothing
+in the read path notices, so uploads fail long after media serving looks healthy:
+
+```bash
+docker exec triangle-cms-backend-blue-1 \
+  sh -c 'touch /mnt/cephfs/media/wp-content/uploads/.wtest && echo ok'
+```
+
+If that says `Permission denied`, grant the container uid write on upload
+directories. CephFS is mounted with `acl`, so this is additive -- ownership and
+the migrated files are untouched, and Nginx keeps reading as before:
+
+```bash
+sudo find /mnt/cephfs/media/wp-content/uploads -type d \
+  -exec setfacl -m u:10001:rwx -m d:u:10001:rwx {} +
+```
+
+The `d:` (default) entry is what makes each new `YYYY/MM` directory inherit the
+grant, so this does not need repeating every month.
+
+The failure is easy to misread. `MkdirAll` returns nil for a directory that
+already exists, and every migrated `YYYY/MM` directory does exist, so a
+permission problem surfaces as `failed to store upload` rather than `failed to
+create upload directory`. Check the backend log for the underlying `error=`.
+
 ### Media library
 
 Serving the files is independent of *listing* them. The CMS media page reads a
