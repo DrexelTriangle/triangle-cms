@@ -1,8 +1,17 @@
-import { LogOut } from "lucide-react"
-import { useEffect, useState } from "react"
+import { LogOut, RefreshCw } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 import { useNavigate } from "react-router-dom"
 import { useSessionAuth } from "../auth/sessionAuthContext"
+
+type IndexStatus = {
+  running: boolean
+  started_at?: string
+  finished_at?: string
+  progress?: { walked?: number; scanned?: number; added?: number; skipped?: number }
+  error?: string
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -15,6 +24,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export default function SettingsPage() {
   const { user, logout } = useSessionAuth()
+  const { isAdmin } = useCurrentUserRole()
   const navigate = useNavigate()
   const apiFetch = useApiFetch()
   const name = user?.name ?? "—"
@@ -33,6 +43,10 @@ export default function SettingsPage() {
   const [breakingSaved, setBreakingSaved] = useState<{ enabled: boolean; text: string }>({ enabled: false, text: "" })
   const [breakingSaving, setBreakingSaving] = useState(false)
   const [breakingMessage, setBreakingMessage] = useState<string | null>(null)
+  const [mediaIndexRunning, setMediaIndexRunning] = useState(false)
+  const [mediaIndexMessage, setMediaIndexMessage] = useState<string | null>(null)
+  // Guards against two poll loops (mount-resume plus a click) racing each other.
+  const mediaPollActive = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -153,6 +167,78 @@ export default function SettingsPage() {
       setTaxonomyRebuildMessage(err instanceof Error ? err.message : "Failed to rebuild taxonomy counts")
     } finally {
       setTaxonomyRebuildRunning(false)
+    }
+  }
+
+  // The index walks ~145k filesystem entries and takes minutes, so the server runs
+  // it in the background and we poll. A synchronous request could never finish:
+  // Nginx cuts an upstream read at 60s and Cloudflare at ~100s.
+  const followMediaIndex = useCallback(async () => {
+    // A second caller would double the poll rate and fight over the message.
+    if (mediaPollActive.current) return
+    mediaPollActive.current = true
+    setMediaIndexRunning(true)
+    try {
+      for (;;) {
+        const res = await apiFetch("/v1/media/index")
+        if (!res.ok) throw new Error(`Failed to read index status (${res.status})`)
+        const status = (await res.json()) as IndexStatus
+        const p = status.progress
+
+        if (!status.running) {
+          if (status.error) {
+            setMediaIndexMessage(`Reindex failed: ${status.error}`)
+          } else if (status.finished_at) {
+            setMediaIndexMessage(
+              `Indexed ${String(p?.scanned ?? 0)} assets — ${String(p?.added ?? 0)} new, ${String(p?.skipped ?? 0)} already known.`,
+            )
+          }
+          return
+        }
+
+        setMediaIndexMessage(`Indexing… ${String(p?.walked ?? 0)} files scanned, ${String(p?.added ?? 0)} added`)
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+      }
+    } catch (err) {
+      setMediaIndexMessage(err instanceof Error ? err.message : "Failed to read index status")
+    } finally {
+      mediaPollActive.current = false
+      setMediaIndexRunning(false)
+    }
+  }, [apiFetch])
+
+  // An index started before this page was opened (or by another admin) is still
+  // running server-side, so pick up its progress rather than showing an idle button.
+  useEffect(() => {
+    if (!isAdmin) return
+    let cancelled = false
+    async function resumeMediaIndex() {
+      try {
+        const res = await apiFetch("/v1/media/index")
+        if (!res.ok) return
+        const status = (await res.json()) as IndexStatus
+        if (!cancelled && status.running) void followMediaIndex()
+      } catch {
+        // Nothing to resume, and this is not worth an error banner on load.
+      }
+    }
+    void resumeMediaIndex()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch, followMediaIndex, isAdmin])
+
+  async function reindexMedia() {
+    setMediaIndexMessage(null)
+    try {
+      const res = await apiFetch("/v1/media/index", { method: "POST" })
+      // 409 means one is already running — join its progress rather than error.
+      if (!res.ok && res.status !== 409) {
+        throw new Error(`Failed to start reindex (${res.status})`)
+      }
+      await followMediaIndex()
+    } catch (err) {
+      setMediaIndexMessage(err instanceof Error ? err.message : "Failed to start reindex")
     }
   }
 
@@ -287,6 +373,28 @@ export default function SettingsPage() {
           {taxonomyRebuildMessage && <span className="text-sm text-muted-foreground">{taxonomyRebuildMessage}</span>}
         </div>
       </div>
+
+      {isAdmin && (
+        <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
+          <h2 className="text-lg font-semibold text-foreground">Media Library</h2>
+          <p className="text-sm text-muted-foreground">
+            Scan the media filesystem for files missing from the library. This walks every asset on the
+            media server and takes several minutes; existing entries are left untouched.
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void reindexMedia()}
+              disabled={mediaIndexRunning}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
+            >
+              <RefreshCw className={`w-4 h-4 ${mediaIndexRunning ? "animate-spin" : ""}`} aria-hidden="true" />
+              {mediaIndexRunning ? "Reindexing…" : "Reindex Media"}
+            </button>
+            {mediaIndexMessage && <span className="text-sm text-muted-foreground">{mediaIndexMessage}</span>}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
