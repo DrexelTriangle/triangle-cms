@@ -218,7 +218,6 @@ The file must contain the exact immutable image tag for the active deployment:
 - `FRONTEND_ORIGIN`
 - `OIDC_REDIRECT_URI`
 - `CMS_SESSION_TTL_SECONDS`
-- `CMS_AUTO_PROMOTE_ALL_ADMINS`
 - `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP`
 - `AKISMET_API_KEY` - optional; leave empty to disable comment spam filtering.
 - `AKISMET_BLOG_URL` - full public site URL Akismet should associate with
@@ -232,9 +231,12 @@ The file must contain the exact immutable image tag for the active deployment:
 - `MEDIA_MAX_UPLOAD_BYTES` - per-file upload cap in bytes. Empty uses the
   90 MiB default. Must stay at or below Nginx's `client_max_body_size`.
 
-Keep `CMS_AUTO_PROMOTE_ALL_ADMINS=false` and
-`CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP=false` in production. Rebuild taxonomy
-through the admin endpoint after deploys when needed.
+Keep `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP=false` in production. Rebuild
+taxonomy through the admin endpoint after deploys when needed.
+
+New users are created as editors. The very first user to log in to an empty
+`cms_users` table is bootstrapped as an admin; promote anyone else from the
+users screen.
 
 ## Required GitHub Production Environment Variables
 
