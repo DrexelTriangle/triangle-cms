@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -67,6 +68,61 @@ func TestPostMedia_NotConfigured(t *testing.T) {
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("status = %d, want 501", rec.Code)
 	}
+}
+
+func TestPostMedia_RejectsOversizeUpload(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+	t.Setenv("MEDIA_MAX_UPLOAD_BYTES", "1024")
+	rec := httptest.NewRecorder()
+	// Comfortably past the limit plus the multipart-framing slack, so this is
+	// the size check firing and not a boundary-arithmetic accident.
+	PostMedia(nil).ServeHTTP(rec, uploadRequest(t, "big.png", bytes.Repeat([]byte("a"), 64<<10)))
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The size limit is enforced by MaxBytesReader, not by ParseMultipartForm's
+// argument -- that one only decides how much stays in RAM before spilling to a
+// temp file. A body well past multipartMemoryBytes but under the limit must
+// therefore parse normally; reaching the 415 content-type check proves it did.
+func TestPostMedia_AcceptsBodyLargerThanMultipartMemory(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+	t.Setenv("MEDIA_MAX_UPLOAD_BYTES", strconv.FormatInt(multipartMemoryBytes*4, 10))
+	rec := httptest.NewRecorder()
+	PostMedia(nil).ServeHTTP(rec, uploadRequest(t, "notes.txt", bytes.Repeat([]byte("a"), int(multipartMemoryBytes)+1<<20)))
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415 (413 means the size cap fired early); body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMaxUploadBytes(t *testing.T) {
+	// The migrated WordPress corpus holds camera originals near 77 MiB, so a
+	// default below that rejects files the newsroom already has.
+	if defaultMaxUploadBytes < 80<<20 {
+		t.Fatalf("defaultMaxUploadBytes = %d, too small for the legacy corpus", defaultMaxUploadBytes)
+	}
+
+	t.Run("default when unset", func(t *testing.T) {
+		t.Setenv("MEDIA_MAX_UPLOAD_BYTES", "")
+		if got := maxUploadBytes(); got != defaultMaxUploadBytes {
+			t.Fatalf("maxUploadBytes = %d, want %d", got, defaultMaxUploadBytes)
+		}
+	})
+
+	t.Run("env override", func(t *testing.T) {
+		t.Setenv("MEDIA_MAX_UPLOAD_BYTES", "4096")
+		if got := maxUploadBytes(); got != 4096 {
+			t.Fatalf("maxUploadBytes = %d, want 4096", got)
+		}
+	})
+
+	t.Run("falls back on garbage", func(t *testing.T) {
+		t.Setenv("MEDIA_MAX_UPLOAD_BYTES", "90MiB")
+		if got := maxUploadBytes(); got != defaultMaxUploadBytes {
+			t.Fatalf("maxUploadBytes = %d, want the default %d", got, defaultMaxUploadBytes)
+		}
+	})
 }
 
 func TestPostMediaIndex_NotConfigured(t *testing.T) {
