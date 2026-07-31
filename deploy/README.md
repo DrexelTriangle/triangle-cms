@@ -114,6 +114,12 @@ Nginx will not start without `active-upstreams.conf`, since the site `include`s
 it unconditionally. A passing `nginx -t` *before* the site is enabled only
 validates the stock config and proves nothing.
 
+The site sets `client_max_body_size 26m` on `/v1/` to sit just above the
+backend's `MEDIA_MAX_UPLOAD_BYTES` (25 MiB default). Nginx's stock limit is 1m,
+which rejects an ordinary phone photo with a 413 before the CMS ever sees it, so
+a deploy that skips re-copying this file leaves media uploads broken while the
+app looks correctly configured. Raise both together, never just one.
+
 ### Media serving
 
 `location /wp-content/` reads the migrated WordPress corpus straight off CephFS.
