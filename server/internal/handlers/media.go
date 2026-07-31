@@ -33,8 +33,18 @@ import (
 
 const (
 	mediaFormField = "file"
-	// defaultMaxUploadBytes caps a single upload when MEDIA_MAX_UPLOAD_BYTES is unset.
-	defaultMaxUploadBytes int64 = 25 << 20 // 25 MiB
+	// defaultMaxUploadBytes caps a single upload when MEDIA_MAX_UPLOAD_BYTES is
+	// unset. The migrated WordPress corpus contains full-resolution camera
+	// originals up to ~77 MiB, so anything smaller than this rejects files the
+	// newsroom demonstrably produces. The ceiling is Cloudflare's 100 MB request
+	// limit on the tunnel in front of Delta -- stay below it, since a body that
+	// clears the backend but not the tunnel fails with an opaque edge error.
+	defaultMaxUploadBytes int64 = 90 << 20 // 90 MiB
+	// multipartMemoryBytes is how much of a multipart body ParseMultipartForm may
+	// hold in RAM before spilling the rest to temp files. It is deliberately
+	// decoupled from the size limit: passing the limit itself would let a single
+	// upload pin its full size in memory (and Go adds ~10 MiB of slack on top).
+	multipartMemoryBytes int64 = 8 << 20 // 8 MiB
 	// uploadsSubdir is the WordPress-compatible prefix (under MEDIA_ROOT) that all
 	// uploads live under, so new files line up with the rsynced legacy corpus and
 	// the Nginx `location /wp-content/` root that serves them.
@@ -111,7 +121,9 @@ func PostMedia(conn *sql.DB) http.Handler {
 		// Cap the request body. A little slack over maxBytes covers multipart
 		// framing so a file exactly at the limit still succeeds.
 		r.Body = http.MaxBytesReader(w, r.Body, maxBytes+4096)
-		if err := r.ParseMultipartForm(maxBytes); err != nil {
+		// MaxBytesReader, not this argument, is what enforces the limit; this only
+		// decides where the bytes land on the way in (see multipartMemoryBytes).
+		if err := r.ParseMultipartForm(multipartMemoryBytes); err != nil {
 			var tooLarge *http.MaxBytesError
 			if errors.As(err, &tooLarge) {
 				writeError(w, http.StatusRequestEntityTooLarge,
