@@ -110,6 +110,14 @@ func ScanComment(rows *sql.Rows) (Comment, error) {
 	return comment, nil
 }
 
+// GetApprovedCommentsByArticleSlug returns the reader comments shown under an
+// article. Pingbacks and trackbacks are excluded: WordPress stored them in the
+// same table, but they are automated link notifications rather than anything a
+// reader wrote, and on the imported data they are almost entirely SEO spam.
+// This matches the predicate adminCommentConditions already applies, which is
+// what left the public endpoint as the one place they still surfaced. Rows stay
+// in the table; nothing renders them. A NULL or empty type means a comment --
+// that is what WordPress wrote for ordinary rows.
 func GetApprovedCommentsByArticleSlug(ctx context.Context, conn *sql.DB, slug string) ([]Comment, error) {
 	rows, err := conn.QueryContext(ctx, `
 		SELECT
@@ -126,6 +134,7 @@ func GetApprovedCommentsByArticleSlug(ctx context.Context, conn *sql.DB, slug st
 		FROM comments c
 		JOIN articles a ON a.id = c.article_id
 		WHERE a.slug = ? AND c.status = 'approved'
+		  AND (c.`+"`type`"+` IS NULL OR c.`+"`type`"+` = '' OR c.`+"`type`"+` = 'comment')
 		ORDER BY COALESCE(c.created_at_gmt, c.created_at), c.id
 	`, slug)
 	if err != nil {
