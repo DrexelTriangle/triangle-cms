@@ -58,10 +58,13 @@ OPTIONAL_TABLES = ("article_embeddings",)
 # Created by the CMS's own migrations; their absence means step 3 did not run.
 CMS_TABLES = ("cms_users", "cms_sessions", "cms_settings", "media", "cms_polls", "site_taxonomy")
 
-# Hosts that must never be rebuilt without saying so out loud. DB1 direct and
-# MaxScale both reach production data.
-PRODUCTION_HOSTS = {"10.248.40.154", "10.248.40.183"}
-PRODUCTION_DATABASES = {"triangle"}
+# DB1 and MaxScale are Delta infrastructure, NOT production -- rebuilding them
+# is a legitimate and expected thing to do. They are still gated because
+# `triangle` there is the live migrated dataset that everything currently reads,
+# and because DB1 becomes production later, so the habit should already be in
+# place. Test schemas on the same hosts are unaffected.
+PROTECTED_HOSTS = {"10.248.40.154", "10.248.40.183"}
+PROTECTED_DATABASES = {"triangle"}
 
 DSN_RE = re.compile(
     r"^(?P<user>[^:@/]+)(?::(?P<password>[^@]*))?@tcp\((?P<host>[^:)]+)(?::(?P<port>\d+))?\)/(?P<database>[^?]+)"
@@ -104,9 +107,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--yes", "-y", action="store_true", help="skip the destructive-action confirmation")
     parser.add_argument(
-        "--allow-production",
+        "--allow-shared-dataset",
         action="store_true",
-        help="permit a production host/database as the target; refuses without it",
+        help="permit rebuilding the live `triangle` schema on DB1/MaxScale; refuses without it",
     )
     return parser.parse_args()
 
@@ -204,13 +207,13 @@ class Client:
 
 
 def preflight(args: argparse.Namespace, target: dict, client: Client) -> Path:
-    if target["host"] in PRODUCTION_HOSTS or target["database"] in PRODUCTION_DATABASES:
-        if not args.allow_production:
+    if target["host"] in PROTECTED_HOSTS and target["database"] in PROTECTED_DATABASES:
+        if not args.allow_shared_dataset:
             raise Fail(
-                f"{target['user']}@{target['host']}/{target['database']} looks like production. "
-                "Re-run with --allow-production if that is genuinely the intent."
+                f"{target['host']}/{target['database']} is the live Delta dataset that the CMS "
+                "currently serves. Re-run with --allow-shared-dataset if that is the intent."
             )
-        warn(f"targeting PRODUCTION: {target['host']}/{target['database']} (--allow-production given)")
+        warn(f"rebuilding the live Delta dataset: {target['host']}/{target['database']}")
 
     if client.query("SELECT 1") is None:
         raise Fail(f"cannot connect to {target['user']}@{target['host']}:{target['port']}.")
