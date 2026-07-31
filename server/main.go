@@ -188,6 +188,16 @@ func main() {
 		slog.Info("cms startup", "event", "startup", "stage", "db_table_count", "table_count", tableCount)
 	}
 
+	// Migrate-and-exit. Everything above this point is schema work; everything
+	// below needs OIDC and TLS, which a provisioning run has no use for. Lets a
+	// build/seed tool point the real binary at a fresh database and get exactly
+	// the schema this version expects, instead of a second copy of the DDL that
+	// can drift from these Ensure* calls.
+	if strings.TrimSpace(os.Getenv("CMS_MIGRATE_ONLY")) == "1" {
+		slog.Info("cms startup", "event", "startup", "stage", "migrate_only_complete", "table_count", tableCount)
+		return
+	}
+
 	var verifier *oidc.IDTokenVerifier
 	var oidcCfg auth.OIDCConfig
 	if issuerURL := strings.TrimSpace(os.Getenv("OIDC_ISSUER_URL")); issuerURL != "" {
