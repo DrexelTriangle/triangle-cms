@@ -114,11 +114,22 @@ Nginx will not start without `active-upstreams.conf`, since the site `include`s
 it unconditionally. A passing `nginx -t` *before* the site is enabled only
 validates the stock config and proves nothing.
 
-The site sets `client_max_body_size 26m` on `/v1/` to sit just above the
-backend's `MEDIA_MAX_UPLOAD_BYTES` (25 MiB default). Nginx's stock limit is 1m,
+The site sets `client_max_body_size 91m` on `/v1/` to sit just above the
+backend's `MEDIA_MAX_UPLOAD_BYTES` (90 MiB default). Nginx's stock limit is 1m,
 which rejects an ordinary phone photo with a 413 before the CMS ever sees it, so
 a deploy that skips re-copying this file leaves media uploads broken while the
 app looks correctly configured. Raise both together, never just one.
+
+The 90 MiB figure is sized to the migrated corpus, which contains unresized
+camera originals up to ~77 MiB (largest: `2025/07/BZ9A5771.jpg`). The hard
+ceiling above it is Cloudflare's **100 MB** request-body limit on the tunnel
+fronting Delta; a body that passes Nginx and the backend but exceeds that dies
+at the edge with an error the CMS never sees, so do not raise the pair past
+~95 MiB without moving media uploads off the tunnel.
+
+The backend streams uploads to a temp file rather than buffering them in RAM
+(only the first 8 MiB stays in memory), so a large upload costs container disk,
+not memory.
 
 ### Media serving
 
@@ -260,6 +271,8 @@ The file must contain the exact immutable image tag for the active deployment:
   `/mnt/cephfs/media` unless the bind-mount target changes.
 - `MEDIA_BASE_URL` - public origin that serves `/wp-content/`, used to build
   media URLs returned by the upload endpoint. Empty yields relative URLs.
+- `MEDIA_MAX_UPLOAD_BYTES` - per-file upload cap in bytes. Empty uses the
+  90 MiB default. Must stay at or below Nginx's `client_max_body_size`.
 
 Keep `CMS_AUTO_PROMOTE_ALL_ADMINS=false` and
 `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP=false` in production. Rebuild taxonomy

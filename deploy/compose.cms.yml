@@ -35,6 +35,10 @@ x-backend-base: &backend-base
     # assets under MEDIA_ROOT; MEDIA_BASE_URL is the public host that serves them.
     MEDIA_ROOT: ${MEDIA_ROOT:-/mnt/cephfs/media}
     MEDIA_BASE_URL: ${MEDIA_BASE_URL:-}
+    # Per-file upload cap. Must stay at or below Nginx's client_max_body_size
+    # (91m) and below Cloudflare's 100 MB tunnel limit; raise all of them
+    # together or the smallest one silently wins.
+    MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-94371840}
   volumes:
     # CephFS media tree (host). rw so the upload endpoint can store new files;
     # host Nginx serves the same tree read-only (see deploy/nginx/triangle-cms.conf).
