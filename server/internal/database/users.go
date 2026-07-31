@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"database/sql"
-	"os"
 	"strings"
 	"time"
 
@@ -96,14 +95,8 @@ func EnsureUsersTable(ctx context.Context, conn *sql.DB) error {
 }
 
 func FindOrCreateUser(ctx context.Context, conn *sql.DB, sub, email, name string) (*models.User, error) {
-	autoPromoteAllAdmins := strings.EqualFold(strings.TrimSpace(os.Getenv("CMS_AUTO_PROMOTE_ALL_ADMINS")), "true")
 	user, err := findUserBySub(ctx, conn, sub)
 	if err == nil {
-		if autoPromoteAllAdmins && user.Role != models.RoleAdmin {
-			if err := UpdateUserRole(ctx, conn, user.ID, models.RoleAdmin); err == nil {
-				user.Role = models.RoleAdmin
-			}
-		}
 		_ = updateLastLogin(ctx, conn, user.ID)
 		return user, nil
 	}
@@ -113,19 +106,7 @@ func FindOrCreateUser(ctx context.Context, conn *sql.DB, sub, email, name string
 
 	authorID := findAuthorIDByEmail(ctx, conn, email)
 
-	role := models.RoleEditor
-	if autoPromoteAllAdmins {
-		role = models.RoleAdmin
-	}
-
-	res, err := conn.ExecContext(ctx,
-		"INSERT INTO cms_users (sub, email, name, role, author_id) VALUES (?, ?, ?, ?, ?)",
-		sub, email, name, role, authorID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	id, err := res.LastInsertId()
+	id, role, err := insertUser(ctx, conn, sub, email, name, authorID)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +122,45 @@ func FindOrCreateUser(ctx context.Context, conn *sql.DB, sub, email, name string
 		CreatedAt:   now,
 		LastLoginAt: now,
 	}, nil
+}
+
+// insertUser creates a CMS user, bootstrapping the very first one as an admin so
+// a fresh install has someone who can manage roles. Everyone after that starts as
+// an editor and has to be promoted from the users screen. The count and the
+// insert share a transaction (and a locking read) so two simultaneous first
+// logins can't both come out as admin.
+func insertUser(ctx context.Context, conn *sql.DB, sub, email, name string, authorID *int64) (int64, models.Role, error) {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var existing int64
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM cms_users FOR UPDATE").Scan(&existing); err != nil {
+		return 0, "", err
+	}
+
+	role := models.RoleEditor
+	if existing == 0 {
+		role = models.RoleAdmin
+	}
+
+	res, err := tx.ExecContext(ctx,
+		"INSERT INTO cms_users (sub, email, name, role, author_id) VALUES (?, ?, ?, ?, ?)",
+		sub, email, name, role, authorID,
+	)
+	if err != nil {
+		return 0, "", err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, "", err
+	}
+	return id, role, nil
 }
 
 func findUserBySub(ctx context.Context, conn *sql.DB, sub string) (*models.User, error) {
