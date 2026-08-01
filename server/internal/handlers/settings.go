@@ -115,6 +115,58 @@ func PatchBreakingNews(conn *sql.DB) http.Handler {
 	})
 }
 
+// @Summary Get the public-site footer menu
+// @Tags settings
+// @Produce json
+// @Success 200 {object} models.FooterSettingsResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/settings/footer [get]
+func GetFooterSettings(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		settings, err := db.GetFooterSettings(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to fetch footer settings")
+			return
+		}
+		writeJSON(w, http.StatusOK, settings)
+	})
+}
+
+// @Summary Update the public-site footer menu
+// @Tags settings
+// @Accept json
+// @Produce json
+// @Param body body models.FooterSettingsPatchRequest true "Footer menu"
+// @Success 200 {object} models.FooterSettingsResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/settings/footer [patch]
+func PatchFooterSettings(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body models.FooterSettingsPatchRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+
+		if err := db.SetFooterSettings(r.Context(), conn, body); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update footer settings")
+			return
+		}
+
+		// Read back rather than echo: the stored menu is normalized, and an
+		// empty save reverts to the default columns.
+		saved, err := db.GetFooterSettings(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to fetch footer settings")
+			return
+		}
+		activity.LogRequest(r, "settings_changed", "Footer menu updated")
+		writeJSON(w, http.StatusOK, saved)
+	})
+}
+
 // @Summary Rebuild taxonomy article counts
 // @Tags settings
 // @Success 204

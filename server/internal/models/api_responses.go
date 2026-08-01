@@ -216,6 +216,42 @@ type BreakingNewsSettingsResponse = BreakingNewsSettings
 
 type BreakingNewsSettingsPatchRequest = BreakingNewsSettings
 
+// Footer entry kinds. A column is a flat ordered list rather than a heading
+// plus children because the live footer stacks two groups in one column
+// ("Columns" under "Opinion", "Special Editions" under "Comics & Puzzles"),
+// separated by a blank line — which a single-heading shape cannot express.
+const (
+	FooterEntryLink    = "link"
+	FooterEntryHeading = "heading"
+	FooterEntrySpacer  = "spacer"
+)
+
+// FooterEntry is one line in a footer column. NewTab drives target="_blank",
+// which the external links (application form, print archive, The Rectangle)
+// need and the internal ones must not have. Spacers carry no label or href.
+type FooterEntry struct {
+	Kind   string `json:"kind"`
+	Label  string `json:"label"`
+	Href   string `json:"href"`
+	NewTab bool   `json:"new_tab"`
+}
+
+// FooterColumn is one column of the public-site footer.
+type FooterColumn struct {
+	Entries []FooterEntry `json:"entries"`
+}
+
+// FooterSettings is the whole public-site footer menu. The public site keeps
+// its own hardcoded copy as a fallback, so an empty Columns list is valid and
+// simply means "nothing customized yet".
+type FooterSettings struct {
+	Columns []FooterColumn `json:"columns"`
+}
+
+type FooterSettingsResponse = FooterSettings
+
+type FooterSettingsPatchRequest = FooterSettings
+
 // SEOSettings holds the site-wide SEO / social defaults.
 type SEOSettings struct {
 	OGTitle       string `json:"og_title"`

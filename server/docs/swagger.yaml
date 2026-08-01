@@ -477,6 +477,38 @@ definitions:
       error:
         type: string
     type: object
+  models.FooterColumn:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/models.FooterEntry'
+        type: array
+    type: object
+  models.FooterEntry:
+    properties:
+      href:
+        type: string
+      kind:
+        type: string
+      label:
+        type: string
+      new_tab:
+        type: boolean
+    type: object
+  models.FooterSettingsPatchRequest:
+    properties:
+      columns:
+        items:
+          $ref: '#/definitions/models.FooterColumn'
+        type: array
+    type: object
+  models.FooterSettingsResponse:
+    properties:
+      columns:
+        items:
+          $ref: '#/definitions/models.FooterColumn'
+        type: array
+    type: object
   models.HealthResponse:
     properties:
       status:
@@ -2817,6 +2849,52 @@ paths:
       security:
       - BearerAuth: []
       summary: Update breaking-news banner settings
+      tags:
+      - settings
+  /v1/settings/footer:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.FooterSettingsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get the public-site footer menu
+      tags:
+      - settings
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Footer menu
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.FooterSettingsPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.FooterSettingsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update the public-site footer menu
       tags:
       - settings
   /v1/settings/seo:
