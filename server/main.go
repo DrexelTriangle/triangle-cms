@@ -14,6 +14,7 @@ import (
 	"server/internal/akismet"
 	"server/internal/auth"
 	"server/internal/database"
+	"server/internal/handlers"
 	"server/internal/middleware"
 	"server/internal/routes"
 
@@ -128,6 +129,14 @@ func main() {
 	if err := database.EnsureMediaTable(context.Background(), db); err != nil {
 		slog.Error("failed to create media table", "error", err)
 		os.Exit(1)
+	}
+
+	// Surface a missing media mount at boot rather than on the first failed
+	// upload. Deliberately not fatal: the rest of the CMS works fine without the
+	// media tree, and taking the whole newsroom down over it would be worse than
+	// refusing uploads (which the handlers do on their own).
+	if err := handlers.CheckMediaStorage(); err != nil {
+		slog.Error("media storage check failed; uploads will be refused", "error", err)
 	}
 
 	if err := database.EnsureUsersTable(context.Background(), db); err != nil {

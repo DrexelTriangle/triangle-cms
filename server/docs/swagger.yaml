@@ -2407,6 +2407,10 @@ paths:
           description: Not Implemented
           schema:
             $ref: '#/definitions/models.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Upload a media asset
@@ -2556,6 +2560,10 @@ paths:
           description: Bad Gateway
           schema:
             $ref: '#/definitions/models.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Sideload a remote image into the library
@@ -2621,6 +2629,10 @@ paths:
             $ref: '#/definitions/models.ErrorResponse'
         "501":
           description: Not Implemented
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/models.ErrorResponse'
       security:

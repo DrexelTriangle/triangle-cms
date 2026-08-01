@@ -323,16 +323,37 @@ func DeleteMediaRow(ctx context.Context, conn *sql.DB, id int64) error {
 	return nil
 }
 
+// likeEscaper neutralises the LIKE metacharacters in a value being matched
+// literally. Underscore is the one that bites here: the migrated corpus is full
+// of names like IMG_1234.jpg, and an unescaped "_" matches any single character.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
 // MediaPathInUse reports whether any article still points at this asset, so the
 // handler can refuse a delete that would break a published page.
+//
+// Two places have to be checked. photo_url is the article's lead image and holds
+// an absolute URL from the ETL, hence the suffix match. Body images are embedded
+// by the editor as <img src> inside the article text, and checking only
+// photo_url meant an asset used solely inline looked unreferenced -- the delete
+// went through and unlinked a file a published article was still rendering.
 func MediaPathInUse(ctx context.Context, conn *sql.DB, relPath string) (bool, error) {
+	relPath = strings.TrimSpace(relPath)
+	if relPath == "" {
+		return false, nil
+	}
+	escaped := likeEscaper.Replace(relPath)
+
 	var exists int
-	err := conn.QueryRowContext(ctx,
-		"SELECT 1 FROM `articles` WHERE `photo_url` LIKE ? LIMIT 1", "%"+relPath).Scan(&exists)
+	err := conn.QueryRowContext(ctx, `
+		SELECT 1 FROM `+"`articles`"+`
+		WHERE `+"`photo_url`"+` LIKE ? ESCAPE '\\'
+		   OR `+"`text`"+` LIKE ? ESCAPE '\\'
+		LIMIT 1
+	`, "%"+escaped, "%"+escaped+"%").Scan(&exists)
 	if err == nil {
 		return true, nil
 	}
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	return false, fmt.Errorf("check media usage: %w", err)
@@ -392,11 +413,23 @@ func IndexMediaRootWithProgress(
 		if report.Walked%progressInterval == 0 {
 			notify()
 		}
+		// Skip dotfiles, before the directory check so hidden subtrees are pruned
+		// too. The upload path writes its temp file as ".upload-*<ext>" in the
+		// destination directory, so a container kill mid-copy leaves a truncated
+		// image with a real extension sitting next to the finished ones. Adopting
+		// those would fill the library with entries that can never load -- Nginx
+		// refuses to serve dotfiles -- and whose bytes are partial anyway.
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") && absPath != uploadsDir {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if entry.IsDir() {
 			return nil
 		}
 
-		name := entry.Name()
 		ext := strings.ToLower(filepath.Ext(name))
 		mimeType, ok := mediaMimeByExt[ext]
 		if !ok {

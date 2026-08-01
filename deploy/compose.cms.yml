@@ -35,6 +35,12 @@ x-backend-base: &backend-base
     # assets under MEDIA_ROOT; MEDIA_BASE_URL is the public host that serves them.
     MEDIA_ROOT: ${MEDIA_ROOT:-/mnt/cephfs/media}
     MEDIA_BASE_URL: ${MEDIA_BASE_URL:-}
+    # Mount guard. The bind below silently creates an empty host directory when
+    # CephFS is not mounted, and uploads into it look successful right up until
+    # the mount is repaired and shadows them. This path must exist under
+    # MEDIA_ROOT or the backend refuses to store anything. Set it empty only for
+    # an install with no migrated corpus.
+    MEDIA_ROOT_SENTINEL: ${MEDIA_ROOT_SENTINEL-wp-content/uploads}
     # Per-file upload cap. Must stay at or below Nginx's client_max_body_size
     # (91m) and below Cloudflare's 100 MB tunnel limit; raise all of them
     # together or the smallest one silently wins.
