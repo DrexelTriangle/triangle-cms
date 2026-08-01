@@ -69,6 +69,14 @@ func normalizeAndValidateArticleParams(ctx context.Context, conn *sql.DB, params
 		}
 	}
 
+	if params.Section != "" {
+		matchSlugs, err := sectionMatchSlugs(ctx, conn, params.Section)
+		if err != nil {
+			return ArticleParams{}, err
+		}
+		params.SectionMatchSlugs = matchSlugs
+	}
+
 	if params.Subsection != "" {
 		parentSection, ok, err := parentSectionForSubsection(ctx, conn, params.Subsection)
 		if err != nil {
@@ -106,6 +114,45 @@ func taxonomySectionExists(ctx context.Context, conn *sql.DB, section string) (b
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// sectionMatchSlugs returns the section plus every subsection filed under it,
+// which together define what "articles in this section" means. Falls back to
+// the section alone when there is no database handle, matching the behaviour of
+// the other taxonomy lookups here.
+func sectionMatchSlugs(ctx context.Context, conn *sql.DB, section string) ([]string, error) {
+	trimmed := strings.TrimSpace(section)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if conn == nil {
+		slugs := []string{trimmed}
+		for subsection := range allowedSubsectionsBySection[trimmed] {
+			slugs = append(slugs, subsection)
+		}
+		return slugs, nil
+	}
+
+	rows, err := conn.QueryContext(ctx,
+		"SELECT slug FROM site_taxonomy WHERE kind = ? AND parent_slug = ?",
+		string(models.TaxonomyTypeSubsection), trimmed,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	slugs := []string{trimmed}
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(slug) != "" {
+			slugs = append(slugs, slug)
+		}
+	}
+	return slugs, rows.Err()
 }
 
 func parentSectionForSubsection(ctx context.Context, conn *sql.DB, subsection string) (string, bool, error) {
