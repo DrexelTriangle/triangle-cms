@@ -41,13 +41,26 @@ type PollListResponse = {
   polls?: Poll[]
 }
 
-const STATE_META: Record<PollState, { label: string; className: string }> = {
+type StateMeta = { label: string; className: string }
+
+const UNKNOWN_STATE_META: StateMeta = {
+  label: "Unknown",
+  className: "bg-muted text-muted-foreground border-border",
+}
+
+const STATE_META: Record<PollState, StateMeta> = {
   live: { label: "Live", className: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30" },
   scheduled: { label: "Scheduled", className: "bg-blue-500/10 text-blue-600 border-blue-500/30" },
   draft: { label: "Draft", className: "bg-amber-500/10 text-amber-600 border-amber-500/30" },
   ended: { label: "Ended", className: "bg-muted text-muted-foreground border-border" },
   superseded: { label: "Replaced", className: "bg-muted text-muted-foreground border-border" },
   closed: { label: "Closed", className: "bg-muted text-muted-foreground border-border" },
+}
+
+// A state the client does not recognise is a server that has moved ahead of it,
+// not a reason to take the page down: an unlabelled badge beats a blank screen.
+function stateMeta(state: PollState): StateMeta {
+  return STATE_META[state] ?? UNKNOWN_STATE_META
 }
 
 // The API speaks RFC3339; <input type="datetime-local"> speaks "YYYY-MM-DDTHH:mm"
@@ -124,6 +137,8 @@ function scheduleSummary(poll: Poll): string {
       return "Taken off the site by a later poll"
     case "closed":
       return poll.starts_at ? `Closed — ran from ${formatRunDate(poll.starts_at)}` : "Closed"
+    default:
+      return poll.status === "active" ? "Published" : "Not published"
   }
 }
 
@@ -608,9 +623,9 @@ export default function PollView() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="font-semibold text-foreground">{poll.question}</h2>
                         <span
-                          className={`text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${STATE_META[poll.state].className}`}
+                          className={`text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${stateMeta(poll.state).className}`}
                         >
-                          {STATE_META[poll.state].label}
+                          {stateMeta(poll.state).label}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">{scheduleSummary(poll)}</p>

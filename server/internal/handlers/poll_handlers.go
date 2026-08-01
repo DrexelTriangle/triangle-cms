@@ -762,6 +762,7 @@ func pollView(p db.Poll, liveID int64) models.PollView {
 		ID:         p.ID,
 		Question:   p.Question,
 		Status:     p.Status,
+		State:      p.State(time.Now(), liveID),
 		TotalVotes: total,
 		Options:    options,
 	}
