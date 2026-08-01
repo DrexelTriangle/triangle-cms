@@ -188,6 +188,7 @@ type HomepageDevelopingStory struct {
 
 type HomepageResponse struct {
 	BreakingNews      BreakingNewsSettings      `json:"breaking_news"`
+	Carousel          []HomepageCarouselSlide   `json:"carousel"`
 	DevelopingStories []HomepageDevelopingStory `json:"developingstories"`
 	News              []ArticleListItem         `json:"news"`
 	Opinion           []ArticleListItem         `json:"opinion"`
@@ -281,6 +282,24 @@ type BreakingNewsSettings struct {
 type BreakingNewsSettingsResponse = BreakingNewsSettings
 
 type BreakingNewsSettingsPatchRequest = BreakingNewsSettings
+
+// HomepageCarouselSlide is one public Splide carousel item for Scalene's
+// homepage. ImageURL may be empty for a text-only slide.
+type HomepageCarouselSlide struct {
+	Enabled         bool   `json:"enabled"`
+	Title           string `json:"title"`
+	LinkURL         string `json:"link_url"`
+	ImageURL        string `json:"image_url"`
+	BackgroundColor string `json:"background_color"`
+	TextColor       string `json:"text_color"`
+	DesktopOnly     bool   `json:"desktop_only"`
+}
+
+type HomepageCarouselSettingsResponse struct {
+	Slides []HomepageCarouselSlide `json:"slides"`
+}
+
+type HomepageCarouselSettingsPatchRequest = HomepageCarouselSettingsResponse
 
 // Footer entry kinds. A column is a flat ordered list rather than a heading
 // plus children because the live footer stacks two groups in one column

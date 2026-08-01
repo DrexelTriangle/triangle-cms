@@ -2329,6 +2329,11 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		carousel, err := db.GetHomepageCarousel(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		storyTitles, err := db.GetDevelopingStories(r.Context(), conn)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -2352,6 +2357,7 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 
 		sectionArticles := models.HomepageResponse{
 			BreakingNews:      breakingNews,
+			Carousel:          db.PublishedHomepageCarousel(carousel),
 			DevelopingStories: developingStories,
 		}
 
