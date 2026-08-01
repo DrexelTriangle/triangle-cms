@@ -357,6 +357,7 @@ func articleListItems(articles []models.Article, excerptWords int) []models.Arti
 			IsFeatured:    article.IsFeatured,
 		}
 		item.PublishedDate = article.PublishedAt
+		item.CreationDate = article.CreatedAt
 		items = append(items, item)
 	}
 	return items
@@ -1104,16 +1105,46 @@ type ArticleParams struct {
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
 	q := r.URL.Query()
 	conditions, args := articleQueryFilters(r, params)
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title` FROM `articles`"
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date` FROM `articles`"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	if q.Get("sort_by") == "" {
+	sortBy := q.Get("sort_by")
+	if sortBy == "" {
 		query += " ORDER BY `id` DESC"
 	}
-	query = db.BuildOrderLimit(query, q.Get("sort_by"), q.Get("sort_direction"), db.ArticleSortByColumn, limit, offset)
+	if clause := articleOrderByClause(r, sortBy, q.Get("sort_direction")); clause != "" {
+		// Editor date sort is handled here; hand BuildOrderLimit an empty sort_by
+		// so it only appends LIMIT/OFFSET and can't emit a second ORDER BY.
+		query += clause
+		sortBy = ""
+	}
+	query = db.BuildOrderLimit(query, sortBy, q.Get("sort_direction"), db.ArticleSortByColumn, limit, offset)
 
 	return conn.QueryContext(r.Context(), query, args...)
+}
+
+// articleOrderByClause returns the editor-only ORDER BY for date sorts, or ""
+// to let BuildOrderLimit handle it. Sorting the CMS listing on `pub_date` puts
+// drafts (NULL pub_date) at the very end, so a new draft lands on the last page
+// of a 9k-article list instead of at the top. Editors sort on the date the row
+// actually has — published date, else creation date — which interleaves drafts
+// with published articles.
+func articleOrderByClause(r *http.Request, sortBy, sortDir string) string {
+	if _, isEditor := middleware.UserFromContext(r.Context()); !isEditor {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(sortBy)) {
+	case string(models.ArticleSortByPublishedAt), string(models.ArticleSortByCreatedAt):
+	default:
+		return ""
+	}
+
+	dir := "ASC"
+	if strings.EqualFold(strings.TrimSpace(sortDir), string(models.SortDirectionDescending)) {
+		dir = "DESC"
+	}
+	return " ORDER BY COALESCE(`pub_date`, `creation_date`) " + dir + ", `id` " + dir
 }
 
 func countArticles(r *http.Request, conn *sql.DB, params ArticleParams) (int, error) {
@@ -1135,7 +1166,17 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	var conditions []string
 	var args []any
 
-	conditions = append(conditions, "((TRIM(COALESCE(`authors`, '')) <> '' AND TRIM(`authors`) <> '[]') OR (TRIM(COALESCE(`categories`, '')) <> '' AND TRIM(`categories`) <> '[]'))")
+	_, isEditor := middleware.UserFromContext(r.Context())
+
+	// Exclude media/import artifacts that have neither authors nor categories.
+	// A brand-new CMS draft looks exactly like one of those until an author or a
+	// category is attached, so editors keep unpublished rows regardless — without
+	// the exemption a draft is invisible in the CMS listing until it is filed.
+	artifactFilter := "((TRIM(COALESCE(`authors`, '')) <> '' AND TRIM(`authors`) <> '[]') OR (TRIM(COALESCE(`categories`, '')) <> '' AND TRIM(`categories`) <> '[]'))"
+	if isEditor {
+		artifactFilter = "(" + artifactFilter + " OR `pub_date` IS NULL)"
+	}
+	conditions = append(conditions, artifactFilter)
 
 	// /v1/articles is public, so an anonymous caller is pinned to the published,
 	// non-archived view and the `archived`/`status` query params are ignored for
@@ -1143,7 +1184,6 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	// (?status=draft) or soft-deleted articles (?archived=true) — the listing is
 	// excerpt-only, but unpublished headlines still must not leak. Editors are
 	// identified by OptionalAuth on the route and keep the full filter set.
-	_, isEditor := middleware.UserFromContext(r.Context())
 	if !isEditor {
 		conditions = append(conditions, "`pub_date` IS NOT NULL", "`archived_at` IS NULL")
 	} else if _, archivedProvided := q["archived"]; archivedProvided {
@@ -1182,7 +1222,11 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 		}
 	}
 
-	if strings.EqualFold(strings.TrimSpace(q.Get("sort_by")), string(models.ArticleSortByPublishedAt)) &&
+	// Oldest-first on pub_date would otherwise lead with the NULL block. Editors
+	// sort on COALESCE(pub_date, creation_date) (see articleOrderByClause), so
+	// their drafts are already placed by date and must not be filtered out here.
+	if !isEditor &&
+		strings.EqualFold(strings.TrimSpace(q.Get("sort_by")), string(models.ArticleSortByPublishedAt)) &&
 		strings.EqualFold(strings.TrimSpace(q.Get("sort_direction")), string(models.SortDirectionAscending)) {
 		conditions = append(conditions, "`pub_date` IS NOT NULL")
 	}
@@ -1882,7 +1926,7 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 		}
 		fields := db.ArticleInputToDBFields(body)
 		result, err := db.Insert(r.Context(), conn, "articles",
-			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title"},
+			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title", "creation_date"},
 			fields...,
 		)
 		if err != nil {

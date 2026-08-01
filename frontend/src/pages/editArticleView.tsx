@@ -444,13 +444,20 @@ function EditArticleView() {
       ).trim())
       .filter((category) => category.length > 0)
 
+    // Rows with neither an author nor a category are filtered out of the listing
+    // as import artifacts. Drafts are exempt from that filter for editors, so
+    // this only has to block on the way to published — where the row would
+    // otherwise vanish from both the CMS list and the public site.
+    if (effectiveStatus === "published" && !selectedAuthorId && categories.length === 0) {
+      setError("Add at least one author or category so the article shows up in the list.")
+      setIsSaving(false)
+      return
+    }
+
     try {
       if (isNew) {
         if (!title.trim()) {
           throw new Error("A title is required.")
-        }
-        if (!selectedAuthorId && categories.length === 0) {
-          throw new Error("Add at least one author or category so the article shows up in the list.")
         }
         const createPayload = {
           title: title.trim(),
