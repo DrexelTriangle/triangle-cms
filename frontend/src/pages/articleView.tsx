@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import { publicSiteUrl } from "../auth/urls"
 import { useApiFetch } from "../hooks/useApiFetch"
 
 type ArticleStatus = "Published" | "Draft" | "Archived"
@@ -103,6 +104,9 @@ const writeSessionJSON = (key: string, value: unknown) => {
 function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: ArticleViewProps) {
   const navigate = useNavigate()
   const apiFetch = useApiFetch()
+  // Same origin the comments view and the editor's permalink preview use, so
+  // "View Live" cannot point at a different site than the rest of the CMS.
+  const siteUrl = useMemo(() => publicSiteUrl(), [])
   const storageKeyBase = `articleView:${fixedType ?? "all"}:${excludeType ?? "none"}`
   const uiStateKey = `${storageKeyBase}:ui`
   const resultsCacheKey = `${storageKeyBase}:results`
@@ -603,7 +607,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                       {activeTab !== "trash" && item.status === "Published" && (
                         <a
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-                          href={item.slug ? `https://www.thetriangle.org/article/${encodeURIComponent(item.slug)}` : "#"}
+                          href={item.slug ? `${siteUrl}/article/${encodeURIComponent(item.slug)}` : "#"}
                           rel="noreferrer"
                           target="_blank"
                         >
