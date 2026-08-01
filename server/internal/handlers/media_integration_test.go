@@ -69,14 +69,16 @@ func mediaHTTPTestDB(t *testing.T) *sql.DB {
 	}
 
 	// Deleting an asset checks whether any article still points at it, so the
-	// fixture needs the one column that check reads.
+	// fixture needs the two columns that check reads: the lead image and the
+	// body HTML, which carries editor-inserted <img> tags.
 	if _, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS articles"); err != nil {
 		t.Fatalf("drop articles table: %v", err)
 	}
 	if _, err := conn.ExecContext(ctx, `
 		CREATE TABLE articles (
 			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			photo_url LONGTEXT
+			photo_url LONGTEXT,
+			`+"`text`"+` LONGTEXT
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`); err != nil {
 		t.Fatalf("create articles table: %v", err)
@@ -239,6 +241,81 @@ func TestMediaHTTP_DeleteRefusesAssetInUse(t *testing.T) {
 	}
 	if _, err := db.GetMediaByID(context.Background(), conn, created.ID); err != nil {
 		t.Fatalf("a refused delete must leave the row alone: %v", err)
+	}
+}
+
+// The same protection for an image that only ever appears inside the article
+// body. Checking photo_url alone let this delete through and unlink a file a
+// published article was still rendering -- the one path here that destroyed
+// content rather than just confusing the library.
+func TestMediaHTTP_DeleteRefusesAssetUsedInArticleBody(t *testing.T) {
+	conn := mediaHTTPTestDB(t)
+	root := t.TempDir()
+	t.Setenv("MEDIA_ROOT", root)
+
+	rec := httptest.NewRecorder()
+	PostMedia(conn).ServeHTTP(rec, uploadRequest(t, "inline.png", pngBytes(t, 5, 5)))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var created models.MediaUploadResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode upload: %v", err)
+	}
+
+	// No photo_url at all: the reference exists only as an editor-inserted tag
+	// in the middle of the body HTML.
+	body := `<p>before</p><figure><img src="/` + created.Path + `" alt="x"></figure><p>after</p>`
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (`text`) VALUES (?)", body); err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	delRec := httptest.NewRecorder()
+	DeleteMediaItem(conn).ServeHTTP(delRec, mediaIDRequest(t, http.MethodDelete, "/v1/media/1", created.ID, ""))
+	if delRec.Code != http.StatusConflict {
+		t.Fatalf("delete status = %d, want 409; body = %s", delRec.Code, delRec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(created.Path))); err != nil {
+		t.Fatalf("a refused delete must leave the file alone: %v", err)
+	}
+}
+
+// An underscore is a LIKE single-char wildcard, and the migrated corpus is full
+// of names like IMG_1234.jpg. Unescaped, the usage check matched articles that
+// reference a *different* file and refused a legitimate delete.
+func TestMediaHTTP_DeleteIsNotBlockedByWildcardLookalike(t *testing.T) {
+	conn := mediaHTTPTestDB(t)
+	root := t.TempDir()
+	t.Setenv("MEDIA_ROOT", root)
+
+	relPath := "wp-content/uploads/2019/01/IMG_1234.jpg"
+	abs := filepath.Join(root, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o775); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(abs, pngBytes(t, 2, 2), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	id, err := db.InsertMedia(context.Background(), conn, relPath, "image/jpeg", 10, 2, 2)
+	if err != nil {
+		t.Fatalf("insert media: %v", err)
+	}
+
+	// Differs from relPath only where the wildcard would match.
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (photo_url) VALUES (?)",
+		"https://media.example.org/wp-content/uploads/2019/01/IMGx1234.jpg"); err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	delRec := httptest.NewRecorder()
+	DeleteMediaItem(conn).ServeHTTP(delRec, mediaIDRequest(t, http.MethodDelete, "/v1/media/1", id, ""))
+	if delRec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204; body = %s", delRec.Code, delRec.Body.String())
+	}
+	if _, err := os.Stat(abs); !os.IsNotExist(err) {
+		t.Fatalf("file should have been removed, stat err = %v", err)
 	}
 }
 

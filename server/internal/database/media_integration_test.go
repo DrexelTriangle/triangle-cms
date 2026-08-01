@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -139,6 +140,37 @@ func TestIndexMediaRoot_SkipsDerivativesAndRepeats(t *testing.T) {
 	}
 	if preserved.AltText != altText {
 		t.Fatalf("alt text = %q, want %q preserved across reindex", preserved.AltText, altText)
+	}
+}
+
+// An upload killed mid-copy leaves its ".upload-*" temp file, with a real image
+// extension, next to the finished assets. Indexing those would add rows for
+// truncated files that Nginx refuses to serve anyway (it denies dotfiles).
+func TestIndexMediaRoot_SkipsDotfiles(t *testing.T) {
+	conn := mediaTestDB(t)
+	ctx := context.Background()
+	root := t.TempDir()
+
+	writeFile(t, root, "wp-content/uploads/2026/07/story.jpg")
+	writeFile(t, root, "wp-content/uploads/2026/07/.upload-9f2c1a.jpg") // abandoned temp
+	writeFile(t, root, "wp-content/uploads/2026/07/.hidden/buried.jpg") // hidden subtree
+
+	report, err := IndexMediaRoot(ctx, conn, root, "wp-content/uploads")
+	if err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	if report.Added != 1 || report.Scanned != 1 {
+		t.Fatalf("report = %+v, want 1 added / 1 scanned", report)
+	}
+
+	items, _, err := ListMedia(ctx, conn, models.MediaListParams{})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for _, item := range items {
+		if strings.Contains(item.Path, "/.") {
+			t.Fatalf("indexed a dotfile: %s", item.Path)
+		}
 	}
 }
 

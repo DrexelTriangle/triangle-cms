@@ -71,6 +71,7 @@ const (
 // durable on disk and only the library row is missing.
 var (
 	errMediaNotConfigured = errors.New("media storage is not configured")
+	errMediaUnavailable   = errors.New("media storage is unavailable")
 	errUnsupportedType    = errors.New("unsupported file type")
 	errStoreFailed        = errors.New("failed to store upload")
 	errIndexFailed        = errors.New("file stored but could not be added to the media library")
@@ -88,8 +89,47 @@ var allowedImageTypes = map[string]string{
 
 var nonSlugChars = regexp.MustCompile(`[^a-z0-9]+`)
 
+// wpDerivativeSuffix matches the "-800x600" WordPress appends to generated
+// thumbnails. The indexer skips names of this shape (they are derivatives of an
+// original that is already in the library), so an *upload* must never be given
+// one: its row exists now, but a rebuild of the media table -- which the reseed
+// plan calls for -- would not adopt the file back while articles still point at
+// it. sanitizeBaseName defuses the shape instead.
+var wpDerivativeSuffix = regexp.MustCompile(`-\d+x\d+$`)
+
 func mediaRoot() string {
 	return strings.TrimRight(strings.TrimSpace(os.Getenv("MEDIA_ROOT")), "/")
+}
+
+// mediaSentinel is a MEDIA_ROOT-relative path that must exist for the media tree
+// to be considered mounted. Empty (the default) disables the check.
+func mediaSentinel() string {
+	return strings.Trim(strings.TrimSpace(os.Getenv("MEDIA_ROOT_SENTINEL")), "/")
+}
+
+// CheckMediaStorage reports whether MEDIA_ROOT looks like the real media tree
+// rather than an empty directory standing in for an unmounted filesystem.
+//
+// This matters because the Docker bind mount silently creates MEDIA_HOST_PATH if
+// CephFS is not mounted at deploy time. Without this check uploads land on the
+// host's local disk and index cleanly, and are then shadowed -- effectively lost
+// -- the moment the mount is repaired. MEDIA_ROOT_SENTINEL names something the
+// migrated corpus is known to contain (the uploads directory itself is the
+// natural choice); a fresh install with no corpus should leave it unset.
+func CheckMediaStorage() error {
+	root := mediaRoot()
+	if root == "" {
+		return errMediaNotConfigured
+	}
+	sentinel := mediaSentinel()
+	if sentinel == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(sentinel))); err != nil {
+		return fmt.Errorf("%w: sentinel %q missing under MEDIA_ROOT %s (is the media filesystem mounted?)",
+			errMediaUnavailable, sentinel, root)
+	}
+	return nil
 }
 
 func maxUploadBytes() int64 {
@@ -128,13 +168,15 @@ func uploadURL(relPath string) string {
 // @Failure 415 {object} models.ErrorResponse
 // @Failure 500 {object} models.ErrorResponse
 // @Failure 501 {object} models.ErrorResponse
+// @Failure 503 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/media [post]
 func PostMedia(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		root := mediaRoot()
-		if root == "" {
-			writeError(w, http.StatusNotImplemented, "media storage is not configured")
+		if err := CheckMediaStorage(); err != nil {
+			// Checked before reading the body: there is no point streaming 90 MiB
+			// into a directory we are about to refuse to write to.
+			writeStoreImageError(w, err)
 			return
 		}
 
@@ -185,10 +227,10 @@ func PostMedia(conn *sql.DB) http.Handler {
 // src must be seekable: sniffing the content type consumes the leading bytes,
 // which have to be rewound before the file is written.
 func storeImage(ctx context.Context, conn *sql.DB, src io.ReadSeeker, filename string) (models.MediaUploadResponse, error) {
-	root := mediaRoot()
-	if root == "" {
-		return models.MediaUploadResponse{}, errMediaNotConfigured
+	if err := CheckMediaStorage(); err != nil {
+		return models.MediaUploadResponse{}, err
 	}
+	root := mediaRoot()
 
 	// Sniff the real content type from the leading bytes; never trust the
 	// client-provided extension or Content-Type.
@@ -262,6 +304,12 @@ func writeStoreImageError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errMediaNotConfigured):
 		writeError(w, http.StatusNotImplemented, errMediaNotConfigured.Error())
+	case errors.Is(err, errMediaUnavailable):
+		// 503, not 500: the bytes were never touched and the request is worth
+		// retrying once the mount is back. The detail names a filesystem path,
+		// so it stays in the log.
+		slog.Error("media storage unavailable", "error", err)
+		writeError(w, http.StatusServiceUnavailable, errMediaUnavailable.Error())
 	case errors.Is(err, errUnsupportedType):
 		// Safe to echo in full: the only variable part is a sniffed MIME type.
 		writeError(w, http.StatusUnsupportedMediaType, err.Error())
@@ -292,12 +340,13 @@ func writeStoreImageError(w http.ResponseWriter, err error) {
 // @Failure 415 {object} models.ErrorResponse
 // @Failure 502 {object} models.ErrorResponse
 // @Failure 501 {object} models.ErrorResponse
+// @Failure 503 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/media/fetch [post]
 func PostMediaFetch(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if mediaRoot() == "" {
-			writeError(w, http.StatusNotImplemented, errMediaNotConfigured.Error())
+		if err := CheckMediaStorage(); err != nil {
+			writeStoreImageError(w, err)
 			return
 		}
 
@@ -470,6 +519,13 @@ func sanitizeBaseName(filename string) string {
 	if base == "" {
 		base = "file"
 	}
+	// Never hand back a name the indexer would mistake for a WordPress
+	// derivative and skip (see wpDerivativeSuffix). "-" is already the separator
+	// this function emits, so "-img" cannot collide with a slug shape it
+	// produces for any other input.
+	if wpDerivativeSuffix.MatchString(base) {
+		base += "-img"
+	}
 	return base
 }
 
@@ -532,7 +588,27 @@ func storeUpload(dir, base, ext string, src io.Reader) (name string, size int64,
 		return "", 0, err
 	}
 	cleanup = false // renamed away
+
+	// tmp.Sync() above made the *contents* durable; the directory entry carrying
+	// the final name is separate metadata. Without this a crash between the
+	// rename and the next metadata flush could leave the DB row pointing at a
+	// name that never landed. Best effort: a failure here does not make the
+	// stored file any less usable right now.
+	syncDir(dir)
 	return name, size, nil
+}
+
+// syncDir flushes a directory's entries so a rename into it survives a crash.
+func syncDir(dir string) {
+	d, err := os.Open(dir)
+	if err != nil {
+		slog.Debug("media upload: could not open directory to sync", "dir", dir, "error", err)
+		return
+	}
+	defer d.Close()
+	if err := d.Sync(); err != nil {
+		slog.Debug("media upload: could not sync directory", "dir", dir, "error", err)
+	}
 }
 
 // reserveAndRename finds an unused "<base><ext>" / "<base>-N<ext>" name in dir by
@@ -920,7 +996,16 @@ func DeleteMediaItem(conn *sql.DB) http.Handler {
 		if !boolParam(r, "keep_file") {
 			if root := mediaRoot(); root != "" {
 				if abs, ok := resolveMediaPath(root, item.Path); ok {
-					_ = os.Remove(abs)
+					// The row is already gone, so a failed unlink leaves a file the
+					// next reindex will re-adopt -- as a new row, without the alt
+					// text and caption this one had. That looks like the delete
+					// silently undid itself, so it has to be visible in the log.
+					if err := os.Remove(abs); err != nil && !errors.Is(err, os.ErrNotExist) {
+						slog.Error("media delete: could not remove file; a reindex will re-add it",
+							"path", item.Path, "error", err)
+					} else {
+						syncDir(filepath.Dir(abs))
+					}
 				}
 			}
 		}
@@ -1019,15 +1104,19 @@ var mediaIndexer = &mediaIndexJob{}
 // @Success 202 {object} models.MediaIndexStatusResponse
 // @Failure 409 {object} models.ErrorResponse
 // @Failure 501 {object} models.ErrorResponse
+// @Failure 503 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/media/index [post]
 func PostMediaIndex(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		root := mediaRoot()
-		if root == "" {
-			writeError(w, http.StatusNotImplemented, "media storage is not configured")
+		// An index over an unmounted root would walk an empty tree and report a
+		// clean "0 added", which reads as "the corpus is gone" rather than as the
+		// mount failure it is.
+		if err := CheckMediaStorage(); err != nil {
+			writeStoreImageError(w, err)
 			return
 		}
+		root := mediaRoot()
 
 		if !mediaIndexer.tryStart() {
 			writeError(w, http.StatusConflict, "a media index is already running")

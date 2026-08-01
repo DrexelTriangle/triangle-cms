@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -147,6 +148,10 @@ func TestSanitizeBaseName(t *testing.T) {
 		{"discards windows separators", `C:\Users\me\pic.png`, "pic"},
 		{"falls back when nothing survives", "!!!.png", "file"},
 		{"truncates very long names", strings.Repeat("a", 300) + ".png", strings.Repeat("a", maxBaseNameLen)},
+		// A name shaped like a WordPress derivative would be skipped by the
+		// indexer, so a table rebuild would never re-adopt the file.
+		{"defuses the wp derivative shape", "poster-1920x1080.jpg", "poster-1920x1080-img"},
+		{"leaves a non-terminal size alone", "poster-1920x1080-crop.jpg", "poster-1920x1080-crop"},
 	}
 
 	for _, tt := range tests {
@@ -191,6 +196,59 @@ func TestStoreUpload_NeverClobbers(t *testing.T) {
 		if strings.HasPrefix(entry.Name(), ".upload-") {
 			t.Fatalf("leftover temp file: %s", entry.Name())
 		}
+	}
+}
+
+// The mount guard. An empty MEDIA_ROOT standing in for an unmounted CephFS must
+// not accept uploads: they would land on local disk and be shadowed -- lost --
+// as soon as the mount was repaired.
+func TestCheckMediaStorage(t *testing.T) {
+	t.Run("passes when the sentinel is unset", func(t *testing.T) {
+		t.Setenv("MEDIA_ROOT", t.TempDir())
+		t.Setenv("MEDIA_ROOT_SENTINEL", "")
+		if err := CheckMediaStorage(); err != nil {
+			t.Fatalf("CheckMediaStorage() = %v, want nil", err)
+		}
+	})
+
+	t.Run("fails on an unmounted-looking root", func(t *testing.T) {
+		t.Setenv("MEDIA_ROOT", t.TempDir())
+		t.Setenv("MEDIA_ROOT_SENTINEL", "wp-content/uploads")
+		if err := CheckMediaStorage(); !errors.Is(err, errMediaUnavailable) {
+			t.Fatalf("CheckMediaStorage() = %v, want errMediaUnavailable", err)
+		}
+	})
+
+	t.Run("passes once the sentinel exists", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "wp-content", "uploads"), 0o775); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		t.Setenv("MEDIA_ROOT", root)
+		t.Setenv("MEDIA_ROOT_SENTINEL", "wp-content/uploads")
+		if err := CheckMediaStorage(); err != nil {
+			t.Fatalf("CheckMediaStorage() = %v, want nil", err)
+		}
+	})
+
+	t.Run("reports unconfigured separately", func(t *testing.T) {
+		t.Setenv("MEDIA_ROOT", "")
+		if err := CheckMediaStorage(); !errors.Is(err, errMediaNotConfigured) {
+			t.Fatalf("CheckMediaStorage() = %v, want errMediaNotConfigured", err)
+		}
+	})
+}
+
+// A 503 rather than a 500 or a silent success: the bytes were never written and
+// the upload is worth retrying once the mount is back.
+func TestPostMedia_UnavailableStorageIs503(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+	t.Setenv("MEDIA_ROOT_SENTINEL", "wp-content/uploads")
+
+	rec := httptest.NewRecorder()
+	PostMedia(nil).ServeHTTP(rec, uploadRequest(t, "pic.png", pngBytes(t, 2, 2)))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body = %s", rec.Code, rec.Body.String())
 	}
 }
 
