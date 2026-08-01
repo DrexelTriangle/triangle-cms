@@ -82,7 +82,11 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/media", authMW(handlers.GetMedia(conn)))
 	mux.Handle("GET /v1/media/gallery", authMW(handlers.GetMediaGallery(conn)))
 	mux.Handle("GET /v1/media/{id}", authMW(handlers.GetMediaItem(conn)))
-	mux.Handle("POST /v1/media", authMW(adminOnly(handlers.PostMedia(conn))))
+	// Adding an image is part of writing an article, so uploading (and the paste
+	// sideload that wraps it) is open to editors. Destructive and bulk
+	// operations -- delete, reindex -- stay admin-only.
+	mux.Handle("POST /v1/media", authMW(handlers.PostMedia(conn)))
+	mux.Handle("POST /v1/media/fetch", authMW(handlers.PostMediaFetch(conn)))
 	// Indexing runs in the background (the walk outlives any proxy timeout), so
 	// starting it and polling its progress are separate endpoints.
 	mux.Handle("POST /v1/media/index", authMW(adminOnly(handlers.PostMediaIndex(conn))))

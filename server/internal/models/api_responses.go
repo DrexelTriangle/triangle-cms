@@ -474,6 +474,12 @@ type MediaGalleryResponse struct {
 	Media []MediaOverview `json:"media"`
 }
 
+// MediaFetchRequest asks the server to copy a remote image into the library.
+// URL must be an absolute http(s) URL; see PostMediaFetch for what is refused.
+type MediaFetchRequest struct {
+	URL string `json:"url"`
+}
+
 // MediaUploadResponse describes a stored media asset. Path is the canonical
 // wp-content-relative path (what to persist as an article's photo_url); URL is
 // that path rendered through the configured media base for immediate display.

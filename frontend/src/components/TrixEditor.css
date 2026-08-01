@@ -293,9 +293,10 @@ trix-editor.trix-content .attachment.attachment--preview.attachment--dragging {
   cursor: grabbing;
 }
 
-/* Per-image alignment, set during a drop. Overrides the default centering
-   from .attachment--preview above. Both the inline style and the class are
-   applied at commit time for redundancy through Trix's HTML serialization. */
+/* Per-image alignment. No longer settable from the editor -- the public site
+   sizes article images at width:100%, which leaves nothing for a float to do --
+   but alignment already present on migrated WordPress content is preserved
+   through a save, so it is still reflected here to match what will publish. */
 trix-editor.trix-content .attachment--preview.attachment--align-left {
   text-align: left;
 }
@@ -306,35 +307,8 @@ trix-editor.trix-content .attachment--preview.attachment--align-right {
   text-align: right;
 }
 
-/* Resize overlay rendered by JS into .trix-editor-wrapper, positioned over
-   the currently selected image. The overlay itself is click-through so Trix's
-   own drag-to-reorder still works; only the corner squares grab pointer events. */
-.trix-resize-overlay {
-  position: absolute;
-  pointer-events: none;
-  z-index: 5;
-}
-
-.trix-resize-handle {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  background: hsl(var(--primary, 243 75% 59%));
-  border: 2px solid hsl(var(--background, 0 0% 100%));
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  pointer-events: auto;
-}
-
-.trix-resize-handle--nw { top: -6px; left: -6px; cursor: nwse-resize; }
-.trix-resize-handle--ne { top: -6px; right: -6px; cursor: nesw-resize; }
-.trix-resize-handle--sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
-.trix-resize-handle--se { bottom: -6px; right: -6px; cursor: nwse-resize; }
-
-/* Drop indicator shown only during an active drag-to-rearrange. The width and
-   horizontal position shift to hint at the alignment that will be applied on
-   drop: short bar on the left = left-align, centered short bar = center,
-   short bar on the right = right-align. */
+/* Drop indicator shown only during an active drag-to-rearrange, marking the
+   line the image will land on. */
 .trix-drop-indicator {
   position: absolute;
   height: 3px;
@@ -400,4 +374,37 @@ trix-editor.trix-content a:hover::after {
   pointer-events: none;
   z-index: 10;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Inline failure/warning banner for image insertion (failed upload, failed
+   paste import, image inserted without alt text). Sits below the editor rather
+   than in a toast so it stays visible while the author fixes the problem. */
+.trix-editor-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid hsl(var(--border, 220 13% 91%));
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  background: hsl(var(--muted, 220 14% 96%));
+  color: hsl(var(--foreground, 224 71% 4%));
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.trix-editor-notice button {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground, 220 9% 46%));
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.trix-editor-notice button:hover {
+  color: hsl(var(--foreground, 224 71% 4%));
 }
