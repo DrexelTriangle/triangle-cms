@@ -403,10 +403,16 @@ type PollOptionView struct {
 // PollView is a full poll: the question, when it ran, and its results.
 // StartsAt/EndsAt are RFC3339 strings, or empty when unset -- an absent EndsAt
 // is what the public archive renders as "No Expiry".
+//
+// Status is what an editor set. State is what that means right now once the
+// date window is taken into account (draft/scheduled/live/ended/superseded/
+// closed) -- clients should display State and never re-derive it, so the
+// editor and the public site can never disagree about what is running.
 type PollView struct {
 	ID         int64            `json:"id"`
 	Question   string           `json:"question"`
 	Status     string           `json:"status"`
+	State      string           `json:"state"`
 	StartsAt   string           `json:"starts_at,omitempty"`
 	EndsAt     string           `json:"ends_at,omitempty"`
 	TotalVotes int64            `json:"total_votes"`

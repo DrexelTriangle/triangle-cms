@@ -112,7 +112,7 @@ func TestPollMigrateLegacyPoll(t *testing.T) {
 	}
 }
 
-func TestPollOnlyOneActiveAtATime(t *testing.T) {
+func TestPollOnlyOneRunningAtATime(t *testing.T) {
 	conn := pollTestDB(t)
 	ctx := context.Background()
 
@@ -157,6 +157,85 @@ func TestPollOnlyOneActiveAtATime(t *testing.T) {
 	}
 }
 
+// Queuing a poll behind a future start date is the whole point of having start
+// dates: it must not disturb whatever is running, and it must take over by
+// itself when its time comes.
+func TestPollScheduledPollWaitsForItsStartDate(t *testing.T) {
+	conn := pollTestDB(t)
+	ctx := context.Background()
+
+	// Dated explicitly rather than left NULL so the two polls sit on a realistic
+	// timeline: one that has been up for a week, one queued for next week.
+	lastWeek := time.Now().Add(-7 * 24 * time.Hour)
+	running, err := CreatePoll(ctx, conn, "Running now", PollStatusActive, &lastWeek, nil, []string{"a", "b"})
+	if err != nil {
+		t.Fatalf("create running poll: %v", err)
+	}
+
+	nextWeek := time.Now().Add(7 * 24 * time.Hour)
+	queued, err := CreatePoll(ctx, conn, "Next week", PollStatusActive, &nextWeek, nil, []string{"c", "d"})
+	if err != nil {
+		t.Fatalf("create scheduled poll: %v", err)
+	}
+
+	live, err := GetActivePoll(ctx, conn)
+	if err != nil {
+		t.Fatalf("get live poll: %v", err)
+	}
+	if live.ID != running {
+		t.Fatalf("live poll = %d, want the already-running %d", live.ID, running)
+	}
+
+	stillRunning, err := GetPollByID(ctx, conn, running)
+	if err != nil {
+		t.Fatalf("get running poll: %v", err)
+	}
+	if stillRunning.Status != PollStatusActive {
+		t.Fatalf("running poll status = %q, want %q -- scheduling closed it", stillRunning.Status, PollStatusActive)
+	}
+
+	scheduled, err := GetPollByID(ctx, conn, queued)
+	if err != nil {
+		t.Fatalf("get scheduled poll: %v", err)
+	}
+	if got := scheduled.State(time.Now(), running); got != PollStateScheduled {
+		t.Fatalf("scheduled poll state = %q, want %q", got, PollStateScheduled)
+	}
+	if scheduled.AcceptsVotes(time.Now()) {
+		t.Fatalf("scheduled poll accepts votes before its start date")
+	}
+
+	// Simulate the start date arriving. Nothing sweeps polls, so the takeover
+	// has to fall out of the read path on its own.
+	if _, err := conn.ExecContext(ctx,
+		"UPDATE "+PollsTableName+" SET starts_at = ? WHERE id = ?",
+		time.Now().Add(-time.Minute), queued); err != nil {
+		t.Fatalf("advance start date: %v", err)
+	}
+
+	live, err = GetActivePoll(ctx, conn)
+	if err != nil {
+		t.Fatalf("get live poll after start: %v", err)
+	}
+	if live.ID != queued {
+		t.Fatalf("live poll = %d, want the newly started %d", live.ID, queued)
+	}
+	if got := stillRunning.State(time.Now(), queued); got != PollStateSuperseded {
+		t.Fatalf("displaced poll state = %q, want %q", got, PollStateSuperseded)
+	}
+
+	// And when the poll that took over ends, the one it displaced must stay
+	// displaced rather than popping back onto the site.
+	if _, err := conn.ExecContext(ctx,
+		"UPDATE "+PollsTableName+" SET ends_at = ? WHERE id = ?",
+		time.Now().Add(-time.Second), queued); err != nil {
+		t.Fatalf("expire taken-over poll: %v", err)
+	}
+	if _, err := GetActivePoll(ctx, conn); err != ErrNoActivePoll {
+		t.Fatalf("live poll after the queue drained = %v, want ErrNoActivePoll", err)
+	}
+}
+
 func TestPollVoting(t *testing.T) {
 	conn := pollTestDB(t)
 	ctx := context.Background()
@@ -194,15 +273,29 @@ func TestPollExpiredWindowRejectsVotes(t *testing.T) {
 	ctx := context.Background()
 
 	// Active status but an end date in the past: the window check is what must
-	// stop the vote, since nothing sweeps expired polls into "closed".
+	// stop the vote, since nothing sweeps expired polls into "closed". The poll
+	// drops off the site entirely, so the vote fails on there being nothing to
+	// vote on rather than on the poll itself being shut.
 	start := time.Now().Add(-48 * time.Hour)
 	end := time.Now().Add(-24 * time.Hour)
-	if _, err := CreatePoll(ctx, conn, "Expired", PollStatusActive, &start, &end, []string{"yes", "no"}); err != nil {
+	id, err := CreatePoll(ctx, conn, "Expired", PollStatusActive, &start, &end, []string{"yes", "no"})
+	if err != nil {
 		t.Fatalf("create expired poll: %v", err)
 	}
 
-	if _, err := VoteOnActivePoll(ctx, conn, "yes"); err != ErrPollNotOpen {
-		t.Fatalf("vote on expired poll err = %v, want ErrPollNotOpen", err)
+	if _, err := VoteOnActivePoll(ctx, conn, "yes"); err != ErrNoActivePoll {
+		t.Fatalf("vote on expired poll err = %v, want ErrNoActivePoll", err)
+	}
+
+	expired, err := GetPollByID(ctx, conn, id)
+	if err != nil {
+		t.Fatalf("get expired poll: %v", err)
+	}
+	if expired.AcceptsVotes(time.Now()) {
+		t.Fatalf("expired poll still accepts votes")
+	}
+	if got := expired.State(time.Now(), 0); got != PollStateEnded {
+		t.Fatalf("expired poll state = %q, want %q", got, PollStateEnded)
 	}
 }
 
