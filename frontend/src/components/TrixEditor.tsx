@@ -1,8 +1,16 @@
-import { useEffect, useId, useRef } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import "trix"
 import "trix/dist/trix.css"
 import "./TrixEditor.css"
 import { apiBaseUrl } from "../auth/urls"
+import MediaPicker, { type MediaPickerItem } from "./MediaPicker"
+import {
+  ALIGNMENTS,
+  TRIX_ALIGN_CLASS,
+  articleHtmlToTrix,
+  contentTypeForUrl,
+  trixHtmlToArticle,
+} from "./trixImageHtml"
 
 // Show the filename in the auto-generated caption under attachments, but hide
 // the file size this matches the upstream Trix demo's defaults and gives users an
@@ -12,70 +20,17 @@ if (typeof window !== "undefined" && window.Trix) {
   window.Trix.config.attachments.preview.caption.size = false
 }
 
-const IMAGE_CONTENT_TYPES: Record<string, string> = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  gif: "image/gif",
-  webp: "image/webp",
-  avif: "image/avif",
-  svg: "image/svg+xml",
-}
-
-const contentTypeForUrl = (url: string): string => {
-  const ext = url.split(/[?#]/)[0].split(".").pop()?.toLowerCase() ?? ""
-  return IMAGE_CONTENT_TYPES[ext] ?? "image/jpeg"
-}
-
-// Trix only restores an image's caption when it's carried in the attachment's
-// data attributes. Article HTML imported from WordPress instead puts the
-// caption in a plain caption element (block editor: <figure><figcaption>;
-// classic editor: <div class="wp-caption">…<* class="wp-caption-text">), which
-// Trix's parser drops onto the next line as body text — the caption "isn't
-// picked up by the editor". Rewrite those into Trix's native attachment format
-// so loadHTML keeps the caption bound to the image. Containers already
-// round-tripped through Trix (they carry data-trix-attachment) are skipped, so
-// this is idempotent.
-const restoreFigureCaptions = (html: string): string => {
-  if (typeof window === "undefined" || !window.DOMParser) return html
-  if (!html.includes("<figure") && !html.includes("wp-caption")) return html
-
-  const doc = new DOMParser().parseFromString(html, "text/html")
-  let changed = false
-
-  for (const container of Array.from(doc.querySelectorAll("figure, .wp-caption"))) {
-    if (container.hasAttribute("data-trix-attachment")) continue
-    // Only the simple single-image case is safe to rebuild. Galleries and
-    // nested captioned figures hold more than one image (or another caption
-    // container); reconstructing them from a single <img> would silently drop
-    // the rest, so leave those untouched.
-    if (container.querySelectorAll("img").length !== 1) continue
-    if (container.querySelector("figure, .wp-caption")) continue
-
-    const img = container.querySelector("img")
-    const src = img?.getAttribute("src")?.trim()
-    const caption = container.querySelector("figcaption, .wp-caption-text")?.textContent?.trim()
-    if (!img || !src || !caption) continue
-
-    const basename = src.split("/").pop()?.split(/[?#]/)[0]
-    const replacement = doc.createElement("figure")
-    replacement.setAttribute("data-trix-attachment", JSON.stringify({
-      contentType: contentTypeForUrl(src),
-      url: src,
-      filename: img.getAttribute("alt")?.trim() || basename || "image",
-      // Force inline preview: Trix's previewablePattern excludes svg/avif and
-      // any extension-less CDN URL, which would otherwise render as a file stub.
-      previewable: true,
-    }))
-    replacement.setAttribute("data-trix-attributes", JSON.stringify({ presentation: "gallery", caption }))
-    const newImg = doc.createElement("img")
-    newImg.setAttribute("src", src)
-    replacement.appendChild(newImg)
-    container.replaceWith(replacement)
-    changed = true
+// Hosts we may embed directly. A pasted image already served from our own media
+// infrastructure needs no sideload — it is the same file we would be copying.
+const isOwnMediaUrl = (url: string): boolean => {
+  try {
+    const resolved = new URL(url, window.location.href)
+    if (resolved.origin === window.location.origin) return true
+    const apiOrigin = new URL(apiBaseUrl(), window.location.href).origin
+    return resolved.origin === apiOrigin
+  } catch {
+    return false
   }
-
-  return changed ? doc.body.innerHTML : html
 }
 
 type TrixEditorProps = {
@@ -90,12 +45,18 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
   // Tracks the last HTML we emitted so we don't call loadHTML on our own onChange updates,
   // which would reset the cursor mid-edit.
   const lastEmittedRef = useRef<string>("")
+  // Caret position captured before the picker steals focus, so the image lands
+  // where the author was typing rather than at the top of the document.
+  const savedRangeRef = useRef<[number, number] | null>(null)
+
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
     if (value !== lastEmittedRef.current) {
-      editor.editor.loadHTML(restoreFigureCaptions(value))
+      editor.editor.loadHTML(articleHtmlToTrix(value))
       lastEmittedRef.current = value
     }
   }, [value])
@@ -105,7 +66,12 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     if (!editor) return
 
     const handleChange = () => {
-      const html = editor.value
+      // Emit the semantic markup we persist, not Trix's internal attachment
+      // format. lastEmittedRef has to hold the *converted* HTML: it is compared
+      // against the incoming value prop to decide whether to reload the editor,
+      // and reloading on our own output would reset the caret on every
+      // keystroke.
+      const html = trixHtmlToArticle(editor.value)
       lastEmittedRef.current = html
       onChange(html)
     }
@@ -114,17 +80,60 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     return () => { editor.removeEventListener("trix-change", handleChange) }
   }, [onChange])
 
-  // Uses XHR instead of fetch since fetch doesn't expose upload progress events,
-  // which Trix needs to render its built-in progress bar.
+  // Reflect each attachment's stored alignment onto the live figure so our CSS
+  // can style it. Alignment round-trips as a data-trix-attributes value (Trix
+  // rebuilds attachment figures from that JSON and would discard a bare class),
+  // so the class has to be re-applied after every change.
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
 
-    const handleAttachmentAdd = (event: Event) => {
-      const { attachment } = event as TrixAttachmentAddEvent
-      // trix-attachment-add also fires for programmatic URL embeds (no .file)
-      if (!attachment.file) return
+    const applyAlignment = () => {
+      for (const figure of Array.from(editor.querySelectorAll("figure[data-trix-attributes]"))) {
+        let align: string | undefined
+        try {
+          const parsed = JSON.parse(figure.getAttribute("data-trix-attributes") ?? "{}") as { align?: string }
+          align = parsed.align
+        } catch {
+          continue
+        }
+        for (const candidate of ALIGNMENTS) {
+          figure.classList.toggle(TRIX_ALIGN_CLASS[candidate], align === candidate)
+        }
+      }
+    }
 
+    applyAlignment()
+    editor.addEventListener("trix-change", applyAlignment)
+    return () => { editor.removeEventListener("trix-change", applyAlignment) }
+  }, [])
+
+  // Handles every way an image enters the document. Trix fires
+  // trix-attachment-add for all of them, and which branch runs depends on what
+  // the attachment carries:
+  //
+  //   • a File — a dropped/chosen file, or an image pasted straight off the
+  //     clipboard (a screenshot). Uploaded via XHR, which unlike fetch exposes
+  //     progress events so Trix can draw its progress bar.
+  //   • a remote URL and no File — rich text pasted from another site. Copied
+  //     into our own library server-side so the article does not hotlink.
+  //   • one of our own URLs — inserted from the picker; nothing to do.
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+
+    // A failed attachment is removed rather than left behind. Its preview is a
+    // blob: URL that exists only in this tab: it looks like a working image,
+    // survives no reload, and is dropped by the serializer, so leaving it in
+    // place invites the author to publish an article whose image silently
+    // isn't there. Removing it and saying why is the honest outcome.
+    const failAttachment = (attachment: TrixAttachment, message: string) => {
+      attachment.setUploadProgress(100)
+      attachment.remove()
+      setNotice(message)
+    }
+
+    const uploadFile = (attachment: TrixAttachment, file: File) => {
       const xhr = new XMLHttpRequest()
       xhr.open("POST", `${apiBaseUrl()}/v1/media`, true)
       // The upload endpoint is session-authenticated, and the API commonly runs
@@ -137,59 +146,154 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         }
       }
 
-      // On failure the attachment stays in the editor on its local blob-URL
-      // preview, so the image can still be moved, captioned, and rearranged.
-      // That preview does not survive a reload — the saved HTML needs the real
-      // server URL — so a failed upload has to be retried.
       xhr.onload = () => {
-        if (xhr.status === 201) {
+        if (xhr.status !== 201) {
+          let detail = `upload failed (${String(xhr.status)})`
           try {
-            const { url } = JSON.parse(xhr.responseText) as { url: string }
-            attachment.setAttributes({ url, href: url })
+            const body = JSON.parse(xhr.responseText) as { error?: string }
+            if (body.error?.trim()) detail = body.error.trim()
           } catch {
-            // 201 with an unexpected body: nothing to attach, keep the preview.
+            // Non-JSON error body; the status code is all we can report.
           }
+          failAttachment(attachment, `Could not add ${file.name}: ${detail}`)
+          return
         }
-        attachment.setUploadProgress(100)
+        try {
+          const { url } = JSON.parse(xhr.responseText) as { url: string }
+          attachment.setAttributes({ url, href: url })
+          attachment.setUploadProgress(100)
+        } catch {
+          failAttachment(attachment, `Could not add ${file.name}: unexpected server response.`)
+        }
       }
 
       xhr.onerror = () => {
-        attachment.setUploadProgress(100)
+        failAttachment(attachment, `Could not add ${file.name}: the upload did not reach the server.`)
       }
 
       const formData = new FormData()
-      formData.append("file", attachment.file)
+      formData.append("file", attachment.file ?? file)
       xhr.send(formData)
+    }
+
+    // Pasting rich text from another site brings <img> tags pointing at that
+    // site. Embedding them as-is would leave the published article depending on
+    // a third party's server, so take our own copy instead. The fetch is done
+    // server-side because the browser cannot read cross-origin image bytes.
+    const sideloadRemote = (attachment: TrixAttachment, sourceUrl: string) => {
+      attachment.setUploadProgress(5)
+      fetch(`${apiBaseUrl()}/v1/media/fetch`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: sourceUrl }),
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            let detail = `import failed (${String(response.status)})`
+            try {
+              const body = (await response.json()) as { error?: string }
+              if (body.error?.trim()) detail = body.error.trim()
+            } catch {
+              // Fall through to the status-code message.
+            }
+            throw new Error(detail)
+          }
+          return (await response.json()) as { url: string }
+        })
+        .then(({ url }) => {
+          attachment.setAttributes({ url, href: url })
+          attachment.setUploadProgress(100)
+        })
+        .catch((err: unknown) => {
+          // Unlike a failed upload there is no local copy to fall back on, so
+          // the pasted image cannot be kept in any usable form.
+          failAttachment(
+            attachment,
+            `Could not import the pasted image: ${err instanceof Error ? err.message : "import failed"}`,
+          )
+        })
+    }
+
+    const handleAttachmentAdd = (event: Event) => {
+      const { attachment } = event as TrixAttachmentAddEvent
+
+      if (attachment.file) {
+        uploadFile(attachment, attachment.file)
+        return
+      }
+
+      const url = typeof attachment.getAttribute("url") === "string" ? String(attachment.getAttribute("url")) : ""
+      if (!url) return
+      // Already ours (picker insert, or an image copied from another article in
+      // this CMS) — re-importing would just duplicate the file.
+      if (isOwnMediaUrl(url)) return
+      // A blob:/data: URL has no server to fetch from; it arrives with a File
+      // in every path we support, so reaching here means there is nothing to do.
+      if (url.startsWith("blob:") || url.startsWith("data:")) return
+
+      sideloadRemote(attachment, url)
     }
 
     editor.addEventListener("trix-attachment-add", handleAttachmentAdd)
     return () => { editor.removeEventListener("trix-attachment-add", handleAttachmentAdd) }
   }, [])
 
-  // Image manipulation overlay: selection, four-corner resize, and
-   // drag-to-rearrange (vertical drop + left/center/right alignment snap).
-   // All overlay DOM lives in the wrapper *outside* Trix's contenteditable so
-   // Trix doesn't overwrite our handles via its MutationObserver.
+  // Insert a library image at the caret. Alt text comes from the library record,
+  // so an image described once is described everywhere it is used.
+  const insertFromLibrary = useCallback((item: MediaPickerItem) => {
+    setPickerOpen(false)
+    const editor = editorRef.current
+    const Trix = window.Trix
+    if (!editor || !Trix) return
+
+    editor.focus()
+    if (savedRangeRef.current) {
+      editor.editor.setSelectedRange(savedRangeRef.current)
+      savedRangeRef.current = null
+    }
+
+    const attachment = new Trix.Attachment({
+      url: item.url,
+      href: item.url,
+      contentType: item.mime_type || contentTypeForUrl(item.url),
+      filename: item.alt_text || item.file_name,
+      alt: item.alt_text ?? "",
+      ...(item.width ? { width: item.width } : {}),
+      ...(item.height ? { height: item.height } : {}),
+      // Trix's previewablePattern excludes extension-less URLs, which would
+      // render a library image as a file stub instead of a preview.
+      previewable: true,
+    })
+    editor.editor.insertAttachment(attachment)
+
+    if (!item.alt_text) {
+      setNotice(`Inserted ${item.file_name}, which has no alt text. Add it in the Media library.`)
+    }
+  }, [])
+
+  const openPicker = useCallback(() => {
+    const editor = editorRef.current
+    // Captured before the modal takes focus; restored on insert.
+    savedRangeRef.current = editor ? editor.editor.getSelectedRange() : null
+    setPickerOpen(true)
+  }, [])
+
+  // Image selection and drag-to-rearrange. All overlay DOM lives in the wrapper
+  // *outside* Trix's contenteditable so Trix doesn't overwrite it via its
+  // MutationObserver.
+  //
+  // There is deliberately no resize or alignment gesture here. The public site
+  // sizes article images entirely in CSS (#article figure img { width: 100% }),
+  // which overrides anything an author sets, so both were controls that appeared
+  // to work in the editor and changed nothing on the published page. Reordering
+  // is kept because it does survive. Alignment already stored on legacy
+  // WordPress content is still preserved through a save -- it just can no longer
+  // be set from here.
   useEffect(() => {
     const editor = editorRef.current
     const wrapper = wrapperRef.current
     if (!editor || !wrapper) return
-
-    const overlay = document.createElement("div")
-    overlay.className = "trix-resize-overlay"
-    overlay.style.display = "none"
-
-    const corners = ["nw", "ne", "sw", "se"] as const
-    type Corner = (typeof corners)[number]
-    const handles: Record<Corner, HTMLDivElement> = {} as Record<Corner, HTMLDivElement>
-    for (const corner of corners) {
-      const handle = document.createElement("div")
-      handle.className = `trix-resize-handle trix-resize-handle--${corner}`
-      handle.dataset.corner = corner
-      overlay.appendChild(handle)
-      handles[corner] = handle
-    }
-    wrapper.appendChild(overlay)
 
     // Drop indicator (a thin horizontal bar shown only during an active drag).
     const dropIndicator = document.createElement("div")
@@ -198,26 +302,10 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     wrapper.appendChild(dropIndicator)
 
     let activeFigure: HTMLElement | null = null
-    // Per-gesture cleanup set when a drag or resize is in progress so the
-    // outer effect's teardown can abort it on unmount (prevents leaked
-    // document listeners and a stuck `grabbing` cursor).
+    // Per-gesture cleanup set while a drag is in progress so the outer effect's
+    // teardown can abort it on unmount (prevents leaked document listeners and
+    // a stuck `grabbing` cursor).
     let activeGestureCleanup: (() => void) | null = null
-
-    const positionOverlay = () => {
-      if (!activeFigure) {
-        overlay.style.display = "none"
-        return
-      }
-      const img = activeFigure.querySelector("img")
-      const target = img ?? activeFigure
-      const wrapperRect = wrapper.getBoundingClientRect()
-      const rect = target.getBoundingClientRect()
-      overlay.style.display = "block"
-      overlay.style.top = `${(rect.top - wrapperRect.top).toString()}px`
-      overlay.style.left = `${(rect.left - wrapperRect.left).toString()}px`
-      overlay.style.width = `${rect.width.toString()}px`
-      overlay.style.height = `${rect.height.toString()}px`
-    }
 
     const selectFigure = (figure: HTMLElement | null) => {
       if (activeFigure && activeFigure !== figure) {
@@ -225,55 +313,10 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       }
       activeFigure = figure
       if (figure) figure.classList.add("attachment--selected")
-      positionOverlay()
-    }
-
-    // ── Resize (4 corners, aspect-ratio locked) ────────────────────────────
-    const beginResize = (corner: Corner) => (downEvent: MouseEvent) => {
-      if (!activeFigure) return
-      const img = activeFigure.querySelector("img")
-      if (!img) return
-      downEvent.preventDefault()
-      downEvent.stopPropagation()
-
-      const startRect = img.getBoundingClientRect()
-      const startWidth = startRect.width
-      const startHeight = startRect.height
-      const aspect = startHeight / startWidth
-      const startX = downEvent.clientX
-      const xDirection = corner === "ne" || corner === "se" ? 1 : -1
-
-      const onMove = (moveEvent: MouseEvent) => {
-        const dx = (moveEvent.clientX - startX) * xDirection
-        const newWidth = Math.max(80, Math.round(startWidth + dx))
-        const newHeight = Math.max(40, Math.round(newWidth * aspect))
-        img.setAttribute("width", String(newWidth))
-        img.setAttribute("height", String(newHeight))
-        img.style.width = `${newWidth.toString()}px`
-        img.style.height = `${newHeight.toString()}px`
-        positionOverlay()
-      }
-      const cleanup = () => {
-        document.removeEventListener("mousemove", onMove)
-        document.removeEventListener("mouseup", onUp)
-      }
-      const onUp = () => {
-        activeGestureCleanup = null
-        cleanup()
-        editor.dispatchEvent(new Event("input", { bubbles: true }))
-      }
-      document.addEventListener("mousemove", onMove)
-      document.addEventListener("mouseup", onUp)
-      activeGestureCleanup = cleanup
-    }
-
-    for (const corner of corners) {
-      handles[corner].addEventListener("mousedown", beginResize(corner))
     }
 
     // ── Drag-to-rearrange ──────────────────────────────────────────────────
-    type Alignment = "left" | "center" | "right"
-    type DropTarget = { block: HTMLElement; insertBefore: boolean; alignment: Alignment }
+    type DropTarget = { block: HTMLElement; insertBefore: boolean }
 
     const DRAG_THRESHOLD_PX = 5
 
@@ -297,14 +340,6 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       return nearest
     }
 
-    const alignmentFromX = (clientX: number): Alignment => {
-      const rect = editor.getBoundingClientRect()
-      const ratio = (clientX - rect.left) / rect.width
-      if (ratio < 0.3) return "left"
-      if (ratio > 0.7) return "right"
-      return "center"
-    }
-
     const positionDropIndicator = (target: DropTarget) => {
       const wrapperRect = wrapper.getBoundingClientRect()
       const editorRect = editor.getBoundingClientRect()
@@ -314,22 +349,19 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       const editorLeft = editorRect.left - wrapperRect.left
       const editorWidth = editorRect.width
       const indicatorWidth = Math.min(editorWidth * 0.4, 240)
-      let left = editorLeft + (editorWidth - indicatorWidth) / 2
-      if (target.alignment === "left") left = editorLeft + 24
-      if (target.alignment === "right") left = editorLeft + editorWidth - indicatorWidth - 24
 
       dropIndicator.style.display = "block"
       dropIndicator.style.top = `${(y - wrapperRect.top).toString()}px`
-      dropIndicator.style.left = `${left.toString()}px`
+      dropIndicator.style.left = `${(editorLeft + (editorWidth - indicatorWidth) / 2).toString()}px`
       dropIndicator.style.width = `${indicatorWidth.toString()}px`
-      dropIndicator.dataset.alignment = target.alignment
     }
 
     // Move the attachment via Trix's editor API. Strategy:
-    //   1. Build the clone HTML with alignment baked in. Strip the stale
-    //      data-trix-id (and matching content-type's sgid hint) so Trix mints
-    //      a fresh attachment on insert rather than colliding with the live
-    //      attachment we're about to remove.
+    //   1. Clone the figure, stripping the stale data-trix-id so Trix mints a
+    //      fresh attachment on insert rather than colliding with the live
+    //      attachment we're about to remove. data-trix-attributes is left
+    //      untouched, which is what carries any pre-existing alignment through
+    //      the move intact.
     //   2. Capture a DOM Range anchored on the target block BEFORE removing
     //      the source. Trix's remove() can collapse or detach adjacent empty
     //      blocks, which would invalidate setStartBefore/After afterwards.
@@ -343,23 +375,12 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       const attachment = editor.editor.getDocument().getAttachments().find((a) => String(a.id) === trixId)
       if (!attachment) return
       if (!target.block.isConnected) return
-      // No-op if the user dropped right back onto the source's own block.
-      // findBlockAt no longer skips it so the drop indicator works for
-      // single-block editors; this is where we treat the same-block drop as
-      // "nothing to do" and still apply only the alignment change.
-      const droppedOnSelf = target.block.contains(figure)
-      if (droppedOnSelf) {
-        figure.classList.remove("attachment--align-left", "attachment--align-center", "attachment--align-right")
-        figure.classList.add(`attachment--align-${target.alignment}`)
-        figure.style.textAlign = target.alignment
-        editor.dispatchEvent(new Event("input", { bubbles: true }))
-        return
-      }
+      // Dropping onto the figure's own block moves nothing. With alignment gone
+      // there is no longer any secondary effect to apply, so this is a no-op --
+      // and skipping it avoids a needless remove/reinsert of the attachment.
+      if (target.block.contains(figure)) return
 
       const clone = figure.cloneNode(true) as HTMLElement
-      clone.classList.remove("attachment--align-left", "attachment--align-center", "attachment--align-right")
-      clone.classList.add(`attachment--align-${target.alignment}`)
-      clone.style.textAlign = target.alignment
       clone.removeAttribute("data-trix-id")
       const html = clone.outerHTML
 
@@ -392,7 +413,6 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         dragging = true
         figure.classList.add("attachment--dragging")
         document.body.style.cursor = "grabbing"
-        overlay.style.display = "none"
       }
 
       const onMove = (moveEvent: MouseEvent) => {
@@ -411,11 +431,7 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         }
         const blockRect = block.getBoundingClientRect()
         const insertBefore = moveEvent.clientY < blockRect.top + blockRect.height / 2
-        dropTarget = {
-          block,
-          insertBefore,
-          alignment: alignmentFromX(moveEvent.clientX),
-        }
+        dropTarget = { block, insertBefore }
         positionDropIndicator(dropTarget)
       }
 
@@ -451,37 +467,27 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     // ── Selection / drag entry point (capture phase so Trix can't preempt) ──
     const onEditorMouseDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement
-      if (target.closest(".trix-resize-handle")) return
       const figure = target.closest(".attachment--preview") as HTMLElement | null
       if (!figure) return
       beginDrag(figure, event)
     }
     const onDocumentMouseDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement
-      // Don't deselect when the user is clicking a resize handle or another
-      // figure; those have their own selection semantics.
-      if (target.closest(".trix-resize-handle")) return
+      // Don't deselect when the click lands on another figure; that has its own
+      // selection semantics.
       if (target.closest(".attachment--preview")) return
       selectFigure(null)
     }
 
-    const onReflow = () => positionOverlay()
     editor.addEventListener("mousedown", onEditorMouseDown, true)
     document.addEventListener("mousedown", onDocumentMouseDown)
-    editor.addEventListener("trix-change", onReflow)
-    window.addEventListener("resize", onReflow)
-    window.addEventListener("scroll", onReflow, true)
 
     return () => {
-      // Abort any in-progress drag/resize so we don't leave document-level
+      // Abort any in-progress drag so we don't leave document-level
       // listeners or a stuck `grabbing` cursor behind on unmount.
       if (activeGestureCleanup) activeGestureCleanup()
       editor.removeEventListener("mousedown", onEditorMouseDown, true)
       document.removeEventListener("mousedown", onDocumentMouseDown)
-      editor.removeEventListener("trix-change", onReflow)
-      window.removeEventListener("resize", onReflow)
-      window.removeEventListener("scroll", onReflow, true)
-      overlay.remove()
       dropIndicator.remove()
     }
   }, [])
@@ -562,6 +568,9 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         <symbol id={`${toolbarId}-attach`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
         </symbol>
+        <symbol id={`${toolbarId}-image`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" />
+        </symbol>
       </svg>
 
       <trix-toolbar id={toolbarId}>
@@ -604,6 +613,11 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
             </button>
           </span>
           <span className="trix-button-group trix-button-group--file-tools">
+            {/* Not a data-trix-action button: this opens our own picker rather
+                than invoking a built-in Trix action. */}
+            <button type="button" className="trix-button trix-button--icon-image" onClick={openPicker} title="Insert image from library" tabIndex={-1}>
+              <svg className="trix-icon" aria-hidden="true"><use href={`#${toolbarId}-image`} /></svg>
+            </button>
             <button type="button" className="trix-button trix-button--icon-attach" data-trix-action="attachFiles" title="Attach files" tabIndex={-1}>
               <svg className="trix-icon" aria-hidden="true"><use href={`#${toolbarId}-attach`} /></svg>
             </button>
@@ -636,6 +650,23 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         toolbar={toolbarId}
         className="trix-content"
       />
+
+      {notice && (
+        <div className="trix-editor-notice" role="status">
+          <span>{notice}</span>
+          <button aria-label="Dismiss" onClick={() => setNotice(null)} type="button">×</button>
+        </div>
+      )}
+
+      {pickerOpen && (
+        <MediaPicker
+          onClose={() => {
+            setPickerOpen(false)
+            savedRangeRef.current = null
+          }}
+          onSelect={insertFromLibrary}
+        />
+      )}
     </div>
   )
 }

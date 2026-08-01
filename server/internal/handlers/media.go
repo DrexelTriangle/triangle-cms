@@ -17,13 +17,16 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"server/internal/activity"
@@ -53,6 +56,24 @@ const (
 	// mediaIndexTimeout bounds a background index run so a wedged filesystem
 	// cannot leave the job permanently "running" and block every later attempt.
 	mediaIndexTimeout = 2 * time.Hour
+	// remoteFetchTimeout bounds a whole sideload (see PostMediaFetch). Pasting
+	// blocks the editor's attachment on this call, so it has to fail fast rather
+	// than inherit the server's much longer default.
+	remoteFetchTimeout = 30 * time.Second
+	// maxRemoteRedirects caps a sideload's redirect chain. Every hop is
+	// re-validated by safeDialControl, so this only bounds the work, not the risk.
+	maxRemoteRedirects = 5
+)
+
+// Sentinel failures from storeImage, mapped onto status codes by
+// writeStoreImageError. The distinction matters to callers: an unsupported type
+// is the client's fault, whereas an index failure means the bytes are already
+// durable on disk and only the library row is missing.
+var (
+	errMediaNotConfigured = errors.New("media storage is not configured")
+	errUnsupportedType    = errors.New("unsupported file type")
+	errStoreFailed        = errors.New("failed to store upload")
+	errIndexFailed        = errors.New("file stored but could not be added to the media library")
 )
 
 // allowedImageTypes maps a sniffed content type to its canonical extension. Only
@@ -146,73 +167,282 @@ func PostMedia(conn *sql.DB) http.Handler {
 		}
 		defer file.Close()
 
-		// Sniff the real content type from the leading bytes; never trust the
-		// client-provided extension or Content-Type.
-		head := make([]byte, 512)
-		n, err := io.ReadFull(file, head)
-		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-			writeError(w, http.StatusInternalServerError, "failed to read upload")
-			return
-		}
-		contentType := http.DetectContentType(head[:n])
-		ext, ok := allowedImageTypes[contentType]
-		if !ok {
-			writeError(w, http.StatusUnsupportedMediaType, "unsupported file type: "+contentType)
-			return
-		}
-		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to rewind upload")
-			return
-		}
-
-		now := time.Now().UTC()
-		relDir := path.Join(uploadsSubdir, now.Format("2006"), now.Format("01"))
-		absDir := filepath.Join(root, filepath.FromSlash(relDir))
-		if err := os.MkdirAll(absDir, 0o775); err != nil {
-			slog.Error("media upload: create directory", "dir", absDir, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to create upload directory")
-			return
-		}
-
-		base := sanitizeBaseName(header.Filename)
-		name, written, err := storeUpload(absDir, base, ext, file)
+		stored, err := storeImage(r.Context(), conn, file, header.Filename)
 		if err != nil {
-			// Worth a log line rather than just a 500: the message the client
-			// gets cannot say whether the media volume is full, unmounted, or
-			// simply not writable by this container's uid, and those need very
-			// different fixes. A permission error here is easy to mistake for a
-			// mkdir failure, since MkdirAll returns nil for a directory that
-			// already exists -- which every migrated YYYY/MM directory does.
-			slog.Error("media upload: store file", "dir", absDir, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to store upload")
+			writeStoreImageError(w, err)
 			return
 		}
 
-		relPath := path.Join(relDir, name)
-		absPath := filepath.Join(absDir, name)
-		width, height := imageDimensions(absPath)
-
-		// The file is already durable at this point. If recording it fails the
-		// upload is still reported as a failure, but the file is left in place:
-		// a reindex will adopt it rather than leaving a silent orphan.
-		id, err := db.InsertMedia(r.Context(), conn, relPath, contentType, written, width, height)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "file stored but could not be added to the media library")
-			return
-		}
-
-		activity.LogRequest(r, "media_uploaded", name, "path", relPath)
-
-		writeJSON(w, http.StatusCreated, models.MediaUploadResponse{
-			ID:          id,
-			Path:        relPath,
-			URL:         uploadURL(relPath),
-			ContentType: contentType,
-			Size:        written,
-			Width:       width,
-			Height:      height,
-		})
+		activity.LogRequest(r, "media_uploaded", path.Base(stored.Path), "path", stored.Path)
+		writeJSON(w, http.StatusCreated, stored)
 	})
+}
+
+// storeImage validates, stores and indexes a single image, and is the one place
+// bytes become a media library entry -- shared by the multipart upload path and
+// the paste sideload path so both agree on what is accepted and where it lands.
+//
+// src must be seekable: sniffing the content type consumes the leading bytes,
+// which have to be rewound before the file is written.
+func storeImage(ctx context.Context, conn *sql.DB, src io.ReadSeeker, filename string) (models.MediaUploadResponse, error) {
+	root := mediaRoot()
+	if root == "" {
+		return models.MediaUploadResponse{}, errMediaNotConfigured
+	}
+
+	// Sniff the real content type from the leading bytes; never trust the
+	// client-provided extension or Content-Type.
+	head := make([]byte, 512)
+	n, err := io.ReadFull(src, head)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		return models.MediaUploadResponse{}, fmt.Errorf("%w: read: %v", errStoreFailed, err)
+	}
+	contentType := http.DetectContentType(head[:n])
+	ext, ok := allowedImageTypes[contentType]
+	if !ok {
+		return models.MediaUploadResponse{}, fmt.Errorf("%w: %s", errUnsupportedType, contentType)
+	}
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		return models.MediaUploadResponse{}, fmt.Errorf("%w: rewind: %v", errStoreFailed, err)
+	}
+
+	now := time.Now().UTC()
+	relDir := path.Join(uploadsSubdir, now.Format("2006"), now.Format("01"))
+	absDir := filepath.Join(root, filepath.FromSlash(relDir))
+	if err := os.MkdirAll(absDir, 0o775); err != nil {
+		slog.Error("media upload: create directory", "dir", absDir, "error", err)
+		return models.MediaUploadResponse{}, fmt.Errorf("%w: create directory: %v", errStoreFailed, err)
+	}
+
+	name, written, err := storeUpload(absDir, sanitizeBaseName(filename), ext, src)
+	if err != nil {
+		// Worth a log line rather than just a 500: the message the client
+		// gets cannot say whether the media volume is full, unmounted, or
+		// simply not writable by this container's uid, and those need very
+		// different fixes. A permission error here is easy to mistake for a
+		// mkdir failure, since MkdirAll returns nil for a directory that
+		// already exists -- which every migrated YYYY/MM directory does.
+		slog.Error("media upload: store file", "dir", absDir, "error", err)
+		return models.MediaUploadResponse{}, fmt.Errorf("%w: %v", errStoreFailed, err)
+	}
+
+	relPath := path.Join(relDir, name)
+	width, height := imageDimensions(filepath.Join(absDir, name))
+
+	// The file is already durable at this point. If recording it fails the
+	// upload is still reported as a failure, but the file is left in place:
+	// a reindex will adopt it rather than leaving a silent orphan.
+	id, err := db.InsertMedia(ctx, conn, relPath, contentType, written, width, height)
+	if err != nil {
+		return models.MediaUploadResponse{}, fmt.Errorf("%w: %v", errIndexFailed, err)
+	}
+
+	return models.MediaUploadResponse{
+		ID:          id,
+		Path:        relPath,
+		URL:         uploadURL(relPath),
+		ContentType: contentType,
+		Size:        written,
+		Width:       width,
+		Height:      height,
+	}, nil
+}
+
+// writeStoreImageError maps a storeImage failure onto a response. Only the
+// sentinel text is echoed to the client; the wrapped detail stays in the log,
+// since it can name filesystem paths.
+func writeStoreImageError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errMediaNotConfigured):
+		writeError(w, http.StatusNotImplemented, errMediaNotConfigured.Error())
+	case errors.Is(err, errUnsupportedType):
+		// Safe to echo in full: the only variable part is a sniffed MIME type.
+		writeError(w, http.StatusUnsupportedMediaType, err.Error())
+	case errors.Is(err, errIndexFailed):
+		writeError(w, http.StatusInternalServerError, errIndexFailed.Error())
+	default:
+		writeError(w, http.StatusInternalServerError, errStoreFailed.Error())
+	}
+}
+
+// PostMediaFetch copies an image that lives on someone else's server into the
+// media library and returns it in the same shape as an upload.
+//
+// This is what makes pasting work. When an author pastes rich text from another
+// site the clipboard carries <img> tags pointing at that site, and embedding
+// them as-is would leave the published article hotlinking a third party: it
+// breaks when they move the file, leaks our readers' referrers, and puts content
+// we cannot vouch for on the page. Sideloading takes a copy up front instead.
+//
+// @Summary Sideload a remote image into the library
+// @Tags media
+// @Accept json
+// @Produce json
+// @Param request body models.MediaFetchRequest true "Remote image URL"
+// @Success 201 {object} models.MediaUploadResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 413 {object} models.ErrorResponse
+// @Failure 415 {object} models.ErrorResponse
+// @Failure 502 {object} models.ErrorResponse
+// @Failure 501 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/media/fetch [post]
+func PostMediaFetch(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mediaRoot() == "" {
+			writeError(w, http.StatusNotImplemented, errMediaNotConfigured.Error())
+			return
+		}
+
+		var body models.MediaFetchRequest
+		if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+
+		target, err := url.Parse(strings.TrimSpace(body.URL))
+		if err != nil || target.Host == "" || (target.Scheme != "http" && target.Scheme != "https") {
+			writeError(w, http.StatusBadRequest, "url must be an absolute http(s) URL")
+			return
+		}
+
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target.String(), nil)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "url could not be requested")
+			return
+		}
+		req.Header.Set("Accept", "image/*")
+
+		resp, err := remoteImageClient().Do(req)
+		if err != nil {
+			// The reason (blocked address, DNS failure, timeout) goes to the log
+			// rather than the response: echoing it back would turn this endpoint
+			// into a probe that reports what the server can reach.
+			slog.Warn("media sideload: fetch failed", "url", target.String(), "error", err)
+			writeError(w, http.StatusBadGateway, "could not fetch the image from that URL")
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			slog.Warn("media sideload: unexpected status", "url", target.String(), "status", resp.StatusCode)
+			writeError(w, http.StatusBadGateway, fmt.Sprintf("remote server returned %d", resp.StatusCode))
+			return
+		}
+
+		// Buffer to a temp file: storeImage has to seek back after sniffing and a
+		// response body cannot. Reading one byte past the cap is what detects an
+		// oversized image -- Content-Length is supplied by the remote server and
+		// so cannot be trusted as the guard.
+		maxBytes := maxUploadBytes()
+		tmp, err := os.CreateTemp("", "sideload-*")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, errStoreFailed.Error())
+			return
+		}
+		defer func() {
+			_ = tmp.Close()
+			_ = os.Remove(tmp.Name())
+		}()
+
+		written, err := io.Copy(tmp, io.LimitReader(resp.Body, maxBytes+1))
+		if err != nil {
+			slog.Warn("media sideload: read failed", "url", target.String(), "error", err)
+			writeError(w, http.StatusBadGateway, "could not read the image from that URL")
+			return
+		}
+		if written > maxBytes {
+			writeError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("image exceeds maximum size of %d bytes", maxBytes))
+			return
+		}
+		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+			writeError(w, http.StatusInternalServerError, errStoreFailed.Error())
+			return
+		}
+
+		stored, err := storeImage(r.Context(), conn, tmp, remoteFileName(target))
+		if err != nil {
+			writeStoreImageError(w, err)
+			return
+		}
+
+		activity.LogRequest(r, "media_sideloaded", path.Base(stored.Path),
+			"path", stored.Path, "source", target.String())
+		writeJSON(w, http.StatusCreated, stored)
+	})
+}
+
+// remoteImageClient builds the HTTP client used for sideloads. It is created per
+// request rather than shared: sideloads are rare, and a fresh client keeps the
+// connection pool from holding sockets open to arbitrary third-party hosts.
+func remoteImageClient() *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: safeDialControl}
+	return &http.Client{
+		Timeout:   remoteFetchTimeout,
+		Transport: &http.Transport{DialContext: dialer.DialContext},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= maxRemoteRedirects {
+				return errors.New("too many redirects")
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("refusing to follow redirect to scheme %q", req.URL.Scheme)
+			}
+			return nil
+		},
+	}
+}
+
+// safeDialControl refuses to open a socket to anything but a public unicast
+// address. This is the SSRF guard, and it deliberately sits at dial time rather
+// than at URL-parse time: it sees the address actually being connected to, after
+// DNS has resolved and on every hop of a redirect chain. Validating the
+// hostname up front instead would miss a name that resolves to 127.0.0.1, a
+// name that resolves differently on the second lookup (DNS rebinding), and a
+// public URL that redirects to the cloud metadata endpoint.
+func safeDialControl(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("unexpected dial address %q", address)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("unresolved dial address %q", address)
+	}
+	if !isPublicUnicast(ip) {
+		return fmt.Errorf("refusing to connect to non-public address %s", ip)
+	}
+	return nil
+}
+
+// isPublicUnicast reports whether ip is routable on the public internet, and so
+// is not something this server should be tricked into fetching on a caller's
+// behalf. Everything internal is rejected: loopback, RFC1918, link-local
+// (which covers the 169.254.169.254 cloud metadata endpoint), multicast, and
+// the two ranges net.IP has no predicate for.
+func isPublicUnicast(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil {
+		// Carrier-grade NAT, 100.64.0.0/10.
+		return !(v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127)
+	}
+	// IPv6 unique-local, fc00::/7.
+	return ip[0]&0xfe != 0xfc
+}
+
+// remoteFileName derives an upload base name from a source URL. The result is
+// still passed through sanitizeBaseName, so this only has to produce something
+// meaningful, not something safe.
+func remoteFileName(u *url.URL) string {
+	base := path.Base(u.Path)
+	if base == "." || base == "/" || base == "" {
+		return "pasted-image"
+	}
+	return base
 }
 
 // sanitizeBaseName reduces a client filename to a safe, slugified base (no

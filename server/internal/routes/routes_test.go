@@ -182,6 +182,7 @@ func TestRegister_MediaEndpointsGated(t *testing.T) {
 		{http.MethodGet, "/v1/media/gallery"},
 		{http.MethodGet, "/v1/media/1"},
 		{http.MethodPost, "/v1/media"},
+		{http.MethodPost, "/v1/media/fetch"},
 		{http.MethodPost, "/v1/media/index"},
 		{http.MethodPatch, "/v1/media/1"},
 		{http.MethodDelete, "/v1/media/1"},

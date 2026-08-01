@@ -700,6 +700,11 @@ definitions:
       width:
         type: integer
     type: object
+  models.MediaFetchRequest:
+    properties:
+      url:
+        type: string
+    type: object
   models.MediaGalleryResponse:
     properties:
       media:
@@ -2511,6 +2516,49 @@ paths:
       security:
       - BearerAuth: []
       summary: Update media metadata
+      tags:
+      - media
+  /v1/media/fetch:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Remote image URL
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.MediaFetchRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.MediaUploadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "415":
+          description: Unsupported Media Type
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Sideload a remote image into the library
       tags:
       - media
   /v1/media/gallery:

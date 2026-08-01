@@ -1,6 +1,21 @@
 import "trix"
 
 declare global {
+  // The attributes an attachment is constructed with. These are what Trix
+  // serializes into the figure's data-trix-attachment JSON, so anything added
+  // here survives a save/load round trip -- which is how alt text is carried.
+  interface TrixAttachmentAttributes {
+    url: string
+    href?: string
+    contentType?: string
+    filename?: string
+    filesize?: number
+    width?: number
+    height?: number
+    alt?: string
+    previewable?: boolean
+  }
+
   interface Window {
     Trix?: {
       config: {
@@ -13,6 +28,7 @@ declare global {
           }
         }
       }
+      Attachment: new (attributes: TrixAttachmentAttributes) => TrixAttachment
     }
   }
 
@@ -27,6 +43,8 @@ declare global {
     setSelectedRange(range: [number, number] | number): void
     deleteInDirection(direction: "forward" | "backward"): void
     insertHTML(html: string): void
+    insertAttachment(attachment: TrixAttachment): void
+    insertLineBreak(): void
     activateAttachment(attachment: TrixAttachment): void
   }
 
@@ -38,8 +56,10 @@ declare global {
   interface TrixAttachment {
     id: number
     file: File | null
+    getAttribute(name: string): unknown
+    getAttributes(): Partial<TrixAttachmentAttributes>
     setUploadProgress(value: number): void
-    setAttributes(attrs: Partial<{ url: string; href: string }>): void
+    setAttributes(attrs: Partial<TrixAttachmentAttributes>): void
     remove(): void
   }
 
