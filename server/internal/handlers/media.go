@@ -469,6 +469,52 @@ func GetMediaGallery(conn *sql.DB) http.Handler {
 	})
 }
 
+// GetPublicGallery is the public site's photo-gallery feed. Unlike the
+// editor-facing listing it is unauthenticated, so it is narrowed to images —
+// the assets Nginx already serves publicly off the CephFS mount — and it does
+// not accept the free-text search parameter, which would otherwise turn the
+// endpoint into a lookup tool over editors' file names and captions.
+//
+// @Summary List gallery images for the public site
+// @Tags media
+// @Produce json
+// @Param limit query int false "Max results" default(50)
+// @Param offset query int false "Offset"
+// @Success 200 {object} models.MediaGalleryResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/gallery [get]
+func GetPublicGallery(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, limit, offset := listParams(r, 50)
+		items, _, err := db.ListMedia(r.Context(), conn, models.MediaListParams{
+			Limit:    limit,
+			Offset:   offset,
+			MimeType: "image/",
+			SortBy:   models.MediaSortBy(r.URL.Query().Get("sort_by")),
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		gallery := make([]models.MediaOverview, 0, len(items))
+		for _, item := range items {
+			gallery = append(gallery, models.MediaOverview{
+				ID:       item.ID,
+				Path:     item.Path,
+				FileName: item.FileName,
+				URL:      uploadURL(item.Path),
+				MimeType: item.MimeType,
+				Width:    item.Width,
+				Height:   item.Height,
+				AltText:  item.AltText,
+			})
+		}
+
+		writeJSON(w, http.StatusOK, models.MediaGalleryResponse{Media: gallery})
+	})
+}
+
 // GetMediaItem returns a single library entry.
 //
 // @Summary Get a media asset
