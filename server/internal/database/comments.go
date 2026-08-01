@@ -172,7 +172,7 @@ func GetArticleCommentTargetBySlug(ctx context.Context, conn *sql.DB, slug strin
 	return 0, "", false, fmt.Errorf("get article for comments: %w", err)
 }
 
-func CommentExistsForArticle(ctx context.Context, conn *sql.DB, articleID, commentID int64) (bool, error) {
+func CommentCanAcceptReply(ctx context.Context, conn *sql.DB, articleID, commentID int64) (bool, error) {
 	if commentID <= 0 {
 		return true, nil
 	}
@@ -182,6 +182,8 @@ func CommentExistsForArticle(ctx context.Context, conn *sql.DB, articleID, comme
 		SELECT 1
 		FROM comments
 		WHERE id = ? AND article_id = ?
+		  AND status = 'approved'
+		  AND (`+"`type`"+` IS NULL OR `+"`type`"+` = '' OR `+"`type`"+` = 'comment')
 		LIMIT 1
 	`, commentID, articleID).Scan(&exists)
 	if err == nil {
@@ -190,7 +192,7 @@ func CommentExistsForArticle(ctx context.Context, conn *sql.DB, articleID, comme
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
-	return false, fmt.Errorf("check comment parent exists: %w", err)
+	return false, fmt.Errorf("check comment parent can accept reply: %w", err)
 }
 
 func CreateComment(ctx context.Context, conn *sql.DB, params CreateCommentParams) (Comment, error) {

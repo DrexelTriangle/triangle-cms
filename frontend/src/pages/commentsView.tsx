@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Check, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, ExternalLink, MessageSquare, Search, Trash2, X } from "lucide-react"
+import { Check, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, ExternalLink, MessageSquare, RotateCcw, Search, Trash2, X } from "lucide-react"
 import { Link } from "react-router-dom"
 import { publicSiteUrl } from "../auth/urls"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -155,6 +155,7 @@ export default function CommentsView() {
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [busyCommentId, setBusyCommentId] = useState<number | null>(null)
+  const [selectedCommentIds, setSelectedCommentIds] = useState<Set<number>>(() => new Set())
 
   const loadComments = useCallback(async () => {
     setIsLoading(true)
@@ -178,6 +179,7 @@ export default function CommentsView() {
       const body = await response.json() as CommentsResponse
       const nextComments = body.comments ?? []
       setComments(nextComments)
+      setSelectedCommentIds(new Set())
       setTotalCount(body.pagination?.total_count ?? body.pagination?.totalCount ?? nextComments.length)
       setCounts({
         all: body.counts?.all ?? nextComments.length,
@@ -210,6 +212,30 @@ export default function CommentsView() {
 
   const totalPages = Math.max(1, Math.ceil(Math.max(totalCount, comments.length) / PAGE_SIZE))
   const siteUrl = useMemo(() => publicSiteUrl(), [])
+  const selectedCount = selectedCommentIds.size
+  const visibleCommentIds = useMemo(() => comments.map((comment) => comment.id), [comments])
+  const allVisibleSelected = visibleCommentIds.length > 0 && visibleCommentIds.every((id) => selectedCommentIds.has(id))
+
+  const toggleCommentSelection = (commentId: number) => {
+    setSelectedCommentIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(commentId)) {
+        next.delete(commentId)
+      } else {
+        next.add(commentId)
+      }
+      return next
+    })
+  }
+
+  const toggleVisibleSelection = () => {
+    setSelectedCommentIds((prev) => {
+      if (allVisibleSelected) {
+        return new Set([...prev].filter((id) => !visibleCommentIds.includes(id)))
+      }
+      return new Set([...prev, ...visibleCommentIds])
+    })
+  }
 
   const updateStatus = async (comment: Comment, status: CommentStatus) => {
     if (busyCommentId !== null) return
@@ -232,9 +258,32 @@ export default function CommentsView() {
     }
   }
 
+  const updateSelectedStatus = async (status: CommentStatus) => {
+    if (busyCommentId !== null || selectedCommentIds.size === 0) return
+    const ids = [...selectedCommentIds]
+    setBusyCommentId(-1)
+    setActionError(null)
+    try {
+      const responses = await Promise.all(ids.map((id) => apiFetch(`/v1/comments/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      })))
+      const failed = responses.find((response) => !response.ok)
+      if (failed) {
+        throw new Error(await readErrorMessage(failed, `Bulk update failed (${failed.status})`))
+      }
+      await loadComments()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Unable to update selected comments.")
+    } finally {
+      setBusyCommentId(null)
+    }
+  }
+
   const deleteComment = async (comment: Comment) => {
     if (busyCommentId !== null) return
-    const shouldDelete = window.confirm(`Delete comment from ${comment.author_name || "Anonymous"}?`)
+    const shouldDelete = window.confirm(`Delete trashed comment from ${comment.author_name || "Anonymous"} forever?`)
     if (!shouldDelete) return
 
     setBusyCommentId(comment.id)
@@ -247,6 +296,28 @@ export default function CommentsView() {
       await loadComments()
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Unable to delete comment.")
+    } finally {
+      setBusyCommentId(null)
+    }
+  }
+
+  const deleteSelectedComments = async () => {
+    if (busyCommentId !== null || selectedCommentIds.size === 0) return
+    const shouldDelete = window.confirm(`Delete ${selectedCommentIds.size} trashed comment${selectedCommentIds.size === 1 ? "" : "s"} forever?`)
+    if (!shouldDelete) return
+
+    const ids = [...selectedCommentIds]
+    setBusyCommentId(-1)
+    setActionError(null)
+    try {
+      const responses = await Promise.all(ids.map((id) => apiFetch(`/v1/comments/${id}`, { method: "DELETE" })))
+      const failed = responses.find((response) => !response.ok)
+      if (failed) {
+        throw new Error(await readErrorMessage(failed, `Bulk delete failed (${failed.status})`))
+      }
+      await loadComments()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Unable to delete selected comments.")
     } finally {
       setBusyCommentId(null)
     }
@@ -298,6 +369,67 @@ export default function CommentsView() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            checked={allVisibleSelected}
+            className="h-4 w-4 rounded border-border"
+            disabled={comments.length === 0 || isLoading}
+            onChange={toggleVisibleSelection}
+            type="checkbox"
+          />
+          <span>{selectedCount ? `${selectedCount.toLocaleString()} selected` : "Select visible"}</span>
+        </label>
+        <div className="h-5 w-px bg-border" />
+        <button
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-emerald-700 hover:bg-emerald-50 disabled:opacity-40 dark:hover:bg-emerald-900/20"
+          disabled={selectedCount === 0 || busyCommentId !== null}
+          onClick={() => void updateSelectedStatus("approved")}
+          type="button"
+        >
+          <Check className="h-4 w-4" />
+          Approve
+        </button>
+        <button
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground hover:bg-muted disabled:opacity-40"
+          disabled={selectedCount === 0 || busyCommentId !== null}
+          onClick={() => void updateSelectedStatus("pending")}
+          type="button"
+        >
+          <RotateCcw className="h-4 w-4" />
+          Pending
+        </button>
+        <button
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-red-700 hover:bg-red-50 disabled:opacity-40 dark:hover:bg-red-900/20"
+          disabled={selectedCount === 0 || busyCommentId !== null}
+          onClick={() => void updateSelectedStatus("spam")}
+          type="button"
+        >
+          <X className="h-4 w-4" />
+          Spam
+        </button>
+        <button
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-destructive hover:bg-destructive/10 disabled:opacity-40"
+          disabled={selectedCount === 0 || busyCommentId !== null}
+          onClick={() => void updateSelectedStatus("trash")}
+          type="button"
+        >
+          <Trash2 className="h-4 w-4" />
+          Trash
+        </button>
+        {statusFilter === "trash" ? (
+          <button
+            className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 px-2.5 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-40"
+            disabled={selectedCount === 0 || busyCommentId !== null}
+            onClick={() => void deleteSelectedComments()}
+            type="button"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete forever
+          </button>
+        ) : null}
+      </div>
+
       {error ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {error}
@@ -320,7 +452,7 @@ export default function CommentsView() {
         ) : (
           <div className="divide-y divide-border">
             {comments.map((comment) => {
-              const isBusy = busyCommentId === comment.id
+              const actionsDisabled = busyCommentId !== null
               const hasMappedArticle = comment.article_slug && comment.article_id > 0
               const articlePath = hasMappedArticle ? `/articles/${encodeURIComponent(comment.article_slug)}/edit` : ""
               const publicPath = comment.article_slug ? `${siteUrl}/article/${comment.article_slug}` : ""
@@ -328,6 +460,14 @@ export default function CommentsView() {
               return (
                 <article key={comment.id} className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_auto] hover:bg-muted/30 transition-colors">
                   <div className="flex gap-3 min-w-0">
+                    <input
+                      aria-label={`Select comment from ${comment.author_name || "Anonymous"}`}
+                      checked={selectedCommentIds.has(comment.id)}
+                      className="mt-3 h-4 w-4 rounded border-border shrink-0"
+                      disabled={actionsDisabled}
+                      onChange={() => toggleCommentSelection(comment.id)}
+                      type="checkbox"
+                    />
                     <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold shrink-0">
                       {initials(comment.author_name)}
                     </div>
@@ -366,7 +506,7 @@ export default function CommentsView() {
                     {comment.status !== "approved" ? (
                       <button
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors disabled:opacity-40"
-                        disabled={isBusy}
+                        disabled={actionsDisabled}
                         onClick={() => void updateStatus(comment, "approved")}
                         title="Approve"
                         type="button"
@@ -374,10 +514,21 @@ export default function CommentsView() {
                         <Check className="w-4 h-4" />
                       </button>
                     ) : null}
+                    {comment.status !== "pending" ? (
+                      <button
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40"
+                        disabled={actionsDisabled}
+                        onClick={() => void updateStatus(comment, "pending")}
+                        title={comment.status === "trash" ? "Restore to pending" : "Set pending"}
+                        type="button"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                    ) : null}
                     {comment.status !== "spam" ? (
                       <button
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
-                        disabled={isBusy}
+                        disabled={actionsDisabled}
                         onClick={() => void updateStatus(comment, "spam")}
                         title="Mark as spam"
                         type="button"
@@ -385,15 +536,27 @@ export default function CommentsView() {
                         <X className="w-4 h-4" />
                       </button>
                     ) : null}
-                    <button
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
-                      disabled={isBusy}
-                      onClick={() => void deleteComment(comment)}
-                      title="Delete"
-                      type="button"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {comment.status !== "trash" ? (
+                      <button
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                        disabled={actionsDisabled}
+                        onClick={() => void updateStatus(comment, "trash")}
+                        title="Move to trash"
+                        type="button"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <button
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                        disabled={actionsDisabled}
+                        onClick={() => void deleteComment(comment)}
+                        title="Delete forever"
+                        type="button"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </article>
               )

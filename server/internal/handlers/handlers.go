@@ -1612,6 +1612,7 @@ func GetArticleComments(conn *sql.DB) http.HandlerFunc {
 // @Success 201 {object} models.CommentResponse
 // @Failure 400 {object} models.ErrorResponse
 // @Failure 404 {object} models.ErrorResponse
+// @Failure 403 {object} models.ErrorResponse
 // @Failure 413 {object} models.ErrorResponse
 // @Failure 500 {object} models.ErrorResponse
 // @Router /v1/articles/{slug}/comments [post]
@@ -1667,7 +1668,7 @@ func PostArticleComment(conn *sql.DB, spamChecker akismet.Checker) http.HandlerF
 			return
 		}
 
-		articleID, _, exists, err := db.GetArticleCommentTargetBySlug(r.Context(), conn, slug)
+		articleID, commentStatus, exists, err := db.GetArticleCommentTargetBySlug(r.Context(), conn, slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1676,20 +1677,25 @@ func PostArticleComment(conn *sql.DB, spamChecker akismet.Checker) http.HandlerF
 			writeError(w, http.StatusNotFound, "article not found")
 			return
 		}
+		if articleCommentsClosed(commentStatus) {
+			writeError(w, http.StatusForbidden, "comments are closed for this article")
+			return
+		}
 
-		parentExists, err := db.CommentExistsForArticle(r.Context(), conn, articleID, body.ParentID)
+		parentCanAcceptReply, err := db.CommentCanAcceptReply(r.Context(), conn, articleID, body.ParentID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if !parentExists {
+		if !parentCanAcceptReply {
 			writeError(w, http.StatusBadRequest, "parent comment not found")
 			return
 		}
 
 		now := time.Now().UTC()
-		status := "approved"
+		status := "pending"
 		if spamChecker != nil {
+			status = "approved"
 			isSpam, err := spamChecker.CheckComment(r.Context(), akismet.Comment{
 				UserIP:      clientIP(r),
 				UserAgent:   r.UserAgent(),
@@ -1740,6 +1746,10 @@ func PostArticleComment(conn *sql.DB, spamChecker akismet.Checker) http.HandlerF
 			Type:         comment.Type,
 		})
 	}
+}
+
+func articleCommentsClosed(commentStatus string) bool {
+	return strings.EqualFold(strings.TrimSpace(commentStatus), "closed")
 }
 
 func articlePermalink(r *http.Request, slug string) string {

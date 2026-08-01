@@ -66,6 +66,27 @@ func TestPatchComment_InvalidStatus(t *testing.T) {
 	}
 }
 
+func TestArticleCommentsClosed(t *testing.T) {
+	tests := []struct {
+		name   string
+		status string
+		want   bool
+	}{
+		{name: "closed", status: "closed", want: true},
+		{name: "case and space tolerant", status: " Closed ", want: true},
+		{name: "open", status: "open", want: false},
+		{name: "empty means open", status: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := articleCommentsClosed(tt.status); got != tt.want {
+				t.Fatalf("articleCommentsClosed(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAppendCategorySlugCondition(t *testing.T) {
 	var conditions []string
 	var args []any
