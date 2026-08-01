@@ -419,6 +419,71 @@ definitions:
       slug:
         type: string
     type: object
+  models.Classified:
+    properties:
+      created_at:
+        type: string
+      decided_at:
+        type: string
+      decided_by:
+        type: string
+      decided_via:
+        type: string
+      email:
+        type: string
+      end_date:
+        type: string
+      id:
+        type: integer
+      label:
+        type: string
+      message:
+        type: string
+      name:
+        type: string
+      status:
+        type: string
+    type: object
+  models.ClassifiedStatusPatchRequest:
+    properties:
+      status:
+        type: string
+    type: object
+  models.ClassifiedSubmitRequest:
+    properties:
+      email:
+        type: string
+      end_date:
+        type: string
+      label:
+        type: string
+      message:
+        type: string
+      name:
+        type: string
+    type: object
+  models.ClassifiedsManageResponse:
+    properties:
+      classifieds:
+        items:
+          $ref: '#/definitions/models.Classified'
+        type: array
+      counts:
+        additionalProperties:
+          type: integer
+        type: object
+      pagination:
+        $ref: '#/definitions/models.Pagination'
+      slack_configured:
+        type: boolean
+    type: object
+  models.ClassifiedsResponse:
+    properties:
+      classifieds:
+        items:
+          $ref: '#/definitions/models.Classified'
+        type: array
+    type: object
   models.CommentInput:
     properties:
       author_email:
@@ -476,6 +541,38 @@ definitions:
     properties:
       error:
         type: string
+    type: object
+  models.FooterColumn:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/models.FooterEntry'
+        type: array
+    type: object
+  models.FooterEntry:
+    properties:
+      href:
+        type: string
+      kind:
+        type: string
+      label:
+        type: string
+      new_tab:
+        type: boolean
+    type: object
+  models.FooterSettingsPatchRequest:
+    properties:
+      columns:
+        items:
+          $ref: '#/definitions/models.FooterColumn'
+        type: array
+    type: object
+  models.FooterSettingsResponse:
+    properties:
+      columns:
+        items:
+          $ref: '#/definitions/models.FooterColumn'
+        type: array
     type: object
   models.HealthResponse:
     properties:
@@ -802,6 +899,13 @@ definitions:
       total_votes:
         type: integer
     type: object
+  models.RandomArticleResponse:
+    properties:
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
   models.Role:
     enum:
     - editor
@@ -895,6 +999,13 @@ definitions:
   models.SiteSettingsResponse:
     properties:
       site_title:
+        type: string
+    type: object
+  models.SitemapSlug:
+    properties:
+      lastmod:
+        type: string
+      slug:
         type: string
     type: object
   models.SubsectionArticlesResponse:
@@ -1391,6 +1502,26 @@ paths:
       summary: Restore an archived article
       tags:
       - articles
+  /v1/articles/random:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.RandomArticleResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get a random published article
+      tags:
+      - articles
   /v1/auth/callback:
     get:
       parameters:
@@ -1720,6 +1851,169 @@ paths:
       summary: Restore an archived author
       tags:
       - authors
+  /v1/classifieds:
+    get:
+      parameters:
+      - default: 50
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ClassifiedsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List published classifieds
+      tags:
+      - classifieds
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Classified submission
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.ClassifiedSubmitRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Classified'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Submit a classified
+      tags:
+      - classifieds
+  /v1/classifieds/{id}:
+    delete:
+      parameters:
+      - description: Classified ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a classified
+      tags:
+      - classifieds
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Classified ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: New status
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.ClassifiedStatusPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Classified'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Set a classified's status
+      tags:
+      - classifieds
+  /v1/classifieds/manage:
+    get:
+      parameters:
+      - description: Filter by status
+        enum:
+        - pending
+        - approved
+        - rejected
+        in: query
+        name: status
+        type: string
+      - default: 25
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ClassifiedsManageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List classifieds for moderation
+      tags:
+      - classifieds
   /v1/comments:
     get:
       parameters:
@@ -1913,6 +2207,32 @@ paths:
       summary: Add developing story
       tags:
       - developing-stories
+  /v1/gallery:
+    get:
+      parameters:
+      - default: 50
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.MediaGalleryResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List gallery images for the public site
+      tags:
+      - media
   /v1/health:
     get:
       produces:
@@ -1963,6 +2283,33 @@ paths:
       summary: Get homepage data
       tags:
       - homepage
+  /v1/integrations/slack/classifieds:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Slack interactivity callback for classified moderation
+      tags:
+      - classifieds
   /v1/media:
     get:
       parameters:
@@ -2854,6 +3201,52 @@ paths:
       summary: Update breaking-news banner settings
       tags:
       - settings
+  /v1/settings/footer:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.FooterSettingsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get the public-site footer menu
+      tags:
+      - settings
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Footer menu
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.FooterSettingsPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.FooterSettingsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update the public-site footer menu
+      tags:
+      - settings
   /v1/settings/homepage-carousel:
     get:
       produces:
@@ -3006,6 +3399,24 @@ paths:
       summary: Rebuild taxonomy article counts
       tags:
       - settings
+  /v1/sitemap/slugs:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.SitemapSlug'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List slugs and modification dates for the sitemap
+      tags:
+      - articles
   /v1/subsections/{subsection_slug}/articles:
     get:
       parameters:

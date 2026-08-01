@@ -162,6 +162,10 @@ func main() {
 		slog.Error("failed to create taxonomy table", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsureClassifiedsTable(context.Background(), db); err != nil {
+		slog.Error("failed to create classifieds table", "error", err)
+		os.Exit(1)
+	}
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP")), "true") {
 		if err := database.RebuildTaxonomyArticleCounts(context.Background(), db); err != nil {
 			slog.Error("failed to rebuild taxonomy article counts", "error", err)
@@ -231,6 +235,9 @@ func main() {
 	if err != nil {
 		slog.Error("invalid Akismet configuration", "error", err)
 		os.Exit(1)
+	}
+	if strings.TrimSpace(os.Getenv("SLACK_SIGNING_SECRET")) == "" {
+		slog.Warn("Slack classified moderation disabled: SLACK_SIGNING_SECRET not set; the interactivity endpoint will refuse requests")
 	}
 	if spamChecker == nil {
 		slog.Warn("Akismet comment spam filtering disabled: AKISMET_API_KEY not set")

@@ -198,6 +198,72 @@ type HomepageResponse struct {
 	Columns           []ArticleListItem         `json:"columns"`
 }
 
+// Classified moderation statuses.
+const (
+	ClassifiedStatusPending  = "pending"
+	ClassifiedStatusApproved = "approved"
+	ClassifiedStatusRejected = "rejected"
+)
+
+// Classified is a reader-submitted classified ad. Name and email are shown
+// publicly once approved — that is the point of the listing, it is how readers
+// answer an ad.
+type Classified struct {
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Email      string     `json:"email"`
+	Label      string     `json:"label"`
+	Message    string     `json:"message"`
+	EndDate    string     `json:"end_date"`
+	Status     string     `json:"status"`
+	DecidedAt  *time.Time `json:"decided_at,omitempty"`
+	DecidedBy  string     `json:"decided_by,omitempty"`
+	DecidedVia string     `json:"decided_via,omitempty"`
+	CreatedAt  *time.Time `json:"created_at,omitempty"`
+}
+
+// ClassifiedSubmitRequest is what the public submission form posts.
+type ClassifiedSubmitRequest struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Label   string `json:"label"`
+	Message string `json:"message"`
+	EndDate string `json:"end_date"`
+}
+
+type ClassifiedsResponse struct {
+	Classifieds []Classified `json:"classifieds"`
+}
+
+// ClassifiedsManageResponse is the editor-facing listing, with the per-status
+// counts the moderation queue's filter tabs display. SlackConfigured tells the
+// queue whether the Approve/Reject buttons on Slack notifications can work, so
+// it does not point editors at a path that would time out in the channel.
+type ClassifiedsManageResponse struct {
+	Classifieds     []Classified   `json:"classifieds"`
+	Pagination      Pagination     `json:"pagination"`
+	Counts          map[string]int `json:"counts"`
+	SlackConfigured bool           `json:"slack_configured"`
+}
+
+type ClassifiedStatusPatchRequest struct {
+	Status string `json:"status"`
+}
+
+// RandomArticleResponse is the "surprise me" target for the public site, which
+// only needs a slug to redirect to.
+type RandomArticleResponse struct {
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
+}
+
+// SitemapSlug is one entry in the public site's sitemap feed. The field names
+// match what its sitemap routes already consume.
+type SitemapSlug struct {
+	Slug    string `json:"slug"`
+	LastMod string `json:"lastmod"`
+}
+
 type SiteSettingsResponse struct {
 	SiteTitle string `json:"site_title"`
 }
@@ -234,6 +300,42 @@ type HomepageCarouselSettingsResponse struct {
 }
 
 type HomepageCarouselSettingsPatchRequest = HomepageCarouselSettingsResponse
+
+// Footer entry kinds. A column is a flat ordered list rather than a heading
+// plus children because the live footer stacks two groups in one column
+// ("Columns" under "Opinion", "Special Editions" under "Comics & Puzzles"),
+// separated by a blank line — which a single-heading shape cannot express.
+const (
+	FooterEntryLink    = "link"
+	FooterEntryHeading = "heading"
+	FooterEntrySpacer  = "spacer"
+)
+
+// FooterEntry is one line in a footer column. NewTab drives target="_blank",
+// which the external links (application form, print archive, The Rectangle)
+// need and the internal ones must not have. Spacers carry no label or href.
+type FooterEntry struct {
+	Kind   string `json:"kind"`
+	Label  string `json:"label"`
+	Href   string `json:"href"`
+	NewTab bool   `json:"new_tab"`
+}
+
+// FooterColumn is one column of the public-site footer.
+type FooterColumn struct {
+	Entries []FooterEntry `json:"entries"`
+}
+
+// FooterSettings is the whole public-site footer menu. The public site keeps
+// its own hardcoded copy as a fallback, so an empty Columns list is valid and
+// simply means "nothing customized yet".
+type FooterSettings struct {
+	Columns []FooterColumn `json:"columns"`
+}
+
+type FooterSettingsResponse = FooterSettings
+
+type FooterSettingsPatchRequest = FooterSettings
 
 // SEOSettings holds the site-wide SEO / social defaults.
 type SEOSettings struct {

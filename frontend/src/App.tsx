@@ -15,6 +15,7 @@ import AuthorsView from "./pages/authorsView"
 import SectionsView from "./pages/sectionsView"
 import UsersView from "./pages/usersView"
 import CommentsView from "./pages/commentsView"
+import ClassifiedsView from "./pages/classifiedsView"
 import ActivityView from "./pages/activityView"
 import NewsletterView from "./pages/newsletterView"
 import SeoView from "./pages/seoView"
@@ -115,6 +116,7 @@ export default function App() {
         <Route path="/authors" element={<AuthorsView />} />
         <Route path="/sections" element={<SectionsView />} />
         <Route path="/comments" element={<CommentsView />} />
+        <Route path="/classifieds" element={<ClassifiedsView />} />
         <Route path="/seo" element={<SeoView />} />
         <Route
           path="/activity"

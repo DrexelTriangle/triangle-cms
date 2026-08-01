@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, LogOut, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import FooterMenuEditor from "../components/FooterMenuEditor"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 import { useNavigate } from "react-router-dom"
@@ -604,6 +605,8 @@ export default function SettingsPage() {
           {breakingMessage && <span className="text-sm text-muted-foreground">{breakingMessage}</span>}
         </div>
       </div>
+
+      {isAdmin && <FooterMenuEditor />}
 
       <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
         <h2 className="text-lg font-semibold text-foreground">Taxonomy</h2>

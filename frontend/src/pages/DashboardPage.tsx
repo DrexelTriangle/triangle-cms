@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { publicSiteUrl } from "../auth/urls"
 import { useSessionAuth } from "../auth/sessionAuthContext"
 import {
   FileText,
@@ -336,7 +337,7 @@ export default function DashboardPage() {
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => window.open("https://www.thetriangle.org", "_blank", "noopener,noreferrer")}
+            onClick={() => window.open(publicSiteUrl(), "_blank", "noopener,noreferrer")}
           >
             <ExternalLink className="w-3.5 h-3.5" />
             View site

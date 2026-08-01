@@ -45,7 +45,27 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/authors/{slug}/articles", optionalAuth(handlers.GetAuthorArticles(conn)))
 
 	mux.Handle("GET /v1/articles", optionalAuth(handlers.GetArticles(conn)))
+	// "random" is a literal segment, so Go's mux prefers it over
+	// /v1/articles/{slug}.
+	mux.Handle("GET /v1/articles/random", handlers.GetRandomArticle(conn))
 	mux.Handle("GET /v1/articles/{slug}", optionalAuth(handlers.GetArticle(conn)))
+	mux.Handle("GET /v1/sitemap/slugs", handlers.GetSitemapSlugs(conn))
+
+	// Classifieds. Submission is public and rate limited like comments;
+	// everything a reader submits lands as pending. Moderation happens either
+	// in the CMS queue (authenticated) or from the buttons on the Slack
+	// notification, which authenticates by Slack request signature instead of a
+	// session — hence no authMW on that route. "manage" is a literal segment,
+	// so Go's mux prefers it over /v1/classifieds/{id}.
+	mux.Handle("GET /v1/classifieds", handlers.GetClassifieds(conn))
+	mux.Handle("POST /v1/classifieds", middleware.RateLimitByIP(5, time.Minute)(handlers.PostClassified(conn)))
+	mux.Handle("GET /v1/classifieds/manage", authMW(handlers.GetClassifiedsManage(conn)))
+	mux.Handle("PATCH /v1/classifieds/{id}", authMW(handlers.PatchClassified(conn)))
+	mux.Handle("DELETE /v1/classifieds/{id}", authMW(adminOnly(handlers.DeleteClassified(conn))))
+	mux.Handle("POST /v1/integrations/slack/classifieds", middleware.RateLimitByIP(30, time.Minute)(handlers.PostSlackClassifiedAction(conn)))
+	// The public photo gallery. The editor-facing catalogue at
+	// /v1/media/gallery stays authenticated; this one is images-only.
+	mux.Handle("GET /v1/gallery", handlers.GetPublicGallery(conn))
 	mux.Handle("GET /v1/articles/{slug}/comments", handlers.GetArticleComments(conn))
 	mux.Handle("POST /v1/articles/{slug}/comments", middleware.RateLimitByIP(5, time.Minute)(handlers.PostArticleComment(conn, spamChecker)))
 	mux.Handle("GET /v1/search", handlers.GetSearch(conn))
@@ -74,6 +94,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/settings/seo", handlers.GetSEOSettings(conn))
 	mux.Handle("GET /v1/settings/breaking-news", handlers.GetBreakingNews(conn))
 	mux.Handle("GET /v1/settings/homepage-carousel", handlers.GetHomepageCarousel(conn))
+	mux.Handle("GET /v1/settings/footer", handlers.GetFooterSettings(conn))
 	mux.Handle("GET /v1/seo/audit", authMW(handlers.GetSEOAudit(conn)))
 	mux.Handle("GET /v1/activity", authMW(adminOnly(handlers.GetActivity())))
 	mux.Handle("GET /v1/users/me", authMW(http.HandlerFunc(handlers.GetMe)))
@@ -109,6 +130,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("PATCH /v1/settings/seo", authMW(adminOnly(handlers.PatchSEOSettings(conn))))
 	mux.Handle("PATCH /v1/settings/breaking-news", authMW(adminOnly(handlers.PatchBreakingNews(conn))))
 	mux.Handle("PATCH /v1/settings/homepage-carousel", authMW(adminOnly(handlers.PatchHomepageCarousel(conn))))
+	mux.Handle("PATCH /v1/settings/footer", authMW(adminOnly(handlers.PatchFooterSettings(conn))))
 	mux.Handle("POST /v1/settings/taxonomy/rebuild", authMW(adminOnly(handlers.PostRebuildTaxonomyCounts(conn))))
 	mux.Handle("POST /v1/taxonomy", authMW(adminOnly(handlers.PostTaxonomy(conn))))
 	mux.Handle("PUT /v1/taxonomy/{type}/{slug}", authMW(adminOnly(handlers.PutTaxonomyItem(conn))))
