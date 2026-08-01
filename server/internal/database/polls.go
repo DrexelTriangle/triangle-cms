@@ -28,8 +28,13 @@ const (
 	LegacyPollTableName = "cms_poll_counts"
 )
 
-// Poll lifecycle. Only one poll may be Active at a time; PublishPoll enforces
-// that by closing whichever poll currently holds the status.
+// Poll lifecycle. Status is what an editor sets; it means "in rotation", not
+// "on the site right now". A poll is only served to readers once its start date
+// has arrived and its end date has not passed -- that is what makes start dates
+// actually schedule instead of being decoration. See LivePollID.
+//
+// Several polls may therefore hold Active at once (one running, others queued
+// behind their start dates). At most one is ever live.
 const (
 	PollStatusDraft  = "draft"
 	PollStatusActive = "active"
@@ -41,6 +46,24 @@ var ValidPollStatuses = map[string]bool{
 	PollStatusActive: true,
 	PollStatusClosed: true,
 }
+
+// Poll states are the derived, editor-facing view of status + date window.
+// Unlike status they are computed, never stored, so they cannot drift.
+//
+//	draft       not published
+//	scheduled   active, start date still in the future
+//	live        the one poll readers see right now
+//	ended       active, but its end date has passed
+//	superseded  active, but a later-starting poll took over
+//	closed      retired by an editor
+const (
+	PollStateDraft      = "draft"
+	PollStateScheduled  = "scheduled"
+	PollStateLive       = "live"
+	PollStateEnded      = "ended"
+	PollStateSuperseded = "superseded"
+	PollStateClosed     = "closed"
+)
 
 // ErrNoActivePoll is returned when a read or vote targets the active poll and
 // there isn't one. Callers map this to 404 rather than 500 -- "no poll running"
@@ -316,23 +339,72 @@ func GetPollByID(ctx context.Context, conn *sql.DB, id int64) (*Poll, error) {
 	return &polls[0], nil
 }
 
-// GetActivePoll returns the single active poll, or ErrNoActivePoll.
+// LivePollID returns the poll readers should see right now, or ErrNoActivePoll.
 //
-// Ordering by id DESC is a safety net: the write paths keep at most one poll
-// active, but if that invariant were ever broken the newest one wins instead of
-// the result being nondeterministic.
-func GetActivePoll(ctx context.Context, conn *sql.DB) (*Poll, error) {
+// The rule is "the most recently started active poll, unless it has ended":
+//
+//   - a poll scheduled for next week is invisible until next week, so an editor
+//     can queue one without disturbing what is running;
+//   - when it starts it takes over, because it started later;
+//   - an earlier poll can never come back afterwards, even if it never had an
+//     end date -- it was superseded, and resurrection would be baffling.
+//
+// The end date is checked in Go rather than in the WHERE clause on purpose. As
+// a SQL filter it would skip the ended poll and hand the slot back to the one
+// underneath it, which is exactly the resurrection this avoids.
+func LivePollID(ctx context.Context, conn *sql.DB) (int64, error) {
 	var id int64
-	err := conn.QueryRowContext(ctx,
-		`SELECT id FROM `+PollsTableName+` WHERE status = ? ORDER BY id DESC LIMIT 1`,
-		PollStatusActive).Scan(&id)
+	var endsAt *time.Time
+	// COALESCE mirrors ListPolls: a poll with no explicit start date is treated
+	// as having started when it was created.
+	err := conn.QueryRowContext(ctx, `
+		SELECT id, ends_at FROM `+PollsTableName+`
+		WHERE status = ? AND (starts_at IS NULL OR starts_at <= NOW())
+		ORDER BY COALESCE(starts_at, created_at) DESC, id DESC
+		LIMIT 1
+	`, PollStatusActive).Scan(&id, &endsAt)
 	if err == sql.ErrNoRows {
-		return nil, ErrNoActivePoll
+		return 0, ErrNoActivePoll
 	}
+	if err != nil {
+		return 0, err
+	}
+	if endsAt != nil && time.Now().After(*endsAt) {
+		return 0, ErrNoActivePoll
+	}
+	return id, nil
+}
+
+// GetActivePoll returns the poll that is live right now, or ErrNoActivePoll.
+func GetActivePoll(ctx context.Context, conn *sql.DB) (*Poll, error) {
+	id, err := LivePollID(ctx, conn)
 	if err != nil {
 		return nil, err
 	}
 	return GetPollByID(ctx, conn, id)
+}
+
+// State reports the poll's editor-facing state. liveID is the result of
+// LivePollID (0 when nothing is live); passing it in keeps this a pure function
+// so a list of polls can be labelled from a single query.
+func (p Poll) State(now time.Time, liveID int64) string {
+	switch p.Status {
+	case PollStatusDraft:
+		return PollStateDraft
+	case PollStatusClosed:
+		return PollStateClosed
+	}
+	if p.ID == liveID {
+		return PollStateLive
+	}
+	if p.StartsAt != nil && now.Before(*p.StartsAt) {
+		return PollStateScheduled
+	}
+	if p.EndsAt != nil && now.After(*p.EndsAt) {
+		return PollStateEnded
+	}
+	// Started, not ended, but something else holds the slot.
+	return PollStateSuperseded
 }
 
 // AcceptsVotes reports whether the poll is open right now. Status is the primary
@@ -358,8 +430,8 @@ func CreatePoll(ctx context.Context, conn *sql.DB, question, status string, star
 	}
 	defer tx.Rollback()
 
-	if status == PollStatusActive {
-		if err := closeActivePollsTx(ctx, tx); err != nil {
+	if status == PollStatusActive && startsNow(startsAt, endsAt, time.Now()) {
+		if err := closeRunningPollsTx(ctx, tx, 0); err != nil {
 			return 0, err
 		}
 	}
@@ -405,10 +477,17 @@ func UpdatePoll(ctx context.Context, conn *sql.DB, id int64, question *string, s
 	defer tx.Rollback()
 
 	if status != nil && *status == PollStatusActive {
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE `+PollsTableName+` SET status = ? WHERE status = ? AND id <> ?`,
-			PollStatusClosed, PollStatusActive, id); err != nil {
+		// Whether this displaces the running poll depends on the dates the row
+		// will have *after* this update, which for an omitted field means the
+		// ones it already has -- so read them inside the transaction.
+		effStarts, effEnds, err := effectiveWindowTx(ctx, tx, id, startsAt, endsAt, clearStarts, clearEnds)
+		if err != nil {
 			return err
+		}
+		if startsNow(effStarts, effEnds, time.Now()) {
+			if err := closeRunningPollsTx(ctx, tx, id); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -458,10 +537,55 @@ func UpdatePoll(ctx context.Context, conn *sql.DB, id int64, question *string, s
 	return tx.Commit()
 }
 
-func closeActivePollsTx(ctx context.Context, tx *sql.Tx) error {
-	_, err := tx.ExecContext(ctx,
-		`UPDATE `+PollsTableName+` SET status = ? WHERE status = ?`,
-		PollStatusClosed, PollStatusActive)
+// startsNow reports whether a poll with this window would be on the site the
+// moment it is made active, as opposed to queued behind a future start date or
+// already past its end date.
+func startsNow(startsAt, endsAt *time.Time, now time.Time) bool {
+	if startsAt != nil && now.Before(*startsAt) {
+		return false
+	}
+	if endsAt != nil && now.After(*endsAt) {
+		return false
+	}
+	return true
+}
+
+// effectiveWindowTx resolves the dates a poll will have once the supplied
+// partial update is applied: an explicit clear wins, then a supplied value, and
+// otherwise whatever is already stored.
+func effectiveWindowTx(ctx context.Context, tx *sql.Tx, id int64, startsAt, endsAt *time.Time, clearStarts, clearEnds bool) (*time.Time, *time.Time, error) {
+	var storedStarts, storedEnds *time.Time
+	err := tx.QueryRowContext(ctx,
+		`SELECT starts_at, ends_at FROM `+PollsTableName+` WHERE id = ?`, id).
+		Scan(&storedStarts, &storedEnds)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, nil, err
+	}
+
+	resolve := func(supplied, stored *time.Time, clear bool) *time.Time {
+		if clear {
+			return nil
+		}
+		if supplied != nil {
+			return supplied
+		}
+		return stored
+	}
+	return resolve(startsAt, storedStarts, clearStarts), resolve(endsAt, storedEnds, clearEnds), nil
+}
+
+// closeRunningPollsTx retires the polls that are on the site right now, so a
+// poll being published immediately takes over a slot that only ever holds one.
+//
+// Polls queued behind a future start date are deliberately left alone: closing
+// them here is what used to make scheduling destructive, wiping the queue every
+// time someone published something. exceptID is skipped (0 matches no row).
+func closeRunningPollsTx(ctx context.Context, tx *sql.Tx, exceptID int64) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE `+PollsTableName+`
+		SET status = ?
+		WHERE status = ? AND id <> ? AND (starts_at IS NULL OR starts_at <= NOW())
+	`, PollStatusClosed, PollStatusActive, exceptID)
 	return err
 }
 

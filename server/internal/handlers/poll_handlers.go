@@ -339,7 +339,7 @@ func GetPolls(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to fetch polls")
 			return
 		}
-		writeJSON(w, http.StatusOK, models.PollListResponse{Polls: pollViews(polls)})
+		writeJSON(w, http.StatusOK, models.PollListResponse{Polls: pollViews(polls, livePollID(r, conn))})
 	})
 }
 
@@ -361,7 +361,7 @@ func GetPollsManage(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to fetch polls")
 			return
 		}
-		writeJSON(w, http.StatusOK, models.PollListResponse{Polls: pollViews(polls)})
+		writeJSON(w, http.StatusOK, models.PollListResponse{Polls: pollViews(polls, livePollID(r, conn))})
 	})
 }
 
@@ -395,12 +395,12 @@ func GetPollByID(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusNotFound, "poll not found")
 			return
 		}
-		writeJSON(w, http.StatusOK, models.PollResponse{Poll: pollView(*poll)})
+		writeJSON(w, http.StatusOK, models.PollResponse{Poll: pollView(*poll, livePollID(r, conn))})
 	})
 }
 
 // @Summary Create a poll
-// @Description Creating a poll with status "active" closes whichever poll was previously active.
+// @Description Creating a poll with status "active" publishes it when its start date arrives; if that date has already passed (or none was given) it goes live at once and closes the poll that was running.
 // @Tags poll
 // @Accept json
 // @Produce json
@@ -474,7 +474,7 @@ func PostPollRecord(conn *sql.DB) http.Handler {
 			return
 		}
 		activity.LogRequest(r, "poll_updated", fmt.Sprintf("Created poll: %s", question))
-		writeJSON(w, http.StatusCreated, models.PollResponse{Poll: pollView(*poll)})
+		writeJSON(w, http.StatusCreated, models.PollResponse{Poll: pollView(*poll, livePollID(r, conn))})
 	})
 }
 
@@ -538,6 +538,12 @@ func PatchPollRecord(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusBadRequest, "invalid ends_at")
 			return
 		}
+		// Only checkable when the same request supplies both; a PATCH that moves
+		// one date against a stored one is caught by the editor before it is sent.
+		if startsAt != nil && endsAt != nil && endsAt.Before(*startsAt) {
+			writeError(w, http.StatusBadRequest, "ends_at must be after starts_at")
+			return
+		}
 
 		if err := db.UpdatePoll(r.Context(), conn, id, question, status, startsAt, endsAt, clearStarts, clearEnds); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -553,12 +559,15 @@ func PatchPollRecord(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to load poll")
 			return
 		}
-		// The legacy cms_settings title tracks the active poll only.
-		if poll.Status == db.PollStatusActive {
+		// The legacy cms_settings title tracks whatever is on the site. A poll
+		// queued behind a start date must not claim it early, or a rollback to
+		// the previous binary would show a question readers cannot vote on.
+		liveID := livePollID(r, conn)
+		if poll.ID == liveID {
 			_ = db.SetPollTitle(r.Context(), conn, poll.Question)
 		}
 		activity.LogRequest(r, "poll_updated", fmt.Sprintf("Updated poll #%d: %s", id, poll.Question))
-		writeJSON(w, http.StatusOK, models.PollResponse{Poll: pollView(*poll)})
+		writeJSON(w, http.StatusOK, models.PollResponse{Poll: pollView(*poll, liveID)})
 	})
 }
 
@@ -711,15 +720,27 @@ func DeletePollRecordOption(conn *sql.DB) http.Handler {
 // helpers
 // ---------------------------------------------------------------------------
 
-func pollViews(polls []db.Poll) []models.PollView {
+// livePollID resolves which poll is on the site right now so views can be
+// labelled with their derived state. A lookup failure is not worth failing the
+// request over: 0 simply means "nothing is live", and every other field still
+// renders.
+func livePollID(r *http.Request, conn *sql.DB) int64 {
+	id, err := db.LivePollID(r.Context(), conn)
+	if err != nil {
+		return 0
+	}
+	return id
+}
+
+func pollViews(polls []db.Poll, liveID int64) []models.PollView {
 	views := make([]models.PollView, 0, len(polls))
 	for _, p := range polls {
-		views = append(views, pollView(p))
+		views = append(views, pollView(p, liveID))
 	}
 	return views
 }
 
-func pollView(p db.Poll) models.PollView {
+func pollView(p db.Poll, liveID int64) models.PollView {
 	total := p.TotalVotes()
 	options := make([]models.PollOptionView, 0, len(p.Options))
 	for _, opt := range p.Options {

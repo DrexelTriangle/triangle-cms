@@ -2782,7 +2782,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creating a poll with status \"active\" closes whichever poll was previously active.",
+                "description": "Creating a poll with status \"active\" publishes it when its start date arrives; if that date has already passed (or none was given) it goes live at once and closes the poll that was running.",
                 "consumes": [
                     "application/json"
                 ],
@@ -5624,6 +5624,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "starts_at": {
+                    "type": "string"
+                },
+                "state": {
                     "type": "string"
                 },
                 "status": {

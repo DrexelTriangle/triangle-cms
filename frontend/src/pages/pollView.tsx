@@ -2,8 +2,22 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import type { FormEvent } from "react"
 import { Pencil, Plus, Trash2, RefreshCw, Check, X, Play, Archive } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { DateTimeField } from "../components/ui/datetime-field"
 
 type PollStatus = "draft" | "active" | "closed"
+
+// What the poll is doing right now, computed server-side from its status and
+// its date window. The editor displays this rather than status so it can never
+// claim a poll is running when readers cannot see it.
+type PollState = "draft" | "scheduled" | "live" | "ended" | "superseded" | "closed"
+
+type PublishTiming = "draft" | "now" | "schedule"
+
+const TIMING_OPTIONS: { value: PublishTiming; label: string; blurb: string }[] = [
+  { value: "draft", label: "Save as draft", blurb: "Nobody sees it until you publish." },
+  { value: "now", label: "Publish now", blurb: "Goes on the site as soon as you save." },
+  { value: "schedule", label: "Schedule", blurb: "Goes on the site at the start date." },
+]
 
 type PollOption = {
   id: number
@@ -16,6 +30,7 @@ type Poll = {
   id: number
   question: string
   status: PollStatus
+  state: PollState
   starts_at?: string
   ends_at?: string
   total_votes: number
@@ -26,10 +41,13 @@ type PollListResponse = {
   polls?: Poll[]
 }
 
-const STATUS_STYLES: Record<PollStatus, string> = {
-  active: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
-  draft: "bg-amber-500/10 text-amber-600 border-amber-500/30",
-  closed: "bg-muted text-muted-foreground border-border",
+const STATE_META: Record<PollState, { label: string; className: string }> = {
+  live: { label: "Live", className: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30" },
+  scheduled: { label: "Scheduled", className: "bg-blue-500/10 text-blue-600 border-blue-500/30" },
+  draft: { label: "Draft", className: "bg-amber-500/10 text-amber-600 border-amber-500/30" },
+  ended: { label: "Ended", className: "bg-muted text-muted-foreground border-border" },
+  superseded: { label: "Replaced", className: "bg-muted text-muted-foreground border-border" },
+  closed: { label: "Closed", className: "bg-muted text-muted-foreground border-border" },
 }
 
 // The API speaks RFC3339; <input type="datetime-local"> speaks "YYYY-MM-DDTHH:mm"
@@ -56,6 +74,80 @@ function formatRunDate(value?: string): string {
   })
 }
 
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["minute", 60_000],
+  ["hour", 3_600_000],
+  ["day", 86_400_000],
+  ["week", 604_800_000],
+  ["month", 2_629_800_000],
+  ["year", 31_557_600_000],
+]
+
+// "in 3 days" / "2 hours ago". An absolute timestamp alone makes an editor do
+// the arithmetic to answer the only question they actually have, which is
+// whether this happens before or after the thing they are about to do.
+function relativeDate(value?: string): string {
+  if (!value) return ""
+  const target = new Date(value).getTime()
+  if (Number.isNaN(target)) return ""
+  const diff = target - Date.now()
+  if (Math.abs(diff) < 60_000) return diff >= 0 ? "any moment now" : "just now"
+
+  let unit = RELATIVE_UNITS[0]
+  for (const candidate of RELATIVE_UNITS) {
+    if (Math.abs(diff) >= candidate[1]) unit = candidate
+  }
+  return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(
+    Math.round(diff / unit[1]),
+    unit[0],
+  )
+}
+
+// One plain-language sentence about where the poll sits in its schedule.
+function scheduleSummary(poll: Poll): string {
+  switch (poll.state) {
+    case "live":
+      return poll.ends_at
+        ? `On the site now — closes ${relativeDate(poll.ends_at)}, ${formatRunDate(poll.ends_at)}`
+        : "On the site now — runs until you replace or close it"
+    case "scheduled":
+      return `Goes live ${relativeDate(poll.starts_at)}, ${formatRunDate(poll.starts_at)}${
+        poll.ends_at ? ` — closes ${formatRunDate(poll.ends_at)}` : ""
+      }`
+    case "draft":
+      return poll.starts_at
+        ? `Not published. Publishing keeps its start date of ${formatRunDate(poll.starts_at)}`
+        : "Not published — readers cannot see this"
+    case "ended":
+      return `Ended ${relativeDate(poll.ends_at)}, ${formatRunDate(poll.ends_at)}`
+    case "superseded":
+      return "Taken off the site by a later poll"
+    case "closed":
+      return poll.starts_at ? `Closed — ran from ${formatRunDate(poll.starts_at)}` : "Closed"
+  }
+}
+
+// Local "YYYY-MM-DDTHH:mm" strings compare correctly as strings, but only
+// against each other; anything involving "now" has to go through Date.
+function isPast(localValue: string): boolean {
+  return localValue !== "" && new Date(localValue).getTime() <= Date.now()
+}
+
+// Whether publishing this poll would queue it rather than put it straight on
+// the site -- the difference between "this replaces what is running" and "this
+// waits its turn".
+function startsLater(poll: Poll): boolean {
+  return !!poll.starts_at && new Date(poll.starts_at).getTime() > Date.now()
+}
+
+// Ordering only. Editing a poll that has already run must stay possible, so a
+// date in the past is not by itself an error -- the create form checks that
+// separately, where it really would mean "publish something already over".
+function windowError(startsAt: string, endsAt: string): string {
+  if (startsAt && endsAt && endsAt <= startsAt) return "The end date must come after the start date."
+  return ""
+}
+
 export default function PollView() {
   const apiFetch = useApiFetch()
   const [polls, setPolls] = useState<Poll[]>([])
@@ -68,7 +160,9 @@ export default function PollView() {
   const [newOptions, setNewOptions] = useState("")
   const [newStartsAt, setNewStartsAt] = useState("")
   const [newEndsAt, setNewEndsAt] = useState("")
-  const [newActivate, setNewActivate] = useState(false)
+  // Publishing is one decision with three answers, not a checkbox plus two
+  // dates that quietly mean different things depending on which are filled in.
+  const [newTiming, setNewTiming] = useState<PublishTiming>("draft")
 
   const [editingPollId, setEditingPollId] = useState<number | null>(null)
   const [editQuestion, setEditQuestion] = useState("")
@@ -80,7 +174,23 @@ export default function PollView() {
   const [renamingOptionId, setRenamingOptionId] = useState<number | null>(null)
   const [renameValue, setRenameValue] = useState("")
 
-  const activePoll = useMemo(() => polls.find((poll) => poll.status === "active"), [polls])
+  const livePoll = useMemo(() => polls.find((poll) => poll.state === "live"), [polls])
+  const queuedPolls = useMemo(() => polls.filter((poll) => poll.state === "scheduled"), [polls])
+
+  const editWindowError = useMemo(
+    () => windowError(editStartsAt, editEndsAt),
+    [editStartsAt, editEndsAt],
+  )
+
+  const newWindowError = useMemo(() => {
+    if (newTiming === "schedule" && newStartsAt && isPast(newStartsAt)) {
+      return "That start date has already passed. Pick a later one, or choose Publish now."
+    }
+    const ordering = windowError(newTiming === "schedule" ? newStartsAt : "", newEndsAt)
+    if (ordering) return ordering
+    if (newEndsAt && isPast(newEndsAt)) return "That end date has already passed."
+    return ""
+  }, [newTiming, newStartsAt, newEndsAt])
 
   const loadPolls = useCallback(async () => {
     setIsLoading(true)
@@ -135,7 +245,8 @@ export default function PollView() {
   const createPoll = async (e: FormEvent) => {
     e.preventDefault()
     const question = newQuestion.trim()
-    if (!question) return
+    if (!question || newWindowError) return
+    if (newTiming === "schedule" && !newStartsAt) return
 
     const options = newOptions
       .split("\n")
@@ -150,9 +261,11 @@ export default function PollView() {
         body: JSON.stringify({
           question,
           options,
-          status: newActivate ? "active" : "draft",
-          starts_at: newStartsAt || null,
-          ends_at: newEndsAt || null,
+          // "Now" and "scheduled" are the same published status; the start date
+          // is what decides when readers see it.
+          status: newTiming === "draft" ? "draft" : "active",
+          starts_at: newTiming === "schedule" ? newStartsAt : null,
+          ends_at: newTiming === "draft" ? null : newEndsAt || null,
         }),
       },
       "Failed to create poll",
@@ -163,14 +276,14 @@ export default function PollView() {
       setNewOptions("")
       setNewStartsAt("")
       setNewEndsAt("")
-      setNewActivate(false)
+      setNewTiming("draft")
       setIsCreating(false)
     }
   }
 
   const savePollEdits = async (pollId: number) => {
     const question = editQuestion.trim()
-    if (!question) return
+    if (!question || editWindowError) return
     const ok = await mutate(
       `/v1/polls/${pollId}`,
       {
@@ -198,6 +311,22 @@ export default function PollView() {
       },
       "Failed to change poll status",
     )
+
+  // Publishing something that goes live immediately displaces the poll on the
+  // site, which is not recoverable from the editor -- so ask. A poll queued
+  // behind a start date displaces nothing yet, so it just publishes.
+  const publishPoll = (poll: Poll) => {
+    if (!startsLater(poll) && livePoll && livePoll.id !== poll.id) {
+      if (
+        !confirm(
+          `Publish "${poll.question}" now?\n\nThis takes "${livePoll.question}" off the site immediately. Its results are kept.`,
+        )
+      ) {
+        return
+      }
+    }
+    void setStatus(poll.id, "active")
+  }
 
   const deletePoll = (poll: Poll) => {
     if (
@@ -263,8 +392,8 @@ export default function PollView() {
             {isLoading
               ? "Loading..."
               : `${polls.length} poll${polls.length === 1 ? "" : "s"} • ${
-                  activePoll ? `running: ${activePoll.question}` : "none running"
-                }`}
+                  livePoll ? `on the site: ${livePoll.question}` : "nothing on the site"
+                }${queuedPolls.length ? ` • ${queuedPolls.length} scheduled` : ""}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -318,41 +447,86 @@ export default function PollView() {
             />
             <p className="text-xs text-muted-foreground">One option per line. You can add more later.</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-foreground">Start date</label>
-              <input
-                type="datetime-local"
-                value={newStartsAt}
-                onChange={(e) => setNewStartsAt(e.target.value)}
-                className="px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-foreground">End date</label>
-              <input
-                type="datetime-local"
-                value={newEndsAt}
-                onChange={(e) => setNewEndsAt(e.target.value)}
-                className="px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-              <p className="text-xs text-muted-foreground">Leave blank for no expiry.</p>
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-foreground">When should this run?</span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {TIMING_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className={`cursor-pointer rounded-lg border px-3 py-2.5 transition-colors ${
+                    newTiming === option.value
+                      ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                      : "border-border hover:bg-muted/40"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="poll-timing"
+                      className="accent-primary"
+                      checked={newTiming === option.value}
+                      onChange={() => setNewTiming(option.value)}
+                    />
+                    <span className="text-sm font-medium text-foreground">{option.label}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 pl-6">{option.blurb}</p>
+                </label>
+              ))}
             </div>
           </div>
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <input type="checkbox" checked={newActivate} onChange={(e) => setNewActivate(e.target.checked)} />
-            Publish immediately
-            {activePoll && newActivate && (
-              <span className="text-xs text-amber-600">(this will close "{activePoll.question}")</span>
-            )}
-          </label>
+
+          {newTiming !== "draft" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {newTiming === "schedule" && (
+                <DateTimeField
+                  label="Start date"
+                  value={newStartsAt}
+                  onChange={setNewStartsAt}
+                  clearable
+                  hint={
+                    newStartsAt && !isPast(newStartsAt)
+                      ? `Goes on the site ${relativeDate(newStartsAt)}.`
+                      : "Readers see the poll from this moment."
+                  }
+                />
+              )}
+              <DateTimeField
+                label="End date"
+                value={newEndsAt}
+                onChange={setNewEndsAt}
+                clearable
+                hint="Optional. Leave blank to run until you replace it."
+              />
+            </div>
+          )}
+
+          {newWindowError && <p className="text-xs text-destructive">{newWindowError}</p>}
+
+          {/* Publishing takes a slot that only holds one poll, so say up front
+              what happens to whatever is in it. */}
+          {newTiming === "now" && livePoll && (
+            <p className="text-xs text-amber-600">
+              This closes "{livePoll.question}" as soon as you save.
+            </p>
+          )}
+          {newTiming === "schedule" && newStartsAt && !newWindowError && livePoll && (
+            <p className="text-xs text-muted-foreground">
+              "{livePoll.question}" keeps running until then, and is replaced automatically.
+            </p>
+          )}
+
           <div className="flex items-center gap-2">
             <button
               type="submit"
-              disabled={isSaving || !newQuestion.trim()}
+              disabled={
+                isSaving ||
+                !newQuestion.trim() ||
+                !!newWindowError ||
+                (newTiming === "schedule" && !newStartsAt)
+              }
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
             >
-              Create poll
+              {newTiming === "now" ? "Publish poll" : newTiming === "schedule" ? "Schedule poll" : "Save draft"}
             </button>
             <button
               type="button"
@@ -389,30 +563,31 @@ export default function PollView() {
                         className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                       />
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          Start date
-                          <input
-                            type="datetime-local"
-                            value={editStartsAt}
-                            onChange={(e) => setEditStartsAt(e.target.value)}
-                            className="px-2 py-1.5 rounded-md border border-border bg-background text-sm text-foreground"
-                          />
-                        </label>
-                        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          End date (blank = no expiry)
-                          <input
-                            type="datetime-local"
-                            value={editEndsAt}
-                            onChange={(e) => setEditEndsAt(e.target.value)}
-                            className="px-2 py-1.5 rounded-md border border-border bg-background text-sm text-foreground"
-                          />
-                        </label>
+                        <DateTimeField
+                          label="Start date"
+                          value={editStartsAt}
+                          onChange={setEditStartsAt}
+                          clearable
+                          hint={
+                            poll.status === "active" && editStartsAt && !isPast(editStartsAt)
+                              ? "Published, but held back until this date."
+                              : "Blank means it starts the moment it is published."
+                          }
+                        />
+                        <DateTimeField
+                          label="End date"
+                          value={editEndsAt}
+                          onChange={setEditEndsAt}
+                          clearable
+                          error={editWindowError}
+                          hint="Blank means no expiry."
+                        />
                       </div>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={() => savePollEdits(poll.id)}
-                          disabled={isSaving || !editQuestion.trim()}
+                          disabled={isSaving || !editQuestion.trim() || !!editWindowError}
                           className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-60"
                         >
                           <Check className="w-3.5 h-3.5" />
@@ -433,15 +608,14 @@ export default function PollView() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="font-semibold text-foreground">{poll.question}</h2>
                         <span
-                          className={`text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${STATUS_STYLES[poll.status]}`}
+                          className={`text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${STATE_META[poll.state].className}`}
                         >
-                          {poll.status}
+                          {STATE_META[poll.state].label}
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">{scheduleSummary(poll)}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         {poll.total_votes.toLocaleString()} vote{poll.total_votes === 1 ? "" : "s"}
-                        {poll.starts_at && ` • Start: ${formatRunDate(poll.starts_at)}`}
-                        {` • End: ${poll.ends_at ? formatRunDate(poll.ends_at) : "No Expiry"}`}
                       </p>
                     </>
                   )}
@@ -452,10 +626,14 @@ export default function PollView() {
                     {poll.status !== "active" && (
                       <button
                         type="button"
-                        onClick={() => setStatus(poll.id, "active")}
+                        onClick={() => publishPoll(poll)}
                         disabled={isSaving}
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors"
-                        title="Make this the running poll"
+                        title={
+                          startsLater(poll)
+                            ? `Publish — goes live ${formatRunDate(poll.starts_at)}`
+                            : "Publish — goes on the site now"
+                        }
                       >
                         <Play className="w-4 h-4" />
                       </button>
@@ -466,7 +644,7 @@ export default function PollView() {
                         onClick={() => setStatus(poll.id, "closed")}
                         disabled={isSaving}
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                        title="Close this poll"
+                        title={poll.state === "scheduled" ? "Cancel this scheduled poll" : "Take this poll off the site"}
                       >
                         <Archive className="w-4 h-4" />
                       </button>
