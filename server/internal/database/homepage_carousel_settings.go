@@ -11,6 +11,22 @@ import (
 
 const homepageCarouselSettingKey = "homepage_carousel"
 
+// Default slide images live on the media filesystem under a `scalene/` prefix
+// rather than in Scalene's bundled public/images. Bundled paths could not be
+// changed from the CMS -- editing the Podcast banner meant a Scalene commit and
+// redeploy -- which defeats the point of a CMS-editable carousel, and a rename
+// on the Scalene side silently broke the slide.
+//
+// The prefix sits under wp-content/uploads because that is the only tree Nginx
+// serves (see deploy/nginx/triangle-cms.conf); it is outside the YYYY/MM layout
+// so the media reindex and the legacy WP corpus stay visibly separate.
+//
+// That location is served with 30-day immutable caching, which assumes a
+// filename pins its bytes. To swap one of these banners, upload under a NEW
+// name and repoint the slide -- overwriting in place leaves the old image at
+// the edge for up to a month.
+const defaultCarouselImageBase = "https://delta.thetriangle.org/wp-content/uploads/scalene"
+
 var defaultHomepageCarouselSlides = []models.HomepageCarouselSlide{
 	{
 		Enabled:     true,
@@ -23,7 +39,7 @@ var defaultHomepageCarouselSlides = []models.HomepageCarouselSlide{
 		Enabled:         true,
 		Title:           "Podcast",
 		LinkURL:         "https://tr.ee/bqz8s-E4NK",
-		ImageURL:        "/images/PodcastBanner.webp",
+		ImageURL:        defaultCarouselImageBase + "/PodcastBanner.webp",
 		BackgroundColor: "#acd4f4",
 		TextColor:       "#ffffff",
 	},
@@ -31,7 +47,7 @@ var defaultHomepageCarouselSlides = []models.HomepageCarouselSlide{
 		Enabled:         true,
 		Title:           "Classifieds",
 		LinkURL:         "/classifieds",
-		ImageURL:        "/images/classifiedsBannerNew.webp",
+		ImageURL:        defaultCarouselImageBase + "/classifiedsBannerNew.webp",
 		BackgroundColor: "#E5E7EB",
 		TextColor:       "#ffffff",
 	},
@@ -39,7 +55,7 @@ var defaultHomepageCarouselSlides = []models.HomepageCarouselSlide{
 		Enabled:         true,
 		Title:           "Apply to The Triangle",
 		LinkURL:         "https://docs.google.com/forms/d/e/1FAIpQLScra_6sUenvmpIuQ5FjmMyWO0a2sz9z36HkrqfnYQvJGH9BGQ/viewform",
-		ImageURL:        "/images/applyBannerNew.webp",
+		ImageURL:        defaultCarouselImageBase + "/applyBannerNew.webp",
 		BackgroundColor: "#275997",
 		TextColor:       "#ffffff",
 	},
