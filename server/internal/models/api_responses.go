@@ -47,6 +47,9 @@ type ArticleListItem struct {
 	FeaturedImage string            `json:"featured_image"`
 	IsFeatured    bool              `json:"is_featured"`
 	PublishedDate *time.Time        `json:"published_date,omitempty"`
+	// Drafts have no published_date; the CMS listing falls back to this so an
+	// unpublished row still shows a date.
+	CreationDate *time.Time `json:"creation_date,omitempty"`
 }
 
 type Pagination struct {

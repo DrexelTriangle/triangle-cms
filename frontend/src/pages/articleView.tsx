@@ -22,6 +22,7 @@ type ApiArticle = {
   slug: string
   status: string
   published_date?: string
+  creation_date?: string
   featured_image?: string
   authors?: Array<{
     name?: string
@@ -275,7 +276,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
             .filter((name) => name.length > 0)
             .join(", "),
           status: mapApiStatus(item.status, activeTab),
-          date: formatArticleDate(item.published_date),
+          // Drafts have no published_date, so fall back to when the row was created.
+          date: formatArticleDate(item.published_date ?? item.creation_date),
           slug: item.slug,
           featuredImage: item.featured_image,
         }))

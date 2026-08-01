@@ -306,3 +306,80 @@ func TestArticleDetailCondition_EditorSeesEverything(t *testing.T) {
 		t.Fatalf("editor lookup must not be narrowed, got %q", got)
 	}
 }
+
+// A draft created in the CMS has neither authors nor categories until an editor
+// fills them in, which is exactly the shape of the import-artifact filter. The
+// editor listing must not drop it.
+func TestArticleQueryFilters_EditorSeesUnfiledDrafts(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Role: models.RoleAdmin}))
+
+	conditions, _ := articleQueryFilters(req, ArticleParams{})
+	joined := strings.Join(conditions, " AND ")
+
+	if !strings.Contains(joined, "OR `pub_date` IS NULL)") {
+		t.Fatalf("editor listing must exempt drafts from the artifact filter, got %q", joined)
+	}
+}
+
+func TestArticleQueryFilters_AnonymousKeepsArtifactFilter(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles", nil)
+
+	conditions, _ := articleQueryFilters(req, ArticleParams{})
+	joined := strings.Join(conditions, " AND ")
+
+	if strings.Contains(joined, "OR `pub_date` IS NULL") {
+		t.Fatalf("anonymous listing must not widen the artifact filter, got %q", joined)
+	}
+	if !strings.Contains(joined, "TRIM(COALESCE(`authors`, ''))") {
+		t.Fatalf("anonymous listing must keep the artifact filter, got %q", joined)
+	}
+}
+
+// Oldest-first used to append `pub_date` IS NOT NULL for everyone, which hid
+// every draft — and made the Draft status filter return nothing at all.
+func TestArticleQueryFilters_EditorAscendingDateSortKeepsDrafts(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles?sort_by=published_date&sort_direction=asc&status=draft", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Role: models.RoleAdmin}))
+
+	conditions, _ := articleQueryFilters(req, ArticleParams{})
+	joined := strings.Join(conditions, " AND ")
+
+	if strings.Contains(joined, "`pub_date` IS NOT NULL") {
+		t.Fatalf("editor oldest-first sort must not exclude drafts, got %q", joined)
+	}
+}
+
+func TestArticleQueryFilters_AnonymousAscendingDateSortSkipsNullPubDates(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles?sort_by=published_date&sort_direction=asc", nil)
+
+	conditions, _ := articleQueryFilters(req, ArticleParams{})
+	joined := strings.Join(conditions, " AND ")
+
+	if !strings.Contains(joined, "`pub_date` IS NOT NULL") {
+		t.Fatalf("anonymous oldest-first sort must stay published-only, got %q", joined)
+	}
+}
+
+// Sorting straight on `pub_date` parks every draft after the last published
+// article, so a new draft lands on the final page of the listing.
+func TestArticleOrderByClause(t *testing.T) {
+	editorReq := func(query string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/v1/articles"+query, nil)
+		return req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Role: models.RoleAdmin}))
+	}
+
+	got := articleOrderByClause(editorReq("?sort_by=published_date&sort_direction=desc"), "published_date", "desc")
+	if got != " ORDER BY COALESCE(`pub_date`, `creation_date`) DESC, `id` DESC" {
+		t.Fatalf("editor newest-first clause = %q", got)
+	}
+
+	if got := articleOrderByClause(editorReq("?sort_by=title&sort_direction=asc"), "title", "asc"); got != "" {
+		t.Fatalf("non-date sort must fall through to BuildOrderLimit, got %q", got)
+	}
+
+	anonReq := httptest.NewRequest(http.MethodGet, "/v1/articles?sort_by=published_date", nil)
+	if got := articleOrderByClause(anonReq, "published_date", "desc"); got != "" {
+		t.Fatalf("anonymous sort must be unchanged, got %q", got)
+	}
+}
