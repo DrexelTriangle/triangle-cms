@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, ImageOff, ImagePlus, LogOut, Plus, RefreshCw, Trash
 import { useCallback, useEffect, useRef, useState } from "react"
 import FooterMenuEditor from "../components/FooterMenuEditor"
 import MediaPicker, { type MediaPickerItem } from "../components/MediaPicker"
+import SettingsSection from "../components/SettingsSection"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 import { useNavigate } from "react-router-dom"
@@ -355,6 +356,8 @@ export default function SettingsPage() {
   }
 
   const carouselDirty = JSON.stringify(carouselSlides) !== JSON.stringify(carouselSaved)
+  const siteTitleDirty = siteTitleDraft.trim() !== siteTitle
+  const breakingDirty = breakingEnabled !== breakingSaved.enabled || breakingText.trim() !== breakingSaved.text
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -405,9 +408,13 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
-        <h2 className="text-lg font-semibold text-foreground">Site</h2>
-        <p className="text-sm text-muted-foreground">Public site title used by the frontend.</p>
+      <SettingsSection
+        title="Site"
+        storageKey="site"
+        dirty={siteTitleDirty}
+        summary={siteTitle || "Not set"}
+        description="Public site title used by the frontend."
+      >
         <div className="flex flex-col gap-2 max-w-xl">
           <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Site Title</label>
           <input
@@ -428,16 +435,16 @@ export default function SettingsPage() {
           </button>
           {siteTitleMessage && <span className="text-sm text-muted-foreground">{siteTitleMessage}</span>}
         </div>
-      </div>
+      </SettingsSection>
 
-      <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Homepage Carousel</h2>
-            <p className="text-sm text-muted-foreground">
-              Slides shown in Scalene's Splide carousel on the public homepage.
-            </p>
-          </div>
+      <SettingsSection
+        title="Homepage Carousel"
+        storageKey="carousel"
+        dirty={carouselDirty}
+        summary={`${carouselSlides.length} slide${carouselSlides.length === 1 ? "" : "s"}`}
+        description="Slides shown in Scalene's Splide carousel on the public homepage."
+      >
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={() => setCarouselSlides((current) => [...current, emptyCarouselSlide()])}
@@ -606,13 +613,15 @@ export default function SettingsPage() {
           </button>
           {carouselMessage && <span className="text-sm text-muted-foreground">{carouselMessage}</span>}
         </div>
-      </div>
+      </SettingsSection>
 
-      <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
-        <h2 className="text-lg font-semibold text-foreground">Breaking News Banner</h2>
-        <p className="text-sm text-muted-foreground">
-          Show a breaking-news banner across the top of the public homepage.
-        </p>
+      <SettingsSection
+        title="Breaking News Banner"
+        storageKey="breaking-news"
+        dirty={breakingDirty}
+        summary={breakingEnabled ? "Enabled" : "Off"}
+        description="Show a breaking-news banner across the top of the public homepage."
+      >
         <label className="flex items-center gap-3 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -646,15 +655,16 @@ export default function SettingsPage() {
           </button>
           {breakingMessage && <span className="text-sm text-muted-foreground">{breakingMessage}</span>}
         </div>
-      </div>
+      </SettingsSection>
 
       {isAdmin && <FooterMenuEditor />}
 
-      <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
-        <h2 className="text-lg font-semibold text-foreground">Taxonomy</h2>
-        <p className="text-sm text-muted-foreground">
-          Recalculate taxonomy article counts from current article category assignments.
-        </p>
+      <SettingsSection
+        title="Taxonomy"
+        storageKey="taxonomy"
+        description="Recalculate taxonomy article counts from current article category assignments."
+        summary={taxonomyRebuildRunning ? "Rebuilding…" : undefined}
+      >
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -666,15 +676,15 @@ export default function SettingsPage() {
           </button>
           {taxonomyRebuildMessage && <span className="text-sm text-muted-foreground">{taxonomyRebuildMessage}</span>}
         </div>
-      </div>
+      </SettingsSection>
 
       {isAdmin && (
-        <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
-          <h2 className="text-lg font-semibold text-foreground">Media Library</h2>
-          <p className="text-sm text-muted-foreground">
-            Scan the media filesystem for files missing from the library. This walks every asset on the
-            media server and takes several minutes; existing entries are left untouched.
-          </p>
+        <SettingsSection
+          title="Media Library"
+          storageKey="media-library"
+          summary={mediaIndexRunning ? "Reindexing…" : undefined}
+          description="Scan the media filesystem for files missing from the library. This walks every asset on the media server and takes several minutes; existing entries are left untouched."
+        >
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -687,7 +697,7 @@ export default function SettingsPage() {
             </button>
             {mediaIndexMessage && <span className="text-sm text-muted-foreground">{mediaIndexMessage}</span>}
           </div>
-        </div>
+        </SettingsSection>
       )}
 
       {carouselPickerIndex !== null && (
