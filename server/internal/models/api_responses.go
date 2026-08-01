@@ -197,6 +197,20 @@ type HomepageResponse struct {
 	Columns           []ArticleListItem         `json:"columns"`
 }
 
+// RandomArticleResponse is the "surprise me" target for the public site, which
+// only needs a slug to redirect to.
+type RandomArticleResponse struct {
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
+}
+
+// SitemapSlug is one entry in the public site's sitemap feed. The field names
+// match what its sitemap routes already consume.
+type SitemapSlug struct {
+	Slug    string `json:"slug"`
+	LastMod string `json:"lastmod"`
+}
+
 type SiteSettingsResponse struct {
 	SiteTitle string `json:"site_title"`
 }

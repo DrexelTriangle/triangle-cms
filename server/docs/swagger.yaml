@@ -799,6 +799,13 @@ definitions:
       total_votes:
         type: integer
     type: object
+  models.RandomArticleResponse:
+    properties:
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
   models.Role:
     enum:
     - editor
@@ -892,6 +899,13 @@ definitions:
   models.SiteSettingsResponse:
     properties:
       site_title:
+        type: string
+    type: object
+  models.SitemapSlug:
+    properties:
+      lastmod:
+        type: string
+      slug:
         type: string
     type: object
   models.SubsectionArticlesResponse:
@@ -1386,6 +1400,26 @@ paths:
       security:
       - BearerAuth: []
       summary: Restore an archived article
+      tags:
+      - articles
+  /v1/articles/random:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.RandomArticleResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get a random published article
       tags:
       - articles
   /v1/auth/callback:
@@ -1910,6 +1944,32 @@ paths:
       summary: Add developing story
       tags:
       - developing-stories
+  /v1/gallery:
+    get:
+      parameters:
+      - default: 50
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.MediaGalleryResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List gallery images for the public site
+      tags:
+      - media
   /v1/health:
     get:
       produces:
@@ -3003,6 +3063,24 @@ paths:
       summary: Rebuild taxonomy article counts
       tags:
       - settings
+  /v1/sitemap/slugs:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.SitemapSlug'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List slugs and modification dates for the sitemap
+      tags:
+      - articles
   /v1/subsections/{subsection_slug}/articles:
     get:
       parameters:
