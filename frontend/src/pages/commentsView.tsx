@@ -138,7 +138,10 @@ export default function CommentsView() {
   const [comments, setComments] = useState<Comment[]>([])
   const [search, setSearch] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
+  // Opens on approved rather than all: "all" mixes spam and trash into the
+  // first thing an editor sees. Pending comments stay discoverable through the
+  // count on the Comments nav item.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("approved")
   const [page, setPage] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
   const [counts, setCounts] = useState<Record<StatusFilter, number>>({
