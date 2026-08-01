@@ -1,7 +1,10 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-ARG VITE_PUBLIC_SITE_URL="https://www.thetriangle.org"
+# Baked in at build time (Vite inlines import.meta.env), so this is the origin
+# every "View Live" link and permalink preview in the published image points at.
+# Override with --build-arg to publish an image aimed at another site.
+ARG VITE_PUBLIC_SITE_URL="https://dev.thetriangle.org"
 ENV VITE_PUBLIC_SITE_URL=${VITE_PUBLIC_SITE_URL}
 
 COPY package.json package-lock.json ./
