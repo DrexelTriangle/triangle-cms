@@ -474,6 +474,8 @@ definitions:
         type: object
       pagination:
         $ref: '#/definitions/models.Pagination'
+      slack_configured:
+        type: boolean
     type: object
   models.ClassifiedsResponse:
     properties:

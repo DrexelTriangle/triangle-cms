@@ -135,9 +135,10 @@ func GetClassifiedsManage(conn *sql.DB) http.Handler {
 		}
 
 		writeJSON(w, http.StatusOK, models.ClassifiedsManageResponse{
-			Classifieds: items,
-			Pagination:  paginationResponse(page, limit, offset, offset+len(items) < totalCount, totalCount),
-			Counts:      counts,
+			Classifieds:     items,
+			Pagination:      paginationResponse(page, limit, offset, offset+len(items) < totalCount, totalCount),
+			Counts:          counts,
+			SlackConfigured: SlackInteractivityConfigured(),
 		})
 	})
 }

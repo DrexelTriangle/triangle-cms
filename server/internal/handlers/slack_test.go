@@ -84,6 +84,61 @@ func TestVerifySlackRequest_RejectsMissingParts(t *testing.T) {
 	}
 }
 
+// The rejection reason is what makes a misconfiguration diagnosable in the
+// logs, so each failure mode has to be distinguishable from the others.
+func TestSlackVerificationFailure_ReportsWhichCheckFailed(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	ts := "1700000000"
+	body := "payload=x"
+	valid := signSlackBody(testSigningSecret, ts, body)
+
+	cases := []struct {
+		name                               string
+		secret, timestamp, body, signature string
+		want                               string
+	}{
+		{"valid", testSigningSecret, ts, body, valid, ""},
+		{"no secret", "", ts, body, valid, slackRejectionUnconfigured},
+		{"no signature header", testSigningSecret, ts, body, "", slackRejectionMissingParts},
+		{"no timestamp header", testSigningSecret, "", body, valid, slackRejectionMissingParts},
+		{"garbage timestamp", testSigningSecret, "not-a-number", body, valid, slackRejectionBadTimestamp},
+		{"stale timestamp", testSigningSecret, "1699999000", body, valid, slackRejectionStale},
+		{"wrong digest", testSigningSecret, ts, body, "v0=deadbeef", slackRejectionBadDigest},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := slackVerificationFailure(c.secret, c.timestamp, c.body, c.signature, now); got != c.want {
+				t.Fatalf("expected reason %q, got %q", c.want, got)
+			}
+		})
+	}
+}
+
+// Rejections are floodable by anyone who can reach the endpoint, so the
+// warnings are throttled — but nothing may be silently dropped: what is
+// suppressed has to be counted into the next line.
+func TestLogSlackRejection_ThrottlesAndCountsSuppressed(t *testing.T) {
+	slackRejectionLog.mu.Lock()
+	slackRejectionLog.lastAt = time.Time{}
+	slackRejectionLog.suppressed = 0
+	slackRejectionLog.mu.Unlock()
+
+	req := httptest.NewRequest("POST", "/v1/integrations/slack/classifieds", nil)
+	logSlackRejection(req, slackRejectionBadDigest) // logs, starting the window
+	for i := 0; i < 5; i++ {
+		logSlackRejection(req, slackRejectionBadDigest) // suppressed
+	}
+
+	slackRejectionLog.mu.Lock()
+	suppressed := slackRejectionLog.suppressed
+	slackRejectionLog.mu.Unlock()
+
+	if suppressed != 5 {
+		t.Fatalf("expected 5 suppressed rejections to be counted, got %d", suppressed)
+	}
+}
+
 // Without a signing secret nothing can be verified, so the endpoint must refuse
 // rather than fall open.
 func TestPostSlackClassifiedAction_RefusesWhenUnconfigured(t *testing.T) {

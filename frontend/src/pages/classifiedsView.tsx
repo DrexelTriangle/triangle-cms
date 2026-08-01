@@ -23,6 +23,7 @@ type Classified = {
 type ManageResponse = {
   classifieds?: Classified[]
   counts?: Partial<Record<StatusFilter, number>>
+  slack_configured?: boolean
 }
 
 const STATUS_FILTERS: StatusFilter[] = ["all", "pending", "approved", "rejected"]
@@ -67,6 +68,9 @@ export default function ClassifiedsView() {
   const [filter, setFilter] = useState<StatusFilter>("pending")
   const [items, setItems] = useState<Classified[]>([])
   const [counts, setCounts] = useState<Partial<Record<StatusFilter, number>>>({})
+  // Assume Slack works until told otherwise, so a failed load does not flash a
+  // scary banner that has nothing to do with what went wrong.
+  const [slackConfigured, setSlackConfigured] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
@@ -80,6 +84,7 @@ export default function ClassifiedsView() {
       const body = (await res.json()) as ManageResponse
       setItems(body.classifieds ?? [])
       setCounts(body.counts ?? {})
+      setSlackConfigured(body.slack_configured !== false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load classifieds")
     } finally {
@@ -129,10 +134,19 @@ export default function ClassifiedsView() {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Classifieds</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Reader submissions awaiting review. Approving here and clicking Approve on the Slack
-          notification do the same thing.
+          {slackConfigured
+            ? "Reader submissions awaiting review. Approving here and clicking Approve on the Slack notification do the same thing."
+            : "Reader submissions awaiting review."}
         </p>
       </div>
+
+      {!slackConfigured && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+          Slack approvals are unavailable — the server has no <code>SLACK_SIGNING_SECRET</code>, so
+          the Approve/Reject buttons on classified notifications will not work. Moderate here
+          instead; nothing is lost either way.
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {STATUS_FILTERS.map((status) => (

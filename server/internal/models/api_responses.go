@@ -235,11 +235,14 @@ type ClassifiedsResponse struct {
 }
 
 // ClassifiedsManageResponse is the editor-facing listing, with the per-status
-// counts the moderation queue's filter tabs display.
+// counts the moderation queue's filter tabs display. SlackConfigured tells the
+// queue whether the Approve/Reject buttons on Slack notifications can work, so
+// it does not point editors at a path that would time out in the channel.
 type ClassifiedsManageResponse struct {
-	Classifieds []Classified   `json:"classifieds"`
-	Pagination  Pagination     `json:"pagination"`
-	Counts      map[string]int `json:"counts"`
+	Classifieds     []Classified   `json:"classifieds"`
+	Pagination      Pagination     `json:"pagination"`
+	Counts          map[string]int `json:"counts"`
+	SlackConfigured bool           `json:"slack_configured"`
 }
 
 type ClassifiedStatusPatchRequest struct {

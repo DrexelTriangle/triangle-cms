@@ -4809,6 +4809,9 @@ const docTemplate = `{
                 },
                 "pagination": {
                     "$ref": "#/definitions/models.Pagination"
+                },
+                "slack_configured": {
+                    "type": "boolean"
                 }
             }
         },

@@ -7,11 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"server/internal/activity"
@@ -65,6 +67,7 @@ func PostSlackClassifiedAction(conn *sql.DB) http.Handler {
 		if secret == "" {
 			// Without the secret every request is unverifiable, so the endpoint
 			// refuses to act rather than trusting the caller.
+			logSlackRejection(r, slackRejectionUnconfigured)
 			writeError(w, http.StatusServiceUnavailable, "slack integration is not configured")
 			return
 		}
@@ -75,7 +78,8 @@ func PostSlackClassifiedAction(conn *sql.DB) http.Handler {
 			return
 		}
 
-		if !verifySlackRequest(secret, r.Header.Get("X-Slack-Request-Timestamp"), string(rawBody), r.Header.Get("X-Slack-Signature"), time.Now()) {
+		if reason := slackVerificationFailure(secret, r.Header.Get("X-Slack-Request-Timestamp"), string(rawBody), r.Header.Get("X-Slack-Signature"), time.Now()); reason != "" {
+			logSlackRejection(r, reason)
 			writeError(w, http.StatusUnauthorized, "invalid slack signature")
 			return
 		}
@@ -172,23 +176,43 @@ func slackReply(w http.ResponseWriter, text string) {
 	})
 }
 
-// verifySlackRequest checks Slack's request signature. It is a pure function so
-// the signing rules can be tested without standing up an HTTP server.
+// Why a request was turned away. These are logged rather than returned to the
+// caller: the response stays a flat "invalid slack signature" so a prober
+// learns nothing about which check it failed.
+const (
+	slackRejectionUnconfigured = "signing_secret_not_set"
+	slackRejectionMissingParts = "missing_signature_headers"
+	slackRejectionBadTimestamp = "unparseable_timestamp"
+	slackRejectionStale        = "timestamp_outside_replay_window"
+	slackRejectionBadDigest    = "signature_mismatch"
+)
+
+// verifySlackRequest checks Slack's request signature.
 func verifySlackRequest(secret, timestamp, body, signature string, now time.Time) bool {
-	if secret == "" || timestamp == "" || signature == "" {
-		return false
+	return slackVerificationFailure(secret, timestamp, body, signature, now) == ""
+}
+
+// slackVerificationFailure returns "" when the request verifies, otherwise the
+// reason it did not. It is a pure function so the signing rules can be tested
+// without standing up an HTTP server.
+func slackVerificationFailure(secret, timestamp, body, signature string, now time.Time) string {
+	if secret == "" {
+		return slackRejectionUnconfigured
+	}
+	if timestamp == "" || signature == "" {
+		return slackRejectionMissingParts
 	}
 
 	ts, err := strconv.ParseInt(strings.TrimSpace(timestamp), 10, 64)
 	if err != nil {
-		return false
+		return slackRejectionBadTimestamp
 	}
 	age := now.Sub(time.Unix(ts, 0))
 	if age < 0 {
 		age = -age
 	}
 	if age > slackMaxRequestAge {
-		return false
+		return slackRejectionStale
 	}
 
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -197,5 +221,48 @@ func verifySlackRequest(secret, timestamp, body, signature string, now time.Time
 
 	// Constant-time: a byte-by-byte comparison would leak the expected digest
 	// to a caller who can time the response.
-	return hmac.Equal([]byte(expected), []byte(signature))
+	if !hmac.Equal([]byte(expected), []byte(signature)) {
+		return slackRejectionBadDigest
+	}
+	return ""
+}
+
+// SlackInteractivityConfigured reports whether the signing secret is present,
+// i.e. whether the Approve/Reject buttons can work at all. The CMS surfaces
+// this so the moderation queue does not promise Slack approvals that would
+// silently time out in the channel.
+func SlackInteractivityConfigured() bool {
+	return strings.TrimSpace(os.Getenv("SLACK_SIGNING_SECRET")) != ""
+}
+
+// A rejected request is worth knowing about — this is the one public write
+// path that no session guards — but it is also trivially floodable, so the
+// warnings are throttled and the ones dropped in between are counted into the
+// next line rather than lost.
+const slackRejectionLogInterval = time.Minute
+
+var slackRejectionLog struct {
+	mu         sync.Mutex
+	lastAt     time.Time
+	suppressed int
+}
+
+func logSlackRejection(r *http.Request, reason string) {
+	slackRejectionLog.mu.Lock()
+	now := time.Now()
+	if !slackRejectionLog.lastAt.IsZero() && now.Sub(slackRejectionLog.lastAt) < slackRejectionLogInterval {
+		slackRejectionLog.suppressed++
+		slackRejectionLog.mu.Unlock()
+		return
+	}
+	suppressed := slackRejectionLog.suppressed
+	slackRejectionLog.suppressed = 0
+	slackRejectionLog.lastAt = now
+	slackRejectionLog.mu.Unlock()
+
+	slog.Warn("rejected Slack interaction",
+		"reason", reason,
+		"ip", clientIP(r),
+		"suppressed_since_last", suppressed,
+	)
 }
