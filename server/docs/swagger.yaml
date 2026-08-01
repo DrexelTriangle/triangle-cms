@@ -482,6 +482,37 @@ definitions:
       status:
         type: string
     type: object
+  models.HomepageCarouselSettingsPatchRequest:
+    properties:
+      slides:
+        items:
+          $ref: '#/definitions/models.HomepageCarouselSlide'
+        type: array
+    type: object
+  models.HomepageCarouselSettingsResponse:
+    properties:
+      slides:
+        items:
+          $ref: '#/definitions/models.HomepageCarouselSlide'
+        type: array
+    type: object
+  models.HomepageCarouselSlide:
+    properties:
+      background_color:
+        type: string
+      desktop_only:
+        type: boolean
+      enabled:
+        type: boolean
+      image_url:
+        type: string
+      link_url:
+        type: string
+      text_color:
+        type: string
+      title:
+        type: string
+    type: object
   models.HomepageDevelopingStory:
     properties:
       excerpt:
@@ -515,6 +546,10 @@ definitions:
       candp:
         items:
           $ref: '#/definitions/models.ArticleListItem'
+        type: array
+      carousel:
+        items:
+          $ref: '#/definitions/models.HomepageCarouselSlide'
         type: array
       columns:
         items:
@@ -2817,6 +2852,52 @@ paths:
       security:
       - BearerAuth: []
       summary: Update breaking-news banner settings
+      tags:
+      - settings
+  /v1/settings/homepage-carousel:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.HomepageCarouselSettingsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get homepage carousel settings
+      tags:
+      - settings
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Homepage carousel settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.HomepageCarouselSettingsPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.HomepageCarouselSettingsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update homepage carousel settings
       tags:
       - settings
   /v1/settings/seo:

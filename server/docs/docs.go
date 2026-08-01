@@ -2925,6 +2925,79 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/settings/homepage-carousel": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get homepage carousel settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.HomepageCarouselSettingsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Update homepage carousel settings",
+                "parameters": [
+                    {
+                        "description": "Homepage carousel settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.HomepageCarouselSettingsPatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.HomepageCarouselSettingsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/settings/seo": {
             "get": {
                 "produces": [
@@ -4357,6 +4430,54 @@ const docTemplate = `{
                 }
             }
         },
+        "models.HomepageCarouselSettingsPatchRequest": {
+            "type": "object",
+            "properties": {
+                "slides": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.HomepageCarouselSlide"
+                    }
+                }
+            }
+        },
+        "models.HomepageCarouselSettingsResponse": {
+            "type": "object",
+            "properties": {
+                "slides": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.HomepageCarouselSlide"
+                    }
+                }
+            }
+        },
+        "models.HomepageCarouselSlide": {
+            "type": "object",
+            "properties": {
+                "background_color": {
+                    "type": "string"
+                },
+                "desktop_only": {
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "link_url": {
+                    "type": "string"
+                },
+                "text_color": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "models.HomepageDevelopingStory": {
             "type": "object",
             "properties": {
@@ -4407,6 +4528,12 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/models.ArticleListItem"
+                    }
+                },
+                "carousel": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.HomepageCarouselSlide"
                     }
                 },
                 "columns": {

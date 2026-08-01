@@ -38,6 +38,7 @@ func TestRegister_ReadEndpointsPublicWithVerifier(t *testing.T) {
 		"/v1/search",
 		"/v1/authors",
 		"/v1/authors/some-author",
+		"/v1/settings/homepage-carousel",
 		"/v1/taxonomy",
 	}
 	for _, path := range public {
@@ -65,6 +66,39 @@ func TestRegister_ReadEndpointsPublicWithVerifier(t *testing.T) {
 			mux.ServeHTTP(rec, req)
 			if rec.Code != http.StatusUnauthorized {
 				t.Fatalf("expected %s to require auth (401), got %d", path, rec.Code)
+			}
+		})
+	}
+}
+
+func TestRegister_SettingsWriteEndpointsGated(t *testing.T) {
+	verifier := oidc.NewVerifier("https://issuer.example", nil, &oidc.Config{
+		ClientID:          "test",
+		SkipClientIDCheck: true,
+	})
+
+	mux := http.NewServeMux()
+	Register(mux, nil, verifier, auth.OIDCConfig{}, nil)
+
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPatch, "/v1/settings/site"},
+		{http.MethodPatch, "/v1/settings/seo"},
+		{http.MethodPatch, "/v1/settings/breaking-news"},
+		{http.MethodPatch, "/v1/settings/homepage-carousel"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected %d, got %d", http.StatusUnauthorized, rec.Code)
 			}
 		})
 	}

@@ -3,7 +3,10 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"server/internal/activity"
@@ -115,6 +118,56 @@ func PatchBreakingNews(conn *sql.DB) http.Handler {
 	})
 }
 
+// @Summary Get homepage carousel settings
+// @Tags settings
+// @Produce json
+// @Success 200 {object} models.HomepageCarouselSettingsResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/settings/homepage-carousel [get]
+func GetHomepageCarousel(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		slides, err := db.GetHomepageCarousel(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to fetch homepage carousel settings")
+			return
+		}
+		writeJSON(w, http.StatusOK, models.HomepageCarouselSettingsResponse{Slides: slides})
+	})
+}
+
+// @Summary Update homepage carousel settings
+// @Tags settings
+// @Accept json
+// @Produce json
+// @Param body body models.HomepageCarouselSettingsPatchRequest true "Homepage carousel settings"
+// @Success 200 {object} models.HomepageCarouselSettingsResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/settings/homepage-carousel [patch]
+func PatchHomepageCarousel(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body models.HomepageCarouselSettingsPatchRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+
+		slides := db.NormalizeHomepageCarouselSlides(body.Slides)
+		if err := validateHomepageCarouselSlides(slides); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if err := db.SetHomepageCarousel(r.Context(), conn, slides); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update homepage carousel settings")
+			return
+		}
+		activity.LogRequest(r, "settings_changed", "Homepage carousel updated", "homepage_carousel", strconv.Itoa(len(slides)))
+		writeJSON(w, http.StatusOK, models.HomepageCarouselSettingsResponse{Slides: slides})
+	})
+}
+
 // @Summary Rebuild taxonomy article counts
 // @Tags settings
 // @Success 204
@@ -130,4 +183,49 @@ func PostRebuildTaxonomyCounts(conn *sql.DB) http.Handler {
 		activity.LogRequest(r, "settings_changed", "Rebuilt taxonomy article counts")
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+func validateHomepageCarouselSlides(slides []models.HomepageCarouselSlide) error {
+	if len(slides) > 20 {
+		return fmt.Errorf("homepage carousel cannot have more than 20 slides")
+	}
+	for idx, slide := range slides {
+		n := idx + 1
+		if slide.Enabled && slide.LinkURL == "" {
+			return fmt.Errorf("slide %d link_url is required when enabled", n)
+		}
+		if slide.Enabled && slide.Title == "" && slide.ImageURL == "" {
+			return fmt.Errorf("slide %d needs a title or image_url when enabled", n)
+		}
+		if len(slide.Title) > 160 {
+			return fmt.Errorf("slide %d title cannot exceed 160 characters", n)
+		}
+		if len(slide.LinkURL) > 2048 {
+			return fmt.Errorf("slide %d link_url cannot exceed 2048 characters", n)
+		}
+		if len(slide.ImageURL) > 2048 {
+			return fmt.Errorf("slide %d image_url cannot exceed 2048 characters", n)
+		}
+		if len(slide.BackgroundColor) > 32 {
+			return fmt.Errorf("slide %d background_color cannot exceed 32 characters", n)
+		}
+		if len(slide.TextColor) > 32 {
+			return fmt.Errorf("slide %d text_color cannot exceed 32 characters", n)
+		}
+		if slide.LinkURL != "" && !validCarouselURL(slide.LinkURL) {
+			return fmt.Errorf("slide %d link_url must be a relative URL or absolute http(s) URL", n)
+		}
+		if slide.ImageURL != "" && !validCarouselURL(slide.ImageURL) {
+			return fmt.Errorf("slide %d image_url must be a relative URL or absolute http(s) URL", n)
+		}
+	}
+	return nil
+}
+
+func validCarouselURL(raw string) bool {
+	if strings.HasPrefix(raw, "/") {
+		return !strings.HasPrefix(raw, "//")
+	}
+	parsed, err := url.Parse(raw)
+	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
