@@ -51,6 +51,40 @@ const WEEKDAYS = (() => {
   return Array.from({ length: 7 }, (_, i) => fmt.format(new Date(2024, 0, 7 + i)))
 })()
 
+// What the field shows once a value is set, and the shape the placeholder
+// advertises for typing it back in.
+const DISPLAY_FORMAT = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+})
+
+const displayOf = (p: Parts) => DISPLAY_FORMAT.format(new Date(p.year, p.month, p.day, p.hour, p.minute))
+
+// The example date is formatted, not hardcoded, so the hint matches the order
+// the viewer's locale actually reads dates in.
+const PLACEHOLDER = displayOf({ year: 2026, month: 7, day: 3, hour: 9, minute: 0 })
+
+// Typed entry used to be the native control's job. Date's parser is lenient
+// about the formats people actually type ("8/3/2026 9:00", "Aug 3 2026 9am"),
+// which is the right trade here: anything it rejects simply snaps back to the
+// last good value, and the picker is always there.
+function parseTyped(text: string): Parts | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const date = new Date(trimmed)
+  if (Number.isNaN(date.getTime())) return null
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth(),
+    day: date.getDate(),
+    hour: date.getHours(),
+    minute: date.getMinutes(),
+  }
+}
+
 const monthLabel = (date: Date) =>
   new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(date)
 const fullDayLabel = (date: Date) =>
@@ -215,19 +249,26 @@ function Calendar({ selected, min, max, onSelect }: CalendarProps) {
   )
 }
 
-// A native <input type="datetime-local"> for typing, with our own popover in
-// place of the browser's picker.
+// A date and time field: a text input for typing, and our own popover for
+// picking. No native date control is involved.
 //
-// The native popup is browser chrome: it renders outside the page, so no CSS of
-// ours reaches it, and in Firefox it offers a calendar and no time at all. The
-// field itself stays native -- it is locale-aware, screen-reader-correct and
-// keyboard-typeable for free, and none of that is worth reimplementing. Only
-// the popup is ours.
+// It began as an <input type="datetime-local"> with the browser's picker hidden
+// behind ::-webkit-calendar-picker-indicator, which is a Chrome-only pseudo:
+// Firefox kept its own calendar glyph, so the field showed two picker buttons,
+// and the native one opened the grey-and-red panel this popover exists to
+// replace. That panel is browser chrome -- outside the page, unreachable by our
+// CSS -- so the only way to stop offering it is to stop using the control that
+// owns it.
+//
+// The cost is that formatting and parsing typed text are now ours. The value
+// contract is unchanged: local wall time, "YYYY-MM-DDTHH:mm".
 const DateTimeField = React.forwardRef<HTMLInputElement, DateTimeFieldProps>(
   ({ label, hint, error, clearable, value, onChange, className, disabled, id, min, max, ...props }, forwardedRef) => {
     const generatedId = React.useId()
     const fieldId = id ?? generatedId
     const [open, setOpen] = React.useState(false)
+    // Non-null only while the user is mid-edit in the text field.
+    const [draft, setDraft] = React.useState<string | null>(null)
     const inputRef = React.useRef<HTMLInputElement | null>(null)
 
     const setRefs = (node: HTMLInputElement | null) => {
@@ -238,6 +279,22 @@ const DateTimeField = React.forwardRef<HTMLInputElement, DateTimeFieldProps>(
 
     const parsed = parseValue(value)
     const timeValue = parsed ? `${pad(parsed.hour)}:${pad(parsed.minute)}` : ""
+    const displayValue = parsed ? displayOf(parsed) : ""
+    const placeholder = props.placeholder ?? PLACEHOLDER
+
+    // While the field has focus the text is the user's to mangle; the formatted
+    // value only comes back once they are done with it.
+    const commitTyped = (text: string) => {
+      setDraft(null)
+      if (!text.trim()) {
+        onChange("")
+        return
+      }
+      const typed = parseTyped(text)
+      // Unparseable text reverts rather than erroring: the previous value is
+      // still on screen a frame later, which reads as "that did not take".
+      if (typed) onChange(toValue(typed))
+    }
 
     const selectDay = (year: number, month: number, day: number) => {
       onChange(
@@ -283,30 +340,30 @@ const DateTimeField = React.forwardRef<HTMLInputElement, DateTimeFieldProps>(
             {...props}
             ref={setRefs}
             id={fieldId}
-            type="datetime-local"
-            value={value}
-            min={min}
-            max={max}
+            type="text"
+            autoComplete="off"
+            value={draft ?? displayValue}
+            placeholder={placeholder}
             disabled={disabled}
             aria-invalid={error ? true : undefined}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => setDraft(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={(e) => commitTyped(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                // Inside a <form>: commit the text, do not submit the poll.
+                e.preventDefault()
+                commitTyped(e.currentTarget.value)
+              }
+              if (e.key === "Escape" && draft !== null) setDraft(null)
+            }}
             className={cn(
               "flex h-10 w-full rounded-lg border border-input bg-background font-sans text-sm text-foreground",
               // Room on the right for the trigger (and the clear button beside it).
               "pl-3 py-2",
               clearable && value ? "pr-16" : "pr-10",
-              "ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+              "ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
               "disabled:cursor-not-allowed disabled:opacity-50",
-              // The app is light-themed; saying so stops the browser painting
-              // the field's internals from the OS preference instead.
-              "[color-scheme:light]",
-              // Drop the browser's own picker glyph; ours replaces it. Removing
-              // it rather than covering it keeps clicking a segment (the month,
-              // the hour) working the way it does natively.
-              "[&::-webkit-calendar-picker-indicator]:hidden",
-              // An empty field otherwise shows near-black "mm/dd/yyyy" that
-              // reads as filled in; muted matches every other placeholder.
-              !value && "text-muted-foreground",
               error && "border-destructive focus-visible:ring-destructive/40",
               className,
             )}
@@ -327,7 +384,6 @@ const DateTimeField = React.forwardRef<HTMLInputElement, DateTimeFieldProps>(
               <PopoverPrimitive.Trigger asChild>
                 <button
                   type="button"
-                  tabIndex={-1}
                   disabled={disabled}
                   aria-label={label ? `Open ${label.toLowerCase()} picker` : "Open date picker"}
                   className="pointer-events-auto rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-primary data-[state=open]:bg-muted data-[state=open]:text-primary"
