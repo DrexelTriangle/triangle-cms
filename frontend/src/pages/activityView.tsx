@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Search, FileText, Tag, Settings, UserPlus, Users, RefreshCcw, Newspaper, ListTodo } from "lucide-react"
+import { Search, FileText, Tag, Settings, UserPlus, Users, RefreshCcw, Newspaper, ListTodo, Image, Upload, Trash2, MessageSquare } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 
 type ActivityEvent = {
@@ -36,12 +36,32 @@ const ACTION_META: Record<string, { label: string; icon: React.ElementType; colo
   poll_updated: { label: "Updated poll", icon: ListTodo, color: "text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400" },
   developing_story_added: { label: "Added story", icon: Newspaper, color: "text-orange-600 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400" },
   developing_story_deleted: { label: "Deleted story", icon: Newspaper, color: "text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400" },
+  media_uploaded: { label: "Uploaded media", icon: Upload, color: "text-violet-600 bg-violet-100 dark:bg-violet-900/30 dark:text-violet-400" },
+  media_updated: { label: "Updated media", icon: Image, color: "text-blue-600 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400" },
+  media_deleted: { label: "Deleted media", icon: Trash2, color: "text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400" },
+  media_index_started: { label: "Reindexed media", icon: RefreshCcw, color: "text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400" },
+  comment_status_updated: { label: "Moderated comment", icon: MessageSquare, color: "text-sky-600 bg-sky-100 dark:bg-sky-900/30 dark:text-sky-400" },
+  comment_deleted: { label: "Deleted comment", icon: MessageSquare, color: "text-rose-600 bg-rose-100 dark:bg-rose-900/30 dark:text-rose-400" },
 }
 
-const FALLBACK_META = {
-  label: "Activity event",
-  icon: ListTodo,
-  color: "text-muted-foreground bg-muted",
+/**
+ * Label for an action with no entry above. This used to be a fixed "Activity
+ * event", which made every unmapped action render identically — an upload and
+ * a delete of the same file were the same row but for the timestamp. Deriving
+ * the label from the action key keeps them distinguishable, so forgetting to
+ * add a mapping degrades the wording rather than losing the event's meaning.
+ */
+function fallbackMeta(action: string) {
+  const words = action.replace(/[_-]+/g, " ").trim()
+  return {
+    label: words ? words.charAt(0).toUpperCase() + words.slice(1) : "Activity event",
+    icon: ListTodo,
+    color: "text-muted-foreground bg-muted",
+  }
+}
+
+function actionMeta(action: string) {
+  return ACTION_META[action] ?? fallbackMeta(action)
 }
 
 const AVATAR_COLORS = [
@@ -84,7 +104,7 @@ export default function ActivityView() {
   const users = useMemo(() => [...new Set(events.map((event) => event.user || "System"))], [events])
 
   const filtered = useMemo(() => events.filter((event) => {
-    const meta = ACTION_META[event.action] ?? FALLBACK_META
+    const meta = actionMeta(event.action)
     const query = search.toLowerCase()
     return (
       (event.user || "System").toLowerCase().includes(query) ||
@@ -93,13 +113,18 @@ export default function ActivityView() {
     )
   }), [events, search])
 
-  const actionEntries = useMemo(() => Object.entries(ACTION_META)
-    .map(([key, meta]) => ({
-      key,
-      meta,
-      count: events.filter((event) => event.action === key).length,
-    }))
-    .filter((entry) => entry.count > 0), [events])
+  // Counted from the events themselves rather than by walking ACTION_META, so
+  // an action with no mapping still shows up here instead of vanishing from
+  // the breakdown entirely. Busiest first.
+  const actionEntries = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const event of events) {
+      counts.set(event.action, (counts.get(event.action) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .map(([key, count]) => ({ key, meta: actionMeta(key), count }))
+      .sort((a, b) => b.count - a.count || a.meta.label.localeCompare(b.meta.label))
+  }, [events])
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -136,7 +161,7 @@ export default function ActivityView() {
               </div>
             ) : (
               filtered.map((event) => {
-                const meta = ACTION_META[event.action] ?? FALLBACK_META
+                const meta = actionMeta(event.action)
                 const Icon = meta.icon
                 const user = event.user || "System"
                 const userIdx = users.indexOf(user)
