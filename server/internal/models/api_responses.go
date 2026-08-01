@@ -197,6 +197,55 @@ type HomepageResponse struct {
 	Columns           []ArticleListItem         `json:"columns"`
 }
 
+// Classified moderation statuses.
+const (
+	ClassifiedStatusPending  = "pending"
+	ClassifiedStatusApproved = "approved"
+	ClassifiedStatusRejected = "rejected"
+)
+
+// Classified is a reader-submitted classified ad. Name and email are shown
+// publicly once approved — that is the point of the listing, it is how readers
+// answer an ad.
+type Classified struct {
+	ID         int64      `json:"id"`
+	Name       string     `json:"name"`
+	Email      string     `json:"email"`
+	Label      string     `json:"label"`
+	Message    string     `json:"message"`
+	EndDate    string     `json:"end_date"`
+	Status     string     `json:"status"`
+	DecidedAt  *time.Time `json:"decided_at,omitempty"`
+	DecidedBy  string     `json:"decided_by,omitempty"`
+	DecidedVia string     `json:"decided_via,omitempty"`
+	CreatedAt  *time.Time `json:"created_at,omitempty"`
+}
+
+// ClassifiedSubmitRequest is what the public submission form posts.
+type ClassifiedSubmitRequest struct {
+	Name    string `json:"name"`
+	Email   string `json:"email"`
+	Label   string `json:"label"`
+	Message string `json:"message"`
+	EndDate string `json:"end_date"`
+}
+
+type ClassifiedsResponse struct {
+	Classifieds []Classified `json:"classifieds"`
+}
+
+// ClassifiedsManageResponse is the editor-facing listing, with the per-status
+// counts the moderation queue's filter tabs display.
+type ClassifiedsManageResponse struct {
+	Classifieds []Classified   `json:"classifieds"`
+	Pagination  Pagination     `json:"pagination"`
+	Counts      map[string]int `json:"counts"`
+}
+
+type ClassifiedStatusPatchRequest struct {
+	Status string `json:"status"`
+}
+
 // RandomArticleResponse is the "surprise me" target for the public site, which
 // only needs a slug to redirect to.
 type RandomArticleResponse struct {

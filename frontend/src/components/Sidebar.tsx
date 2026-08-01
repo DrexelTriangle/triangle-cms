@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Activity,
   BarChart3,
+  ClipboardList,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
@@ -63,6 +64,7 @@ const navGroups: NavGroup[] = [
       { icon: Users, label: "Authors", path: "/authors" },
       { icon: Layers, label: "Sections", path: "/sections" },
       { icon: MessageSquare, label: "Comments", path: "/comments" },
+      { icon: ClipboardList, label: "Classifieds", path: "/classifieds" },
       { icon: Search, label: "SEO", path: "/seo" },
     ],
   },
@@ -82,6 +84,7 @@ export default function Sidebar() {
   const apiFetch = useApiFetch()
   const [collapsed, setCollapsed] = useState(false)
   const [pendingCommentCount, setPendingCommentCount] = useState(0)
+  const [pendingClassifiedCount, setPendingClassifiedCount] = useState(0)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     "/articles": true,
   })
@@ -119,7 +122,23 @@ export default function Sidebar() {
       }
     }
 
+    const loadPendingClassifiedCount = async () => {
+      try {
+        const response = await apiFetch("/v1/classifieds/manage?limit=1&status=pending")
+        if (!response.ok) return
+        const body = await response.json() as { counts?: { pending?: number } }
+        if (!cancelled) {
+          setPendingClassifiedCount(body.counts?.pending ?? 0)
+        }
+      } catch {
+        if (!cancelled) {
+          setPendingClassifiedCount(0)
+        }
+      }
+    }
+
     void loadPendingCommentCount()
+    void loadPendingClassifiedCount()
     return () => {
       cancelled = true
     }
@@ -160,7 +179,12 @@ export default function Sidebar() {
               const active = isActive(item)
               const hasChildren = item.children && item.children.length > 0
               const open = openGroups[item.path]
-              const badge = item.path === "/comments" ? pendingCommentCount : item.badge
+              const badge =
+                item.path === "/comments"
+                  ? pendingCommentCount
+                  : item.path === "/classifieds"
+                    ? pendingClassifiedCount
+                    : item.badge
 
               return (
                 <div key={item.path}>

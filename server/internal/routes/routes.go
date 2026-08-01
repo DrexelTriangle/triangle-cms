@@ -50,6 +50,19 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/articles/random", handlers.GetRandomArticle(conn))
 	mux.Handle("GET /v1/articles/{slug}", optionalAuth(handlers.GetArticle(conn)))
 	mux.Handle("GET /v1/sitemap/slugs", handlers.GetSitemapSlugs(conn))
+
+	// Classifieds. Submission is public and rate limited like comments;
+	// everything a reader submits lands as pending. Moderation happens either
+	// in the CMS queue (authenticated) or from the buttons on the Slack
+	// notification, which authenticates by Slack request signature instead of a
+	// session — hence no authMW on that route. "manage" is a literal segment,
+	// so Go's mux prefers it over /v1/classifieds/{id}.
+	mux.Handle("GET /v1/classifieds", handlers.GetClassifieds(conn))
+	mux.Handle("POST /v1/classifieds", middleware.RateLimitByIP(5, time.Minute)(handlers.PostClassified(conn)))
+	mux.Handle("GET /v1/classifieds/manage", authMW(handlers.GetClassifiedsManage(conn)))
+	mux.Handle("PATCH /v1/classifieds/{id}", authMW(handlers.PatchClassified(conn)))
+	mux.Handle("DELETE /v1/classifieds/{id}", authMW(adminOnly(handlers.DeleteClassified(conn))))
+	mux.Handle("POST /v1/integrations/slack/classifieds", middleware.RateLimitByIP(30, time.Minute)(handlers.PostSlackClassifiedAction(conn)))
 	// The public photo gallery. The editor-facing catalogue at
 	// /v1/media/gallery stays authenticated; this one is images-only.
 	mux.Handle("GET /v1/gallery", handlers.GetPublicGallery(conn))
