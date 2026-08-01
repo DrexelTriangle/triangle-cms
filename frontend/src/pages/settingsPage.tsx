@@ -1,6 +1,7 @@
-import { ArrowDown, ArrowUp, LogOut, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, ImageOff, ImagePlus, LogOut, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import FooterMenuEditor from "../components/FooterMenuEditor"
+import MediaPicker, { type MediaPickerItem } from "../components/MediaPicker"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 import { useNavigate } from "react-router-dom"
@@ -68,6 +69,8 @@ export default function SettingsPage() {
   const [carouselSaved, setCarouselSaved] = useState<CarouselSlide[]>([])
   const [carouselSaving, setCarouselSaving] = useState(false)
   const [carouselMessage, setCarouselMessage] = useState<string | null>(null)
+  // Index of the slide whose image is being picked, or null when the modal is closed.
+  const [carouselPickerIndex, setCarouselPickerIndex] = useState<number | null>(null)
   const [mediaIndexRunning, setMediaIndexRunning] = useState(false)
   const [mediaIndexMessage, setMediaIndexMessage] = useState<string | null>(null)
   // Guards against two poll loops (mount-resume plus a click) racing each other.
@@ -220,6 +223,11 @@ export default function SettingsPage() {
 
   function removeCarouselSlide(index: number) {
     setCarouselSlides((current) => current.filter((_, idx) => idx !== index))
+  }
+
+  function selectCarouselImage(item: MediaPickerItem) {
+    if (carouselPickerIndex !== null) updateCarouselSlide(carouselPickerIndex, { image_url: item.url })
+    setCarouselPickerIndex(null)
   }
 
   async function saveHomepageCarousel() {
@@ -509,13 +517,47 @@ export default function SettingsPage() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Image URL</label>
-                    <input
-                      value={slide.image_url}
-                      onChange={(e) => updateCarouselSlide(index, { image_url: e.target.value })}
-                      className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      placeholder="/images/banner.webp"
-                    />
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Image</label>
+                    <div className="flex items-start gap-3">
+                      {slide.image_url ? (
+                        <img
+                          src={slide.image_url}
+                          alt=""
+                          className="w-24 h-14 shrink-0 rounded-lg border border-border object-cover bg-muted/40"
+                        />
+                      ) : (
+                        <div className="w-24 h-14 shrink-0 rounded-lg border border-dashed border-border grid place-items-center text-muted-foreground">
+                          <ImageOff className="w-4 h-4" />
+                        </div>
+                      )}
+                      <div className="flex-1 flex flex-col gap-2">
+                        <input
+                          value={slide.image_url}
+                          onChange={(e) => updateCarouselSlide(index, { image_url: e.target.value })}
+                          className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                          placeholder="Choose from the media library, or paste a URL"
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setCarouselPickerIndex(index)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs text-foreground hover:bg-muted/40"
+                          >
+                            <ImagePlus className="w-3.5 h-3.5" />
+                            {slide.image_url ? "Replace image" : "Choose image"}
+                          </button>
+                          {slide.image_url && (
+                            <button
+                              type="button"
+                              onClick={() => updateCarouselSlide(index, { image_url: "" })}
+                              className="px-2.5 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="flex flex-col gap-2">
@@ -646,6 +688,14 @@ export default function SettingsPage() {
             {mediaIndexMessage && <span className="text-sm text-muted-foreground">{mediaIndexMessage}</span>}
           </div>
         </div>
+      )}
+
+      {carouselPickerIndex !== null && (
+        <MediaPicker
+          title="Choose carousel image"
+          onClose={() => setCarouselPickerIndex(null)}
+          onSelect={selectCarouselImage}
+        />
       )}
     </div>
   )
