@@ -1100,6 +1100,10 @@ type ArticleParams struct {
 	AuthorSlug string
 	Section    string
 	Subsection string
+	// SectionMatchSlugs is the section plus its subsections, resolved during
+	// validation because the filter builder has no database handle. A section
+	// with no matching category of its own is still populated by its children.
+	SectionMatchSlugs []string
 }
 
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
@@ -1205,12 +1209,14 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 		args = append(args, params.AuthorSlug)
 	}
 
-	if params.Section != "" {
-		appendCategorySlugCondition(&conditions, &args, params.Section)
-	}
-
+	// A subsection stands on its own: ANDing it with its parent returns the
+	// intersection, which is empty whenever the parent slug is not itself a
+	// real category. That is how /special-editions/welcome-week served 0
+	// articles while 30 were filed under "Welcome Week".
 	if params.Subsection != "" {
 		appendCategorySlugCondition(&conditions, &args, params.Subsection)
+	} else if params.Section != "" {
+		appendCategorySlugCondition(&conditions, &args, params.SectionMatchSlugs...)
 	}
 
 	if status := strings.TrimSpace(q.Get("status")); status != "" && isEditor {
@@ -1261,35 +1267,16 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	return conditions, args
 }
 
-func appendCategorySlugCondition(conditions *[]string, args *[]any, slug string) {
-	normalized := strings.ToLower(strings.TrimSpace(slug))
-	if normalized == "" {
+// appendCategorySlugCondition narrows to articles filed under any of the given
+// slugs. Patterns come from db.CategoryMatchPatterns so the listing and the
+// taxonomy counts can never drift apart.
+func appendCategorySlugCondition(conditions *[]string, args *[]any, slugs ...string) {
+	condition, condArgs := db.TaxonomyCountCondition(slugs)
+	if condition == "" {
 		return
 	}
-
-	patterns := make([]string, 0, 3)
-	addPattern := func(value string) {
-		for _, existing := range patterns {
-			if existing == value {
-				return
-			}
-		}
-		patterns = append(patterns, value)
-	}
-
-	addPattern("%" + normalized + "%")
-	if strings.Contains(normalized, "-") {
-		addPattern("%" + strings.ReplaceAll(normalized, "-", " ") + "%")
-		addPattern("%" + strings.ReplaceAll(normalized, "-", " & ") + "%")
-	}
-
-	clauseParts := make([]string, 0, len(patterns))
-	for _, pattern := range patterns {
-		clauseParts = append(clauseParts, "LOWER(`categories`) LIKE ?")
-		*args = append(*args, pattern)
-	}
-
-	*conditions = append(*conditions, "("+strings.Join(clauseParts, " OR ")+")")
+	*conditions = append(*conditions, condition)
+	*args = append(*args, condArgs...)
 }
 
 func appendArticleTypeCondition(conditions *[]string, args *[]any, rawType string, negate ...bool) {
@@ -2421,7 +2408,14 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 				key   string
 				limit int
 			}) error {
-				params := ArticleParams{"", section.slug, ""}
+				// Resolved rather than literal so a homepage block for a
+				// container section (one with no category of its own) still
+				// shows its subsections' articles.
+				matchSlugs, err := sectionMatchSlugs(r.Context(), conn, section.slug)
+				if err != nil {
+					return err
+				}
+				params := ArticleParams{Section: section.slug, SectionMatchSlugs: matchSlugs}
 				limit := section.limit
 				rows, err := queryArticles(r, conn, params, limit+1, offset)
 				if err != nil {
