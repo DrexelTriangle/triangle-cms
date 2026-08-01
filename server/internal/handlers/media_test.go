@@ -397,3 +397,47 @@ func TestGetMediaIndexStatus_ReportsIdle(t *testing.T) {
 		t.Fatal("expected the shared job to be idle")
 	}
 }
+
+// storeUpload renames a temp file into place, and os.CreateTemp hardcodes mode
+// 0600. If that is not widened before the rename, the stored asset ends up
+// readable only by the CMS's own uid -- the file is there, but the media server
+// answers 403 for every uploaded image. Pin the mode so that cannot regress.
+func TestStoreUpload_StoresWorldReadableFile(t *testing.T) {
+	dir := t.TempDir()
+
+	name, size, err := storeUpload(dir, "photo", ".png", bytes.NewReader(pngBytes(t, 4, 4)))
+	if err != nil {
+		t.Fatalf("storeUpload: %v", err)
+	}
+	if size == 0 {
+		t.Fatal("storeUpload reported a zero-byte write")
+	}
+
+	info, err := os.Stat(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatalf("stat stored file: %v", err)
+	}
+	// Chmod is not masked by the umask, so this is an exact comparison.
+	if perm := info.Mode().Perm(); perm != 0o644 {
+		t.Fatalf("stored file mode = %#o, want 0644 (0600 means Nginx will 403 it)", perm)
+	}
+}
+
+func TestEnsureTraversable_WidensNarrowDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "2026", "08")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	ensureTraversable(filepath.Dir(dir), dir)
+
+	for _, target := range []string{filepath.Dir(dir), dir} {
+		info, err := os.Stat(target)
+		if err != nil {
+			t.Fatalf("stat %s: %v", target, err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o775 {
+			t.Fatalf("%s mode = %#o, want 0775", target, perm)
+		}
+	}
+}
