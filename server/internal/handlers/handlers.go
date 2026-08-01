@@ -355,6 +355,7 @@ func articleListItems(articles []models.Article, excerptWords int) []models.Arti
 			CommentStatus: article.CommentStatus,
 			FeaturedImage: article.PhotoURL,
 			IsFeatured:    article.IsFeatured,
+			BreakingNews:  article.BreakingNews,
 		}
 		item.PublishedDate = article.PublishedAt
 		item.CreationDate = article.CreatedAt
@@ -1375,6 +1376,7 @@ func GetSearch(conn *sql.DB) http.HandlerFunc {
 				CommentStatus: article.CommentStatus,
 				FeaturedImage: article.PhotoURL,
 				IsFeatured:    article.IsFeatured,
+				BreakingNews:  article.BreakingNews,
 			}
 			item.PublishedDate = article.PublishedAt
 			resp = append(resp, item)
@@ -1501,6 +1503,7 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 				CommentStatus: relatedArticle.CommentStatus,
 				FeaturedImage: relatedArticle.PhotoURL,
 				IsFeatured:    relatedArticle.IsFeatured,
+				BreakingNews:  relatedArticle.BreakingNews,
 			}
 			relatedItem.PublishedDate = relatedArticle.PublishedAt
 			related = append(related, relatedItem)
@@ -1515,6 +1518,7 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 			Categories:    categories,
 			CommentStatus: a.CommentStatus,
 			IsFeatured:    a.IsFeatured,
+			BreakingNews:  a.BreakingNews,
 			Status:        a.Status,
 			FeaturedImage: a.PhotoURL,
 			Authors:       authors,
@@ -2107,6 +2111,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			"categories":       "categories",
 			"published_date":   "pub_date",
 			"is_featured":      "priority",
+			"breaking_news":    "breaking_news",
 			"status":           "pub_date",
 			"comment_status":   "comment_status",
 			"photo_url":        "photo_url",

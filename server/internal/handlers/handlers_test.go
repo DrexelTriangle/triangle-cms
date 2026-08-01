@@ -87,6 +87,22 @@ func TestArticleCommentsClosed(t *testing.T) {
 	}
 }
 
+func TestArticleListItems_IncludesScaleneBreakingNewsFlag(t *testing.T) {
+	items := articleListItems([]models.Article{{
+		ID:           12,
+		Title:        "Campus alert",
+		Slug:         "campus-alert",
+		BreakingNews: true,
+	}}, 50)
+
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if !items[0].BreakingNews {
+		t.Fatal("breaking_news flag was not copied to article list item")
+	}
+}
+
 func TestAppendCategorySlugCondition(t *testing.T) {
 	var conditions []string
 	var args []any

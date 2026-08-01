@@ -13,6 +13,7 @@ func EnsureArticlesSchema(ctx context.Context, conn *sql.DB) error {
 	_, err := conn.ExecContext(ctx, `
 		ALTER TABLE articles
 		ADD COLUMN IF NOT EXISTS archived_at DATETIME NULL DEFAULT NULL,
+		ADD COLUMN IF NOT EXISTS breaking_news BOOL NULL DEFAULT 0,
 		ADD COLUMN IF NOT EXISTS focus_keyword LONGTEXT NULL DEFAULT NULL,
 		ADD COLUMN IF NOT EXISTS meta_description LONGTEXT NULL DEFAULT NULL,
 		ADD COLUMN IF NOT EXISTS seo_title LONGTEXT NULL DEFAULT NULL

@@ -46,6 +46,7 @@ type ArticleListItem struct {
 	CommentStatus string            `json:"comment_status"`
 	FeaturedImage string            `json:"featured_image"`
 	IsFeatured    bool              `json:"is_featured"`
+	BreakingNews  bool              `json:"breaking_news"`
 	PublishedDate *time.Time        `json:"published_date,omitempty"`
 	// Drafts have no published_date; the CMS listing falls back to this so an
 	// unpublished row still shows a date.
@@ -113,6 +114,7 @@ type ArticleDetailResponse struct {
 	Categories    []CategorySummary `json:"categories"`
 	CommentStatus string            `json:"comment_status"`
 	IsFeatured    bool              `json:"is_featured"`
+	BreakingNews  bool              `json:"breaking_news"`
 	Status        ArticleStatus     `json:"status"`
 	FeaturedImage string            `json:"featured_image"`
 	Authors       []AuthorSummary   `json:"authors"`

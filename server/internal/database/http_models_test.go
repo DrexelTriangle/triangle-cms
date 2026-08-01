@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
+
+	"server/internal/models"
 )
 
 func TestAuthorSortByColumn_UsesExistingColumns(t *testing.T) {
@@ -75,5 +77,23 @@ func TestIsVectorSearchUnavailableError(t *testing.T) {
 				t.Fatalf("IsVectorSearchUnavailableError() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestArticleInputToDBFields_PreservesBreakingNews(t *testing.T) {
+	fields := ArticleInputToDBFields(models.ArticleInput{
+		Title:        "Campus alert",
+		Content:      "Body",
+		Status:       models.ArticleStatusDraft,
+		BreakingNews: true,
+	})
+
+	breakingNewsFieldIndex := 9
+	got, ok := fields[breakingNewsFieldIndex].(bool)
+	if !ok {
+		t.Fatalf("breaking_news field has type %T, want bool", fields[breakingNewsFieldIndex])
+	}
+	if !got {
+		t.Fatal("breaking_news field was not preserved")
 	}
 }

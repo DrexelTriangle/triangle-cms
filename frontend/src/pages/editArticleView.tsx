@@ -19,6 +19,7 @@ type ApiArticleDetail = {
   status?: string
   comment_status?: string
   featured_image?: string
+  breaking_news?: boolean
   categories?: Array<{
     name?: string
     slug?: string
@@ -41,6 +42,7 @@ type PatchPayload = {
   status: EditableStatus
   comment_status: string
   photo_url: string
+  breaking_news: boolean
   categories: string[]
   authors: number[]
   focus_keyword: string
@@ -167,6 +169,7 @@ function EditArticleView() {
   const [status, setStatus] = useState<EditableStatus>("draft")
   const [commentStatus, setCommentStatus] = useState("open")
   const [photoURL, setPhotoURL] = useState("")
+  const [breakingNews, setBreakingNews] = useState(false)
   const [selectedCategorySlugs, setSelectedCategorySlugs] = useState<string[]>([])
   const [legacyCategoryTitlesBySlug, setLegacyCategoryTitlesBySlug] = useState<Record<string, string>>({})
   const [keyphrase, setKeyphrase] = useState("")
@@ -220,6 +223,7 @@ function EditArticleView() {
           setStatus((payload.status ?? "draft").toLowerCase() === "published" ? "published" : "draft")
           setCommentStatus(normalizeCommentStatus(payload.comment_status))
           setPhotoURL(payload.featured_image ?? "")
+          setBreakingNews(Boolean(payload.breaking_news))
           const legacyCategories: Record<string, string> = {}
           const categorySlugs = (payload.categories ?? [])
             .map((category) => {
@@ -467,6 +471,7 @@ function EditArticleView() {
           status: effectiveStatus,
           comment_status: commentStatus.trim() || "open",
           photo_url: photoURL.trim(),
+          breaking_news: breakingNews,
           categories,
           authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
           focus_keyword: keyphrase.trim(),
@@ -498,6 +503,7 @@ function EditArticleView() {
         status: effectiveStatus,
         comment_status: commentStatus.trim() || "open",
         photo_url: photoURL.trim(),
+        breaking_news: breakingNews,
         categories,
         authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
         focus_keyword: keyphrase.trim(),
@@ -732,6 +738,16 @@ function EditArticleView() {
                 <option value="open">Open</option>
                 <option value="closed">Closed</option>
               </select>
+            </label>
+
+            <label className="flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-3 text-sm">
+              <input
+                checked={breakingNews}
+                className="mt-0.5 h-4 w-4 rounded border-border"
+                onChange={(e) => setBreakingNews(e.target.checked)}
+                type="checkbox"
+              />
+              <span className="font-medium text-foreground">Breaking news</span>
             </label>
 
             <div className={labelClass}>

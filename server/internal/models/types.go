@@ -119,6 +119,7 @@ type Article struct {
 	Slug            string           `json:"slug"`
 	PhotoURL        string           `json:"photo_url"`
 	IsFeatured      bool             `json:"is_featured"`
+	BreakingNews    bool             `json:"breaking_news"`
 	Status          ArticleStatus    `json:"status"`
 	CommentStatus   string           `json:"comment_status"`
 	FocusKeyword    string           `json:"focus_keyword"`
@@ -140,6 +141,7 @@ type ArticleOverview struct {
 	CommentStatus string           `json:"comment_status"`
 	PhotoURL      string           `json:"photo_url"`
 	IsFeatured    bool             `json:"is_featured"`
+	BreakingNews  bool             `json:"breaking_news"`
 }
 
 type ArticleInput struct {
@@ -151,6 +153,7 @@ type ArticleInput struct {
 	Categories      []string      `json:"categories"`
 	PhotoURL        string        `json:"photo_url"`
 	IsFeatured      bool          `json:"is_featured"`
+	BreakingNews    bool          `json:"breaking_news"`
 	Status          ArticleStatus `json:"status"`
 	CommentStatus   string        `json:"comment_status,omitempty"`
 	FocusKeyword    string        `json:"focus_keyword,omitempty"`
@@ -166,6 +169,7 @@ type ArticlePatch struct {
 	Excerpt         *string        `json:"excerpt,omitempty"`
 	PhotoURL        *string        `json:"photo_url,omitempty"`
 	IsFeatured      *bool          `json:"is_featured,omitempty"`
+	BreakingNews    *bool          `json:"breaking_news,omitempty"`
 	Status          *ArticleStatus `json:"status,omitempty"`
 	CommentStatus   *string        `json:"comment_status,omitempty"`
 	FocusKeyword    *string        `json:"focus_keyword,omitempty"`

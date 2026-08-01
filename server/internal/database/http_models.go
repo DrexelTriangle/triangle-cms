@@ -137,10 +137,10 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		categories      sql.NullString
 		pubDate         sql.NullTime
 		priority        sql.NullBool
+		breakingNews    sql.NullBool
 		commentStatus   sql.NullString
 		photoURL        sql.NullString
 		ignoredMod      sql.NullTime
-		ignoredBreak    sql.NullBool
 		focusKeyword    sql.NullString
 		metaDescription sql.NullString
 		seoTitle        sql.NullString
@@ -148,7 +148,7 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 	)
 	err := rows.Scan(
 		&a.ID, &a.Title, &slug, &description, &text, &excerpt, &tags, &categories,
-		&pubDate, &ignoredMod, &priority, &ignoredBreak,
+		&pubDate, &ignoredMod, &priority, &breakingNews,
 		&commentStatus, &photoURL,
 		&focusKeyword, &metaDescription, &seoTitle, &creationDate,
 	)
@@ -190,6 +190,9 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 	}
 	if priority.Valid {
 		a.IsFeatured = priority.Bool
+	}
+	if breakingNews.Valid {
+		a.BreakingNews = breakingNews.Bool
 	}
 	if commentStatus.Valid {
 		a.CommentStatus = normalizeCommentStatus(commentStatus.String)
@@ -598,7 +601,7 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		publishedAt,
 		nil,
 		body.IsFeatured,
-		false,
+		body.BreakingNews,
 		normalizeCommentStatus(body.CommentStatus),
 		body.PhotoURL,
 		// Default tags/metadata to empty JSON so list filters that don't
@@ -631,7 +634,7 @@ func ArticleToDBFields(body models.Article) []any {
 		publishedAt,
 		nil,
 		body.IsFeatured,
-		false,
+		body.BreakingNews,
 		normalizeCommentStatus(body.CommentStatus),
 		body.PhotoURL,
 		strings.TrimSpace(body.FocusKeyword),
