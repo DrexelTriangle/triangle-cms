@@ -213,6 +213,13 @@ func storeImage(ctx context.Context, conn *sql.DB, src io.ReadSeeker, filename s
 		slog.Error("media upload: create directory", "dir", absDir, "error", err)
 		return models.MediaUploadResponse{}, fmt.Errorf("%w: create directory: %v", errStoreFailed, err)
 	}
+	// MkdirAll's mode is masked by the process umask, so the first upload of a
+	// new month can leave YYYY/ or YYYY/MM without the world-execute bit the
+	// Nginx worker needs to traverse into it -- a 403 indistinguishable from the
+	// file-mode one. Best effort: a directory the ETL's rsync already created is
+	// owned by another uid and cannot be chmod'ed by us, which is fine because
+	// that one is already correct.
+	ensureTraversable(filepath.Dir(absDir), absDir)
 
 	name, written, err := storeUpload(absDir, sanitizeBaseName(filename), ext, src)
 	if err != nil {
@@ -466,6 +473,22 @@ func sanitizeBaseName(filename string) string {
 	return base
 }
 
+// ensureTraversable best-effort widens directory permissions to 0775 so the
+// media server can descend into directories this process created. Failures are
+// ignored on purpose: the only way chmod fails here is that someone else owns
+// the directory, which means it predates us and already has working modes.
+func ensureTraversable(dirs ...string) {
+	for _, dir := range dirs {
+		info, err := os.Stat(dir)
+		if err != nil || info.Mode().Perm() == 0o775 {
+			continue
+		}
+		if err := os.Chmod(dir, 0o775); err != nil {
+			slog.Debug("media upload: could not widen directory mode", "dir", dir, "error", err)
+		}
+	}
+}
+
 // storeUpload writes src to a uniquely-named file in dir, never overwriting an
 // existing asset (important: the legacy corpus lives here too). It writes to a
 // temp file first and atomically renames into place so partially-written files
@@ -483,6 +506,16 @@ func storeUpload(dir, base, ext string, src io.Reader) (name string, size int64,
 			_ = os.Remove(tmpPath)
 		}
 	}()
+
+	// os.CreateTemp always creates with mode 0600, and os.Rename moves the temp
+	// file's *inode* onto the destination -- so the 0644 that reserveAndRename
+	// uses to claim the name is discarded along with the file it created. Without
+	// this the stored asset is readable only by the CMS's own uid, and the Nginx
+	// worker serving /wp-content/ answers 403 for every uploaded image. Chmod is
+	// not subject to the umask, which is what we want here.
+	if err = tmp.Chmod(0o644); err != nil {
+		return "", 0, err
+	}
 
 	if size, err = io.Copy(tmp, src); err != nil {
 		return "", 0, err
