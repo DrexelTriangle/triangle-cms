@@ -1,6 +1,18 @@
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react"
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ExternalLink,
+  Link2,
+  Minus,
+  Plus,
+  Trash2,
+  Type,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 import { useApiFetch } from "../hooks/useApiFetch"
+import SettingsSection from "./SettingsSection"
 
 type FooterEntryKind = "link" | "heading" | "spacer"
 
@@ -16,6 +28,16 @@ type FooterColumn = {
 }
 
 const emptyEntry: FooterEntry = { kind: "link", label: "", href: "", new_tab: false }
+
+const kindOptions: { kind: FooterEntryKind; label: string; icon: typeof Type }[] = [
+  { kind: "heading", label: "Heading", icon: Type },
+  { kind: "link", label: "Link", icon: Link2 },
+  { kind: "spacer", label: "Spacer", icon: Minus },
+]
+
+const inputClass =
+  "w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+const iconButtonClass = "p-1 rounded-md hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent"
 
 function normalizeEntry(raw: unknown): FooterEntry {
   const entry = (raw ?? {}) as Partial<FooterEntry>
@@ -42,6 +64,10 @@ function normalizeColumns(raw: unknown): FooterColumn[] {
  * Editor for the public site's footer menu. The footer is one ordered document
  * rather than a set of independent records, so the whole menu is loaded, edited
  * locally, and saved in a single PATCH.
+ *
+ * Columns are laid out side by side so the editor reads like the footer it
+ * produces; per-entry controls stay hidden until the entry is hovered or
+ * focused, which keeps a six-column menu from becoming a wall of buttons.
  */
 export default function FooterMenuEditor() {
   const apiFetch = useApiFetch()
@@ -105,6 +131,11 @@ export default function FooterMenuEditor() {
     setColumns(next)
   }
 
+  function addEntry(columnIndex: number, kind: FooterEntryKind) {
+    const column = columns[columnIndex]
+    updateColumn(columnIndex, { entries: [...column.entries, { ...emptyEntry, kind }] })
+  }
+
   async function save() {
     setSaving(true)
     setMessage(null)
@@ -132,146 +163,207 @@ export default function FooterMenuEditor() {
   const dirty = JSON.stringify(columns) !== saved
 
   return (
-    <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-4">
-      <h2 className="text-lg font-semibold text-foreground">Footer Menu</h2>
-      <p className="text-sm text-muted-foreground">
-        Link columns shown in the public site footer. Headings are the bold entries; a spacer starts a
-        new group inside the same column. Saving an empty menu restores the built-in default.
-      </p>
-
+    <SettingsSection
+      title="Footer Menu"
+      storageKey="footer"
+      dirty={dirty}
+      summary={
+        loading
+          ? "Loading…"
+          : `${columns.length} column${columns.length === 1 ? "" : "s"}`
+      }
+      description="Link columns shown in the public site footer, laid out left to right as they appear on the site. Headings are the bold entries; a spacer starts a new group inside the same column. Saving an empty menu restores the built-in default."
+    >
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : columns.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border p-8 flex flex-col items-center gap-3 text-center">
+          <p className="text-sm text-muted-foreground max-w-sm">
+            The footer menu is empty. Add a column to build it, or save as-is to restore the built-in
+            default footer.
+          </p>
+          <button
+            type="button"
+            onClick={() => setColumns([{ entries: [{ ...emptyEntry, kind: "heading" }] }])}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-muted"
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            Add column
+          </button>
+        </div>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
           {columns.map((column, columnIndex) => (
-            <div key={columnIndex} className="rounded-lg border border-border p-4 flex flex-col gap-3">
-              <div className="flex items-center justify-between">
+            <div
+              key={columnIndex}
+              className="rounded-lg border border-border bg-background/40 flex flex-col divide-y divide-border"
+            >
+              <div className="flex items-center justify-between gap-2 px-3 py-2">
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                   Column {columnIndex + 1}
                 </span>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5">
                   <button
                     type="button"
                     aria-label={`Move column ${columnIndex + 1} earlier`}
+                    title="Move earlier"
                     onClick={() => moveColumn(columnIndex, -1)}
                     disabled={columnIndex === 0}
-                    className="p-1.5 rounded-md hover:bg-muted disabled:opacity-40"
+                    className={iconButtonClass}
                   >
-                    <ArrowUp className="w-4 h-4" aria-hidden="true" />
+                    <ArrowLeft className="w-4 h-4" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
                     aria-label={`Move column ${columnIndex + 1} later`}
+                    title="Move later"
                     onClick={() => moveColumn(columnIndex, 1)}
                     disabled={columnIndex === columns.length - 1}
-                    className="p-1.5 rounded-md hover:bg-muted disabled:opacity-40"
+                    className={iconButtonClass}
                   >
-                    <ArrowDown className="w-4 h-4" aria-hidden="true" />
+                    <ArrowRight className="w-4 h-4" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
                     aria-label={`Remove column ${columnIndex + 1}`}
+                    title="Remove column"
                     onClick={() => setColumns(columns.filter((_, i) => i !== columnIndex))}
-                    className="p-1.5 rounded-md text-destructive hover:bg-destructive/10"
+                    className="p-1 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   >
                     <Trash2 className="w-4 h-4" aria-hidden="true" />
                   </button>
                 </div>
               </div>
 
-              {column.entries.map((entry, entryIndex) => (
-                <div key={entryIndex} className="flex flex-wrap items-center gap-2">
-                  <select
-                    aria-label="Entry type"
-                    value={entry.kind}
-                    onChange={(e) => updateEntry(columnIndex, entryIndex, { kind: e.target.value as FooterEntryKind })}
-                    className="px-2 py-2 rounded-lg border border-border bg-background text-sm"
-                  >
-                    <option value="heading">Heading</option>
-                    <option value="link">Link</option>
-                    <option value="spacer">Spacer</option>
-                  </select>
+              <div className="flex flex-col divide-y divide-border/60">
+                {column.entries.map((entry, entryIndex) => (
+                  <div key={entryIndex} className="group/entry px-3 py-2 flex flex-col gap-1.5 hover:bg-muted/40">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="inline-flex rounded-md border border-border overflow-hidden shrink-0">
+                        {kindOptions.map(({ kind, label, icon: Icon }) => (
+                          <button
+                            key={kind}
+                            type="button"
+                            title={label}
+                            aria-label={label}
+                            aria-pressed={entry.kind === kind}
+                            onClick={() => updateEntry(columnIndex, entryIndex, { kind })}
+                            className={`px-1.5 py-1 ${
+                              entry.kind === kind
+                                ? "bg-muted text-foreground"
+                                : "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                        ))}
+                      </div>
 
-                  {entry.kind === "spacer" ? (
-                    <span className="text-sm text-muted-foreground flex-1">Blank line</span>
-                  ) : (
-                    <>
-                      <input
-                        aria-label="Label"
-                        value={entry.label}
-                        onChange={(e) => updateEntry(columnIndex, entryIndex, { label: e.target.value })}
-                        placeholder="Label"
-                        className="flex-1 min-w-[8rem] px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      />
-                      <input
-                        aria-label="Link target"
-                        value={entry.href}
-                        onChange={(e) => updateEntry(columnIndex, entryIndex, { href: e.target.value })}
-                        placeholder="/section or https://…"
-                        className="flex-[2] min-w-[12rem] px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      />
-                      <label className="flex items-center gap-1.5 text-sm text-muted-foreground select-none">
+                      <div className="ml-auto flex items-center gap-0.5">
+                        {/* Stays visible while on, so "opens in a new tab" is legible without hovering. */}
+                        {entry.kind !== "spacer" && (
+                          <button
+                            type="button"
+                            title="Open in new tab"
+                            aria-label="Open in new tab"
+                            aria-pressed={entry.new_tab}
+                            onClick={() => updateEntry(columnIndex, entryIndex, { new_tab: !entry.new_tab })}
+                            className={`p-1 rounded-md ${
+                              entry.new_tab
+                                ? "bg-primary/10 text-primary"
+                                : "text-muted-foreground hover:bg-muted opacity-0 group-hover/entry:opacity-100 focus-visible:opacity-100 transition-opacity"
+                            }`}
+                          >
+                            <ExternalLink className="w-4 h-4" aria-hidden="true" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover/entry:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          aria-label="Move entry up"
+                          title="Move up"
+                          onClick={() => moveEntry(columnIndex, entryIndex, -1)}
+                          disabled={entryIndex === 0}
+                          className={iconButtonClass}
+                        >
+                          <ArrowUp className="w-4 h-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Move entry down"
+                          title="Move down"
+                          onClick={() => moveEntry(columnIndex, entryIndex, 1)}
+                          disabled={entryIndex === column.entries.length - 1}
+                          className={iconButtonClass}
+                        >
+                          <ArrowDown className="w-4 h-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Remove entry"
+                          title="Remove entry"
+                          onClick={() =>
+                            updateColumn(columnIndex, {
+                              entries: column.entries.filter((_, i) => i !== entryIndex),
+                            })
+                          }
+                          className="p-1 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {entry.kind === "spacer" ? (
+                      <div className="flex items-center gap-2 py-0.5">
+                        <span className="flex-1 border-t border-dashed border-border" aria-hidden="true" />
+                        <span className="text-xs text-muted-foreground">Blank line</span>
+                        <span className="flex-1 border-t border-dashed border-border" aria-hidden="true" />
+                      </div>
+                    ) : (
+                      <>
                         <input
-                          type="checkbox"
-                          checked={entry.new_tab}
-                          onChange={(e) => updateEntry(columnIndex, entryIndex, { new_tab: e.target.checked })}
-                          className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/40"
+                          aria-label="Label"
+                          value={entry.label}
+                          onChange={(e) => updateEntry(columnIndex, entryIndex, { label: e.target.value })}
+                          placeholder="Label"
+                          className={`${inputClass} ${entry.kind === "heading" ? "font-semibold" : ""}`}
                         />
-                        New tab
-                      </label>
-                    </>
-                  )}
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      aria-label="Move entry up"
-                      onClick={() => moveEntry(columnIndex, entryIndex, -1)}
-                      disabled={entryIndex === 0}
-                      className="p-1.5 rounded-md hover:bg-muted disabled:opacity-40"
-                    >
-                      <ArrowUp className="w-4 h-4" aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Move entry down"
-                      onClick={() => moveEntry(columnIndex, entryIndex, 1)}
-                      disabled={entryIndex === column.entries.length - 1}
-                      className="p-1.5 rounded-md hover:bg-muted disabled:opacity-40"
-                    >
-                      <ArrowDown className="w-4 h-4" aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Remove entry"
-                      onClick={() =>
-                        updateColumn(columnIndex, {
-                          entries: column.entries.filter((_, i) => i !== entryIndex),
-                        })
-                      }
-                      className="p-1.5 rounded-md text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-4 h-4" aria-hidden="true" />
-                    </button>
+                        <input
+                          aria-label="Link target"
+                          value={entry.href}
+                          onChange={(e) => updateEntry(columnIndex, entryIndex, { href: e.target.value })}
+                          placeholder="/section or https://…"
+                          className={`${inputClass} text-muted-foreground`}
+                        />
+                      </>
+                    )}
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
 
-              <button
-                type="button"
-                onClick={() => updateColumn(columnIndex, { entries: [...column.entries, { ...emptyEntry }] })}
-                className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-muted"
-              >
-                <Plus className="w-4 h-4" aria-hidden="true" />
-                Add entry
-              </button>
+              <div className="px-3 py-2 flex flex-wrap items-center gap-1.5">
+                {kindOptions.map(({ kind, label, icon: Icon }) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => addEntry(columnIndex, kind)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
 
           <button
             type="button"
             onClick={() => setColumns([...columns, { entries: [{ ...emptyEntry, kind: "heading" }] }])}
-            className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-muted"
+            className="rounded-lg border border-dashed border-border px-3 py-6 flex items-center justify-center gap-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <Plus className="w-4 h-4" aria-hidden="true" />
             Add column
@@ -288,8 +380,9 @@ export default function FooterMenuEditor() {
         >
           Save Footer
         </button>
+        {dirty && !saving && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
         {message && <span className="text-sm text-muted-foreground">{message}</span>}
       </div>
-    </div>
+    </SettingsSection>
   )
 }
