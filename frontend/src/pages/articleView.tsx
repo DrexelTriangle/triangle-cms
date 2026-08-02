@@ -125,7 +125,6 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const [trashCount, setTrashCount] = useState(0)
   const [authors, setAuthors] = useState<ApiAuthor[]>([])
   const [authorQuery, setAuthorQuery] = useState(() => loadUIState().authorQuery ?? "")
-  const [selectedAuthorSlug, setSelectedAuthorSlug] = useState("")
   const [publishedFilter, setPublishedFilter] = useState<"all" | "published" | "draft">(() => loadUIState().publishedFilter ?? "all")
   const [dateSortDirection, setDateSortDirection] = useState<"asc" | "desc">(() => loadUIState().dateSortDirection ?? "desc")
   const [isLoading, setIsLoading] = useState(true)
@@ -143,6 +142,18 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       pageSize,
     } satisfies ArticleViewUIState)
   }, [activeTab, authorQuery, dateSortDirection, pageSize, publishedFilter, searchQuery, uiStateKey])
+
+  const selectedAuthorSlug = useMemo(() => {
+    const normalizedValue = authorQuery.trim().toLowerCase()
+    if (!normalizedValue) return ""
+
+    const matchedAuthor = authors.find((author) => {
+      const displayName = author.display_name.trim().toLowerCase()
+      const slug = author.slug.trim().toLowerCase()
+      return displayName === normalizedValue || slug === normalizedValue
+    })
+    return matchedAuthor?.slug ?? ""
+  }, [authorQuery, authors])
 
   useEffect(() => {
     let cancelled = false
@@ -234,6 +245,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         }
         if (selectedAuthorSlug) {
           params.set("author_slug", selectedAuthorSlug)
+        } else if (authorQuery.trim()) {
+          params.set("author", authorQuery.trim())
         }
         if (activeTab !== "trash" && publishedFilter !== "all") {
           params.set("status", publishedFilter)
@@ -320,7 +333,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     return () => {
       cancelled = true
     }
-  }, [activeTab, apiFetch, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
+  }, [activeTab, apiFetch, authorQuery, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
 
   const onChangeTab = (tab: "all" | "trash") => {
     setActiveTab(tab)
@@ -333,19 +346,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   }
 
   useEffect(() => {
-    const normalizedValue = authorQuery.trim().toLowerCase()
-    if (!normalizedValue) {
-      setSelectedAuthorSlug("")
-      return
-    }
-
-    const matchedAuthor = authors.find((author) => author.display_name.trim().toLowerCase() === normalizedValue)
-    setSelectedAuthorSlug(matchedAuthor?.slug ?? "")
-  }, [authorQuery, authors])
-
-  useEffect(() => {
     setPage(0)
-  }, [selectedAuthorSlug, publishedFilter, dateSortDirection, searchQuery, pageSize])
+  }, [authorQuery, publishedFilter, dateSortDirection, searchQuery, pageSize])
 
   const effectiveTotalCount = Math.max(totalArticleCount, (page * pageSize) + articles.length)
   const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / pageSize))

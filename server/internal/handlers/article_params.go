@@ -69,6 +69,7 @@ var allowedSubsectionsBySection = map[string]map[string]struct{}{
 
 func normalizeAndValidateArticleParams(ctx context.Context, conn *sql.DB, params ArticleParams) (ArticleParams, error) {
 	params.AuthorSlug = strings.TrimSpace(params.AuthorSlug)
+	params.AuthorSearch = strings.TrimSpace(params.AuthorSearch)
 	params.Section = normalizeSectionSlug(params.Section)
 	params.Subsection = strings.ToLower(strings.TrimSpace(params.Subsection))
 

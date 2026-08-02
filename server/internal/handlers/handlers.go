@@ -887,6 +887,7 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 // @Param offset query int false "Offset"
 // @Param excerpt_words query int false "Max words in excerpt" default(50)
 // @Param author_slug query string false "Filter by author slug"
+// @Param author query string false "Filter by author display name or slug (partial match)"
 // @Param section_slug query string false "Filter by section slug"
 // @Param subsection_slug query string false "Filter by subsection slug"
 // @Param status query string false "Filter by status. Ignored for unauthenticated callers, who always get published only." Enums(draft,published)
@@ -902,9 +903,10 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 func GetArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params, err := normalizeAndValidateArticleParams(r.Context(), conn, ArticleParams{
-			AuthorSlug: r.URL.Query().Get("author_slug"),
-			Section:    r.URL.Query().Get("section_slug"),
-			Subsection: r.URL.Query().Get("subsection_slug"),
+			AuthorSlug:   r.URL.Query().Get("author_slug"),
+			AuthorSearch: r.URL.Query().Get("author"),
+			Section:      r.URL.Query().Get("section_slug"),
+			Subsection:   r.URL.Query().Get("subsection_slug"),
 		})
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -1098,9 +1100,10 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 }
 
 type ArticleParams struct {
-	AuthorSlug string
-	Section    string
-	Subsection string
+	AuthorSlug   string
+	AuthorSearch string
+	Section      string
+	Subsection   string
 	// SectionMatchSlugs is the section plus its subsections, resolved during
 	// validation because the filter builder has no database handle. A section
 	// with no matching category of its own is still populated by its children.
@@ -1208,6 +1211,10 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	if params.AuthorSlug != "" {
 		conditions = append(conditions, "`id` IN (SELECT aa.`articles_id` FROM `articles_authors` aa JOIN `authors` au ON au.`id` = aa.`author_id` WHERE au.`login` = ? AND au.`archived_at` IS NULL)")
 		args = append(args, params.AuthorSlug)
+	} else if params.AuthorSearch != "" {
+		like := "%" + strings.ToLower(params.AuthorSearch) + "%"
+		conditions = append(conditions, "`id` IN (SELECT aa.`articles_id` FROM `articles_authors` aa JOIN `authors` au ON au.`id` = aa.`author_id` WHERE au.`archived_at` IS NULL AND (LOWER(au.`display_name`) LIKE ? OR LOWER(au.`login`) LIKE ?))")
+		args = append(args, like, like)
 	}
 
 	// A subsection stands on its own: ANDing it with its parent returns the

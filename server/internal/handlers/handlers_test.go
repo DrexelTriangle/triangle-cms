@@ -318,6 +318,23 @@ func TestArticleQueryFilters_EditorKeepsDraftAndArchivedFilters(t *testing.T) {
 	}
 }
 
+func TestArticleQueryFilters_AuthorSearchMatchesNameOrLogin(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles?author=Jane", nil)
+
+	conditions, args := articleQueryFilters(req, ArticleParams{AuthorSearch: "Jane"})
+	joined := strings.Join(conditions, " AND ")
+
+	if !strings.Contains(joined, "LOWER(au.`display_name`) LIKE ?") {
+		t.Fatalf("author search must match display_name, got %q", joined)
+	}
+	if !strings.Contains(joined, "LOWER(au.`login`) LIKE ?") {
+		t.Fatalf("author search must match login, got %q", joined)
+	}
+	if len(args) < 2 || args[len(args)-2] != "%jane%" || args[len(args)-1] != "%jane%" {
+		t.Fatalf("author search args = %v, want trailing %%jane%% patterns", args)
+	}
+}
+
 // The single-article endpoint is public AND returns the full article body, so
 // the anonymous restriction matters more here than on the listing.
 func TestArticleDetailCondition_AnonymousSeesOnlyLiveArticles(t *testing.T) {
