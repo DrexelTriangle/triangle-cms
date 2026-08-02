@@ -133,6 +133,8 @@ const PUBLISH_TIMING_OPTIONS: Array<{ value: PublishTiming; label: string; blurb
   { value: "schedule", label: "Schedule", blurb: "Goes live at the publish date." },
 ]
 
+const AUTOSAVE_DELAY_MS = 2500
+
 // ArticleView caches list results in sessionStorage keyed by query; clear those
 // entries so the list refetches after an article is created or edited.
 const clearArticleListCache = () => {
@@ -190,8 +192,13 @@ function EditArticleView() {
   const [slugInput, setSlugInput] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isAutoSaving, setIsAutoSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [autoSaveMessage, setAutoSaveMessage] = useState<string | null>(null)
+  const currentSnapshotRef = useRef("")
+  const lastSavedSnapshotRef = useRef("")
+  const snapshotInitializedRef = useRef(false)
   // Name of another editor currently holding the edit lock, or null when we
   // hold it (or it's a new article). When set, editing is blocked so nobody
   // starts work they won't be able to save.
@@ -235,6 +242,49 @@ function EditArticleView() {
   const [mediaError, setMediaError] = useState<string | null>(null)
   const [mediaSearch, setMediaSearch] = useState("")
   const [customImageURL, setCustomImageURL] = useState("")
+  const articleSnapshot = useMemo(() => JSON.stringify({
+    title,
+    slugInput: isNew ? slugInput : "",
+    excerpt,
+    content,
+    publishTiming,
+    publishedAt: publishTiming === "schedule" ? publishedAt : "",
+    commentStatus,
+    photoURL,
+    breakingNews,
+    selectedCategorySlugs,
+    selectedAuthorId,
+    keyphrase,
+    metaDescription,
+    seoTitle,
+  }), [
+    title,
+    slugInput,
+    isNew,
+    excerpt,
+    content,
+    publishTiming,
+    publishedAt,
+    commentStatus,
+    photoURL,
+    breakingNews,
+    selectedCategorySlugs,
+    selectedAuthorId,
+    keyphrase,
+    metaDescription,
+    seoTitle,
+  ])
+
+  useEffect(() => {
+    currentSnapshotRef.current = articleSnapshot
+  }, [articleSnapshot])
+
+  useEffect(() => {
+    if (isLoading || snapshotInitializedRef.current) return
+    lastSavedSnapshotRef.current = articleSnapshot
+    currentSnapshotRef.current = articleSnapshot
+    snapshotInitializedRef.current = true
+  }, [articleSnapshot, isLoading])
 
   useEffect(() => {
     if (isNew) {
@@ -495,10 +545,27 @@ function EditArticleView() {
     }
   }, [apiFetch, imagePickerOpen, mediaItems.length, photoURL])
 
-  const saveArticle = async (nextTiming?: PublishTiming) => {
-    setIsSaving(true)
-    setError(null)
-    setSuccessMessage(null)
+  const saveArticle = async (nextTiming?: PublishTiming, options: { autosave?: boolean } = {}) => {
+    const autosave = options.autosave === true
+    const snapshotToSave = currentSnapshotRef.current
+    const setSavingState = autosave ? setIsAutoSaving : setIsSaving
+    const validationError = (message: string, autosaveMessage?: string) => {
+      if (autosave) {
+        setAutoSaveMessage(autosaveMessage ?? "Autosave paused.")
+      } else {
+        setError(message)
+      }
+      setSavingState(false)
+    }
+
+    setSavingState(true)
+    if (autosave) {
+      setAutoSaveMessage("Autosaving...")
+    } else {
+      setError(null)
+      setSuccessMessage(null)
+      setAutoSaveMessage(null)
+    }
 
     const effectiveTiming = nextTiming ?? publishTiming
     const effectiveStatus: EditableStatus = effectiveTiming === "draft" ? "draft" : "published"
@@ -516,24 +583,23 @@ function EditArticleView() {
     // this only has to block on the way to published — where the row would
     // otherwise vanish from both the CMS list and the public site.
     if (effectiveStatus === "published" && !selectedAuthorId && categories.length === 0) {
-      setError("Add at least one author or category so the article shows up in the list.")
-      setIsSaving(false)
+      validationError(
+        "Add at least one author or category so the article shows up in the list.",
+        "Autosave paused until an author or section is set.",
+      )
       return
     }
     const publishedDateISO = effectiveTiming === "schedule" && publishedAt ? localInputToISO(publishedAt) : ""
     if (effectiveTiming === "schedule" && !publishedAt) {
-      setError("Choose a publish date before scheduling.")
-      setIsSaving(false)
+      validationError("Choose a publish date before scheduling.", "Autosave paused until the schedule date is set.")
       return
     }
     if (effectiveTiming === "schedule" && publishedAt && !publishedDateISO) {
-      setError("Publish date is invalid.")
-      setIsSaving(false)
+      validationError("Publish date is invalid.", "Autosave paused until the schedule date is valid.")
       return
     }
     if (effectiveTiming === "schedule" && !isFutureDate(publishedAt)) {
-      setError("Choose a future publish date, or use Publish now.")
-      setIsSaving(false)
+      validationError("Choose a future publish date, or use Publish now.", "Autosave paused until the schedule date is in the future.")
       return
     }
 
@@ -607,14 +673,44 @@ function EditArticleView() {
         if (nextTiming !== "schedule") setPublishedAt("")
       }
       clearArticleListCache()
-      setSuccessMessage("Article saved.")
+      lastSavedSnapshotRef.current = snapshotToSave
+      if (autosave) {
+        setAutoSaveMessage("Autosaved.")
+      } else {
+        setSuccessMessage("Article saved.")
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save article."
-      setError(message)
+      if (autosave) {
+        setAutoSaveMessage("Autosave failed.")
+      } else {
+        setError(message)
+      }
     } finally {
-      setIsSaving(false)
+      setSavingState(false)
     }
   }
+
+  useEffect(() => {
+    if (isNew || isLoading || lockedBy || isSaving || isAutoSaving) return
+    if (!snapshotInitializedRef.current) return
+    if (articleSnapshot === lastSavedSnapshotRef.current) return
+    if (publishTiming !== "draft" && !selectedAuthorId && selectedCategorySlugs.length === 0) {
+      setAutoSaveMessage("Autosave paused until an author or section is set.")
+      return
+    }
+    if (publishTiming === "schedule" && (!publishedAt || !isFutureDate(publishedAt))) {
+      setAutoSaveMessage("Autosave paused until the schedule date is valid.")
+      return
+    }
+
+    setAutoSaveMessage("Unsaved changes.")
+    const timer = window.setTimeout(() => {
+      void saveArticle(publishTiming, { autosave: true })
+    }, AUTOSAVE_DELAY_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [articleSnapshot, isAutoSaving, isLoading, isNew, isSaving, lockedBy, publishTiming, publishedAt, selectedAuthorId, selectedCategorySlugs])
 
   const inputClass ="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
@@ -1088,6 +1184,11 @@ function EditArticleView() {
                 {successMessage}
               </p>
             )}
+            {!isNew && (isAutoSaving || autoSaveMessage) ? (
+              <p className="text-xs text-muted-foreground bg-muted/60 rounded-lg px-3 py-2">
+                {isAutoSaving ? "Autosaving..." : autoSaveMessage}
+              </p>
+            ) : null}
 
             <div className="flex flex-col gap-2 pt-1">
               <button

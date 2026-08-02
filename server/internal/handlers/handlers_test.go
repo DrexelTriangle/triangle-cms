@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"server/internal/middleware"
 	"server/internal/models"
@@ -234,6 +236,33 @@ func TestArticleQueryFilters_FormatsDateFiltersWithGoReferenceLayout(t *testing.
 	}
 	if !contains("2026-05-17 00:00:00") {
 		t.Fatalf("expected formatted creation_date argument %q in args %v", "2026-05-17 00:00:00", stringArgs)
+	}
+}
+
+func TestArticlePatchDateColumns_PublishedAutosavePreservesExistingPublishDate(t *testing.T) {
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	currentPublishedAt := sql.NullTime{Time: time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC), Valid: true}
+
+	cols, args := articlePatchDateColumns(true, models.ArticleStatusPublished, false, nil, nil, currentPublishedAt, now)
+
+	if strings.Join(cols, ",") != "scheduled_pub_date" {
+		t.Fatalf("cols = %v, want only scheduled_pub_date", cols)
+	}
+	if len(args) != 1 || args[0] != nil {
+		t.Fatalf("args = %v, want scheduled_pub_date cleared without pub_date arg", args)
+	}
+}
+
+func TestArticlePatchDateColumns_PublishFromUnpublishedStampsPublishDate(t *testing.T) {
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+
+	cols, args := articlePatchDateColumns(true, models.ArticleStatusPublished, false, nil, nil, sql.NullTime{}, now)
+
+	if strings.Join(cols, ",") != "pub_date,scheduled_pub_date" {
+		t.Fatalf("cols = %v, want pub_date and scheduled_pub_date", cols)
+	}
+	if len(args) != 2 || args[0] != "2026-08-02 12:00:00" || args[1] != nil {
+		t.Fatalf("args = %v, want pub_date stamped and scheduled_pub_date cleared", args)
 	}
 }
 

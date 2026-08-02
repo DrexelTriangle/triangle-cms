@@ -304,6 +304,34 @@ func loadArticleCategoriesByArchiveState(ctx context.Context, conn *sql.DB, slug
 	return parseArticleCategoryValue(raw), true, nil
 }
 
+func loadArticlePublishDate(ctx context.Context, conn *sql.DB, slug string) (sql.NullTime, error) {
+	var publishedAt sql.NullTime
+	err := conn.QueryRowContext(ctx, "SELECT pub_date FROM articles WHERE slug = ? AND archived_at IS NULL LIMIT 1", slug).Scan(&publishedAt)
+	if err == sql.ErrNoRows {
+		return sql.NullTime{}, nil
+	}
+	return publishedAt, err
+}
+
+func articlePatchDateColumns(statusSet bool, status models.ArticleStatus, publishedDateSet bool, publishedDateValue, scheduledDateValue any, currentPublishedAt sql.NullTime, now time.Time) ([]string, []any) {
+	if statusSet && status == models.ArticleStatusDraft {
+		return []string{"pub_date", "scheduled_pub_date"}, []any{nil, nil}
+	}
+	if publishedDateSet {
+		return []string{"pub_date", "scheduled_pub_date"}, []any{publishedDateValue, scheduledDateValue}
+	}
+	if statusSet && status == models.ArticleStatusPublished {
+		cols := []string{"scheduled_pub_date"}
+		args := []any{nil}
+		if !currentPublishedAt.Valid {
+			cols = append([]string{"pub_date"}, cols...)
+			args = append([]any{now.UTC().Format("2006-01-02 15:04:05")}, args...)
+		}
+		return cols, args
+	}
+	return nil, nil
+}
+
 func isValidCanonicalSlug(slug string) bool {
 	return db.IsCanonicalSlug(strings.TrimSpace(slug))
 }
@@ -2105,6 +2133,11 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		currentPublishedAt, err := loadArticlePublishDate(r.Context(), conn, slug)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		nextCategories := oldCategories
 		if rawAuthors, ok := body["authors"]; ok {
 			parsedIDs, err := parseAuthorIDs(rawAuthors)
@@ -2135,7 +2168,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		var publishedDateValue any
 		var scheduledDateValue any
 		publishedDateSet := false
-		var statusValue any
+		var statusValue models.ArticleStatus
 		statusSet := false
 		for jsonField, column := range columnByJSONField {
 			v, ok := body[jsonField]
@@ -2189,10 +2222,10 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				status := models.ArticleStatus(strings.TrimSpace(s))
 				switch status {
 				case models.ArticleStatusDraft:
-					statusValue = nil
+					statusValue = status
 					statusSet = true
 				case models.ArticleStatusPublished:
-					statusValue = time.Now().UTC().Format("2006-01-02 15:04:05")
+					statusValue = status
 					statusSet = true
 				default:
 					writeError(w, http.StatusBadRequest, "status must be draft or published")
@@ -2224,29 +2257,17 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				setArgs = append(setArgs, v)
 			}
 		}
-		if statusSet || publishedDateSet {
-			setCols = append(setCols, "pub_date")
-			if statusSet && statusValue == nil {
-				setArgs = append(setArgs, nil)
-			} else if publishedDateSet {
-				setArgs = append(setArgs, publishedDateValue)
-			} else {
-				setArgs = append(setArgs, statusValue)
-			}
-			setCols = append(setCols, "scheduled_pub_date")
-			if statusSet && statusValue == nil {
-				setArgs = append(setArgs, nil)
-			} else if publishedDateSet {
-				setArgs = append(setArgs, scheduledDateValue)
-			} else {
-				setArgs = append(setArgs, nil)
-			}
+		if dateCols, dateArgs := articlePatchDateColumns(statusSet, statusValue, publishedDateSet, publishedDateValue, scheduledDateValue, currentPublishedAt, time.Now().UTC()); len(dateCols) > 0 {
+			setCols = append(setCols, dateCols...)
+			setArgs = append(setArgs, dateArgs...)
 		}
 		if len(setCols) == 0 && authorIDs == nil {
 			writeError(w, http.StatusBadRequest, "no valid fields to update")
 			return
 		}
 		targetSlug := slug
+		setCols = append(setCols, "mod_date")
+		setArgs = append(setArgs, time.Now().UTC().Format("2006-01-02 15:04:05"))
 		if len(setCols) > 0 {
 			result, err := db.Update(r.Context(), conn, "articles", setCols, "`slug` = ?", append(setArgs, slug)...)
 			if err != nil {
