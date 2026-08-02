@@ -13,6 +13,13 @@ from pathlib import Path
 
 # Seed ROWS only. The table definition comes from the canonical schema file --
 # see canonical_schema() and server/internal/database/schema/README.md.
+#
+# Rows 1-35 were hand-written and had drifted from the live site: ids 36+ are the
+# sections and subsections WordPress actually publishes
+# (cms.thetriangle.org/wp-json/triangle/v2/section/<slug>) that this list was
+# missing, which is why nav rows like Puzzles and Satire never appeared on a
+# CMS-backed section page. Slugs stay in the CMS's cleaned-up form
+# ("music", not WordPress's "music-entertainment"); only the set is aligned.
 TAXONOMY_ROWS_SQL = """INSERT INTO site_taxonomy (id, kind, slug, canonical_title, parent_slug, article_count) VALUES
   (1, 'section', 'news', 'News', NULL, 0),
   (2, 'section', 'sports', 'Sports', NULL, 0),
@@ -22,9 +29,9 @@ TAXONOMY_ROWS_SQL = """INSERT INTO site_taxonomy (id, kind, slug, canonical_titl
   (6, 'section', 'comics-puzzles', 'Comics & Puzzles', NULL, 0),
   (7, 'section', 'special-editions', 'Special Editions', NULL, 0),
   (8, 'subsection', 'academic-transformation', 'Academic Transformation', 'news', 0),
-  (9, 'subsection', 'politics', 'Politics', 'news', 0),
+  (9, 'subsection', 'politics', 'Politics', 'opinion', 0),
   (10, 'subsection', 'transit', 'Transit', 'news', 0),
-  (11, 'subsection', 'crime-policy-violations', 'Crime & Policy Violations', 'news', 0),
+  (11, 'subsection', 'public-safety', 'Public Safety', 'news', 0),
   (12, 'subsection', 'mens-basketball', 'Men''s Basketball', 'sports', 0),
   (13, 'subsection', 'womens-basketball', 'Women''s Basketball', 'sports', 0),
   (14, 'subsection', 'big-5', 'Big 5', 'sports', 0),
@@ -48,7 +55,24 @@ TAXONOMY_ROWS_SQL = """INSERT INTO site_taxonomy (id, kind, slug, canonical_titl
   (32, 'subsection', 'sudoku', 'Sudoku', 'comics-puzzles', 0),
   (33, 'subsection', 'welcome-week', 'Welcome Week', 'special-editions', 0),
   (34, 'subsection', 'the-rectangle', 'The Rectangle', 'special-editions', 0),
-  (35, 'subsection', '100-year-anniversary', '100 Year Anniversary', 'special-editions', 0);
+  (35, 'subsection', '100-year-anniversary', '100 Year Anniversary', 'special-editions', 0),
+  (36, 'subsection', 'comics', 'Comics', 'comics-puzzles', 0),
+  (37, 'section', 'graduation', 'Graduation', NULL, 0),
+  (38, 'subsection', 'campus', 'Campus', 'news', 0),
+  (39, 'subsection', 'city', 'City', 'news', 0),
+  (40, 'subsection', 'national', 'National', 'news', 0),
+  (41, 'subsection', 'world', 'World', 'news', 0),
+  (42, 'subsection', 'lifestyle', 'Lifestyle', 'opinion', 0),
+  (43, 'subsection', 'nil', 'NIL', 'sports', 0),
+  (44, 'subsection', 'squash', 'Squash', 'sports', 0),
+  (45, 'subsection', 'performing-arts', 'Performing Arts', 'entertainment', 0),
+  (46, 'subsection', 'the-drawing-board', 'The Drawing Board', 'entertainment', 0),
+  (47, 'subsection', 'puzzles', 'Puzzles', 'comics-puzzles', 0),
+  (48, 'subsection', 'satire', 'Satire', 'comics-puzzles', 0),
+  (49, 'subsection', 'from-the-playbook', 'From the Playbook', 'columns', 0),
+  (50, 'subsection', 'jack-of-all-takes', 'Jack of All Takes', 'columns', 0),
+  (51, 'subsection', 'the-green-angle', 'The Green Angle', 'columns', 0),
+  (52, 'subsection', 'the-overall-score', 'The Overall Score', 'columns', 0);
 """
 
 PLACEHOLDER_EMBEDDINGS_SQL = """DROP TABLE IF EXISTS article_embeddings;

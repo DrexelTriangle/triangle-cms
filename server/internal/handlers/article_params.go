@@ -13,9 +13,12 @@ import (
 var allowedSubsectionsBySection = map[string]map[string]struct{}{
 	"news": {
 		"academic-transformation": {},
-		"politics":                {},
 		"transit":                 {},
-		"crime-policy-violations": {},
+		"public-safety":           {},
+		"campus":                  {},
+		"city":                    {},
+		"national":                {},
+		"world":                   {},
 	},
 	"sports": {
 		"mens-basketball":   {},
@@ -25,14 +28,22 @@ var allowedSubsectionsBySection = map[string]map[string]struct{}{
 		"field-hockey":      {},
 		"mens-soccer":       {},
 		"womens-soccer":     {},
+		"nil":               {},
+		"squash":            {},
 	},
 	"opinion": {
 		"science-tech":    {},
 		"from-the-editor": {},
+		"politics":        {},
+		"lifestyle":       {},
 	},
 	"columns": {
 		"the-love-triangle":    {},
 		"tri-this-sweet-treat": {},
+		"from-the-playbook":    {},
+		"jack-of-all-takes":    {},
+		"the-green-angle":      {},
+		"the-overall-score":    {},
 	},
 	"entertainment": {
 		"movies":              {},
@@ -42,12 +53,18 @@ var allowedSubsectionsBySection = map[string]map[string]struct{}{
 		"books":               {},
 		"gaming":              {},
 		"listicles":           {},
+		"performing-arts":     {},
+		"the-drawing-board":   {},
 	},
 	"comics-puzzles": {
 		"political-cartoons": {},
 		"crossword":          {},
 		"sudoku":             {},
+		"comics":             {},
+		"puzzles":            {},
+		"satire":             {},
 	},
+	"graduation": {},
 }
 
 func normalizeAndValidateArticleParams(ctx context.Context, conn *sql.DB, params ArticleParams) (ArticleParams, error) {

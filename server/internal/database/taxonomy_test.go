@@ -20,6 +20,31 @@ func TestCategoryMatchPatternsExpandsDashedSlugs(t *testing.T) {
 	}
 }
 
+func TestCategoryMatchPatternsRestoresPossessiveApostrophe(t *testing.T) {
+	// The category text is "Men's Basketball"; no slug can carry the
+	// apostrophe, so without this pattern the subsection matched nothing.
+	got := CategoryMatchPatterns("mens-basketball")
+	want := []string{"%mens-basketball%", "%mens basketball%", "%mens & basketball%", "%men's basketball%"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d patterns %v, want %d %v", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("pattern %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestCategoryMatchPatternsLeavesPluralsAlone(t *testing.T) {
+	// "philly-sports" is a plural, not a possessive: guessing "philly sport's"
+	// would add a pattern that matches nothing.
+	for _, pattern := range CategoryMatchPatterns("philly-sports") {
+		if strings.Contains(pattern, "'") {
+			t.Fatalf("unexpected possessive pattern %q", pattern)
+		}
+	}
+}
+
 func TestCategoryMatchPatternsSingleWordSlug(t *testing.T) {
 	got := CategoryMatchPatterns("comics")
 	if len(got) != 1 || got[0] != "%comics%" {
