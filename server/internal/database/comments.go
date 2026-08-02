@@ -161,6 +161,9 @@ func GetArticleCommentTargetBySlug(ctx context.Context, conn *sql.DB, slug strin
 		SELECT id, COALESCE(comment_status, '')
 		FROM articles
 		WHERE slug = ?
+		  AND pub_date IS NOT NULL
+		  AND pub_date <= UTC_TIMESTAMP()
+		  AND archived_at IS NULL
 		LIMIT 1
 	`, slug).Scan(&articleID, &commentStatus)
 	if err == nil {
@@ -286,7 +289,7 @@ func GetCommentByID(ctx context.Context, conn *sql.DB, id int64) (Comment, error
 
 func ArticleExistsBySlug(ctx context.Context, conn *sql.DB, slug string) (bool, error) {
 	var exists int
-	err := conn.QueryRowContext(ctx, "SELECT 1 FROM articles WHERE slug = ? LIMIT 1", slug).Scan(&exists)
+	err := conn.QueryRowContext(ctx, "SELECT 1 FROM articles WHERE slug = ? AND pub_date IS NOT NULL AND pub_date <= UTC_TIMESTAMP() AND archived_at IS NULL LIMIT 1", slug).Scan(&exists)
 	if err == nil {
 		return true, nil
 	}

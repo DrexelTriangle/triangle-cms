@@ -1113,7 +1113,7 @@ type ArticleParams struct {
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
 	q := r.URL.Query()
 	conditions, args := articleQueryFilters(r, params)
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date` FROM `articles`"
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date`, `scheduled_pub_date` FROM `articles`"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -1193,7 +1193,7 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	// excerpt-only, but unpublished headlines still must not leak. Editors are
 	// identified by OptionalAuth on the route and keep the full filter set.
 	if !isEditor {
-		conditions = append(conditions, "`pub_date` IS NOT NULL", "`archived_at` IS NULL")
+		conditions = append(conditions, "`pub_date` IS NOT NULL", "`pub_date` <= UTC_TIMESTAMP()", "`archived_at` IS NULL")
 	} else if _, archivedProvided := q["archived"]; archivedProvided {
 		archivedRaw := strings.ToLower(strings.TrimSpace(q.Get("archived")))
 		switch archivedRaw {
@@ -1230,7 +1230,9 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	if status := strings.TrimSpace(q.Get("status")); status != "" && isEditor {
 		switch strings.ToLower(status) {
 		case string(models.ArticleStatusDraft):
-			conditions = append(conditions, "`pub_date` IS NULL")
+			conditions = append(conditions, "`pub_date` IS NULL", "`scheduled_pub_date` IS NULL")
+		case string(models.ArticleStatusScheduled):
+			conditions = append(conditions, "`pub_date` IS NULL", "`scheduled_pub_date` IS NOT NULL")
 		case string(models.ArticleStatusPublished):
 			conditions = append(conditions, "`pub_date` IS NOT NULL")
 		}
@@ -1404,7 +1406,7 @@ func articleDetailCondition(r *http.Request) string {
 	if _, isEditor := middleware.UserFromContext(r.Context()); isEditor {
 		return "`slug` = ?"
 	}
-	return "`slug` = ? AND `pub_date` IS NOT NULL AND `archived_at` IS NULL"
+	return "`slug` = ? AND `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL"
 }
 
 // @Summary Get an article by slug
@@ -1932,9 +1934,13 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
+		if strings.TrimSpace(body.PublishedDate) != "" && db.ParsePublishedAt(body.PublishedDate) == nil {
+			writeError(w, http.StatusBadRequest, "published_date has invalid format")
+			return
+		}
 		fields := db.ArticleInputToDBFields(body)
 		result, err := db.Insert(r.Context(), conn, "articles",
-			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title", "creation_date"},
+			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date"},
 			fields...,
 		)
 		if err != nil {
@@ -2017,7 +2023,7 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		fields := db.ArticleToDBFields(body)
 		fields = append(fields, slug)
 		result, err := db.Update(r.Context(), conn, "articles",
-			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "focus_keyword", "meta_description", "seo_title"},
+			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "focus_keyword", "meta_description", "seo_title", "scheduled_pub_date"},
 			"`slug` = ?",
 			fields...,
 		)
@@ -2126,6 +2132,11 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			"meta_description": "meta_description",
 			"seo_title":        "seo_title",
 		}
+		var publishedDateValue any
+		var scheduledDateValue any
+		publishedDateSet := false
+		var statusValue any
+		statusSet := false
 		for jsonField, column := range columnByJSONField {
 			v, ok := body[jsonField]
 			if !ok {
@@ -2161,8 +2172,14 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 					writeError(w, http.StatusBadRequest, "published_date has invalid format")
 					return
 				}
-				setCols = append(setCols, column)
-				setArgs = append(setArgs, t.UTC().Format("2006-01-02 15:04:05"))
+				if t.After(time.Now().UTC()) {
+					publishedDateValue = nil
+					scheduledDateValue = t.UTC().Format("2006-01-02 15:04:05")
+				} else {
+					publishedDateValue = t.UTC().Format("2006-01-02 15:04:05")
+					scheduledDateValue = nil
+				}
+				publishedDateSet = true
 			case "status":
 				s, ok := v.(string)
 				if !ok {
@@ -2172,11 +2189,11 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				status := models.ArticleStatus(strings.TrimSpace(s))
 				switch status {
 				case models.ArticleStatusDraft:
-					setCols = append(setCols, column)
-					setArgs = append(setArgs, nil)
+					statusValue = nil
+					statusSet = true
 				case models.ArticleStatusPublished:
-					setCols = append(setCols, column)
-					setArgs = append(setArgs, time.Now().UTC().Format("2006-01-02 15:04:05"))
+					statusValue = time.Now().UTC().Format("2006-01-02 15:04:05")
+					statusSet = true
 				default:
 					writeError(w, http.StatusBadRequest, "status must be draft or published")
 					return
@@ -2205,6 +2222,24 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			default:
 				setCols = append(setCols, column)
 				setArgs = append(setArgs, v)
+			}
+		}
+		if statusSet || publishedDateSet {
+			setCols = append(setCols, "pub_date")
+			if statusSet && statusValue == nil {
+				setArgs = append(setArgs, nil)
+			} else if publishedDateSet {
+				setArgs = append(setArgs, publishedDateValue)
+			} else {
+				setArgs = append(setArgs, statusValue)
+			}
+			setCols = append(setCols, "scheduled_pub_date")
+			if statusSet && statusValue == nil {
+				setArgs = append(setArgs, nil)
+			} else if publishedDateSet {
+				setArgs = append(setArgs, scheduledDateValue)
+			} else {
+				setArgs = append(setArgs, nil)
 			}
 		}
 		if len(setCols) == 0 && authorIDs == nil {

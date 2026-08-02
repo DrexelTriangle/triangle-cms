@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { publicSiteUrl } from "../auth/urls"
 import TrixEditor from "../components/TrixEditor"
+import { DateTimeField } from "../components/ui/datetime-field"
 
 // Lazy-loaded so the heavy yoastseo bundle only loads when editing an article.
 const SeoAnalysis = lazy(() => import("../components/SeoAnalysis"))
@@ -17,6 +18,7 @@ type ApiArticleDetail = {
   content: string
   excerpt?: string
   status?: string
+  published_date?: string
   comment_status?: string
   featured_image?: string
   breaking_news?: boolean
@@ -40,6 +42,7 @@ type PatchPayload = {
   excerpt: string
   content: string
   status: EditableStatus
+  published_date?: string
   comment_status: string
   photo_url: string
   breaking_news: boolean
@@ -89,6 +92,39 @@ const slugifyCategory = (value: string): string =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
+
+const toLocalInput = (value?: string): string => {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+const localInputToISO = (value: string): string => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toISOString()
+}
+
+const isFutureDate = (value: string): boolean => {
+  if (!value) return false
+  const timestamp = new Date(value).getTime()
+  return !Number.isNaN(timestamp) && timestamp > Date.now()
+}
+
+const formatPublishDate = (value: string): string => {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
 
 // ArticleView caches list results in sessionStorage keyed by query; clear those
 // entries so the list refetches after an article is created or edited.
@@ -167,6 +203,7 @@ function EditArticleView() {
   }, [excerpt])
   const [content, setContent] = useState("")
   const [status, setStatus] = useState<EditableStatus>("draft")
+  const [publishedAt, setPublishedAt] = useState("")
   const [commentStatus, setCommentStatus] = useState("open")
   const [photoURL, setPhotoURL] = useState("")
   const [breakingNews, setBreakingNews] = useState(false)
@@ -223,7 +260,8 @@ function EditArticleView() {
           // has been saved yet.
           setMetaDescription(payload.seo?.meta_description ?? payload.excerpt ?? "")
           setContent(payload.content ?? "")
-          setStatus((payload.status ?? "draft").toLowerCase() === "published" ? "published" : "draft")
+          setStatus(["published", "scheduled"].includes((payload.status ?? "draft").toLowerCase()) ? "published" : "draft")
+          setPublishedAt(toLocalInput(payload.published_date))
           setCommentStatus(normalizeCommentStatus(payload.comment_status))
           setPhotoURL(payload.featured_image ?? "")
           setBreakingNews(Boolean(payload.breaking_news))
@@ -466,6 +504,12 @@ function EditArticleView() {
       setIsSaving(false)
       return
     }
+    const publishedDateISO = effectiveStatus === "published" && publishedAt ? localInputToISO(publishedAt) : ""
+    if (effectiveStatus === "published" && publishedAt && !publishedDateISO) {
+      setError("Publish date is invalid.")
+      setIsSaving(false)
+      return
+    }
 
     try {
       if (isNew) {
@@ -478,6 +522,7 @@ function EditArticleView() {
           content: content.trim(),
           excerpt: excerpt.trim(),
           status: effectiveStatus,
+          ...(publishedDateISO ? { published_date: publishedDateISO } : {}),
           comment_status: commentStatus.trim() || "open",
           photo_url: photoURL.trim(),
           breaking_news: breakingNews,
@@ -510,6 +555,7 @@ function EditArticleView() {
         excerpt: excerpt.trim(),
         content: content.trim(),
         status: effectiveStatus,
+        ...(publishedDateISO ? { published_date: publishedDateISO } : {}),
         comment_status: commentStatus.trim() || "open",
         photo_url: photoURL.trim(),
         breaking_news: breakingNews,
@@ -532,6 +578,7 @@ function EditArticleView() {
       }
       if (nextStatus) {
         setStatus(nextStatus)
+        if (nextStatus === "draft") setPublishedAt("")
       }
       clearArticleListCache()
       setSuccessMessage("Article saved.")
@@ -547,6 +594,12 @@ function EditArticleView() {
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const labelClass = "flex flex-col gap-1.5"
   const labelTextClass = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+  const publishDateInFuture = status === "published" && isFutureDate(publishedAt)
+  const publishDateHint = publishedAt
+    ? publishDateInFuture
+      ? `Goes on the site ${formatPublishDate(publishedAt)}.`
+      : `Published date: ${formatPublishDate(publishedAt)}.`
+    : "Blank publishes immediately."
   const taxonomyBySlug = useMemo(() => new Map(taxonomyItems.map((item) => [item.slug, item])), [taxonomyItems])
   const categoryGroups = useMemo(() => {
     const sections = taxonomyItems
@@ -770,11 +823,29 @@ function EditArticleView() {
 
             <label className={labelClass}>
               <span className={labelTextClass}>Status</span>
-              <select className={selectClass} onChange={(e) => setStatus(e.target.value as EditableStatus)} value={status}>
+              <select
+                className={selectClass}
+                onChange={(e) => {
+                  const next = e.target.value as EditableStatus
+                  setStatus(next)
+                  if (next === "draft") setPublishedAt("")
+                }}
+                value={status}
+              >
                 <option value="draft">Draft</option>
                 <option value="published">Published</option>
               </select>
             </label>
+
+            {status === "published" ? (
+              <DateTimeField
+                label="Publish date"
+                value={publishedAt}
+                onChange={setPublishedAt}
+                clearable
+                hint={publishDateHint}
+              />
+            ) : null}
 
             <div className={labelClass}>
               <span className={labelTextClass}>Author</span>
@@ -989,7 +1060,7 @@ function EditArticleView() {
                 onClick={() => void saveArticle("published")}
                 type="button"
               >
-                {isSaving ? "Publishing..." : "Publish"}
+                {isSaving ? (publishDateInFuture ? "Scheduling..." : "Publishing...") : (publishDateInFuture ? "Schedule" : "Publish")}
               </button>
             </div>
             </div>

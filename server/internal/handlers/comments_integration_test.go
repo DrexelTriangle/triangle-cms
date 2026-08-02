@@ -61,7 +61,9 @@ func commentHTTPTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE articles (
 			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
 			slug VARCHAR(255) NOT NULL UNIQUE,
-			comment_status VARCHAR(32)
+			comment_status VARCHAR(32),
+			pub_date DATETIME NULL,
+			archived_at DATETIME NULL
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`); err != nil {
 		t.Fatalf("create articles table: %v", err)
@@ -73,7 +75,7 @@ func commentHTTPTestDB(t *testing.T) *sql.DB {
 func seedCommentArticle(t *testing.T, conn *sql.DB, slug, commentStatus string) int64 {
 	t.Helper()
 
-	result, err := conn.ExecContext(context.Background(), "INSERT INTO articles (slug, comment_status) VALUES (?, ?)", slug, commentStatus)
+	result, err := conn.ExecContext(context.Background(), "INSERT INTO articles (slug, comment_status, pub_date) VALUES (?, ?, UTC_TIMESTAMP())", slug, commentStatus)
 	if err != nil {
 		t.Fatalf("seed article: %v", err)
 	}

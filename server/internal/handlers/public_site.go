@@ -27,7 +27,7 @@ func GetRandomArticle(conn *sql.DB) http.Handler {
 		// Unauthenticated endpoint, so it is pinned to published, non-archived
 		// rows the same way the public article listing is.
 		var slug, title string
-		err := conn.QueryRowContext(r.Context(), "SELECT `slug`, `title` FROM `articles` WHERE `pub_date` IS NOT NULL AND `archived_at` IS NULL AND TRIM(COALESCE(`slug`, '')) <> '' ORDER BY RAND() LIMIT 1").Scan(&slug, &title)
+		err := conn.QueryRowContext(r.Context(), "SELECT `slug`, `title` FROM `articles` WHERE `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL AND TRIM(COALESCE(`slug`, '')) <> '' ORDER BY RAND() LIMIT 1").Scan(&slug, &title)
 		if err == sql.ErrNoRows {
 			writeError(w, http.StatusNotFound, "no published articles")
 			return
@@ -53,7 +53,7 @@ func GetRandomArticle(conn *sql.DB) http.Handler {
 // @Router /v1/sitemap/slugs [get]
 func GetSitemapSlugs(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rows, err := conn.QueryContext(r.Context(), "SELECT `slug`, COALESCE(`mod_date`, `pub_date`) FROM `articles` WHERE `pub_date` IS NOT NULL AND `archived_at` IS NULL AND TRIM(COALESCE(`slug`, '')) <> '' ORDER BY `pub_date` DESC")
+		rows, err := conn.QueryContext(r.Context(), "SELECT `slug`, COALESCE(`mod_date`, `pub_date`) FROM `articles` WHERE `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL AND TRIM(COALESCE(`slug`, '')) <> '' ORDER BY `pub_date` DESC")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

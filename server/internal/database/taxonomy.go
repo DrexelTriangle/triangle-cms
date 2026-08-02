@@ -167,7 +167,7 @@ func RebuildTaxonomyArticleCounts(ctx context.Context, conn *sql.DB) error {
 			continue
 		}
 		var count int64
-		query := "SELECT COUNT(*) FROM `articles` WHERE `archived_at` IS NULL AND `pub_date` IS NOT NULL AND " + condition
+		query := "SELECT COUNT(*) FROM `articles` WHERE `archived_at` IS NULL AND `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND " + condition
 		if err := conn.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
 			return err
 		}

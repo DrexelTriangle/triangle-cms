@@ -290,6 +290,9 @@ func TestArticleQueryFilters_AnonymousIsPinnedToPublished(t *testing.T) {
 			if !strings.Contains(joined, "`pub_date` IS NOT NULL") {
 				t.Fatalf("anonymous listing must be published-only, got %q", joined)
 			}
+			if !strings.Contains(joined, "`pub_date` <= UTC_TIMESTAMP()") {
+				t.Fatalf("anonymous listing must exclude scheduled articles, got %q", joined)
+			}
 			if !strings.Contains(joined, "`archived_at` IS NULL") {
 				t.Fatalf("anonymous listing must exclude archived, got %q", joined)
 			}
@@ -313,8 +316,26 @@ func TestArticleQueryFilters_EditorKeepsDraftAndArchivedFilters(t *testing.T) {
 	if !strings.Contains(joined, "`pub_date` IS NULL") {
 		t.Fatalf("editor must keep the draft filter, got %q", joined)
 	}
+	if !strings.Contains(joined, "`scheduled_pub_date` IS NULL") {
+		t.Fatalf("editor draft filter must exclude scheduled articles, got %q", joined)
+	}
 	if !strings.Contains(joined, "`archived_at` IS NOT NULL") {
 		t.Fatalf("editor must keep the archived filter, got %q", joined)
+	}
+}
+
+func TestArticleQueryFilters_EditorCanFilterScheduled(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles?status=scheduled", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Role: models.RoleAdmin}))
+
+	conditions, _ := articleQueryFilters(req, ArticleParams{})
+	joined := strings.Join(conditions, " AND ")
+
+	if !strings.Contains(joined, "`pub_date` IS NULL") {
+		t.Fatalf("scheduled filter must exclude already-published articles, got %q", joined)
+	}
+	if !strings.Contains(joined, "`scheduled_pub_date` IS NOT NULL") {
+		t.Fatalf("scheduled filter must require a schedule date, got %q", joined)
 	}
 }
 
@@ -344,6 +365,9 @@ func TestArticleDetailCondition_AnonymousSeesOnlyLiveArticles(t *testing.T) {
 
 	if !strings.Contains(got, "`pub_date` IS NOT NULL") {
 		t.Fatalf("anonymous lookup must exclude drafts, got %q", got)
+	}
+	if !strings.Contains(got, "`pub_date` <= UTC_TIMESTAMP()") {
+		t.Fatalf("anonymous lookup must exclude scheduled articles, got %q", got)
 	}
 	if !strings.Contains(got, "`archived_at` IS NULL") {
 		t.Fatalf("anonymous lookup must exclude archived articles, got %q", got)

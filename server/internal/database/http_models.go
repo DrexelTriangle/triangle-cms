@@ -38,10 +38,10 @@ var ArticleColumns = []string{
 	"id", "title", "slug", "description", "text", "excerpt", "tags", "categories",
 	"pub_date", "mod_date", "priority", "breaking_news",
 	"comment_status", "photo_url",
-	"focus_keyword", "meta_description", "seo_title", "creation_date",
+	"focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date",
 }
 
-const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`, a.`focus_keyword`, a.`meta_description`, a.`seo_title`, a.`creation_date`"
+const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`, a.`focus_keyword`, a.`meta_description`, a.`seo_title`, a.`creation_date`, a.`scheduled_pub_date`"
 
 // Image/photo URLs are canonicalized upstream in the WordPress ETL (see
 // wordpress-etl Utils/MediaURL) so `photo_url` and inline body images are stored
@@ -145,12 +145,13 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		metaDescription sql.NullString
 		seoTitle        sql.NullString
 		creationDate    sql.NullTime
+		scheduledDate   sql.NullTime
 	)
 	err := rows.Scan(
 		&a.ID, &a.Title, &slug, &description, &text, &excerpt, &tags, &categories,
 		&pubDate, &ignoredMod, &priority, &breakingNews,
 		&commentStatus, &photoURL,
-		&focusKeyword, &metaDescription, &seoTitle, &creationDate,
+		&focusKeyword, &metaDescription, &seoTitle, &creationDate, &scheduledDate,
 	)
 	if err != nil {
 		return models.Article{}, err
@@ -185,6 +186,11 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		t := pubDate.Time
 		a.PublishedAt = &t
 		a.Status = models.ArticleStatusPublished
+	} else if scheduledDate.Valid {
+		t := scheduledDate.Time
+		a.PublishedAt = &t
+		a.ScheduledAt = &t
+		a.Status = models.ArticleStatusScheduled
 	} else {
 		a.Status = models.ArticleStatusDraft
 	}
@@ -334,7 +340,7 @@ func GetRelatedArticlesBySlug(ctx context.Context, conn *sql.DB, slug string, k 
 		// candidate must be live content regardless of who is asking -- an
 		// unpublished or soft-deleted article is not something to link to from
 		// anywhere, including the CMS preview.
-		"WHERE src.slug = ? AND a.pub_date IS NOT NULL AND a.archived_at IS NULL " +
+		"WHERE src.slug = ? AND a.pub_date IS NOT NULL AND a.pub_date <= UTC_TIMESTAMP() AND a.archived_at IS NULL " +
 		"ORDER BY VEC_DISTANCE_EUCLIDEAN(cand_vec.embedding, src_vec.embedding), a.id DESC " +
 		"LIMIT ?"
 
@@ -363,10 +369,10 @@ func SearchArticles(ctx context.Context, conn *sql.DB, term string, limit, offse
 	}
 
 	like := "%" + trimmedTerm + "%"
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date` FROM `articles` " +
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date`, `scheduled_pub_date` FROM `articles` " +
 		// Search is public, so it stays pinned to live content: published and not
 		// soft-deleted. Archived rows were previously reachable here.
-		"WHERE `pub_date` IS NOT NULL AND `archived_at` IS NULL AND (`title` LIKE ? OR `tags` LIKE ? OR `text` LIKE ?) " +
+		"WHERE `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL AND (`title` LIKE ? OR `tags` LIKE ? OR `text` LIKE ?) " +
 		"ORDER BY CASE " +
 		"WHEN `title` LIKE ? THEN 1 " +
 		"WHEN `tags` LIKE ? THEN 2 " +
@@ -578,8 +584,17 @@ func IsCanonicalSlug(value string) bool {
 
 func ArticleInputToDBFields(body models.ArticleInput) []any {
 	var publishedAt any
+	var scheduledAt any
 	if body.Status == models.ArticleStatusPublished {
 		publishedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
+		if supplied := ParsePublishedAt(body.PublishedDate); supplied != nil {
+			if supplied.After(time.Now().UTC()) {
+				publishedAt = nil
+				scheduledAt = supplied.UTC().Format("2006-01-02 15:04:05")
+			} else {
+				publishedAt = supplied.UTC().Format("2006-01-02 15:04:05")
+			}
+		}
 	}
 	slug := normalizeSlug(body.Slug)
 	if slug == "" {
@@ -615,13 +630,23 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		// Stamp creation_date so a draft has a date of its own: it is what the
 		// CMS listing sorts unpublished rows by (pub_date is NULL until publish).
 		time.Now().UTC().Format("2006-01-02 15:04:05"),
+		scheduledAt,
 	}
 }
 
 func ArticleToDBFields(body models.Article) []any {
 	var publishedAt any
-	if body.PublishedAt != nil {
-		publishedAt = body.PublishedAt.UTC().Format("2006-01-02 15:04:05")
+	var scheduledAt any
+	if body.Status == models.ArticleStatusDraft {
+		// Draft wins over any stale published_date in a full replacement payload.
+	} else if body.Status == models.ArticleStatusScheduled && body.PublishedAt != nil {
+		scheduledAt = body.PublishedAt.UTC().Format("2006-01-02 15:04:05")
+	} else if body.PublishedAt != nil {
+		if body.PublishedAt.After(time.Now().UTC()) {
+			scheduledAt = body.PublishedAt.UTC().Format("2006-01-02 15:04:05")
+		} else {
+			publishedAt = body.PublishedAt.UTC().Format("2006-01-02 15:04:05")
+		}
 	} else if body.Status == models.ArticleStatusPublished {
 		publishedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
 	}
@@ -640,5 +665,6 @@ func ArticleToDBFields(body models.Article) []any {
 		strings.TrimSpace(body.FocusKeyword),
 		strings.TrimSpace(body.MetaDescription),
 		strings.TrimSpace(body.SEOTitle),
+		scheduledAt,
 	}
 }
