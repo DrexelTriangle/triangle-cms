@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2 } from "lucide-react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { publicSiteUrl } from "../auth/urls"
 import { useApiFetch } from "../hooks/useApiFetch"
 
@@ -419,6 +419,10 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const effectiveTotalCount = Math.max(totalArticleCount, (page * pageSize) + articles.length)
   const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / pageSize))
   const listLabel = pageTitle.toLowerCase()
+  const editPathForSlug = (slug: string) =>
+    fixedType === "developing-stories"
+      ? `/developing-stories/${encodeURIComponent(slug)}/edit`
+      : `/articles/${encodeURIComponent(slug)}/edit`
 
   const filterTagClass = (active: boolean) =>
     `px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer border ${
@@ -691,7 +695,17 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                   </td>
                   <td className="px-4 py-3 font-medium text-foreground max-w-xs">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="truncate">{item.title}</span>
+                      {item.slug ? (
+                        <Link
+                          className="block min-w-0 truncate rounded-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                          title={item.title}
+                          to={editPathForSlug(item.slug)}
+                        >
+                          {item.title}
+                        </Link>
+                      ) : (
+                        <span className="block min-w-0 truncate" title={item.title}>{item.title}</span>
+                      )}
                       {item.breakingNews ? (
                         <span className="inline-flex shrink-0 items-center rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold uppercase text-red-700 dark:bg-red-950/40 dark:text-red-300">
                           Breaking
@@ -732,7 +746,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                         disabled={!item.slug}
                         onClick={() => {
                           if (!item.slug) return
-                          navigate(`/articles/${encodeURIComponent(item.slug)}/edit`)
+                          navigate(editPathForSlug(item.slug))
                         }}
                         title={item.slug ? "Edit" : "Edit unavailable"}
                         type="button"
