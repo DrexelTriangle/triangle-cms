@@ -34,6 +34,7 @@ func GetSEOAudit(ctx context.Context, conn *sql.DB) (models.SEOAuditResponse, er
 		       COALESCE(seo_title, ''), COALESCE(meta_description, ''), COALESCE(focus_keyword, '')
 		FROM articles
 		WHERE pub_date IS NOT NULL
+		  AND pub_date <= UTC_TIMESTAMP()
 		  AND pub_date >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MONTH)
 		ORDER BY pub_date DESC, id DESC
 	`, auditWindowMonths)

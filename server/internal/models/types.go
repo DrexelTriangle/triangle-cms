@@ -60,6 +60,7 @@ type ArticleStatus string
 
 const (
 	ArticleStatusDraft     ArticleStatus = "draft"
+	ArticleStatusScheduled ArticleStatus = "scheduled"
 	ArticleStatusPublished ArticleStatus = "published"
 )
 
@@ -127,6 +128,7 @@ type Article struct {
 	SEOTitle        string           `json:"seo_title"`
 	CreatedAt       *time.Time       `json:"creation_date,omitempty"`
 	PublishedAt     *time.Time       `json:"published_date,omitempty"`
+	ScheduledAt     *time.Time       `json:"scheduled_date,omitempty"`
 }
 
 type ArticleOverview struct {
@@ -155,6 +157,7 @@ type ArticleInput struct {
 	IsFeatured      bool          `json:"is_featured"`
 	BreakingNews    bool          `json:"breaking_news"`
 	Status          ArticleStatus `json:"status"`
+	PublishedDate   string        `json:"published_date,omitempty"`
 	CommentStatus   string        `json:"comment_status,omitempty"`
 	FocusKeyword    string        `json:"focus_keyword,omitempty"`
 	MetaDescription string        `json:"meta_description,omitempty"`
@@ -171,6 +174,7 @@ type ArticlePatch struct {
 	IsFeatured      *bool          `json:"is_featured,omitempty"`
 	BreakingNews    *bool          `json:"breaking_news,omitempty"`
 	Status          *ArticleStatus `json:"status,omitempty"`
+	PublishedDate   *string        `json:"published_date,omitempty"`
 	CommentStatus   *string        `json:"comment_status,omitempty"`
 	FocusKeyword    *string        `json:"focus_keyword,omitempty"`
 	MetaDescription *string        `json:"meta_description,omitempty"`

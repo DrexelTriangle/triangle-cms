@@ -97,3 +97,25 @@ func TestArticleInputToDBFields_PreservesBreakingNews(t *testing.T) {
 		t.Fatal("breaking_news field was not preserved")
 	}
 }
+
+func TestArticleInputToDBFields_StoresFuturePublishDateAsSchedule(t *testing.T) {
+	fields := ArticleInputToDBFields(models.ArticleInput{
+		Title:         "Tomorrow's story",
+		Content:       "Body",
+		Status:        models.ArticleStatusPublished,
+		PublishedDate: "2030-05-06T14:30:00Z",
+	})
+
+	publishedDateFieldIndex := 6
+	if fields[publishedDateFieldIndex] != nil {
+		t.Fatalf("pub_date = %v, want nil until schedule is due", fields[publishedDateFieldIndex])
+	}
+	scheduledDateFieldIndex := 18
+	got, ok := fields[scheduledDateFieldIndex].(string)
+	if !ok {
+		t.Fatalf("scheduled_pub_date field has type %T, want string", fields[scheduledDateFieldIndex])
+	}
+	if got != "2030-05-06 14:30:00" {
+		t.Fatalf("scheduled_pub_date = %q, want scheduled timestamp", got)
+	}
+}

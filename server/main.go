@@ -356,6 +356,10 @@ func run(deps runDeps, conn *sql.DB) error {
 	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker)
 	server := deps.newServer(cert, mux, slog.Default())
 
+	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
+	defer stopScheduler()
+	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default())
+
 	serverErr := make(chan error, 1)
 	go func() {
 		var err error

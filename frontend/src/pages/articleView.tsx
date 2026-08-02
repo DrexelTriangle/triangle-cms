@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom"
 import { publicSiteUrl } from "../auth/urls"
 import { useApiFetch } from "../hooks/useApiFetch"
 
-type ArticleStatus = "Published" | "Draft" | "Archived"
+type ArticleStatus = "Published" | "Scheduled" | "Draft" | "Archived"
 
 type ArticleItem = {
   id: string
@@ -51,9 +51,17 @@ const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 const DEFAULT_PAGE_SIZE = 25
 const AUTHORS_PAGE_SIZE = 200
 
-const mapApiStatus = (status: string, activeTab: "all" | "trash"): ArticleStatus => {
+const isFutureDate = (value?: string) => {
+  if (!value) return false
+  const timestamp = new Date(value).getTime()
+  return !Number.isNaN(timestamp) && timestamp > Date.now()
+}
+
+const mapApiStatus = (status: string, activeTab: "all" | "trash", publishedDate?: string): ArticleStatus => {
   if (activeTab === "trash") return "Archived"
-  return status.toLowerCase() === "published" ? "Published" : "Draft"
+  if (status.toLowerCase() === "scheduled") return "Scheduled"
+  if (status.toLowerCase() !== "published") return "Draft"
+  return isFutureDate(publishedDate) ? "Scheduled" : "Published"
 }
 
 const formatArticleDate = (publishedDate?: string) => {
@@ -290,7 +298,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
             .map((author) => (author.name ?? "").trim())
             .filter((name) => name.length > 0)
             .join(", "),
-          status: mapApiStatus(item.status, activeTab),
+          status: mapApiStatus(item.status, activeTab, item.published_date),
           // Drafts have no published_date, so fall back to when the row was created.
           date: formatArticleDate(item.published_date ?? item.creation_date),
           slug: item.slug,
@@ -610,7 +618,9 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       item.status === "Published"
                         ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                        : item.status === "Draft"
+                        : item.status === "Scheduled"
+                          ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                          : item.status === "Draft"
                           ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
                           : "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200"
                     }`}>
