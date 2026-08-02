@@ -95,6 +95,8 @@ definitions:
         items:
           $ref: '#/definitions/models.AuthorOverview'
         type: array
+      breaking_news:
+        type: boolean
       categories:
         items:
           type: string
@@ -145,6 +147,8 @@ definitions:
         items:
           $ref: '#/definitions/models.AuthorSummary'
         type: array
+      breaking_news:
+        type: boolean
       categories:
         items:
           $ref: '#/definitions/models.CategorySummary'
@@ -182,6 +186,8 @@ definitions:
         items:
           type: integer
         type: array
+      breaking_news:
+        type: boolean
       categories:
         items:
           type: string
@@ -215,11 +221,18 @@ definitions:
         items:
           $ref: '#/definitions/models.AuthorSummary'
         type: array
+      breaking_news:
+        type: boolean
       categories:
         items:
           $ref: '#/definitions/models.CategorySummary'
         type: array
       comment_status:
+        type: string
+      creation_date:
+        description: |-
+          Drafts have no published_date; the CMS listing falls back to this so an
+          unpublished row still shows a date.
         type: string
       excerpt:
         type: string
@@ -244,6 +257,8 @@ definitions:
         items:
           type: integer
         type: array
+      breaking_news:
+        type: boolean
       categories:
         items:
           type: string
@@ -687,6 +702,12 @@ definitions:
         type: integer
       id:
         type: integer
+      in_gallery:
+        description: |-
+          InGallery is the editor's "show this on the public photo gallery" flag.
+          It is off by default: the library is every file on the media mount, house
+          ads and comics included, and the gallery is a curated selection of it.
+        type: boolean
       mime_type:
         type: string
       path:
@@ -765,6 +786,8 @@ definitions:
         type: string
       file_name:
         type: string
+      in_gallery:
+        type: boolean
     type: object
   models.MediaResponse:
     properties:

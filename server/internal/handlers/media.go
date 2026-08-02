@@ -697,7 +697,7 @@ func withMediaURL(item models.Media) models.Media {
 func mediaListParams(r *http.Request) models.MediaListParams {
 	q := r.URL.Query()
 	_, limit, offset := listParams(r, 50)
-	return models.MediaListParams{
+	params := models.MediaListParams{
 		Limit:         limit,
 		Offset:        offset,
 		Query:         strings.TrimSpace(q.Get("search")),
@@ -705,6 +705,13 @@ func mediaListParams(r *http.Request) models.MediaListParams {
 		SortBy:        models.MediaSortBy(q.Get("sort_by")),
 		SortDirection: models.SortDirection(q.Get("sort_direction")),
 	}
+	// Absent means "the whole library"; "?in_gallery=0" is a real filter for the
+	// everything-but-the-gallery view, so presence is what counts here.
+	if _, provided := q["in_gallery"]; provided {
+		inGallery := boolParam(r, "in_gallery")
+		params.InGallery = &inGallery
+	}
+	return params
 }
 
 // boolParam reads a flag-style query parameter, where a bare "?keep_file" counts
@@ -814,6 +821,11 @@ func GetMediaGallery(conn *sql.DB) http.Handler {
 // not accept the free-text search parameter, which would otherwise turn the
 // endpoint into a lookup tool over editors' file names and captions.
 //
+// It is also narrowed to images an editor has marked for the gallery. The
+// library is every file on the media mount, house ads, comic strips and
+// crossword scans included; serving all of it made /photo a dump of the upload
+// directory rather than the photo desk's work.
+//
 // @Summary List gallery images for the public site
 // @Tags media
 // @Produce json
@@ -825,11 +837,13 @@ func GetMediaGallery(conn *sql.DB) http.Handler {
 func GetPublicGallery(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, limit, offset := listParams(r, 50)
+		curated := true
 		items, _, err := db.ListMedia(r.Context(), conn, models.MediaListParams{
-			Limit:    limit,
-			Offset:   offset,
-			MimeType: "image/",
-			SortBy:   models.MediaSortBy(r.URL.Query().Get("sort_by")),
+			Limit:     limit,
+			Offset:    offset,
+			MimeType:  "image/",
+			InGallery: &curated,
+			SortBy:    models.MediaSortBy(r.URL.Query().Get("sort_by")),
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Copy, Check, ImageOff, Search, Trash2, Upload, X } from "lucide-react"
+import { Copy, Check, ImageOff, Images, Search, Trash2, Upload, X } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 
@@ -14,7 +14,16 @@ type MediaItem = {
   height?: number
   alt_text?: string
   caption?: string
+  in_gallery?: boolean
   created_at?: string
+}
+
+// Only the fields the current user is allowed to change are sent, so an editor
+// saving a gallery choice cannot rewrite alt text they were never shown.
+type MediaPatch = {
+  alt_text?: string
+  caption?: string
+  in_gallery?: boolean
 }
 
 type MediaResponse = {
@@ -64,6 +73,7 @@ function MediaView() {
 
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
+  const [galleryOnly, setGalleryOnly] = useState(false)
   const [selected, setSelected] = useState<MediaItem | null>(null)
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
 
@@ -81,12 +91,13 @@ function MediaView() {
         offset: String(offset),
       })
       if (search) params.set("search", search)
+      if (galleryOnly) params.set("in_gallery", "true")
 
       const response = await apiFetch(`/v1/media?${params.toString()}`, { signal })
       if (!response.ok) throw new Error(await errorMessage(response, `Request failed (${response.status})`))
       return (await response.json()) as MediaResponse
     },
-    [apiFetch, search],
+    [apiFetch, search, galleryOnly],
   )
 
   useEffect(() => {
@@ -191,7 +202,7 @@ function MediaView() {
     }
   }
 
-  const handleSaveDetails = async (item: MediaItem, altText: string, caption: string) => {
+  const handleSaveDetails = async (item: MediaItem, patch: MediaPatch) => {
     setError(null)
     setNotice(null)
 
@@ -199,15 +210,23 @@ function MediaView() {
       const response = await apiFetch(`/v1/media/${String(item.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alt_text: altText, caption }),
+        body: JSON.stringify(patch),
       })
       if (!response.ok) {
         setError(await errorMessage(response, `Save failed (${response.status})`))
         return
       }
       const updated = (await response.json()) as MediaItem
-      setMediaItems((current) => current.map((candidate) => (candidate.id === updated.id ? updated : candidate)))
-      setSelected(updated)
+      // Taking an image out of the gallery while filtered to it drops the tile,
+      // rather than leaving a row on screen that no longer matches the filter.
+      const droppedByFilter = galleryOnly && !updated.in_gallery
+      setMediaItems((current) =>
+        droppedByFilter
+          ? current.filter((candidate) => candidate.id !== updated.id)
+          : current.map((candidate) => (candidate.id === updated.id ? updated : candidate)),
+      )
+      if (droppedByFilter) setTotalCount((current) => Math.max(0, current - 1))
+      setSelected(droppedByFilter ? null : updated)
       setNotice("Details saved.")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save details.")
@@ -222,7 +241,8 @@ function MediaView() {
           <h1 className="text-2xl font-bold text-foreground">Media</h1>
           {!isLoading && !error && (
             <p className="text-sm text-muted-foreground">
-              {totalCount} item{totalCount === 1 ? "" : "s"}
+              {totalCount} {galleryOnly ? "gallery image" : "item"}
+              {totalCount === 1 ? "" : "s"}
               {search ? ` matching "${search}"` : ""}
             </p>
           )}
@@ -251,17 +271,33 @@ function MediaView() {
         )}
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-        <input
-          aria-label="Search media"
-          className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search by file name, alt text, or caption..."
-          type="search"
-          value={searchInput}
-        />
+      {/* Search, and the curated-gallery filter */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[16rem]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <input
+            aria-label="Search media"
+            className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search by file name, alt text, or caption..."
+            type="search"
+            value={searchInput}
+          />
+        </div>
+        <button
+          aria-pressed={galleryOnly}
+          className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
+            galleryOnly
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-border text-muted-foreground hover:bg-muted"
+          }`}
+          onClick={() => setGalleryOnly((current) => !current)}
+          title="Show only the images published on the public photo gallery"
+          type="button"
+        >
+          <Images className="w-4 h-4" aria-hidden="true" />
+          Photo gallery
+        </button>
       </div>
 
       {notice && (
@@ -287,8 +323,14 @@ function MediaView() {
       ) : mediaItems.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
           <ImageOff className="w-10 h-10" />
-          <p className="text-sm">{search ? `No results for "${search}"` : "No media items yet."}</p>
-          {!search && isAdmin && (
+          <p className="text-sm">
+            {search
+              ? `No results for "${search}"`
+              : galleryOnly
+                ? "Nothing is on the public photo gallery yet. Open an image and tick “Show on the photo gallery”."
+                : "No media items yet."}
+          </p>
+          {!search && !galleryOnly && isAdmin && (
             <p className="text-xs">
               Upload a file, or run Reindex Media in Settings to pull in already-migrated images.
             </p>
@@ -316,6 +358,15 @@ function MediaView() {
                     loading="lazy"
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                  {item.in_gallery && (
+                    <span
+                      className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                      title="On the public photo gallery"
+                    >
+                      <Images className="w-3 h-3" aria-hidden="true" />
+                      Gallery
+                    </span>
+                  )}
                 </button>
                 {isAdmin && (
                   <button
@@ -375,12 +426,13 @@ type MediaDetailPanelProps = {
   item: MediaItem
   canEdit: boolean
   onClose: () => void
-  onSave: (item: MediaItem, altText: string, caption: string) => Promise<void>
+  onSave: (item: MediaItem, patch: MediaPatch) => Promise<void>
 }
 
 function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelProps) {
   const [altText, setAltText] = useState(item.alt_text ?? "")
   const [caption, setCaption] = useState(item.caption ?? "")
+  const [inGallery, setInGallery] = useState(item.in_gallery ?? false)
   const [isSaving, setIsSaving] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -404,7 +456,7 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
 
   const save = async () => {
     setIsSaving(true)
-    await onSave(item, altText, caption)
+    await onSave(item, canEdit ? { alt_text: altText, caption, in_gallery: inGallery } : { in_gallery: inGallery })
     setIsSaving(false)
   }
 
@@ -477,16 +529,33 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
           />
         </label>
 
-        {canEdit && (
-          <button
-            className="self-start px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-            disabled={isSaving}
-            onClick={() => void save()}
-            type="button"
-          >
-            {isSaving ? "Saving..." : "Save details"}
-          </button>
-        )}
+        {/* The library is every file on the media server, house ads and comics
+            included, so the public gallery is opt-in per image. Curating it is
+            photo-desk work rather than administration, so it is open to
+            editors even where the metadata fields above are not. */}
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            checked={inGallery}
+            className="mt-0.5 accent-primary"
+            onChange={(e) => setInGallery(e.target.checked)}
+            type="checkbox"
+          />
+          <span className="flex flex-col">
+            <span className="text-foreground">Show on the photo gallery</span>
+            <span className="text-xs text-muted-foreground">
+              Readers see this on thetriangle.org/photo once you save.
+            </span>
+          </span>
+        </label>
+
+        <button
+          className="self-start px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          disabled={isSaving}
+          onClick={() => void save()}
+          type="button"
+        >
+          {isSaving ? "Saving..." : canEdit ? "Save details" : "Save gallery choice"}
+        </button>
       </aside>
     </div>
   )

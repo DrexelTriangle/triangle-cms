@@ -191,16 +191,20 @@ type ArticleListParams struct {
 // location on the media filesystem and is the row's stable identity; URL is that
 // path rendered through MEDIA_BASE_URL for display and is not stored.
 type Media struct {
-	ID        int64      `json:"id"`
-	Path      string     `json:"path"`
-	FileName  string     `json:"file_name"`
-	URL       string     `json:"url"`
-	MimeType  string     `json:"mime_type"`
-	SizeBytes int64      `json:"size_bytes"`
-	Width     *int       `json:"width,omitempty"`
-	Height    *int       `json:"height,omitempty"`
-	AltText   string     `json:"alt_text,omitempty"`
-	Caption   string     `json:"caption,omitempty"`
+	ID        int64  `json:"id"`
+	Path      string `json:"path"`
+	FileName  string `json:"file_name"`
+	URL       string `json:"url"`
+	MimeType  string `json:"mime_type"`
+	SizeBytes int64  `json:"size_bytes"`
+	Width     *int   `json:"width,omitempty"`
+	Height    *int   `json:"height,omitempty"`
+	AltText   string `json:"alt_text,omitempty"`
+	Caption   string `json:"caption,omitempty"`
+	// InGallery is the editor's "show this on the public photo gallery" flag.
+	// It is off by default: the library is every file on the media mount, house
+	// ads and comics included, and the gallery is a curated selection of it.
+	InGallery bool       `json:"in_gallery"`
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
@@ -226,16 +230,20 @@ type MediaInput struct {
 }
 
 type MediaPatch struct {
-	FileName *string `json:"file_name,omitempty"`
-	AltText  *string `json:"alt_text,omitempty"`
-	Caption  *string `json:"caption,omitempty"`
+	FileName  *string `json:"file_name,omitempty"`
+	AltText   *string `json:"alt_text,omitempty"`
+	Caption   *string `json:"caption,omitempty"`
+	InGallery *bool   `json:"in_gallery,omitempty"`
 }
 
 type MediaListParams struct {
-	Limit         int
-	Offset        int
-	Query         string
-	MimeType      string
+	Limit    int
+	Offset   int
+	Query    string
+	MimeType string
+	// InGallery filters on the curation flag when set; nil lists the whole
+	// library, which is what the editor-facing browser wants.
+	InGallery     *bool
 	SortBy        MediaSortBy
 	SortDirection SortDirection
 }

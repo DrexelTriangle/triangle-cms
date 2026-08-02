@@ -231,6 +231,31 @@ Progress is reported per entry *walked* rather than per file indexed, because th
 corpus is mostly derivatives that are skipped without a stat — counting only
 indexed files would look frozen for long stretches.
 
+### The public photo gallery
+
+`/v1/gallery`, which the public site's `/photo` page reads, serves only images an
+editor has marked (Media -> open an image -> "Show on the photo gallery", or the
+"Photo gallery" filter to review the current set). The library itself is every
+file on the mount — house ads, comic strips, crossword scans — so an unfiltered
+gallery is a dump of the upload directory rather than the photo desk's work.
+
+Reindexing never sets the flag. WordPress kept the same selection as the
+`include_in_gallery` attachment meta, so seed it once per cutover from the legacy
+database:
+
+```bash
+python ./scripts/backfill_gallery_flags.py \
+    --wp-dsn  'wordpress@tcp(10.248.42.122)/wordpress' \
+    --cms-dsn 'triangle_user@tcp(10.248.40.154)/triangle' --dry-run
+```
+
+Passwords come from `WP_DB_PASSWORD` / `CMS_DB_PASSWORD` or a prompt. Drop
+`--dry-run` to apply. By default the CMS ends up matching WordPress exactly,
+which also *clears* marks made in the CMS since the last run; once editors are
+curating in the CMS, use `--additive` so it only ever adds. Run it after the
+media reindex — it matches on file path, and images the library has not seen yet
+are reported and skipped.
+
 ### Disk
 
 Blue/green keeps two frontend and two backend images resident, plus whatever
