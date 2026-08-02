@@ -770,19 +770,38 @@ function EditArticleView() {
                   value={authorSearch}
                 />
               </div>
-              <select
-                className={selectClass}
-                onChange={(e) => setSelectedAuthorId(e.target.value)}
-                value={selectedAuthorId}
-                disabled={authorsLoading}
-              >
-                <option value="">No author</option>
-                {visibleAuthors.map((author) => (
-                  <option key={author.id} value={String(author.id)}>
-                    {author.display_name}
-                  </option>
-                ))}
-              </select>
+              <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-background p-2">
+                {authorsLoading ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">Loading authors...</p>
+                ) : visibleAuthors.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">
+                    {authorSearch.trim() ? `No authors found for "${authorSearch}"` : "No authors available."}
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
+                      <input
+                        checked={selectedAuthorId === ""}
+                        className="h-4 w-4 border-border"
+                        onChange={() => setSelectedAuthorId("")}
+                        type="radio"
+                      />
+                      <span className="font-medium text-foreground">No author</span>
+                    </label>
+                    {visibleAuthors.map((author) => (
+                      <label key={author.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
+                        <input
+                          checked={selectedAuthorId === String(author.id)}
+                          className="h-4 w-4 border-border"
+                          onChange={() => setSelectedAuthorId(String(author.id))}
+                          type="radio"
+                        />
+                        <span className="text-foreground">{author.display_name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
               {authorSearch.trim() && !authorsLoading ? (
                 <span className="text-[11px] text-muted-foreground">
                   {visibleAuthors.length} match{visibleAuthors.length === 1 ? "" : "es"}
