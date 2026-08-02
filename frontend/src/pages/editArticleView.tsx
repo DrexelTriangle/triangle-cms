@@ -720,6 +720,19 @@ function EditArticleView() {
   const autoSaveStatusText = !isNew && (isAutoSaving || autoSaveMessage)
     ? (isAutoSaving ? "Autosaving..." : autoSaveMessage)
     : null
+  const autoSaveStatusClass = (() => {
+    if (!autoSaveStatusText) return ""
+    if (autoSaveStatusText === "Unsaved changes.") {
+      return "border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-900/60 dark:bg-yellow-950/30 dark:text-yellow-300"
+    }
+    if (autoSaveStatusText === "Autosave failed.") {
+      return "border-destructive/30 bg-destructive/10 text-destructive"
+    }
+    if (autoSaveStatusText.startsWith("Autosave paused")) {
+      return "border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-900/60 dark:bg-yellow-950/30 dark:text-yellow-300"
+    }
+    return "border-green-300 bg-green-50 text-green-800 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-300"
+  })()
   const publishDateHint = (() => {
     if (publishTiming !== "schedule") return "Publishes immediately."
     if (!publishedAt) return "Choose when this should go live."
@@ -840,7 +853,7 @@ function EditArticleView() {
           <h1 className="text-2xl font-bold text-foreground">{isNew ? "New Article" : "Edit Article"}</h1>
         </div>
         {autoSaveStatusText ? (
-          <p className="rounded-lg bg-muted/70 px-3 py-2 text-xs text-muted-foreground sm:ml-auto">
+          <p className={`rounded-lg border px-3 py-2 text-xs font-medium sm:ml-auto ${autoSaveStatusClass}`}>
             {autoSaveStatusText}
           </p>
         ) : null}
