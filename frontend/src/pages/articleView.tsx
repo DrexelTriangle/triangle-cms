@@ -47,6 +47,13 @@ type ApiAuthor = {
   display_name: string
 }
 
+type ApiTaxonomyItem = {
+  id: number
+  type: string
+  slug: string
+  canonical_title: string
+}
+
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
 const DEFAULT_PAGE_SIZE = 25
 const AUTHORS_PAGE_SIZE = 200
@@ -86,6 +93,7 @@ type ArticleViewUIState = {
   searchQuery?: string
   activeTab?: "all" | "trash"
   authorQuery?: string
+  sectionFilterSlug?: string
   publishedFilter?: "all" | "published" | "draft"
   dateSortDirection?: "asc" | "desc"
   pageSize?: number
@@ -122,6 +130,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const uiStateKey = `${storageKeyBase}:ui`
   const resultsCacheKey = `${storageKeyBase}:results`
   const authorsCacheKey = `${storageKeyBase}:authors`
+  const sectionsCacheKey = "articleView:sections"
   const loadUIState = () => readSessionJSON<ArticleViewUIState>(uiStateKey, {})
 
   const [searchQuery, setSearchQuery] = useState(() => loadUIState().searchQuery ?? "")
@@ -133,6 +142,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const [trashCount, setTrashCount] = useState(0)
   const [authors, setAuthors] = useState<ApiAuthor[]>([])
   const [authorQuery, setAuthorQuery] = useState(() => loadUIState().authorQuery ?? "")
+  const [sections, setSections] = useState<ApiTaxonomyItem[]>([])
+  const [sectionFilterSlug, setSectionFilterSlug] = useState(() => loadUIState().sectionFilterSlug ?? "")
   const [publishedFilter, setPublishedFilter] = useState<"all" | "published" | "draft">(() => loadUIState().publishedFilter ?? "all")
   const [dateSortDirection, setDateSortDirection] = useState<"asc" | "desc">(() => loadUIState().dateSortDirection ?? "desc")
   const [isLoading, setIsLoading] = useState(true)
@@ -145,11 +156,12 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       searchQuery,
       activeTab,
       authorQuery,
+      sectionFilterSlug,
       publishedFilter,
       dateSortDirection,
       pageSize,
     } satisfies ArticleViewUIState)
-  }, [activeTab, authorQuery, dateSortDirection, pageSize, publishedFilter, searchQuery, uiStateKey])
+  }, [activeTab, authorQuery, dateSortDirection, pageSize, publishedFilter, searchQuery, sectionFilterSlug, uiStateKey])
 
   const selectedAuthorSlug = useMemo(() => {
     const normalizedValue = authorQuery.trim().toLowerCase()
@@ -162,6 +174,50 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     })
     return matchedAuthor?.slug ?? ""
   }, [authorQuery, authors])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchSections = async () => {
+      const cachedSections = readSessionJSON<ApiTaxonomyItem[] | null>(sectionsCacheKey, null)
+      if (cachedSections) {
+        setSections(cachedSections)
+        return
+      }
+
+      try {
+        const response = await apiFetch("/v1/taxonomy?type=section")
+        if (!response.ok) {
+          throw new Error(`Sections request failed (${response.status})`)
+        }
+
+        const payload = (await response.json()) as ApiTaxonomyItem[]
+        const nextSections = (Array.isArray(payload) ? payload : [])
+          .filter((section) => section.type === "section")
+          .sort((left, right) => left.id - right.id)
+
+        if (!cancelled) {
+          setSections(nextSections)
+          writeSessionJSON(sectionsCacheKey, nextSections)
+        }
+      } catch {
+        if (!cancelled) {
+          setSections([])
+        }
+      }
+    }
+
+    void fetchSections()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch, sectionsCacheKey])
+
+  useEffect(() => {
+    if (!sectionFilterSlug || sections.length === 0) return
+    if (sections.some((section) => section.slug === sectionFilterSlug)) return
+    setSectionFilterSlug("")
+  }, [sectionFilterSlug, sections])
 
   useEffect(() => {
     let cancelled = false
@@ -262,6 +318,9 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         if (searchQuery.trim()) {
           params.set("title", searchQuery.trim())
         }
+        if (sectionFilterSlug) {
+          params.set("section_slug", sectionFilterSlug)
+        }
         if (fixedType) {
           params.set("type", fixedType)
         }
@@ -341,7 +400,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     return () => {
       cancelled = true
     }
-  }, [activeTab, apiFetch, authorQuery, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, selectedAuthorSlug])
+  }, [activeTab, apiFetch, authorQuery, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, sectionFilterSlug, selectedAuthorSlug])
 
   const onChangeTab = (tab: "all" | "trash") => {
     setActiveTab(tab)
@@ -355,7 +414,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
 
   useEffect(() => {
     setPage(0)
-  }, [authorQuery, publishedFilter, dateSortDirection, searchQuery, pageSize])
+  }, [authorQuery, publishedFilter, dateSortDirection, searchQuery, sectionFilterSlug, pageSize])
 
   const effectiveTotalCount = Math.max(totalArticleCount, (page * pageSize) + articles.length)
   const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / pageSize))
@@ -470,6 +529,33 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           value={searchQuery}
         />
       </div>
+
+      {sections.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Sections</span>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              aria-pressed={sectionFilterSlug === ""}
+              className={filterTagClass(sectionFilterSlug === "")}
+              onClick={() => setSectionFilterSlug("")}
+              type="button"
+            >
+              All sections
+            </button>
+            {sections.map((section) => (
+              <button
+                aria-pressed={sectionFilterSlug === section.slug}
+                className={filterTagClass(sectionFilterSlug === section.slug)}
+                key={section.id}
+                onClick={() => setSectionFilterSlug(section.slug)}
+                type="button"
+              >
+                {section.canonical_title}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-6 items-start">
