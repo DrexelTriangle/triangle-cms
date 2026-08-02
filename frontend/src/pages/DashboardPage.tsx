@@ -41,7 +41,6 @@ interface ApiStats {
   draftArticles: number | null
   totalAuthors: number | null
   totalSections: number | null
-  weeklyDelta: number
   loading: boolean
 }
 
@@ -91,11 +90,9 @@ export default function DashboardPage() {
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
   const [apiHealth, setApiHealth] = useState<"ok" | "error" | "checking">("checking")
-  const [stats, setStats] = useState<ApiStats>({ totalArticles: null, publishedArticles: null, draftArticles: null, totalAuthors: null, totalSections: null, weeklyDelta: 0, loading: true })
+  const [stats, setStats] = useState<ApiStats>({ totalArticles: null, publishedArticles: null, draftArticles: null, totalAuthors: null, totalSections: null, loading: true })
 
   useEffect(() => {
-    let cancelled = false
-
     apiFetch("/v1/articles?limit=10")
       .then((r) => r.json())
       .then((d) => {
@@ -178,60 +175,7 @@ export default function DashboardPage() {
     apiFetch("/v1/articles?limit=1")
       .then((r) => (r.ok ? setApiHealth("ok") : setApiHealth("error")))
       .catch(() => setApiHealth("error"))
-
-    ;(async () => {
-      const now = Date.now()
-      const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000
-      const twoWeeksAgo = now - 14 * 24 * 60 * 60 * 1000
-      const pageSize = 100
-      let offset = 0
-      let thisWeek = 0
-      let prevWeek = 0
-
-      try {
-        for (;;) {
-          const resp = await apiFetch(`/v1/articles?status=published&sort_by=published_date&sort_direction=desc&limit=${pageSize}&offset=${offset}`)
-          const data = await resp.json()
-          const articles = Array.isArray(data?.articles) ? data.articles : []
-          if (articles.length === 0) break
-
-          let reachedOlderThanWindow = false
-          for (const article of articles) {
-            const publishedDate = article?.published_date
-            if (!publishedDate) continue
-            const t = new Date(publishedDate).getTime()
-            if (Number.isNaN(t)) continue
-            if (t >= oneWeekAgo) {
-              thisWeek += 1
-              continue
-            }
-            if (t >= twoWeeksAgo) {
-              prevWeek += 1
-              continue
-            }
-            reachedOlderThanWindow = true
-          }
-
-          if (reachedOlderThanWindow || articles.length < pageSize) break
-          offset += pageSize
-        }
-
-        if (!cancelled) {
-          setStats((s) => ({ ...s, weeklyDelta: thisWeek - prevWeek }))
-        }
-      } catch {
-        if (!cancelled) {
-          setStats((s) => ({ ...s, weeklyDelta: 0 }))
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
   }, [apiFetch])
-
-  const weeklyDelta = stats.weeklyDelta
   const displayName = String(user?.name ?? user?.email ?? "Editor")
 
   const createQuickDraft = async () => {
@@ -358,9 +302,8 @@ export default function DashboardPage() {
             icon: FileText,
             color: "text-primary",
             bg: "bg-primary/10",
-            delta: `${weeklyDelta >= 0 ? "+" : ""}${weeklyDelta} this week`,
-            up: weeklyDelta >= 0,
-            neutral: weeklyDelta === 0,
+            delta: "",
+            up: true,
           },
           {
             label: "Published",
@@ -430,7 +373,7 @@ export default function DashboardPage() {
                 </div>
                 <p className="text-2xl font-extrabold tracking-tight">{card.value}</p>
                 {card.delta ? (
-                  <p className={`text-xs mt-1 flex items-center gap-0.5 font-medium ${card.neutral ? "text-muted-foreground" : card.up ? "text-success" : "text-destructive"}`}>
+                  <p className={`text-xs mt-1 flex items-center gap-0.5 font-medium ${card.up ? "text-success" : "text-destructive"}`}>
                     {DeltaIcon ? <DeltaIcon className="w-3 h-3" /> : card.up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
                     {card.delta}
                   </p>
