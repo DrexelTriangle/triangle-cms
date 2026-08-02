@@ -46,7 +46,7 @@ func defaultFooterColumns() []models.FooterColumn {
 			link("Academic Transformation", "/academic-transformation"),
 			link("Politics", "/politics"),
 			link("Transit", "/transit"),
-			link("Crime & Policy Violations", "/crime-policy-violations"),
+			link("Public Safety", "/public-safety"),
 		}},
 		{Entries: []models.FooterEntry{
 			heading("Sports", "/sports"),

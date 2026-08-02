@@ -33,7 +33,7 @@ func CategoryMatchPatterns(slug string) []string {
 		return nil
 	}
 
-	patterns := make([]string, 0, 3)
+	patterns := make([]string, 0, 4)
 	add := func(value string) {
 		for _, existing := range patterns {
 			if existing == value {
@@ -45,10 +45,47 @@ func CategoryMatchPatterns(slug string) []string {
 
 	add("%" + normalized + "%")
 	if strings.Contains(normalized, "-") {
-		add("%" + strings.ReplaceAll(normalized, "-", " ") + "%")
+		spaced := strings.ReplaceAll(normalized, "-", " ")
+		add("%" + spaced + "%")
 		add("%" + strings.ReplaceAll(normalized, "-", " & ") + "%")
+		if possessive := possessiveVariant(spaced); possessive != "" {
+			add("%" + possessive + "%")
+		}
 	}
 	return patterns
+}
+
+// possessiveStems are the words a slug can only have lost an apostrophe from.
+// "mens" is not a plural of anything, so it can only be "men's"; "comics" is a
+// plural, so "comic's" would be a guess. Restricting the rewrite to these keeps
+// it from inventing patterns.
+var possessiveStems = map[string]string{
+	"mens":      "men's",
+	"womens":    "women's",
+	"childrens": "children's",
+	"peoples":   "people's",
+}
+
+// possessiveVariant restores the apostrophe a slug had to drop, so
+// "mens-basketball" can still find the category "Men's Basketball". Returns ""
+// when the phrase has no possessive to restore.
+//
+// Without this the four apostrophe subsections -- both basketballs, both
+// soccers -- matched nothing at all, so their pages were empty and their counts
+// read 0 while the categories they name were on hundreds of articles.
+func possessiveVariant(phrase string) string {
+	words := strings.Split(phrase, " ")
+	changed := false
+	for i, word := range words {
+		if replacement, ok := possessiveStems[word]; ok {
+			words[i] = replacement
+			changed = true
+		}
+	}
+	if !changed {
+		return ""
+	}
+	return strings.Join(words, " ")
 }
 
 // taxonomyMatchSlugs maps every section/subsection slug to the slugs whose
