@@ -254,39 +254,41 @@ entry, no systemd timer. The only backups are manual dumps in
 
 A nightly dump is a few lines; a replica is the real fix.
 
-### 6.2 Delta's root filesystem is 15 GB and 67% full
+### 6.2 Delta's root filesystem — RESOLVED 2026-08-02
 
-`/` is 15 GB with ~4.7 GB free. Blue/green keeps two slots plus old tags — 54
-images are on disk, of which only 4 are in use (1.2 GB reclaimable).
+`/` was 15 GB with ~4.7 GB free (67%), which is tight for blue/green: it keeps
+two slots plus old tags, and 54 images were on disk with only 4 in use.
 
-**Suggested fix — grow the volume, it costs nothing.** The volume group is only
-half allocated:
-
-```
-VG        VSize    VFree
-ubuntu-vg <30.00g  15.00g
-```
-
-There are **15 GB of unused extents already attached to this VM**, so the
-filesystem can be doubled online, no reboot and no Proxmox change:
+**Done — the volume was grown.** The volume group turned out to be only half
+allocated (`VSize <30.00g`, `VFree 15.00g`), so 15 GB of unused extents were
+already attached to the VM. No Proxmox change and no reboot were needed; ext4
+resizes while mounted:
 
 ```bash
 sudo lvextend -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
-sudo resize2fs /dev/ubuntu-vg/ubuntu-lv     # ext4 resizes mounted
+sudo resize2fs /dev/ubuntu-vg/ubuntu-lv
 ```
 
-That takes `/` from 15 GB → 30 GB and free space from 4.7 GB → ~19.7 GB.
+| | before | after |
+|---|---|---|
+| LV size | 15.00 GiB | 30.00 GiB |
+| VG free extents | 15.00 GiB | 0 |
+| `/` free | 4.7 GB (67% used) | 19 GB (34% used) |
 
-Then add image hygiene so it does not creep back — a weekly timer, or a prune
-step at the end of a successful deploy:
+Filesystem state `clean` afterwards, all four containers stayed healthy, and
+`/healthz`, `/v1/health/db` and `/v1/homepage` all returned 200 throughout.
+
+**The VG is now fully allocated**, so this trick is spent — growing further
+means adding a disk in Proxmox and `pvcreate`/`vgextend` first.
+
+Still worth doing as hygiene, though no longer urgent at 19 GB free: prune old
+images on a weekly timer, or as a step at the end of a successful deploy.
 
 ```bash
-docker image prune -af --filter 'until=168h'   # reclaims ~1.2 GB today
+docker image prune -af --filter 'until=168h'   # ~1.2 GB reclaimable today
 ```
 
-Do the `lvextend` first. Pruning alone recovers about 1.2 GB and buys weeks;
-extending recovers 15 GB and is permanent. `tadmin` has `NOPASSWD: ALL` on
-Delta, so both can be run over SSH with key auth — no password needed.
+`tadmin` has `NOPASSWD: ALL` on Delta, so this runs over SSH with key auth.
 
 ### 6.3 CephFS is mounted with full cluster-admin credentials on the box that runs CI
 
