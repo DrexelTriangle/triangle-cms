@@ -18,6 +18,14 @@ type MediaItem = {
   created_at?: string
 }
 
+// Only the fields the current user is allowed to change are sent, so an editor
+// saving a gallery choice cannot rewrite alt text they were never shown.
+type MediaPatch = {
+  alt_text?: string
+  caption?: string
+  in_gallery?: boolean
+}
+
 type MediaResponse = {
   media?: MediaItem[]
   pagination?: {
@@ -194,7 +202,7 @@ function MediaView() {
     }
   }
 
-  const handleSaveDetails = async (item: MediaItem, altText: string, caption: string, inGallery: boolean) => {
+  const handleSaveDetails = async (item: MediaItem, patch: MediaPatch) => {
     setError(null)
     setNotice(null)
 
@@ -202,7 +210,7 @@ function MediaView() {
       const response = await apiFetch(`/v1/media/${String(item.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alt_text: altText, caption, in_gallery: inGallery }),
+        body: JSON.stringify(patch),
       })
       if (!response.ok) {
         setError(await errorMessage(response, `Save failed (${response.status})`))
@@ -418,7 +426,7 @@ type MediaDetailPanelProps = {
   item: MediaItem
   canEdit: boolean
   onClose: () => void
-  onSave: (item: MediaItem, altText: string, caption: string, inGallery: boolean) => Promise<void>
+  onSave: (item: MediaItem, patch: MediaPatch) => Promise<void>
 }
 
 function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelProps) {
@@ -448,7 +456,7 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
 
   const save = async () => {
     setIsSaving(true)
-    await onSave(item, altText, caption, inGallery)
+    await onSave(item, canEdit ? { alt_text: altText, caption, in_gallery: inGallery } : { in_gallery: inGallery })
     setIsSaving(false)
   }
 
@@ -522,12 +530,13 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
         </label>
 
         {/* The library is every file on the media server, house ads and comics
-            included, so the public gallery is opt-in per image. */}
+            included, so the public gallery is opt-in per image. Curating it is
+            photo-desk work rather than administration, so it is open to
+            editors even where the metadata fields above are not. */}
         <label className="flex items-start gap-2 text-sm">
           <input
             checked={inGallery}
-            className="mt-0.5 accent-primary disabled:opacity-60"
-            disabled={!canEdit}
+            className="mt-0.5 accent-primary"
             onChange={(e) => setInGallery(e.target.checked)}
             type="checkbox"
           />
@@ -539,16 +548,14 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
           </span>
         </label>
 
-        {canEdit && (
-          <button
-            className="self-start px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-            disabled={isSaving}
-            onClick={() => void save()}
-            type="button"
-          >
-            {isSaving ? "Saving..." : "Save details"}
-          </button>
-        )}
+        <button
+          className="self-start px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          disabled={isSaving}
+          onClick={() => void save()}
+          type="button"
+        >
+          {isSaving ? "Saving..." : canEdit ? "Save details" : "Save gallery choice"}
+        </button>
       </aside>
     </div>
   )
