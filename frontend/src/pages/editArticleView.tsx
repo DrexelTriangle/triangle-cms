@@ -171,12 +171,14 @@ function EditArticleView() {
   const [photoURL, setPhotoURL] = useState("")
   const [breakingNews, setBreakingNews] = useState(false)
   const [selectedCategorySlugs, setSelectedCategorySlugs] = useState<string[]>([])
+  const [sectionSearch, setSectionSearch] = useState("")
   const [legacyCategoryTitlesBySlug, setLegacyCategoryTitlesBySlug] = useState<Record<string, string>>({})
   const [keyphrase, setKeyphrase] = useState("")
   const [metaDescription, setMetaDescription] = useState("")
   const [seoTitle, setSeoTitle] = useState("")
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
   const [selectedAuthorId, setSelectedAuthorId] = useState<string>("")
+  const [authorSearch, setAuthorSearch] = useState("")
   const [authors, setAuthors] = useState<ApiAuthor[]>([])
   const [authorsLoading, setAuthorsLoading] = useState(false)
   const [authorsError, setAuthorsError] = useState<string | null>(null)
@@ -568,6 +570,52 @@ function EditArticleView() {
         title: legacyCategoryTitlesBySlug[categorySlug] ?? categorySlug,
       }))
   ), [legacyCategoryTitlesBySlug, selectedCategorySlugs, taxonomyBySlug])
+  const visibleCategoryGroups = useMemo(() => {
+    const query = sectionSearch.trim().toLowerCase()
+    if (!query) return categoryGroups
+
+    return categoryGroups.flatMap(({ section, subsections }) => {
+      const sectionMatches = section.canonical_title.toLowerCase().includes(query)
+      const sectionSelected = selectedCategorySlugs.includes(section.slug)
+      const visibleSubsections = subsections.filter((subsection) => (
+        subsection.canonical_title.toLowerCase().includes(query)
+        || selectedCategorySlugs.includes(subsection.slug)
+      ))
+
+      if (sectionMatches) {
+        return [{ section, subsections }]
+      }
+      if (sectionSelected || visibleSubsections.length > 0) {
+        return [{ section, subsections: visibleSubsections }]
+      }
+      return []
+    })
+  }, [categoryGroups, sectionSearch, selectedCategorySlugs])
+  const visibleLegacyCategoryChoices = useMemo(() => {
+    const query = sectionSearch.trim().toLowerCase()
+    if (!query) return legacyCategoryChoices
+    return legacyCategoryChoices.filter((category) => (
+      category.title.toLowerCase().includes(query)
+      || selectedCategorySlugs.includes(category.slug)
+    ))
+  }, [legacyCategoryChoices, sectionSearch, selectedCategorySlugs])
+  const visibleSectionChoiceCount = useMemo(() => (
+    visibleCategoryGroups.reduce((count, group) => count + 1 + group.subsections.length, 0)
+    + visibleLegacyCategoryChoices.length
+  ), [visibleCategoryGroups, visibleLegacyCategoryChoices])
+  const visibleAuthors = useMemo(() => {
+    const query = authorSearch.trim().toLowerCase()
+    const matches = query
+      ? authors.filter((author) => author.display_name.toLowerCase().includes(query))
+      : authors
+
+    if (!selectedAuthorId || matches.some((author) => String(author.id) === selectedAuthorId)) {
+      return matches
+    }
+
+    const selectedAuthor = authors.find((author) => String(author.id) === selectedAuthorId)
+    return selectedAuthor ? [selectedAuthor, ...matches] : matches
+  }, [authorSearch, authors, selectedAuthorId])
   const toggleCategory = (categorySlug: string) => {
     setSelectedCategorySlugs((current) => (
       current.includes(categorySlug)
@@ -710,8 +758,18 @@ function EditArticleView() {
               </select>
             </label>
 
-            <label className={labelClass}>
+            <div className={labelClass}>
               <span className={labelTextClass}>Author</span>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <input
+                  className={`${inputClass} pl-9`}
+                  onChange={(e) => setAuthorSearch(e.target.value)}
+                  placeholder="Search author name..."
+                  type="search"
+                  value={authorSearch}
+                />
+              </div>
               <select
                 className={selectClass}
                 onChange={(e) => setSelectedAuthorId(e.target.value)}
@@ -719,13 +777,18 @@ function EditArticleView() {
                 disabled={authorsLoading}
               >
                 <option value="">No author</option>
-                {authors.map((author) => (
+                {visibleAuthors.map((author) => (
                   <option key={author.id} value={String(author.id)}>
                     {author.display_name}
                   </option>
                 ))}
               </select>
-            </label>
+              {authorSearch.trim() && !authorsLoading ? (
+                <span className="text-[11px] text-muted-foreground">
+                  {visibleAuthors.length} match{visibleAuthors.length === 1 ? "" : "es"}
+                </span>
+              ) : null}
+            </div>
             {authorsError ? (
               <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
                 {authorsError}
@@ -752,14 +815,26 @@ function EditArticleView() {
 
             <div className={labelClass}>
               <span className={labelTextClass}>Sections</span>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <input
+                  className={`${inputClass} pl-9`}
+                  onChange={(e) => setSectionSearch(e.target.value)}
+                  placeholder="Search sections..."
+                  type="search"
+                  value={sectionSearch}
+                />
+              </div>
               <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-background p-2">
                 {taxonomyLoading ? (
                   <p className="px-2 py-3 text-xs text-muted-foreground">Loading sections...</p>
-                ) : categoryGroups.length === 0 && legacyCategoryChoices.length === 0 ? (
-                  <p className="px-2 py-3 text-xs text-muted-foreground">No sections available.</p>
+                ) : visibleCategoryGroups.length === 0 && visibleLegacyCategoryChoices.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">
+                    {sectionSearch.trim() ? `No sections found for "${sectionSearch}"` : "No sections available."}
+                  </p>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {categoryGroups.map(({ section, subsections }) => (
+                    {visibleCategoryGroups.map(({ section, subsections }) => (
                       <div key={section.slug} className="flex flex-col gap-1">
                         <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
                           <input
@@ -787,9 +862,9 @@ function EditArticleView() {
                         ) : null}
                       </div>
                     ))}
-                    {legacyCategoryChoices.length > 0 ? (
+                    {visibleLegacyCategoryChoices.length > 0 ? (
                       <div className="border-t border-border pt-2">
-                        {legacyCategoryChoices.map((category) => (
+                        {visibleLegacyCategoryChoices.map((category) => (
                           <label key={category.slug} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
                             <input
                               checked={selectedCategorySlugs.includes(category.slug)}
@@ -805,6 +880,11 @@ function EditArticleView() {
                   </div>
                 )}
               </div>
+              {sectionSearch.trim() && !taxonomyLoading ? (
+                <span className="text-[11px] text-muted-foreground">
+                  {visibleSectionChoiceCount} match{visibleSectionChoiceCount === 1 ? "" : "es"}
+                </span>
+              ) : null}
               {taxonomyError ? (
                 <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
                   {taxonomyError}
