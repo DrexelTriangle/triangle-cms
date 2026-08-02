@@ -25,9 +25,15 @@ Deploys are blue/green: merging to `main` triggers the runner, which pulls new
 GHCR images into the idle slot and flips `active-upstreams.conf`. Check the live
 slot with `sudo cat /etc/nginx/triangle-cms/active-upstreams.conf`.
 
-Access is `ssh tadmin@<host>`. **`tadmin` has NOPASSWD sudo on the two DB hosts
-but NOT on Delta** — on Delta it is limited to `nginx -t` and `nginx -s reload`,
-so anything needing root there has to be done by hand.
+Access is `ssh tadmin@<host>` with key auth. **`tadmin` has `(ALL) NOPASSWD: ALL`
+on all three hosts**, so root operations need no password — verify with
+`sudo -n -l`. The nginx-only NOPASSWD entries on Delta
+(`nginx -t`, `nginx -s reload`) belong to the **`triangle-runner`** service
+account, not to `tadmin`; do not confuse the two.
+
+A password is still required for SSH *password* login (`PasswordAuthentication`
+is on), the Proxmox VM console, and `su -` to root — that last one is root's own
+credential, not `tadmin`'s.
 
 ---
 
@@ -279,8 +285,8 @@ docker image prune -af --filter 'until=168h'   # reclaims ~1.2 GB today
 ```
 
 Do the `lvextend` first. Pruning alone recovers about 1.2 GB and buys weeks;
-extending recovers 15 GB and is permanent. Note `tadmin` has no general sudo on
-Delta, so this needs whoever holds root.
+extending recovers 15 GB and is permanent. `tadmin` has `NOPASSWD: ALL` on
+Delta, so both can be run over SSH with key auth — no password needed.
 
 ### 6.3 CephFS is mounted with full cluster-admin credentials on the box that runs CI
 
