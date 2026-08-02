@@ -178,6 +178,7 @@ function EditArticleView() {
   const [seoTitle, setSeoTitle] = useState("")
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
   const [selectedAuthorId, setSelectedAuthorId] = useState<string>("")
+  const [currentArticleAuthor, setCurrentArticleAuthor] = useState<ApiAuthor | null>(null)
   const [authorSearch, setAuthorSearch] = useState("")
   const [authors, setAuthors] = useState<ApiAuthor[]>([])
   const [authorsLoading, setAuthorsLoading] = useState(false)
@@ -239,8 +240,14 @@ function EditArticleView() {
             .filter((categorySlug) => categorySlug.length > 0)
           setLegacyCategoryTitlesBySlug(legacyCategories)
           setSelectedCategorySlugs([...new Set(categorySlugs)])
-          const firstAuthorId = payload.authors?.[0]?.id
+          const firstAuthor = payload.authors?.[0]
+          const firstAuthorId = firstAuthor?.id
           setSelectedAuthorId(typeof firstAuthorId === "number" ? String(firstAuthorId) : "")
+          setCurrentArticleAuthor(
+            typeof firstAuthorId === "number"
+              ? { id: firstAuthorId, display_name: (firstAuthor?.name ?? "").trim() }
+              : null,
+          )
         }
       } catch (err) {
         if (!cancelled) {
@@ -610,13 +617,23 @@ function EditArticleView() {
       ? namedAuthors.filter((author) => author.display_name.toLowerCase().includes(query))
       : namedAuthors
 
-    if (!selectedAuthorId || matches.some((author) => String(author.id) === selectedAuthorId)) {
+    if (!selectedAuthorId) {
       return matches
     }
 
     const selectedAuthor = namedAuthors.find((author) => String(author.id) === selectedAuthorId)
-    return selectedAuthor ? [selectedAuthor, ...matches] : matches
-  }, [authorSearch, authors, selectedAuthorId])
+      ?? (currentArticleAuthor && String(currentArticleAuthor.id) === selectedAuthorId && currentArticleAuthor.display_name.trim()
+        ? currentArticleAuthor
+        : null)
+    if (!selectedAuthor) {
+      return matches
+    }
+
+    return [
+      selectedAuthor,
+      ...matches.filter((author) => String(author.id) !== selectedAuthorId),
+    ]
+  }, [authorSearch, authors, currentArticleAuthor, selectedAuthorId])
   const toggleCategory = (categorySlug: string) => {
     setSelectedCategorySlugs((current) => (
       current.includes(categorySlug)
