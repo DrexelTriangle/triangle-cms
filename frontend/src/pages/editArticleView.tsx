@@ -605,15 +605,16 @@ function EditArticleView() {
   ), [visibleCategoryGroups, visibleLegacyCategoryChoices])
   const visibleAuthors = useMemo(() => {
     const query = authorSearch.trim().toLowerCase()
+    const namedAuthors = authors.filter((author) => author.display_name.trim().length > 0)
     const matches = query
-      ? authors.filter((author) => author.display_name.toLowerCase().includes(query))
-      : authors
+      ? namedAuthors.filter((author) => author.display_name.toLowerCase().includes(query))
+      : namedAuthors
 
     if (!selectedAuthorId || matches.some((author) => String(author.id) === selectedAuthorId)) {
       return matches
     }
 
-    const selectedAuthor = authors.find((author) => String(author.id) === selectedAuthorId)
+    const selectedAuthor = namedAuthors.find((author) => String(author.id) === selectedAuthorId)
     return selectedAuthor ? [selectedAuthor, ...matches] : matches
   }, [authorSearch, authors, selectedAuthorId])
   const toggleCategory = (categorySlug: string) => {
