@@ -717,6 +717,9 @@ function EditArticleView() {
   const labelClass = "flex flex-col gap-1.5"
   const labelTextClass = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
   const publishDateInFuture = publishTiming === "schedule" && isFutureDate(publishedAt)
+  const autoSaveStatusText = !isNew && (isAutoSaving || autoSaveMessage)
+    ? (isAutoSaving ? "Autosaving..." : autoSaveMessage)
+    : null
   const publishDateHint = (() => {
     if (publishTiming !== "schedule") return "Publishes immediately."
     if (!publishedAt) return "Choose when this should go live."
@@ -824,16 +827,23 @@ function EditArticleView() {
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <button
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          onClick={() => navigate(-1)}
-          type="button"
-        >
-          <ArrowLeft className="w-4 h-4" aria-hidden="true" />
-          Back
-        </button>
-        <h1 className="text-2xl font-bold text-foreground">{isNew ? "New Article" : "Edit Article"}</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-4">
+          <button
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            onClick={() => navigate(-1)}
+            type="button"
+          >
+            <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+            Back
+          </button>
+          <h1 className="text-2xl font-bold text-foreground">{isNew ? "New Article" : "Edit Article"}</h1>
+        </div>
+        {autoSaveStatusText ? (
+          <p className="rounded-lg bg-muted/70 px-3 py-2 text-xs text-muted-foreground sm:ml-auto">
+            {autoSaveStatusText}
+          </p>
+        ) : null}
       </div>
 
       {isLoading ? (
@@ -1184,12 +1194,6 @@ function EditArticleView() {
                 {successMessage}
               </p>
             )}
-            {!isNew && (isAutoSaving || autoSaveMessage) ? (
-              <p className="text-xs text-muted-foreground bg-muted/60 rounded-lg px-3 py-2">
-                {isAutoSaving ? "Autosaving..." : autoSaveMessage}
-              </p>
-            ) : null}
-
             <div className="flex flex-col gap-2 pt-1">
               <button
                 className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
