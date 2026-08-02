@@ -28,7 +28,7 @@ var MediaSortByColumn = map[string]string{
 
 var MediaColumns = []string{
 	"id", "path", "file_name", "mime_type", "size_bytes",
-	"width", "height", "alt_text", "caption", "created_at", "updated_at",
+	"width", "height", "alt_text", "caption", "in_gallery", "created_at", "updated_at",
 }
 
 // mediaMimeByExt is the extension -> MIME mapping used when indexing existing
@@ -63,11 +63,13 @@ func EnsureMediaTable(ctx context.Context, conn *sql.DB) error {
 			height INT NULL,
 			alt_text LONGTEXT,
 			caption LONGTEXT,
+			in_gallery TINYINT(1) NOT NULL DEFAULT 0,
 			created_at DATETIME,
 			updated_at DATETIME,
 			UNIQUE KEY uniq_media_path (path),
 			INDEX idx_media_created_at (created_at),
-			INDEX idx_media_file_name (file_name)
+			INDEX idx_media_file_name (file_name),
+			INDEX idx_media_in_gallery (in_gallery, created_at)
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`); err != nil {
 		return err
@@ -83,8 +85,10 @@ func EnsureMediaTable(ctx context.Context, conn *sql.DB) error {
 		ADD COLUMN IF NOT EXISTS height INT NULL,
 		ADD COLUMN IF NOT EXISTS alt_text LONGTEXT,
 		ADD COLUMN IF NOT EXISTS caption LONGTEXT,
+		ADD COLUMN IF NOT EXISTS in_gallery TINYINT(1) NOT NULL DEFAULT 0,
 		ADD COLUMN IF NOT EXISTS created_at DATETIME,
-		ADD COLUMN IF NOT EXISTS updated_at DATETIME
+		ADD COLUMN IF NOT EXISTS updated_at DATETIME,
+		ADD INDEX IF NOT EXISTS idx_media_in_gallery (in_gallery, created_at)
 	`)
 	return err
 }
@@ -111,6 +115,7 @@ func ScanMedia(rows *sql.Rows) (models.Media, error) {
 		&height,
 		&altText,
 		&caption,
+		&item.InGallery,
 		&createdAt,
 		&updatedAt,
 	)
@@ -166,6 +171,11 @@ func mediaConditions(params models.MediaListParams) ([]string, []any) {
 			conditions = append(conditions, "`mime_type` = ?")
 			args = append(args, mimeType)
 		}
+	}
+
+	if params.InGallery != nil {
+		conditions = append(conditions, "`in_gallery` = ?")
+		args = append(args, *params.InGallery)
 	}
 
 	return conditions, args
@@ -270,8 +280,8 @@ func InsertMedia(ctx context.Context, conn *sql.DB, relPath, mimeType string, si
 // present on the patch are written; a patch with none set is a no-op error so
 // the handler can answer 400 rather than silently succeeding.
 func UpdateMediaMeta(ctx context.Context, conn *sql.DB, id int64, patch models.MediaPatch) (models.Media, error) {
-	setClauses := make([]string, 0, 4)
-	args := make([]any, 0, 5)
+	setClauses := make([]string, 0, 5)
+	args := make([]any, 0, 6)
 
 	if patch.FileName != nil {
 		setClauses = append(setClauses, "`file_name` = ?")
@@ -284,6 +294,10 @@ func UpdateMediaMeta(ctx context.Context, conn *sql.DB, id int64, patch models.M
 	if patch.Caption != nil {
 		setClauses = append(setClauses, "`caption` = ?")
 		args = append(args, *patch.Caption)
+	}
+	if patch.InGallery != nil {
+		setClauses = append(setClauses, "`in_gallery` = ?")
+		args = append(args, *patch.InGallery)
 	}
 	if len(setClauses) == 0 {
 		return models.Media{}, ErrNoMediaFields

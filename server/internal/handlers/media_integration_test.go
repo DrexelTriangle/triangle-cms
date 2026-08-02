@@ -181,6 +181,90 @@ func TestMediaHTTP_UploadListPatchDelete(t *testing.T) {
 	}
 }
 
+// The public gallery is a curated selection, not the upload directory. Serving
+// everything put house ads, comic strips and crossword scans on /photo.
+func TestMediaHTTP_PublicGalleryOnlyServesCuratedImages(t *testing.T) {
+	conn := mediaHTTPTestDB(t)
+	root := t.TempDir()
+	t.Setenv("MEDIA_ROOT", root)
+	t.Setenv("MEDIA_BASE_URL", "https://media.example.org")
+
+	upload := func(name string) models.MediaUploadResponse {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		PostMedia(conn).ServeHTTP(rec, uploadRequest(t, name, pngBytes(t, 4, 4)))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("upload %s status = %d, body = %s", name, rec.Code, rec.Body.String())
+		}
+		var created models.MediaUploadResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+			t.Fatalf("decode upload %s: %v", name, err)
+		}
+		return created
+	}
+
+	photo := upload("basketball.png")
+	upload("house-ad.png")
+
+	// Nothing is in the gallery until an editor says so, including brand-new
+	// uploads -- the default has to be off or the /photo page fills itself.
+	emptyRec := httptest.NewRecorder()
+	GetPublicGallery(conn).ServeHTTP(emptyRec, httptest.NewRequest(http.MethodGet, "/v1/gallery", nil))
+	var empty models.MediaGalleryResponse
+	if err := json.Unmarshal(emptyRec.Body.Bytes(), &empty); err != nil {
+		t.Fatalf("decode gallery: %v", err)
+	}
+	if len(empty.Media) != 0 {
+		t.Fatalf("gallery = %+v, want nothing before anything is marked", empty.Media)
+	}
+
+	markRec := httptest.NewRecorder()
+	PatchMediaItem(conn).ServeHTTP(markRec,
+		mediaIDRequest(t, http.MethodPatch, "/v1/media/1", photo.ID, `{"in_gallery":true}`))
+	if markRec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, body = %s", markRec.Code, markRec.Body.String())
+	}
+	var marked models.Media
+	if err := json.Unmarshal(markRec.Body.Bytes(), &marked); err != nil {
+		t.Fatalf("decode patch: %v", err)
+	}
+	if !marked.InGallery {
+		t.Fatal("in_gallery did not persist")
+	}
+
+	galleryRec := httptest.NewRecorder()
+	GetPublicGallery(conn).ServeHTTP(galleryRec, httptest.NewRequest(http.MethodGet, "/v1/gallery", nil))
+	var gallery models.MediaGalleryResponse
+	if err := json.Unmarshal(galleryRec.Body.Bytes(), &gallery); err != nil {
+		t.Fatalf("decode gallery: %v", err)
+	}
+	if len(gallery.Media) != 1 || gallery.Media[0].ID != photo.ID {
+		t.Fatalf("gallery = %+v, want only the marked photo", gallery.Media)
+	}
+
+	// The editor-facing listing still sees the whole library, and can narrow to
+	// the curated set on demand.
+	listRec := httptest.NewRecorder()
+	GetMedia(conn).ServeHTTP(listRec, httptest.NewRequest(http.MethodGet, "/v1/media", nil))
+	var listed models.MediaResponse
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if listed.Pagination.TotalCount != 2 {
+		t.Fatalf("library total = %d, want both assets", listed.Pagination.TotalCount)
+	}
+
+	filteredRec := httptest.NewRecorder()
+	GetMedia(conn).ServeHTTP(filteredRec, httptest.NewRequest(http.MethodGet, "/v1/media?in_gallery=true", nil))
+	var filtered models.MediaResponse
+	if err := json.Unmarshal(filteredRec.Body.Bytes(), &filtered); err != nil {
+		t.Fatalf("decode filtered list: %v", err)
+	}
+	if filtered.Pagination.TotalCount != 1 || len(filtered.Media) != 1 || filtered.Media[0].ID != photo.ID {
+		t.Fatalf("in_gallery=true list = %+v, want only the marked photo", filtered)
+	}
+}
+
 func TestMediaHTTP_DeleteKeepFileLeavesTheFile(t *testing.T) {
 	conn := mediaHTTPTestDB(t)
 	root := t.TempDir()

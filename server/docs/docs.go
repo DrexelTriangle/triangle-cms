@@ -4396,6 +4396,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/models.AuthorOverview"
                     }
                 },
+                "breaking_news": {
+                    "type": "boolean"
+                },
                 "categories": {
                     "type": "array",
                     "items": {
@@ -4472,6 +4475,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/models.AuthorSummary"
                     }
                 },
+                "breaking_news": {
+                    "type": "boolean"
+                },
                 "categories": {
                     "type": "array",
                     "items": {
@@ -4528,6 +4534,9 @@ const docTemplate = `{
                         "type": "integer"
                     }
                 },
+                "breaking_news": {
+                    "type": "boolean"
+                },
                 "categories": {
                     "type": "array",
                     "items": {
@@ -4578,6 +4587,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/models.AuthorSummary"
                     }
                 },
+                "breaking_news": {
+                    "type": "boolean"
+                },
                 "categories": {
                     "type": "array",
                     "items": {
@@ -4585,6 +4597,10 @@ const docTemplate = `{
                     }
                 },
                 "comment_status": {
+                    "type": "string"
+                },
+                "creation_date": {
+                    "description": "Drafts have no published_date; the CMS listing falls back to this so an\nunpublished row still shows a date.",
                     "type": "string"
                 },
                 "excerpt": {
@@ -4621,6 +4637,9 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                },
+                "breaking_news": {
+                    "type": "boolean"
                 },
                 "categories": {
                     "type": "array",
@@ -5304,6 +5323,10 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "in_gallery": {
+                    "description": "InGallery is the editor's \"show this on the public photo gallery\" flag.\nIt is off by default: the library is every file on the media mount, house\nads and comics included, and the gallery is a curated selection of it.",
+                    "type": "boolean"
+                },
                 "mime_type": {
                     "type": "string"
                 },
@@ -5423,6 +5446,9 @@ const docTemplate = `{
                 },
                 "file_name": {
                     "type": "string"
+                },
+                "in_gallery": {
+                    "type": "boolean"
                 }
             }
         },
