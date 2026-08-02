@@ -10,6 +10,7 @@ import { DateTimeField } from "../components/ui/datetime-field"
 const SeoAnalysis = lazy(() => import("../components/SeoAnalysis"))
 
 type EditableStatus = "draft" | "published"
+type PublishTiming = "draft" | "now" | "schedule"
 
 type ApiArticleDetail = {
   id: number
@@ -126,6 +127,12 @@ const formatPublishDate = (value: string): string => {
   })
 }
 
+const PUBLISH_TIMING_OPTIONS: Array<{ value: PublishTiming; label: string; blurb: string }> = [
+  { value: "draft", label: "Draft", blurb: "Save without publishing." },
+  { value: "now", label: "Publish now", blurb: "Goes live as soon as you save." },
+  { value: "schedule", label: "Schedule", blurb: "Goes live at the publish date." },
+]
+
 // ArticleView caches list results in sessionStorage keyed by query; clear those
 // entries so the list refetches after an article is created or edited.
 const clearArticleListCache = () => {
@@ -202,7 +209,7 @@ function EditArticleView() {
     el.style.height = `${el.scrollHeight}px`
   }, [excerpt])
   const [content, setContent] = useState("")
-  const [status, setStatus] = useState<EditableStatus>("draft")
+  const [publishTiming, setPublishTiming] = useState<PublishTiming>("draft")
   const [publishedAt, setPublishedAt] = useState("")
   const [commentStatus, setCommentStatus] = useState("open")
   const [photoURL, setPhotoURL] = useState("")
@@ -260,8 +267,16 @@ function EditArticleView() {
           // has been saved yet.
           setMetaDescription(payload.seo?.meta_description ?? payload.excerpt ?? "")
           setContent(payload.content ?? "")
-          setStatus(["published", "scheduled"].includes((payload.status ?? "draft").toLowerCase()) ? "published" : "draft")
-          setPublishedAt(toLocalInput(payload.published_date))
+          const payloadStatus = (payload.status ?? "draft").toLowerCase()
+          const localPublishedAt = toLocalInput(payload.published_date)
+          setPublishTiming(
+            payloadStatus === "scheduled" || isFutureDate(localPublishedAt)
+              ? "schedule"
+              : payloadStatus === "published"
+                ? "now"
+                : "draft",
+          )
+          setPublishedAt(localPublishedAt)
           setCommentStatus(normalizeCommentStatus(payload.comment_status))
           setPhotoURL(payload.featured_image ?? "")
           setBreakingNews(Boolean(payload.breaking_news))
@@ -480,12 +495,13 @@ function EditArticleView() {
     }
   }, [apiFetch, imagePickerOpen, mediaItems.length, photoURL])
 
-  const saveArticle = async (nextStatus?: EditableStatus) => {
+  const saveArticle = async (nextTiming?: PublishTiming) => {
     setIsSaving(true)
     setError(null)
     setSuccessMessage(null)
 
-    const effectiveStatus = nextStatus ?? status
+    const effectiveTiming = nextTiming ?? publishTiming
+    const effectiveStatus: EditableStatus = effectiveTiming === "draft" ? "draft" : "published"
     const taxonomyBySlug = new Map(taxonomyItems.map((item) => [item.slug, item]))
     const categories = selectedCategorySlugs
       .map((categorySlug) => (
@@ -504,9 +520,19 @@ function EditArticleView() {
       setIsSaving(false)
       return
     }
-    const publishedDateISO = effectiveStatus === "published" && publishedAt ? localInputToISO(publishedAt) : ""
-    if (effectiveStatus === "published" && publishedAt && !publishedDateISO) {
+    const publishedDateISO = effectiveTiming === "schedule" && publishedAt ? localInputToISO(publishedAt) : ""
+    if (effectiveTiming === "schedule" && !publishedAt) {
+      setError("Choose a publish date before scheduling.")
+      setIsSaving(false)
+      return
+    }
+    if (effectiveTiming === "schedule" && publishedAt && !publishedDateISO) {
       setError("Publish date is invalid.")
+      setIsSaving(false)
+      return
+    }
+    if (effectiveTiming === "schedule" && !isFutureDate(publishedAt)) {
+      setError("Choose a future publish date, or use Publish now.")
       setIsSaving(false)
       return
     }
@@ -576,9 +602,9 @@ function EditArticleView() {
       if (!response.ok) {
         throw new Error(`Save failed (${response.status})`)
       }
-      if (nextStatus) {
-        setStatus(nextStatus)
-        if (nextStatus === "draft") setPublishedAt("")
+      if (nextTiming) {
+        setPublishTiming(nextTiming)
+        if (nextTiming !== "schedule") setPublishedAt("")
       }
       clearArticleListCache()
       setSuccessMessage("Article saved.")
@@ -594,12 +620,16 @@ function EditArticleView() {
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const labelClass = "flex flex-col gap-1.5"
   const labelTextClass = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
-  const publishDateInFuture = status === "published" && isFutureDate(publishedAt)
-  const publishDateHint = publishedAt
-    ? publishDateInFuture
+  const publishDateInFuture = publishTiming === "schedule" && isFutureDate(publishedAt)
+  const publishDateHint = (() => {
+    if (publishTiming !== "schedule") return "Publishes immediately."
+    if (!publishedAt) return "Choose when this should go live."
+    return publishDateInFuture
       ? `Goes on the site ${formatPublishDate(publishedAt)}.`
-      : `Published date: ${formatPublishDate(publishedAt)}.`
-    : "Blank publishes immediately."
+      : "Choose a future date, or use Publish now."
+  })()
+  const publishActionLabel = publishTiming === "schedule" ? "Schedule" : publishTiming === "now" ? "Publish" : "Save Draft"
+  const publishSavingLabel = publishTiming === "schedule" ? "Scheduling..." : publishTiming === "now" ? "Publishing..." : "Saving..."
   const taxonomyBySlug = useMemo(() => new Map(taxonomyItems.map((item) => [item.slug, item])), [taxonomyItems])
   const categoryGroups = useMemo(() => {
     const sections = taxonomyItems
@@ -821,23 +851,38 @@ function EditArticleView() {
               )}
             </label>
 
-            <label className={labelClass}>
-              <span className={labelTextClass}>Status</span>
-              <select
-                className={selectClass}
-                onChange={(e) => {
-                  const next = e.target.value as EditableStatus
-                  setStatus(next)
-                  if (next === "draft") setPublishedAt("")
-                }}
-                value={status}
-              >
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-              </select>
-            </label>
+            <div className={labelClass}>
+              <span className={labelTextClass}>Publish timing</span>
+              <div className="grid grid-cols-1 gap-2">
+                {PUBLISH_TIMING_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={`cursor-pointer rounded-lg border px-3 py-2.5 transition-colors ${
+                      publishTiming === option.value
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                        : "border-border hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="article-publish-timing"
+                        className="accent-primary"
+                        checked={publishTiming === option.value}
+                        onChange={() => {
+                          setPublishTiming(option.value)
+                          if (option.value !== "schedule") setPublishedAt("")
+                        }}
+                      />
+                      <span className="text-sm font-medium text-foreground">{option.label}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 pl-6">{option.blurb}</p>
+                  </label>
+                ))}
+              </div>
+            </div>
 
-            {status === "published" ? (
+            {publishTiming === "schedule" ? (
               <DateTimeField
                 label="Publish date"
                 value={publishedAt}
@@ -1046,21 +1091,13 @@ function EditArticleView() {
 
             <div className="flex flex-col gap-2 pt-1">
               <button
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-muted text-foreground text-sm font-medium hover:bg-muted/70 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isSaving}
-                onClick={() => void saveArticle("draft")}
+                onClick={() => void saveArticle(publishTiming)}
                 type="button"
               >
                 <Save className="w-4 h-4" aria-hidden="true" />
-                {isSaving ? "Saving..." : "Save Draft"}
-              </button>
-              <button
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isSaving}
-                onClick={() => void saveArticle("published")}
-                type="button"
-              >
-                {isSaving ? (publishDateInFuture ? "Scheduling..." : "Publishing...") : (publishDateInFuture ? "Schedule" : "Publish")}
+                {isSaving ? publishSavingLabel : publishActionLabel}
               </button>
             </div>
             </div>
