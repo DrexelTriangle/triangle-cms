@@ -20,6 +20,12 @@ type MediaPickerProps = {
   onSelect: (item: MediaPickerItem) => void
   onClose: () => void
   title?: string
+  // When set, the picker also accepts a bare image URL. Only the featured-image
+  // field wants this: an article's photo_url is served verbatim, so it can point
+  // at an image that was never in our library. Body attachments have no such
+  // escape hatch by design -- they get sideloaded so articles never hotlink.
+  onUseUrl?: (url: string) => void
+  initialUrl?: string
 }
 
 const PAGE_SIZE = 60
@@ -41,7 +47,7 @@ async function errorMessage(response: Response, fallback: string) {
  * notably including alt_text, so a chosen image arrives with its description
  * already written rather than needing it retyped per article.
  */
-function MediaPicker({ onSelect, onClose, title = "Insert image" }: MediaPickerProps) {
+function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, initialUrl = "" }: MediaPickerProps) {
   const apiFetch = useApiFetch()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -51,6 +57,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image" }: MediaPickerP
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [urlInput, setUrlInput] = useState(initialUrl)
 
   useEffect(() => {
     const timer = setTimeout(() => setSearch(searchInput.trim()), 300)
@@ -235,6 +242,27 @@ function MediaPicker({ onSelect, onClose, title = "Insert image" }: MediaPickerP
             </div>
           )}
         </div>
+
+        {onUseUrl && (
+          <div className="flex gap-2 border-t border-border pt-4">
+            <input
+              aria-label="Image URL"
+              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+              onChange={(e) => setUrlInput(e.target.value)}
+              placeholder="Or paste image URL"
+              type="url"
+              value={urlInput}
+            />
+            <button
+              className="whitespace-nowrap rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              disabled={!urlInput.trim()}
+              onClick={() => onUseUrl(urlInput.trim())}
+              type="button"
+            >
+              Use URL
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
