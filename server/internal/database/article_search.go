@@ -223,18 +223,47 @@ func searchArticleIDsByFulltext(ctx context.Context, conn *sql.DB, booleanQuery 
 	return collectIDs(rows)
 }
 
-func searchArticleIDsByVector(ctx context.Context, conn *sql.DB, queryVector []float32, limit int) ([]int64, error) {
-	// The visibility filter is applied as a join rather than trusted to the
-	// embeddings table alone. The reconciler does delete vectors for articles
-	// that stop being live, but it runs on an interval, and an unpublished story
-	// surfacing in public search during that window is not a tolerable race.
-	query := "SELECT a.`id` FROM article_embeddings AS e " +
-		"JOIN articles AS a ON a.id = e.article_id " +
-		"WHERE a.`pub_date` IS NOT NULL AND a.`pub_date` <= UTC_TIMESTAMP() AND a.`archived_at` IS NULL " +
-		"ORDER BY VEC_DISTANCE_EUCLIDEAN(e.embedding, VEC_FromText(?)), a.`id` DESC " +
-		"LIMIT " + strconv.Itoa(limit)
+// vectorOverFetch is how many extra neighbours the inner scan takes so the
+// visibility filter has something to discard. The reconciler deletes vectors for
+// articles that stop being live, so in practice almost nothing is dropped here;
+// this only has to cover the interval between an article being unpublished and
+// the next reconciler pass.
+const vectorOverFetch = 3
 
-	rows, err := conn.QueryContext(ctx, query, FormatVector(queryVector))
+// buildVectorNeighbourQuery is split out so the query's shape can be asserted on
+// without a database. An EXPLAIN-based test cannot do that job: on a small table
+// the optimizer picks the vector index even for the join form, so the plan only
+// diverges at a corpus size no unit test should have to build.
+func buildVectorNeighbourQuery(limit int) string {
+	// The nearest-neighbour scan has to stand alone in a derived table.
+	// MariaDB only uses the HNSW index for a bare ORDER BY VEC_DISTANCE ... LIMIT
+	// over the one table; joining articles in to filter by visibility -- which is
+	// how this was first written -- silently disqualifies the index and turns the
+	// query into a full scan of every stored vector plus a filesort. Measured on
+	// the production corpus that was 360ms against 7ms, and it degrades linearly
+	// as the archive grows.
+	//
+	// The visibility filter stays as a join rather than trusting the embeddings
+	// table alone: the reconciler's deletes run on an interval, and an
+	// unpublished story surfacing in public search during that window is not a
+	// tolerable race. It just has to happen outside the derived table.
+	//
+	// The distance is carried out and re-sorted on, because a derived table's
+	// row order is not guaranteed to survive the join, and that order *is* the
+	// ranking that reciprocal rank fusion consumes. Re-sorting a few hundred
+	// already-ranked rows costs nothing.
+	return "SELECT a.`id` FROM (" +
+		"SELECT `article_id`, VEC_DISTANCE_EUCLIDEAN(`embedding`, VEC_FromText(?)) AS `d` " +
+		"FROM article_embeddings ORDER BY `d` LIMIT " + strconv.Itoa(limit*vectorOverFetch) +
+		") AS nn " +
+		"JOIN articles AS a ON a.id = nn.article_id " +
+		"WHERE a.`pub_date` IS NOT NULL AND a.`pub_date` <= UTC_TIMESTAMP() AND a.`archived_at` IS NULL " +
+		"ORDER BY nn.`d`, a.`id` DESC " +
+		"LIMIT " + strconv.Itoa(limit)
+}
+
+func searchArticleIDsByVector(ctx context.Context, conn *sql.DB, queryVector []float32, limit int) ([]int64, error) {
+	rows, err := conn.QueryContext(ctx, buildVectorNeighbourQuery(limit), FormatVector(queryVector))
 	if err != nil {
 		return nil, err
 	}

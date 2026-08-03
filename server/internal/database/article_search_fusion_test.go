@@ -2,6 +2,8 @@ package database
 
 import (
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -85,5 +87,42 @@ func TestFuseByReciprocalRankKeepsResultsUnique(t *testing.T) {
 			t.Fatalf("fused list repeats id %d: %v", id, got)
 		}
 		seen[id] = true
+	}
+}
+
+// The nearest-neighbour scan must stand alone in a derived table. MariaDB only
+// uses the HNSW index for a bare ORDER BY VEC_DISTANCE ... LIMIT over the one
+// table, so joining articles in to filter by visibility -- the obvious way to
+// write this, and how it was first written -- silently disqualifies the index
+// and turns the query into a full scan of every stored vector plus a filesort.
+// On the production corpus that was 360ms against 7ms.
+//
+// This asserts the query's shape rather than its plan on purpose. An EXPLAIN
+// test cannot do the job: on a small table the optimizer picks the vector index
+// even for the join form, so the two shapes only diverge at a corpus size no
+// unit test should have to build. Shape is the thing that is actually load-
+// bearing, and it is the thing a well-meaning rewrite would break.
+func TestBuildVectorNeighbourQueryKeepsTheScanIndexEligible(t *testing.T) {
+	query := buildVectorNeighbourQuery(50)
+
+	orderBy := strings.Index(query, "ORDER BY `d`")
+	if orderBy < 0 {
+		t.Fatalf("query no longer orders the inner scan by distance:\n%s", query)
+	}
+	// Nothing may join before the distance ordering -- that is exactly what
+	// disqualifies the index.
+	if inner := query[:orderBy]; strings.Contains(strings.ToUpper(inner), "JOIN") {
+		t.Errorf("the vector scan joins another table before ordering by distance, which disqualifies the HNSW index:\n%s", query)
+	}
+	if !strings.Contains(query, "JOIN articles") {
+		t.Errorf("the visibility filter is gone; unpublished articles could surface in search:\n%s", query)
+	}
+	// The outer re-sort is what makes the ranking survive the join.
+	if !strings.Contains(query, "ORDER BY nn.`d`") {
+		t.Errorf("the outer query does not re-sort by distance, so RRF would consume an arbitrary order:\n%s", query)
+	}
+	// Over-fetch, or the visibility filter eats into the requested page.
+	if !strings.Contains(query, "LIMIT "+strconv.Itoa(50*vectorOverFetch)) {
+		t.Errorf("the inner scan does not over-fetch, so filtered rows shrink the result page:\n%s", query)
 	}
 }

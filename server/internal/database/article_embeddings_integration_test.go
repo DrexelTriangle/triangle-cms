@@ -419,3 +419,4 @@ func TestArticleSearchHybrid_Paginates(t *testing.T) {
 		t.Error("the second page repeats a result from the first")
 	}
 }
+
