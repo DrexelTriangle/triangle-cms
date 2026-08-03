@@ -30,6 +30,28 @@ next_slot="$(opposite_slot "${current_slot}")"
 echo "active slot: ${current_slot}"
 echo "deploying ${CMS_IMAGE_TAG} to inactive slot: ${next_slot}"
 
+# The embedding sidecar is shared by both slots rather than duplicated per slot:
+# it is stateless, so a second copy would only cost memory on a host that has
+# little to spare. That means it is not part of the blue/green swap and has to be
+# brought up separately -- the slot services below are started with --no-deps.
+#
+# Deliberately never fatal. Search degrades to lexical-only when the sidecar is
+# missing or still loading its model, so a sidecar problem must not block or roll
+# back a deployment that is otherwise fine.
+if ! compose pull embeddings; then
+  echo "warning: could not pull the embeddings sidecar; semantic search may be unavailable" >&2
+fi
+if compose up -d --no-deps embeddings; then
+  # Recreated on every deploy because its image tag is the commit SHA, so it
+  # reloads its model each time. Waiting here keeps the window where search is
+  # lexical-only from overlapping the slot switch.
+  if ! wait_for_embeddings; then
+    echo "warning: the embeddings sidecar did not become healthy; search will serve lexical results until it does" >&2
+  fi
+else
+  echo "warning: could not start the embeddings sidecar; search will serve lexical results" >&2
+fi
+
 compose pull "backend-${next_slot}" "frontend-${next_slot}"
 compose up -d --no-deps "backend-${next_slot}" "frontend-${next_slot}"
 
