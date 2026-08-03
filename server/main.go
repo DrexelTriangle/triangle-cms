@@ -14,6 +14,7 @@ import (
 	"server/internal/akismet"
 	"server/internal/auth"
 	"server/internal/database"
+	"server/internal/embeddings"
 	"server/internal/handlers"
 	"server/internal/middleware"
 	"server/internal/routes"
@@ -116,6 +117,21 @@ func main() {
 	if err := database.EnsureArticlesSchema(context.Background(), db); err != nil {
 		slog.Error("failed to migrate articles schema", "error", err)
 		os.Exit(1)
+	}
+
+	// Deliberately not fatal, and deliberately after the column migration: the
+	// first FULLTEXT index on `articles` rebuilds the table, which on the
+	// migrated corpus is slow enough that failing the boot over it would trade a
+	// degraded search box for a down newsroom. SearchArticles falls back to LIKE
+	// until this succeeds.
+	if err := database.EnsureArticlesSearchIndex(context.Background(), db); err != nil {
+		slog.Error("failed to build article search index; search falls back to LIKE", "error", err)
+	}
+
+	// Also non-fatal: VECTOR columns need MariaDB 11.7+, and a CMS pointed at an
+	// older database should lose semantic search rather than refuse to boot.
+	if err := database.EnsureArticleEmbeddingsTable(context.Background(), db); err != nil {
+		slog.Error("failed to create article embeddings table; search stays lexical", "error", err)
 	}
 
 	if err := database.EnsureAuthorsSchema(context.Background(), db); err != nil {
@@ -352,13 +368,24 @@ func run(deps runDeps, conn *sql.DB) error {
 		cert = &loadedCert
 	}
 
+	// An unset EMBEDDINGS_URL yields a disabled client, which is the supported
+	// way to run without the sidecar: search stays lexical and the reconciler
+	// returns immediately. The timeout is short because this client sits on the
+	// public search path, where waiting is worse than a slightly worse ranking.
+	embedder := embeddings.New(os.Getenv("EMBEDDINGS_URL"), 2*time.Second)
+
 	mux := http.NewServeMux()
-	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker)
+	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, embedder)
 	server := deps.newServer(cert, mux, slog.Default())
 
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
 	defer stopScheduler()
 	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default())
+
+	// The reconciler embeds articles in the background. It gets its own client
+	// with a far longer timeout: batches of article bodies take much longer than
+	// a query, and unlike search it has no reason to give up quickly.
+	go embeddings.NewReconciler(conn, embeddings.New(os.Getenv("EMBEDDINGS_URL"), 2*time.Minute)).Run(schedulerCtx)
 
 	serverErr := make(chan error, 1)
 	go func() {

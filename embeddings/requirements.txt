@@ -1,0 +1,8 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+# fastembed runs the model on onnxruntime. sentence-transformers would pull in
+# torch (~2GB of image, and more RSS than the Delta host has to spare) to serve
+# the same weights.
+fastembed==0.5.1
+numpy==2.2.1

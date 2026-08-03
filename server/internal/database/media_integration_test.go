@@ -54,7 +54,7 @@ func mediaTestDB(t *testing.T) *sql.DB {
 // own integration tests against the same table, and `go test ./...` runs
 // packages in parallel, so without this one package drops the table the other is
 // midway through using. The same name is used there.
-const mediaTestLockName = "cms_media_integration_test"
+const mediaTestLockName = "cms_integration_test_shared_tables"
 
 func acquireMediaTestLock(ctx context.Context, t *testing.T, conn *sql.DB) {
 	t.Helper()

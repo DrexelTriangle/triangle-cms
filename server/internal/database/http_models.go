@@ -362,32 +362,7 @@ func GetRelatedArticlesBySlug(ctx context.Context, conn *sql.DB, slug string, k 
 	return articles, nil
 }
 
-func SearchArticles(ctx context.Context, conn *sql.DB, term string, limit, offset int) ([]models.Article, error) {
-	trimmedTerm := strings.TrimSpace(term)
-	if trimmedTerm == "" {
-		return []models.Article{}, nil
-	}
-
-	like := "%" + trimmedTerm + "%"
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date`, `scheduled_pub_date` FROM `articles` " +
-		// Search is public, so it stays pinned to live content: published and not
-		// soft-deleted. Archived rows were previously reachable here.
-		"WHERE `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL AND (`title` LIKE ? OR `tags` LIKE ? OR `text` LIKE ?) " +
-		"ORDER BY CASE " +
-		"WHEN `title` LIKE ? THEN 1 " +
-		"WHEN `tags` LIKE ? THEN 2 " +
-		"WHEN `text` LIKE ? THEN 3 " +
-		"ELSE 4 END, `pub_date` DESC, `id` DESC"
-	query = BuildOrderLimit(query, "", "", ArticleSortByColumn, limit, offset)
-
-	rows, err := conn.QueryContext(ctx, query, like, like, like, like, like, like)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	return CollectArticles(rows)
-}
+// SearchArticles and its FULLTEXT/LIKE query paths live in article_search.go.
 
 // IsVectorSearchUnavailableError reports errors that indicate vector search
 // infrastructure is not available in the current DB setup.
@@ -657,7 +632,13 @@ func ArticleToDBFields(body models.Article) []any {
 		body.Content,
 		FormatTags(body.Categories),
 		publishedAt,
-		nil,
+		// mod_date. This used to write NULL, which made a full replacement the one
+		// edit the CMS could not see it had made: the public sitemap's lastmod is
+		// COALESCE(mod_date, pub_date), so a PUT silently reset the article's
+		// last-modified date to its publish date, and the embedding reconciler --
+		// which finds stale vectors by comparing mod_date to when the article was
+		// last embedded -- could never tell a PUT-edited article had changed.
+		time.Now().UTC().Format("2006-01-02 15:04:05"),
 		body.IsFeatured,
 		body.BreakingNews,
 		normalizeCommentStatus(body.CommentStatus),

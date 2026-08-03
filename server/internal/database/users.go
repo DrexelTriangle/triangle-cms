@@ -23,6 +23,28 @@ func EnsureArticlesSchema(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
+// EnsureArticlesSearchIndex adds the FULLTEXT indexes public search ranks on.
+//
+// Two indexes, not one: the combined index answers "does this article match at
+// all", and the title-only index supplies the boost that keeps a headline hit
+// above a body mention. MATCH can only use an index whose column list it names
+// exactly, so the pair is the minimum that expresses that ranking.
+//
+// Callers must treat a failure here as non-fatal. Building the first FULLTEXT
+// index on `articles` forces InnoDB to rebuild the table (it adds a hidden
+// FTS_DOC_ID column), which on the migrated WordPress corpus takes long enough
+// to look like a stalled boot. SearchArticles falls back to LIKE whenever the
+// indexes are absent, so a slow or failed ALTER degrades search instead of
+// taking the CMS down with it.
+func EnsureArticlesSearchIndex(ctx context.Context, conn *sql.DB) error {
+	_, err := conn.ExecContext(ctx, `
+		ALTER TABLE articles
+		ADD FULLTEXT INDEX IF NOT EXISTS ft_articles_search (`+"`title`, `tags`, `text`"+`),
+		ADD FULLTEXT INDEX IF NOT EXISTS ft_articles_title (`+"`title`"+`)
+	`)
+	return err
+}
+
 // BackfillArticleSEOFromYoast copies focus keyphrase / meta description / SEO
 // title from the WordPress `seo` export (yoast_tag_data JSON) into the article
 // columns. It only fills blanks, so editor changes are never overwritten, and it

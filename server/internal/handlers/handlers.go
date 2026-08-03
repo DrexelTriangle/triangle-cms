@@ -1393,7 +1393,14 @@ func appendArticleTypeCondition(conditions *[]string, args *[]any, rawType strin
 // @Success 200 {array} models.ArticleListItem
 // @Failure 500 {object} models.ErrorResponse
 // @Router /v1/search [get]
-func GetSearch(conn *sql.DB) http.HandlerFunc {
+// QueryEmbedder turns a search query into a vector. It is an interface, and a
+// nil one is valid: a deployment without the embedding sidecar serves lexical
+// search through the same handler.
+type QueryEmbedder interface {
+	EmbedQuery(ctx context.Context, query string) ([]float32, error)
+}
+
+func GetSearch(conn *sql.DB, embedder QueryEmbedder) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := strings.TrimSpace(r.URL.Query().Get("q"))
 		if q == "" {
@@ -1403,7 +1410,21 @@ func GetSearch(conn *sql.DB) http.HandlerFunc {
 
 		limit := intParam(r, "limit", 20)
 		offset := intParam(r, "offset", 0)
-		articles, err := db.SearchArticles(r.Context(), conn, q, limit, offset)
+
+		// The sidecar is on the request path here, so its failures must not be.
+		// A timeout, a cold model, or no sidecar at all costs the semantic half of
+		// the ranking; it never costs the reader their results.
+		var queryVector []float32
+		if embedder != nil {
+			vector, err := embedder.EmbedQuery(r.Context(), q)
+			if err != nil {
+				slog.WarnContext(r.Context(), "query embedding unavailable; serving lexical search", "error", err)
+			} else {
+				queryVector = vector
+			}
+		}
+
+		articles, err := db.SearchArticlesHybrid(r.Context(), conn, q, queryVector, limit, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
