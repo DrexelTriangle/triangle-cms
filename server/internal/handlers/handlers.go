@@ -304,18 +304,41 @@ func loadArticleCategoriesByArchiveState(ctx context.Context, conn *sql.DB, slug
 	return parseArticleCategoryValue(raw), true, nil
 }
 
-func loadArticlePublishDate(ctx context.Context, conn *sql.DB, slug string) (sql.NullTime, error) {
-	var publishedAt sql.NullTime
-	err := conn.QueryRowContext(ctx, "SELECT pub_date FROM articles WHERE slug = ? AND archived_at IS NULL LIMIT 1", slug).Scan(&publishedAt)
+// last_pub_date remembers the publish date an article had before it was pulled
+// back to draft, so re-publishing restores the original date instead of stamping
+// today's. See articlePatchDateColumns.
+func loadArticlePublishDate(ctx context.Context, conn *sql.DB, slug string) (publishedAt, lastPublishedAt sql.NullTime, err error) {
+	err = conn.QueryRowContext(ctx,
+		"SELECT pub_date, last_pub_date FROM articles WHERE slug = ? AND archived_at IS NULL LIMIT 1",
+		slug,
+	).Scan(&publishedAt, &lastPublishedAt)
 	if err == sql.ErrNoRows {
-		return sql.NullTime{}, nil
+		return sql.NullTime{}, sql.NullTime{}, nil
 	}
-	return publishedAt, err
+	return publishedAt, lastPublishedAt, err
 }
 
-func articlePatchDateColumns(statusSet bool, status models.ArticleStatus, publishedDateSet bool, publishedDateValue, scheduledDateValue any, currentPublishedAt sql.NullTime, now time.Time) ([]string, []any) {
+func formatArticleDate(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
+}
+
+// Saving an article must never move its publish date on its own: the editor
+// sends the whole form on every save and every autosave, so any date the handler
+// invents here would silently overwrite the real one.
+//   - An explicit published_date always wins.
+//   - Going to draft clears the live date but parks it in last_pub_date.
+//   - Publishing without a date reuses the article's own date -- current first,
+//     then the parked one -- and only falls back to now for something that has
+//     genuinely never been published.
+func articlePatchDateColumns(statusSet bool, status models.ArticleStatus, publishedDateSet bool, publishedDateValue, scheduledDateValue any, currentPublishedAt, lastPublishedAt sql.NullTime, now time.Time) ([]string, []any) {
 	if statusSet && status == models.ArticleStatusDraft {
-		return []string{"pub_date", "scheduled_pub_date"}, []any{nil, nil}
+		cols := []string{"pub_date", "scheduled_pub_date"}
+		args := []any{nil, nil}
+		if currentPublishedAt.Valid {
+			cols = append(cols, "last_pub_date")
+			args = append(args, formatArticleDate(currentPublishedAt.Time))
+		}
+		return cols, args
 	}
 	if publishedDateSet {
 		return []string{"pub_date", "scheduled_pub_date"}, []any{publishedDateValue, scheduledDateValue}
@@ -324,8 +347,12 @@ func articlePatchDateColumns(statusSet bool, status models.ArticleStatus, publis
 		cols := []string{"scheduled_pub_date"}
 		args := []any{nil}
 		if !currentPublishedAt.Valid {
+			restored := formatArticleDate(now)
+			if lastPublishedAt.Valid {
+				restored = formatArticleDate(lastPublishedAt.Time)
+			}
 			cols = append([]string{"pub_date"}, cols...)
-			args = append([]any{now.UTC().Format("2006-01-02 15:04:05")}, args...)
+			args = append([]any{restored}, args...)
 		}
 		return cols, args
 	}
@@ -2133,7 +2160,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		currentPublishedAt, err := loadArticlePublishDate(r.Context(), conn, slug)
+		currentPublishedAt, lastPublishedAt, err := loadArticlePublishDate(r.Context(), conn, slug)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2257,7 +2284,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				setArgs = append(setArgs, v)
 			}
 		}
-		if dateCols, dateArgs := articlePatchDateColumns(statusSet, statusValue, publishedDateSet, publishedDateValue, scheduledDateValue, currentPublishedAt, time.Now().UTC()); len(dateCols) > 0 {
+		if dateCols, dateArgs := articlePatchDateColumns(statusSet, statusValue, publishedDateSet, publishedDateValue, scheduledDateValue, currentPublishedAt, lastPublishedAt, time.Now().UTC()); len(dateCols) > 0 {
 			setCols = append(setCols, dateCols...)
 			setArgs = append(setArgs, dateArgs...)
 		}

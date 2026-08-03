@@ -243,7 +243,7 @@ func TestArticlePatchDateColumns_PublishedAutosavePreservesExistingPublishDate(t
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	currentPublishedAt := sql.NullTime{Time: time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC), Valid: true}
 
-	cols, args := articlePatchDateColumns(true, models.ArticleStatusPublished, false, nil, nil, currentPublishedAt, now)
+	cols, args := articlePatchDateColumns(true, models.ArticleStatusPublished, false, nil, nil, currentPublishedAt, sql.NullTime{}, now)
 
 	if strings.Join(cols, ",") != "scheduled_pub_date" {
 		t.Fatalf("cols = %v, want only scheduled_pub_date", cols)
@@ -256,13 +256,41 @@ func TestArticlePatchDateColumns_PublishedAutosavePreservesExistingPublishDate(t
 func TestArticlePatchDateColumns_PublishFromUnpublishedStampsPublishDate(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 
-	cols, args := articlePatchDateColumns(true, models.ArticleStatusPublished, false, nil, nil, sql.NullTime{}, now)
+	cols, args := articlePatchDateColumns(true, models.ArticleStatusPublished, false, nil, nil, sql.NullTime{}, sql.NullTime{}, now)
 
 	if strings.Join(cols, ",") != "pub_date,scheduled_pub_date" {
 		t.Fatalf("cols = %v, want pub_date and scheduled_pub_date", cols)
 	}
 	if len(args) != 2 || args[0] != "2026-08-02 12:00:00" || args[1] != nil {
 		t.Fatalf("args = %v, want pub_date stamped and scheduled_pub_date cleared", args)
+	}
+}
+
+func TestArticlePatchDateColumns_DraftParksExistingPublishDate(t *testing.T) {
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	currentPublishedAt := sql.NullTime{Time: time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC), Valid: true}
+
+	cols, args := articlePatchDateColumns(true, models.ArticleStatusDraft, false, nil, nil, currentPublishedAt, sql.NullTime{}, now)
+
+	if strings.Join(cols, ",") != "pub_date,scheduled_pub_date,last_pub_date" {
+		t.Fatalf("cols = %v, want the live dates cleared and the old one parked", cols)
+	}
+	if len(args) != 3 || args[0] != nil || args[1] != nil || args[2] != "2026-07-01 09:30:00" {
+		t.Fatalf("args = %v, want last_pub_date set to the old publish date", args)
+	}
+}
+
+func TestArticlePatchDateColumns_RepublishRestoresParkedPublishDate(t *testing.T) {
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	lastPublishedAt := sql.NullTime{Time: time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC), Valid: true}
+
+	cols, args := articlePatchDateColumns(true, models.ArticleStatusPublished, false, nil, nil, sql.NullTime{}, lastPublishedAt, now)
+
+	if strings.Join(cols, ",") != "pub_date,scheduled_pub_date" {
+		t.Fatalf("cols = %v, want pub_date and scheduled_pub_date", cols)
+	}
+	if len(args) != 2 || args[0] != "2026-07-01 09:30:00" || args[1] != nil {
+		t.Fatalf("args = %v, want the original publish date restored", args)
 	}
 }
 
