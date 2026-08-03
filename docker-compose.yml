@@ -33,8 +33,14 @@ services:
       context: ./embeddings
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Capped for the same reason as production (see deploy/compose.cms.yml):
+    # uncapped, embedding a freshly seeded corpus saturates every core on the
+    # machine. Both settings are needed and should match -- cpus is the ceiling,
+    # OMP_NUM_THREADS stops onnxruntime spawning a thread per core regardless.
+    cpus: ${EMBED_CPUS:-4}
     environment:
       EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-small-en-v1.5}
+      OMP_NUM_THREADS: ${EMBED_CPUS:-4}
     healthcheck:
       # /health 503s until the model finishes loading, so this gates the CMS's
       # first search rather than letting it fail against a cold container.

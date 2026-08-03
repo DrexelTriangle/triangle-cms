@@ -83,11 +83,24 @@ services:
     image: ${CMS_EMBEDDINGS_IMAGE:-ghcr.io/drexeltriangle/triangle-cms-embeddings}:${CMS_IMAGE_TAG:?CMS_IMAGE_TAG is required}
     restart: unless-stopped
     stop_grace_period: 10s
+    # Delta has 6 cores. Left uncapped, the backfill after a reseed pins nearly
+    # all of them for over an hour (measured: 579% of 600%, load average 5.4)
+    # and would starve the backends of the CPU they need to serve requests.
+    #
+    # Both settings are needed, and they should match. cpus is a cgroup ceiling;
+    # without OMP_NUM_THREADS, onnxruntime still spawns one thread per visible
+    # core and thrashes against that ceiling instead of respecting it.
+    #
+    # This trades backfill throughput for headroom -- roughly 2 articles/sec
+    # becomes 1.4 -- which is the right way round: the backfill is background
+    # work that converges on its own, and nothing waits on it.
+    cpus: ${EMBED_CPUS:-4}
     environment:
       # Must match the WordPress ETL's --embedding-model. Vectors from two
       # different models share a table but not a coordinate space, so a mismatch
       # corrupts ranking silently rather than failing.
       EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-small-en-v1.5}
+      OMP_NUM_THREADS: ${EMBED_CPUS:-4}
     healthcheck:
       # /health 503s until the model is loaded.
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
