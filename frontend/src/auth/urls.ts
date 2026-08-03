@@ -18,3 +18,10 @@ export function authBaseUrl() {
 export function publicSiteUrl() {
   return trimTrailingSlashes(import.meta.env.VITE_PUBLIC_SITE_URL ?? "https://dev.thetriangle.org")
 }
+
+// The public permalink for a slug. The URL is fully determined by the slug, so
+// it can be handed out (newsletter, social scheduling) before the article is
+// published -- it 404s until then, and resolves the moment it goes live.
+export function articleUrl(slug: string) {
+  return `${publicSiteUrl()}/article/${encodeURIComponent(slug)}`
+}

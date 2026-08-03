@@ -1,9 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowLeft, Save, Image, Search, X } from "lucide-react"
+import { ArrowLeft, Save, Image, Search, X, Copy, Check } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
-import { publicSiteUrl } from "../auth/urls"
+import { articleUrl } from "../auth/urls"
 import TrixEditor from "../components/TrixEditor"
+import MediaPicker from "../components/MediaPicker"
+import { copyText } from "../lib/clipboard"
 import { DateTimeField } from "../components/ui/datetime-field"
 
 // Lazy-loaded so the heavy yoastseo bundle only loads when editing an article.
@@ -52,12 +54,6 @@ type PatchPayload = {
   focus_keyword: string
   meta_description: string
   seo_title: string
-}
-
-type MediaItem = {
-  id: string
-  url: string
-  fileName: string
 }
 
 type ApiAuthor = {
@@ -151,37 +147,6 @@ const clearArticleListCache = () => {
   }
 }
 
-const normalizeMediaItems = (payload: unknown): MediaItem[] => {
-  const asRecord = (value: unknown): Record<string, unknown> | null => (value && typeof value === "object" ? (value as Record<string, unknown>) : null)
-  const root = asRecord(payload)
-  const source = Array.isArray(payload)
-    ? payload
-    : Array.isArray(root?.items)
-      ? root.items
-      : Array.isArray(root?.media)
-        ? root.media
-        : []
-
-  const items = source
-    .map((raw) => asRecord(raw))
-    .filter((item): item is Record<string, unknown> => Boolean(item))
-    .map((item, index) => {
-      const url = String(item.url ?? item.photo_url ?? "").trim()
-      const fileName = String(item.file_name ?? item.title ?? item.name ?? url).trim()
-      const id = String(item.id ?? item.media_id ?? index)
-      return { id, url, fileName }
-    })
-    .filter((item) => item.url.length > 0)
-
-  const deduped = new Map<string, MediaItem>()
-  for (const item of items) {
-    if (!deduped.has(item.url)) {
-      deduped.set(item.url, item)
-    }
-  }
-  return [...deduped.values()]
-}
-
 function EditArticleView() {
   const navigate = useNavigate()
   const apiFetch = useApiFetch()
@@ -228,8 +193,11 @@ function EditArticleView() {
   const [metaDescription, setMetaDescription] = useState("")
   const [seoTitle, setSeoTitle] = useState("")
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
-  const [selectedAuthorId, setSelectedAuthorId] = useState<string>("")
-  const [currentArticleAuthor, setCurrentArticleAuthor] = useState<ApiAuthor | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
+  // Byline order is selection order: the list is sent as-is and rendered in that
+  // order downstream, so the first author checked leads the byline.
+  const [selectedAuthorIds, setSelectedAuthorIds] = useState<number[]>([])
+  const [currentArticleAuthors, setCurrentArticleAuthors] = useState<ApiAuthor[]>([])
   const [authorSearch, setAuthorSearch] = useState("")
   const [authors, setAuthors] = useState<ApiAuthor[]>([])
   const [authorsLoading, setAuthorsLoading] = useState(false)
@@ -237,11 +205,6 @@ function EditArticleView() {
   const [taxonomyItems, setTaxonomyItems] = useState<TaxonomyItem[]>([])
   const [taxonomyLoading, setTaxonomyLoading] = useState(false)
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null)
-  const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
-  const [mediaLoading, setMediaLoading] = useState(false)
-  const [mediaError, setMediaError] = useState<string | null>(null)
-  const [mediaSearch, setMediaSearch] = useState("")
-  const [customImageURL, setCustomImageURL] = useState("")
   const articleSnapshot = useMemo(() => JSON.stringify({
     title,
     slugInput: isNew ? slugInput : "",
@@ -253,7 +216,7 @@ function EditArticleView() {
     photoURL,
     breakingNews,
     selectedCategorySlugs,
-    selectedAuthorId,
+    selectedAuthorIds,
     keyphrase,
     metaDescription,
     seoTitle,
@@ -269,7 +232,7 @@ function EditArticleView() {
     photoURL,
     breakingNews,
     selectedCategorySlugs,
-    selectedAuthorId,
+    selectedAuthorIds,
     keyphrase,
     metaDescription,
     seoTitle,
@@ -343,14 +306,12 @@ function EditArticleView() {
             .filter((categorySlug) => categorySlug.length > 0)
           setLegacyCategoryTitlesBySlug(legacyCategories)
           setSelectedCategorySlugs([...new Set(categorySlugs)])
-          const firstAuthor = payload.authors?.[0]
-          const firstAuthorId = firstAuthor?.id
-          setSelectedAuthorId(typeof firstAuthorId === "number" ? String(firstAuthorId) : "")
-          setCurrentArticleAuthor(
-            typeof firstAuthorId === "number"
-              ? { id: firstAuthorId, display_name: (firstAuthor?.name ?? "").trim() }
-              : null,
-          )
+          // Keep the server's order: it is the byline order readers see.
+          const articleAuthors = (payload.authors ?? [])
+            .filter((author): author is { id: number; name?: string } => typeof author.id === "number")
+            .map((author) => ({ id: author.id, display_name: (author.name ?? "").trim() }))
+          setSelectedAuthorIds([...new Set(articleAuthors.map((author) => author.id))])
+          setCurrentArticleAuthors(articleAuthors)
         }
       } catch (err) {
         if (!cancelled) {
@@ -509,42 +470,6 @@ function EditArticleView() {
     }
   }, [apiFetch])
 
-  useEffect(() => {
-    if (!imagePickerOpen) return
-    let cancelled = false
-
-    setCustomImageURL(photoURL)
-    setMediaSearch("")
-    setMediaError(null)
-
-    const fetchMedia = async () => {
-      if (mediaItems.length > 0) return
-      setMediaLoading(true)
-      try {
-        const response = await apiFetch("/v1/media?limit=200")
-        if (!response.ok) {
-          throw new Error(`Media request failed (${response.status})`)
-        }
-        const payload = (await response.json()) as unknown
-        if (cancelled) return
-        setMediaItems(normalizeMediaItems(payload))
-      } catch (err) {
-        if (cancelled) return
-        const message = err instanceof Error ? err.message : "Unable to load media items."
-        setMediaError(message)
-      } finally {
-        if (!cancelled) {
-          setMediaLoading(false)
-        }
-      }
-    }
-
-    void fetchMedia()
-    return () => {
-      cancelled = true
-    }
-  }, [apiFetch, imagePickerOpen, mediaItems.length, photoURL])
-
   const saveArticle = async (nextTiming?: PublishTiming, options: { autosave?: boolean } = {}) => {
     const autosave = options.autosave === true
     const snapshotToSave = currentSnapshotRef.current
@@ -582,7 +507,7 @@ function EditArticleView() {
     // as import artifacts. Drafts are exempt from that filter for editors, so
     // this only has to block on the way to published — where the row would
     // otherwise vanish from both the CMS list and the public site.
-    if (effectiveStatus === "published" && !selectedAuthorId && categories.length === 0) {
+    if (effectiveStatus === "published" && selectedAuthorIds.length === 0 && categories.length === 0) {
       validationError(
         "Add at least one author or category so the article shows up in the list.",
         "Autosave paused until an author or section is set.",
@@ -619,7 +544,7 @@ function EditArticleView() {
           photo_url: photoURL.trim(),
           breaking_news: breakingNews,
           categories,
-          authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
+          authors: selectedAuthorIds,
           focus_keyword: keyphrase.trim(),
           meta_description: metaDescription.trim(),
           seo_title: seoTitle.trim(),
@@ -652,7 +577,7 @@ function EditArticleView() {
         photo_url: photoURL.trim(),
         breaking_news: breakingNews,
         categories,
-        authors: selectedAuthorId ? [Number(selectedAuthorId)] : [],
+        authors: selectedAuthorIds,
         focus_keyword: keyphrase.trim(),
         meta_description: metaDescription.trim(),
         seo_title: seoTitle.trim(),
@@ -695,7 +620,7 @@ function EditArticleView() {
     if (isNew || isLoading || lockedBy || isSaving || isAutoSaving) return
     if (!snapshotInitializedRef.current) return
     if (articleSnapshot === lastSavedSnapshotRef.current) return
-    if (publishTiming !== "draft" && !selectedAuthorId && selectedCategorySlugs.length === 0) {
+    if (publishTiming !== "draft" && selectedAuthorIds.length === 0 && selectedCategorySlugs.length === 0) {
       setAutoSaveMessage("Autosave paused until an author or section is set.")
       return
     }
@@ -710,7 +635,7 @@ function EditArticleView() {
     }, AUTOSAVE_DELAY_MS)
 
     return () => window.clearTimeout(timer)
-  }, [articleSnapshot, isAutoSaving, isLoading, isNew, isSaving, lockedBy, publishTiming, publishedAt, selectedAuthorId, selectedCategorySlugs])
+  }, [articleSnapshot, isAutoSaving, isLoading, isNew, isSaving, lockedBy, publishTiming, publishedAt, selectedAuthorIds, selectedCategorySlugs])
 
   const inputClass ="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
@@ -792,36 +717,70 @@ function EditArticleView() {
     visibleCategoryGroups.reduce((count, group) => count + 1 + group.subsections.length, 0)
     + visibleLegacyCategoryChoices.length
   ), [visibleCategoryGroups, visibleLegacyCategoryChoices])
+  // Selected authors sit at the top, in byline order, and stay visible through a
+  // search that would otherwise hide them -- unchecking someone you can no longer
+  // see is how a byline silently loses a name.
   const visibleAuthors = useMemo(() => {
     const query = authorSearch.trim().toLowerCase()
     const namedAuthors = authors.filter((author) => author.display_name.trim().length > 0)
+    const byId = new Map(namedAuthors.map((author) => [author.id, author]))
+    for (const author of currentArticleAuthors) {
+      if (!byId.has(author.id) && author.display_name.trim()) byId.set(author.id, author)
+    }
+
+    const selected = selectedAuthorIds
+      .map((id) => byId.get(id))
+      .filter((author): author is ApiAuthor => Boolean(author))
     const matches = query
       ? namedAuthors.filter((author) => author.display_name.toLowerCase().includes(query))
       : namedAuthors
 
-    if (!selectedAuthorId) {
-      return matches
-    }
-
-    const selectedAuthor = namedAuthors.find((author) => String(author.id) === selectedAuthorId)
-      ?? (currentArticleAuthor && String(currentArticleAuthor.id) === selectedAuthorId && currentArticleAuthor.display_name.trim()
-        ? currentArticleAuthor
-        : null)
-    if (!selectedAuthor) {
-      return matches
-    }
-
     return [
-      selectedAuthor,
-      ...matches.filter((author) => String(author.id) !== selectedAuthorId),
+      ...selected,
+      ...matches.filter((author) => !selectedAuthorIds.includes(author.id)),
     ]
-  }, [authorSearch, authors, currentArticleAuthor, selectedAuthorId])
-  const toggleCategory = (categorySlug: string) => {
-    setSelectedCategorySlugs((current) => (
-      current.includes(categorySlug)
-        ? current.filter((slugValue) => slugValue !== categorySlug)
-        : [...current, categorySlug]
+  }, [authorSearch, authors, currentArticleAuthors, selectedAuthorIds])
+  // On a new article the slug the server will assign is not known until it is
+  // saved, so only offer the link once there is a real one.
+  const effectiveSlug = isNew ? "" : slug
+  const copyArticleLink = async () => {
+    if (!effectiveSlug) return
+    if (await copyText(articleUrl(effectiveSlug))) {
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 1500)
+      return
+    }
+    setLinkCopied(false)
+    setError("Could not copy the link. Your browser blocked clipboard access.")
+  }
+  const bylinePreview = useMemo(() => {
+    const namesById = new Map([...authors, ...currentArticleAuthors].map((author) => [author.id, author.display_name]))
+    const names = selectedAuthorIds.map((id) => namesById.get(id)?.trim() || `#${String(id)}`)
+    if (names.length <= 2) return names.join(" and ")
+    return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`
+  }, [authors, currentArticleAuthors, selectedAuthorIds])
+  const toggleAuthor = (authorId: number) => {
+    setSelectedAuthorIds((current) => (
+      current.includes(authorId)
+        ? current.filter((id) => id !== authorId)
+        : [...current, authorId]
     ))
+  }
+  // Checking a subsection also files the article under its parent section. A
+  // subsection alone leaves the article off the parent's own section page, which
+  // is never what an editor picking "Welcome Week" under "Special Editions"
+  // means. Unchecking the subsection deliberately leaves the parent in place --
+  // it is a legitimate standalone choice, and removing it silently would undo an
+  // explicit selection.
+  const toggleCategory = (categorySlug: string) => {
+    const parentSlug = taxonomyBySlug.get(categorySlug)?.parent_slug?.trim()
+    setSelectedCategorySlugs((current) => {
+      if (current.includes(categorySlug)) {
+        return current.filter((slugValue) => slugValue !== categorySlug)
+      }
+      const next = [...current, categorySlug]
+      return parentSlug && !next.includes(parentSlug) ? [...next, parentSlug] : next
+    })
   }
 
   return (
@@ -955,6 +914,25 @@ function EditArticleView() {
               ) : (
                 <input className={`${inputClass} bg-muted/50 text-muted-foreground cursor-default`} readOnly type="text" value={slug} />
               )}
+              {/* Available on drafts too: the newsletter and social posts are
+                  built ahead of publication and need the link before the article
+                  is live. A new article has no slug until it is saved, so the
+                  URL would be a guess -- offer it only once one exists. */}
+              {effectiveSlug ? (
+                <button
+                  className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                  onClick={() => void copyArticleLink()}
+                  title={articleUrl(effectiveSlug)}
+                  type="button"
+                >
+                  {linkCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {linkCopied ? "Link copied" : "Copy article link"}
+                </button>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">
+                  Save once to get a shareable link.
+                </span>
+              )}
             </label>
 
             <div className={labelClass}>
@@ -999,7 +977,7 @@ function EditArticleView() {
             ) : null}
 
             <div className={labelClass}>
-              <span className={labelTextClass}>Author</span>
+              <span className={labelTextClass}>Authors</span>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                 <input
@@ -1019,32 +997,32 @@ function EditArticleView() {
                   </p>
                 ) : (
                   <div className="flex flex-col gap-1">
-                    <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
-                      <input
-                        checked={selectedAuthorId === ""}
-                        className="h-4 w-4 border-border"
-                        onChange={() => setSelectedAuthorId("")}
-                        type="radio"
-                      />
-                      <span className="font-medium text-foreground">No author</span>
-                    </label>
-                    {visibleAuthors.map((author) => (
-                      <label key={author.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
-                        <input
-                          checked={selectedAuthorId === String(author.id)}
-                          className="h-4 w-4 border-border"
-                          onChange={() => setSelectedAuthorId(String(author.id))}
-                          type="radio"
-                        />
-                        <span className="text-foreground">{author.display_name}</span>
-                      </label>
-                    ))}
+                    {visibleAuthors.map((author) => {
+                      const bylinePosition = selectedAuthorIds.indexOf(author.id)
+                      return (
+                        <label key={author.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
+                          <input
+                            checked={bylinePosition !== -1}
+                            className="h-4 w-4 rounded border-border"
+                            onChange={() => toggleAuthor(author.id)}
+                            type="checkbox"
+                          />
+                          <span className="text-foreground">{author.display_name}</span>
+                          {/* Only worth numbering once there is an order to convey. */}
+                          {selectedAuthorIds.length > 1 && bylinePosition !== -1 ? (
+                            <span className="ml-auto text-[11px] text-muted-foreground">{bylinePosition + 1}</span>
+                          ) : null}
+                        </label>
+                      )
+                    })}
                   </div>
                 )}
               </div>
-              {authorSearch.trim() && !authorsLoading ? (
+              {!authorsLoading ? (
                 <span className="text-[11px] text-muted-foreground">
-                  {visibleAuthors.length} match{visibleAuthors.length === 1 ? "" : "es"}
+                  {selectedAuthorIds.length === 0
+                    ? "No authors selected."
+                    : `Byline: ${bylinePreview}`}
                 </span>
               ) : null}
             </div>
@@ -1220,108 +1198,29 @@ function EditArticleView() {
                 title={seoTitle.trim() || title}
                 description={metaDescription}
                 slug={isNew ? slugInput : slug}
-                permalink={`${publicSiteUrl()}/${isNew ? slugInput : slug}`}
+                permalink={articleUrl(isNew ? slugInput : slug)}
               />
             </Suspense>
           </aside>
         </div>
       )}
 
-      {/* Image picker modal */}
+      {/* Shares the library picker with the body editor and settings, so the
+          featured image gets the same upload, search and alt-text handling. */}
       {imagePickerOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Select image"
-        >
-          <div className="flex flex-col w-full max-w-2xl max-h-[85vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden">
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h3 className="text-base font-semibold text-foreground">Select image</h3>
-              <button
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                onClick={() => setImagePickerOpen(false)}
-                type="button"
-                aria-label="Close"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="px-5 py-3 border-b border-border">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <input
-                  className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-                  onChange={(e) => setMediaSearch(e.target.value)}
-                  placeholder="Search media..."
-                  type="search"
-                  value={mediaSearch}
-                />
-              </div>
-            </div>
-
-            {/* Media grid */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {mediaLoading ? (
-                <p className="text-center text-sm text-muted-foreground py-8">Loading media...</p>
-              ) : mediaItems.length === 0 ? (
-                <p className="text-center text-sm text-muted-foreground py-8">
-                  {mediaError ?? "No media items available yet. You can paste an image URL below."}
-                </p>
-              ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                  {mediaItems
-                    .filter((item) => item.fileName.toLowerCase().includes(mediaSearch.trim().toLowerCase()))
-                    .map((item) => (
-                      <button
-                        className="flex flex-col gap-1.5 p-1.5 rounded-lg border border-border hover:border-primary hover:bg-primary/5 transition-colors text-left"
-                        key={`${item.id}-${item.url}`}
-                        onClick={() => {
-                          setPhotoURL(item.url)
-                          setImagePickerOpen(false)
-                        }}
-                        type="button"
-                      >
-                        <img
-                          alt={item.fileName || "Media"}
-                          className="w-full aspect-square object-cover rounded-md bg-muted"
-                          src={item.url}
-                          referrerPolicy="no-referrer"
-                          loading="lazy"
-                        />
-                        <span className="text-xs text-muted-foreground truncate w-full">{item.fileName || item.url}</span>
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-
-            {/* Footer: paste URL */}
-            <div className="flex gap-2 px-5 py-4 border-t border-border bg-muted/30">
-              <input
-                className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-                onChange={(e) => setCustomImageURL(e.target.value)}
-                placeholder="Or paste image URL"
-                type="url"
-                value={customImageURL}
-              />
-              <button
-                className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors whitespace-nowrap"
-                onClick={() => {
-                  if (!customImageURL.trim()) return
-                  setPhotoURL(customImageURL.trim())
-                  setImagePickerOpen(false)
-                }}
-                type="button"
-              >
-                Use URL
-              </button>
-            </div>
-          </div>
-        </div>
+        <MediaPicker
+          initialUrl={photoURL}
+          onClose={() => setImagePickerOpen(false)}
+          onSelect={(item) => {
+            setPhotoURL(item.url)
+            setImagePickerOpen(false)
+          }}
+          onUseUrl={(url) => {
+            setPhotoURL(url)
+            setImagePickerOpen(false)
+          }}
+          title="Featured image"
+        />
       )}
     </div>
   )

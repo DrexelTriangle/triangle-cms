@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react"
-import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2 } from "lucide-react"
+import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2, Copy, Check } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
-import { publicSiteUrl } from "../auth/urls"
+import { articleUrl } from "../auth/urls"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { copyText } from "../lib/clipboard"
 
 type ArticleStatus = "Published" | "Scheduled" | "Draft" | "Archived"
 
@@ -89,12 +90,16 @@ type ArticleViewProps = {
   excludeType?: string
 }
 
+// Mirrors the status values the articles endpoint accepts for editors; "all"
+// means send no status filter at all.
+type PublishedFilter = "all" | "published" | "draft" | "scheduled"
+
 type ArticleViewUIState = {
   searchQuery?: string
   activeTab?: "all" | "trash"
   authorQuery?: string
   sectionFilterSlug?: string
-  publishedFilter?: "all" | "published" | "draft"
+  publishedFilter?: PublishedFilter
   dateSortDirection?: "asc" | "desc"
   pageSize?: number
 }
@@ -123,9 +128,6 @@ const writeSessionJSON = (key: string, value: unknown) => {
 function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: ArticleViewProps) {
   const navigate = useNavigate()
   const apiFetch = useApiFetch()
-  // Same origin the comments view and the editor's permalink preview use, so
-  // "View Live" cannot point at a different site than the rest of the CMS.
-  const siteUrl = useMemo(() => publicSiteUrl(), [])
   const storageKeyBase = `articleView:${fixedType ?? "all"}:${excludeType ?? "none"}`
   const uiStateKey = `${storageKeyBase}:ui`
   const resultsCacheKey = `${storageKeyBase}:results`
@@ -144,12 +146,13 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const [authorQuery, setAuthorQuery] = useState(() => loadUIState().authorQuery ?? "")
   const [sections, setSections] = useState<ApiTaxonomyItem[]>([])
   const [sectionFilterSlug, setSectionFilterSlug] = useState(() => loadUIState().sectionFilterSlug ?? "")
-  const [publishedFilter, setPublishedFilter] = useState<"all" | "published" | "draft">(() => loadUIState().publishedFilter ?? "all")
+  const [publishedFilter, setPublishedFilter] = useState<PublishedFilter>(() => loadUIState().publishedFilter ?? "all")
   const [dateSortDirection, setDateSortDirection] = useState<"asc" | "desc">(() => loadUIState().dateSortDirection ?? "desc")
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deletingArticleId, setDeletingArticleId] = useState<string | null>(null)
+  const [copiedArticleId, setCopiedArticleId] = useState<string | null>(null)
 
   useEffect(() => {
     writeSessionJSON(uiStateKey, {
@@ -452,6 +455,17 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     }
   }
 
+  const copyArticleLink = async (item: ArticleItem) => {
+    if (!item.slug) return
+    if (await copyText(articleUrl(item.slug))) {
+      setCopiedArticleId(item.id)
+      setTimeout(() => setCopiedArticleId((current) => (current === item.id ? null : current)), 1500)
+      return
+    }
+    setCopiedArticleId(null)
+    setDeleteError("Could not copy the link. Your browser blocked clipboard access.")
+  }
+
   const deleteArticle = async (item: ArticleItem) => {
     if (!item.slug || deletingArticleId) return
     const shouldDelete = window.confirm(`Move "${item.title}" to trash?`)
@@ -617,6 +631,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
               <button className={filterTagClass(publishedFilter === "all")} onClick={() => setPublishedFilter("all")} type="button">All</button>
               <button className={filterTagClass(publishedFilter === "published")} onClick={() => setPublishedFilter("published")} type="button">Published</button>
               <button className={filterTagClass(publishedFilter === "draft")} onClick={() => setPublishedFilter("draft")} type="button">Draft</button>
+              <button className={filterTagClass(publishedFilter === "scheduled")} onClick={() => setPublishedFilter("scheduled")} type="button">Scheduled</button>
             </div>
           </div>
         )}
@@ -733,13 +748,27 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                       {activeTab !== "trash" && item.status === "Published" && (
                         <a
                           className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-                          href={item.slug ? `${siteUrl}/article/${encodeURIComponent(item.slug)}` : "#"}
+                          href={item.slug ? articleUrl(item.slug) : "#"}
                           rel="noreferrer"
                           target="_blank"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                           View Live
                         </a>
+                      )}
+                      {/* Unlike View Live this is offered at any status: the
+                          link is wanted precisely while the piece is still a
+                          draft or scheduled, to write around it. */}
+                      {activeTab !== "trash" && (
+                        <button
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          disabled={!item.slug}
+                          onClick={() => void copyArticleLink(item)}
+                          title={item.slug ? "Copy article link" : "No link yet"}
+                          type="button"
+                        >
+                          {copiedArticleId === item.id ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        </button>
                       )}
                       <button
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"

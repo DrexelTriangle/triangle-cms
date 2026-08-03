@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Copy, Check, ImageOff, Images, Search, Trash2, Upload, X } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
+import { copyText } from "../lib/clipboard"
 
 type MediaItem = {
   id: number
@@ -445,13 +446,12 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
   }, [onClose])
 
   const copyPath = async () => {
-    try {
-      await navigator.clipboard.writeText(item.path)
+    if (await copyText(item.path)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch {
-      setCopied(false)
+      return
     }
+    setCopied(false)
   }
 
   const save = async () => {
