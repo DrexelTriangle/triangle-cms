@@ -14,6 +14,9 @@ DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/triangle-cms-deploy.lock}"
 BACKEND_HEALTH_TIMEOUT="${BACKEND_HEALTH_TIMEOUT:-180}"
 FRONTEND_HEALTH_TIMEOUT="${FRONTEND_HEALTH_TIMEOUT:-120}"
 PUBLIC_HEALTH_TIMEOUT="${PUBLIC_HEALTH_TIMEOUT:-30}"
+# Generous: this covers pulling the image and loading the ONNX model on a host
+# with no GPU. Exceeding it only costs semantic search, never the deployment.
+EMBEDDINGS_HEALTH_TIMEOUT="${EMBEDDINGS_HEALTH_TIMEOUT:-240}"
 
 compose() {
 	docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" "$@"
@@ -240,6 +243,30 @@ wait_for_url() {
     fi
     sleep 3
   done
+}
+
+# wait_for_embeddings polls the container's health state rather than an HTTP
+# endpoint, because the sidecar is deliberately not published to the host -- only
+# the backends reach it, over the compose network. Its healthcheck 503s until the
+# model has finished loading, so "healthy" here means it can actually answer.
+wait_for_embeddings() {
+	local deadline=$((SECONDS + EMBEDDINGS_HEALTH_TIMEOUT))
+	local container status=""
+
+	while true; do
+		container="$(compose ps -q embeddings 2>/dev/null || true)"
+		if [[ -n "${container}" ]]; then
+			status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container}" 2>/dev/null || true)"
+			if [[ "${status}" == "healthy" ]]; then
+				return 0
+			fi
+		fi
+		if (( SECONDS >= deadline )); then
+			echo "timed out waiting for the embeddings sidecar (last status: ${status:-unknown})" >&2
+			return 1
+		fi
+		sleep 3
+	done
 }
 
 wait_for_slot() {
