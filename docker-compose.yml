@@ -28,12 +28,33 @@ services:
     networks:
       - triangle_net
 
+  embeddings:
+    build:
+      context: ./embeddings
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-small-en-v1.5}
+    healthcheck:
+      # /health 503s until the model finishes loading, so this gates the CMS's
+      # first search rather than letting it fail against a cold container.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    # Stateless by design: no volume, nothing to back up. Not published to the
+    # host either -- only the CMS talks to it, over the internal network.
+    networks:
+      - triangle_net
+
   cms:
     build:
       context: ./server
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
+      EMBEDDINGS_URL: ${EMBEDDINGS_URL:-http://embeddings:8000}
       DB_NAME: ${MARIADB_DATABASE:-triangle}
       DB_USER: ${MARIADB_USER:-triangle_user}
       DB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}

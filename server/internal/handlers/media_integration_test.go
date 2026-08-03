@@ -50,14 +50,14 @@ func mediaHTTPTestDB(t *testing.T) *sql.DB {
 	// `media` table, and `go test ./...` runs packages in parallel, so the two
 	// suites serialize on this lock. The name is shared with that package.
 	var acquired sql.NullInt64
-	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, 60)", "cms_media_integration_test").Scan(&acquired); err != nil {
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, 60)", "cms_integration_test_shared_tables").Scan(&acquired); err != nil {
 		t.Fatalf("acquire test lock: %v", err)
 	}
 	if !acquired.Valid || acquired.Int64 != 1 {
 		t.Fatal("timed out waiting for the media test lock")
 	}
 	t.Cleanup(func() {
-		_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", "cms_media_integration_test")
+		_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", "cms_integration_test_shared_tables")
 		conn.Close()
 	})
 

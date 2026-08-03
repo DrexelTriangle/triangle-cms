@@ -45,6 +45,10 @@ x-backend-base: &backend-base
     # (91m) and below Cloudflare's 100 MB tunnel limit; raise all of them
     # together or the smallest one silently wins.
     MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-94371840}
+    # Semantic search. Shared by both slots -- the sidecar is stateless, so there
+    # is no reason to run one per slot. Leave empty to run lexical-only search:
+    # the backend then skips query embedding and its reconciler exits at start.
+    EMBEDDINGS_URL: ${EMBEDDINGS_URL-http://embeddings:8000}
   volumes:
     # CephFS media tree (host). rw so the upload endpoint can store new files;
     # host Nginx serves the same tree read-only (see deploy/nginx/triangle-cms.conf).
@@ -72,6 +76,28 @@ x-frontend-base: &frontend-base
     - triangle_net
 
 services:
+  # One shared instance, not one per slot: it holds no state, so both slots can
+  # use it and a deploy never has to wait for a model to load. Not exposed to the
+  # host -- only the backends talk to it, over the internal network.
+  embeddings:
+    image: ${CMS_EMBEDDINGS_IMAGE:-ghcr.io/drexeltriangle/triangle-cms-embeddings}:${CMS_IMAGE_TAG:?CMS_IMAGE_TAG is required}
+    restart: unless-stopped
+    stop_grace_period: 10s
+    environment:
+      # Must match the WordPress ETL's --embedding-model. Vectors from two
+      # different models share a table but not a coordinate space, so a mismatch
+      # corrupts ranking silently rather than failing.
+      EMBED_MODEL: ${EMBED_MODEL:-BAAI/bge-small-en-v1.5}
+    healthcheck:
+      # /health 503s until the model is loaded.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    networks:
+      - triangle_net
+
   backend-blue:
     <<: *backend-base
     ports:

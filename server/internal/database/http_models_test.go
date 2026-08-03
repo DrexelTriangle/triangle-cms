@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	mysqlDriver "github.com/go-sql-driver/mysql"
 
@@ -117,5 +118,35 @@ func TestArticleInputToDBFields_StoresFuturePublishDateAsSchedule(t *testing.T) 
 	}
 	if got != "2030-05-06 14:30:00" {
 		t.Fatalf("scheduled_pub_date = %q, want scheduled timestamp", got)
+	}
+}
+
+// A full replacement is still an edit, and it used to write mod_date = NULL.
+// Two things depend on that column: the public sitemap's lastmod is
+// COALESCE(mod_date, pub_date), and the embedding reconciler decides a vector is
+// stale by comparing mod_date to when the article was last embedded. A NULL made
+// a PUT the one edit the CMS could not see it had made.
+func TestArticleToDBFields_StampsModifiedDate(t *testing.T) {
+	before := time.Now().UTC().Add(-time.Second)
+
+	fields := ArticleToDBFields(models.Article{
+		Title:   "Rewritten story",
+		Slug:    "rewritten-story",
+		Content: "New body",
+		Status:  models.ArticleStatusPublished,
+	})
+
+	// Column order is title, slug, excerpt, text, categories, pub_date, mod_date.
+	const modDateFieldIndex = 6
+	raw, ok := fields[modDateFieldIndex].(string)
+	if !ok {
+		t.Fatalf("mod_date field has type %T, want a formatted string", fields[modDateFieldIndex])
+	}
+	stamped, err := time.Parse("2006-01-02 15:04:05", raw)
+	if err != nil {
+		t.Fatalf("mod_date %q is not a valid datetime: %v", raw, err)
+	}
+	if stamped.Before(before) || stamped.After(time.Now().UTC().Add(time.Second)) {
+		t.Errorf("mod_date = %s, want roughly now", raw)
 	}
 }

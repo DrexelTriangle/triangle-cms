@@ -13,7 +13,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker) {
+func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, queryEmbedder handlers.QueryEmbedder) {
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 
 	mux.HandleFunc("GET /v1/health", handlers.HealthCheck)
@@ -68,7 +68,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/gallery", handlers.GetPublicGallery(conn))
 	mux.Handle("GET /v1/articles/{slug}/comments", handlers.GetArticleComments(conn))
 	mux.Handle("POST /v1/articles/{slug}/comments", middleware.RateLimitByIP(5, time.Minute)(handlers.PostArticleComment(conn, spamChecker)))
-	mux.Handle("GET /v1/search", handlers.GetSearch(conn))
+	mux.Handle("GET /v1/search", handlers.GetSearch(conn, queryEmbedder))
 	mux.Handle("GET /v1/sections/{section_slug}/articles", optionalAuth(handlers.GetSectionArticles(conn)))
 	mux.Handle("GET /v1/subsections/{subsection_slug}/articles", optionalAuth(handlers.GetSubsectionArticles(conn)))
 	mux.Handle("GET /v1/comments", authMW(handlers.GetComments(conn)))

@@ -46,6 +46,7 @@ jobs:
           repo="${GITHUB_REPOSITORY,,}"
           echo "backend=ghcr.io/${repo}-backend" >> "$GITHUB_OUTPUT"
           echo "frontend=ghcr.io/${repo}-frontend" >> "$GITHUB_OUTPUT"
+          echo "embeddings=ghcr.io/${repo}-embeddings" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -80,3 +81,19 @@ jobs:
             org.opencontainers.image.revision=${{ steps.sha.outputs.value }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
+
+      # The embedding sidecar. Its Dockerfile bakes the model weights in, so this
+      # build downloads ~130MB from Hugging Face; the gha cache keeps that to the
+      # commits that actually touch embeddings/.
+      - name: Build and publish embeddings sidecar
+        uses: docker/build-push-action@v6
+        with:
+          context: ./embeddings
+          file: ./embeddings/Dockerfile
+          push: true
+          tags: ${{ steps.image.outputs.embeddings }}:${{ steps.sha.outputs.value }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.sha.outputs.value }}
+          cache-from: type=gha,scope=embeddings
+          cache-to: type=gha,mode=max,scope=embeddings
