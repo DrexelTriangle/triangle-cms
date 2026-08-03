@@ -697,34 +697,60 @@ function EditArticleView() {
         title: legacyCategoryTitlesBySlug[categorySlug] ?? categorySlug,
       }))
   ), [legacyCategoryTitlesBySlug, selectedCategorySlugs, taxonomyBySlug])
+  // Checked sections and subsections are pinned to the top of the list and stay
+  // there through a search, for the same reason the authors list pins its
+  // selection: filing an article under a section you can no longer see is how a
+  // section assignment silently gets dropped.
   const visibleCategoryGroups = useMemo(() => {
     const query = sectionSearch.trim().toLowerCase()
-    if (!query) return categoryGroups
+    const pinSelectedFirst = (subsections: TaxonomyItem[]) => [
+      ...subsections.filter((subsection) => selectedCategorySlugs.includes(subsection.slug)),
+      ...subsections.filter((subsection) => !selectedCategorySlugs.includes(subsection.slug)),
+    ]
 
-    return categoryGroups.flatMap(({ section, subsections }) => {
-      const sectionMatches = section.canonical_title.toLowerCase().includes(query)
-      const sectionSelected = selectedCategorySlugs.includes(section.slug)
-      const visibleSubsections = subsections.filter((subsection) => (
-        subsection.canonical_title.toLowerCase().includes(query)
-        || selectedCategorySlugs.includes(subsection.slug)
-      ))
+    const groups = !query
+      ? categoryGroups.map(({ section, subsections }) => ({
+        section,
+        subsections: pinSelectedFirst(subsections),
+      }))
+      : categoryGroups.flatMap(({ section, subsections }) => {
+        const sectionMatches = section.canonical_title.toLowerCase().includes(query)
+        const sectionSelected = selectedCategorySlugs.includes(section.slug)
+        const visibleSubsections = subsections.filter((subsection) => (
+          subsection.canonical_title.toLowerCase().includes(query)
+          || selectedCategorySlugs.includes(subsection.slug)
+        ))
 
-      if (sectionMatches) {
-        return [{ section, subsections }]
-      }
-      if (sectionSelected || visibleSubsections.length > 0) {
-        return [{ section, subsections: visibleSubsections }]
-      }
-      return []
-    })
+        if (sectionMatches) {
+          return [{ section, subsections: pinSelectedFirst(subsections) }]
+        }
+        if (sectionSelected || visibleSubsections.length > 0) {
+          return [{ section, subsections: pinSelectedFirst(visibleSubsections) }]
+        }
+        return []
+      })
+
+    const groupSelected = ({ section, subsections }: { section: TaxonomyItem; subsections: TaxonomyItem[] }) => (
+      selectedCategorySlugs.includes(section.slug)
+      || subsections.some((subsection) => selectedCategorySlugs.includes(subsection.slug))
+    )
+    return [
+      ...groups.filter((group) => groupSelected(group)),
+      ...groups.filter((group) => !groupSelected(group)),
+    ]
   }, [categoryGroups, sectionSearch, selectedCategorySlugs])
   const visibleLegacyCategoryChoices = useMemo(() => {
     const query = sectionSearch.trim().toLowerCase()
-    if (!query) return legacyCategoryChoices
-    return legacyCategoryChoices.filter((category) => (
-      category.title.toLowerCase().includes(query)
-      || selectedCategorySlugs.includes(category.slug)
-    ))
+    const matches = !query
+      ? legacyCategoryChoices
+      : legacyCategoryChoices.filter((category) => (
+        category.title.toLowerCase().includes(query)
+        || selectedCategorySlugs.includes(category.slug)
+      ))
+    return [
+      ...matches.filter((category) => selectedCategorySlugs.includes(category.slug)),
+      ...matches.filter((category) => !selectedCategorySlugs.includes(category.slug)),
+    ]
   }, [legacyCategoryChoices, sectionSearch, selectedCategorySlugs])
   const visibleSectionChoiceCount = useMemo(() => (
     visibleCategoryGroups.reduce((count, group) => count + 1 + group.subsections.length, 0)
