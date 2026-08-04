@@ -18,6 +18,14 @@ services:
     image: grafana/loki:3.5.6
     restart: unless-stopped
     command: ["-config.file=/etc/loki/config.yaml"]
+    # Published on loopback ONLY, and on 13100 rather than 3100, so that host
+    # Nginx can bind the natural :3100 for the outside world (see
+    # nginx/triangle-loki.conf) without a port clash. Loki runs with
+    # auth_enabled: false and has no authentication of its own, so nothing here
+    # may ever be published to a routable address directly -- Nginx is what adds
+    # basic auth and blocks the write path.
+    ports:
+      - "127.0.0.1:13100:3100"
     healthcheck:
       test: ["CMD", "loki", "-verify-config=true", "-config.file=/etc/loki/config.yaml"]
       interval: 20s
@@ -46,7 +54,14 @@ services:
     volumes:
       - ../observability/promtail-config.yml:/etc/promtail/config.yml:ro,z
       - promtail_positions:/tmp
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro,z
+      # Read-only Docker socket: Promtail discovers containers and streams their
+      # logs through the daemon API rather than tailing files, because Delta's
+      # `local` log driver writes binary logs that file-tailing cannot parse.
+      # See the comment in promtail-config.yml. Note that :ro on the socket
+      # limits nothing the daemon does -- the API is fully privileged either
+      # way -- so this container is effectively root on the host, same as any
+      # socket-mounted agent.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - observability_net
 

@@ -32,6 +32,24 @@ ruler:
 limits_config:
   allow_structured_metadata: true
   volume_enabled: true
+  # Two weeks. Without this Loki keeps every line forever: the chunks live on a
+  # local filesystem volume on Delta, so unbounded growth is a disk-full
+  # incident on the host that also runs the CMS, not just a large bill.
+  retention_period: 336h
+
+# Retention is enforced by the compactor, and ONLY by the compactor -- setting
+# retention_period alone changes nothing at all. `retention_enabled: true` is
+# what actually deletes expired chunks; leaving it false is the usual reason a
+# configured retention silently never takes effect.
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  # Grace period between a chunk being marked for deletion and the delete
+  # happening, so a mistaken retention change can be reverted before data is
+  # actually gone.
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
 
 pattern_ingester:
   enabled: true
