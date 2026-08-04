@@ -36,7 +36,18 @@ declare global {
     getAttachments(): TrixAttachment[]
   }
 
+  // Not part of Trix's documented editor API, but the only way to put an
+  // attachment back into its "being edited" state (caption field + attachment
+  // toolbar) from code. Trix itself only ever enters that state from a mousedown
+  // on the figure, which is no use after we move an attachment and the original
+  // element is gone.
+  interface TrixComposition {
+    editAttachment(attachment: TrixAttachment, options?: { editCaption?: boolean }): void
+    stopEditingAttachment(): void
+  }
+
   interface TrixEditorInternal {
+    composition: TrixComposition
     loadHTML(html: string): void
     getDocument(): TrixDocument
     getSelectedRange(): [number, number]
@@ -64,6 +75,14 @@ declare global {
   }
 
   interface TrixAttachmentAddEvent extends Event {
+    attachment: TrixAttachment
+  }
+
+  // Fired while Trix is building the little toolbar that floats over a selected
+  // attachment, before it is inserted -- our hook for adding buttons of our own
+  // next to Trix's built-in Remove.
+  interface TrixAttachmentToolbarEvent extends Event {
+    toolbar: HTMLElement
     attachment: TrixAttachment
   }
 }

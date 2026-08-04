@@ -12,11 +12,14 @@ import {
   trixHtmlToArticle,
 } from "./trixImageHtml"
 
-// Show the filename in the auto-generated caption under attachments, but hide
-// the file size this matches the upstream Trix demo's defaults and gives users an
-// editable caption field below each image.
+// Leave the caption area of an image empty until it has a real caption. Trix's
+// default is to fill it with the filename and file size, which reads as a
+// caption the author didn't write, and -- because the slot is then never empty
+// -- suppresses the "Add a caption…" placeholder that tells them it is editable.
+// Non-previewable file attachments are unaffected: Trix forces the name on for
+// those, and a file stub with no label would be nothing at all.
 if (typeof window !== "undefined" && window.Trix) {
-  window.Trix.config.attachments.preview.caption.name = true
+  window.Trix.config.attachments.preview.caption.name = false
   window.Trix.config.attachments.preview.caption.size = false
 }
 
@@ -160,7 +163,11 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         }
         try {
           const { url } = JSON.parse(xhr.responseText) as { url: string }
-          attachment.setAttributes({ url, href: url })
+          // href only for non-images. Trix wraps an attachment carrying an href
+          // in an <a>, which for a previewable image swallows every click on the
+          // figure -- including the caption field. A file stub, by contrast, has
+          // nothing to edit and a download link is the whole point of it.
+          attachment.setAttributes(file.type.startsWith("image/") ? { url } : { url, href: url })
           attachment.setUploadProgress(100)
         } catch {
           failAttachment(attachment, `Could not add ${file.name}: unexpected server response.`)
@@ -202,7 +209,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
           return (await response.json()) as { url: string }
         })
         .then(({ url }) => {
-          attachment.setAttributes({ url, href: url })
+          // No href: this path only ever handles pasted images. See uploadFile.
+          attachment.setAttributes({ url })
           attachment.setUploadProgress(100)
         })
         .catch((err: unknown) => {
@@ -253,9 +261,11 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       savedRangeRef.current = null
     }
 
+    // Deliberately no href -- see uploadFile. The saved article is a plain
+    // <figure><img> either way, so the link would only ever have existed inside
+    // the editor, where it fights with selecting and captioning the image.
     const attachment = new Trix.Attachment({
       url: item.url,
-      href: item.url,
       contentType: item.mime_type || contentTypeForUrl(item.url),
       filename: item.alt_text || item.file_name,
       alt: item.alt_text ?? "",
@@ -356,54 +366,114 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       dropIndicator.style.width = `${indicatorWidth.toString()}px`
     }
 
-    // Move the attachment via Trix's editor API. Strategy:
-    //   1. Clone the figure, stripping the stale data-trix-id so Trix mints a
-    //      fresh attachment on insert rather than colliding with the live
-    //      attachment we're about to remove. data-trix-attributes is left
-    //      untouched, which is what carries any pre-existing alignment through
-    //      the move intact.
-    //   2. Capture a DOM Range anchored on the target block BEFORE removing
-    //      the source. Trix's remove() can collapse or detach adjacent empty
-    //      blocks, which would invalidate setStartBefore/After afterwards.
-    //   3. Focus the editor BEFORE applying the selection. Focusing a
-    //      contenteditable that isn't currently focused resets the caret to
-    //      its last internal position, which would blow away our range.
-    //   4. Then remove the attachment, apply the captured range, and insert.
-    const commitMove = (figure: HTMLElement, target: DropTarget) => {
-      const trixId = figure.getAttribute("data-trix-id")
-      if (!trixId) return
-      const attachment = editor.editor.getDocument().getAttachments().find((a) => String(a.id) === trixId)
-      if (!attachment) return
-      if (!target.block.isConnected) return
-      // Dropping onto the figure's own block moves nothing. With alignment gone
-      // there is no longer any secondary effect to apply, so this is a no-op --
-      // and skipping it avoids a needless remove/reinsert of the attachment.
-      if (target.block.contains(figure)) return
-
-      const clone = figure.cloneNode(true) as HTMLElement
-      clone.removeAttribute("data-trix-id")
-      const html = clone.outerHTML
-
-      const range = document.createRange()
-      if (target.insertBefore) range.setStartBefore(target.block)
-      else range.setStartAfter(target.block)
-      range.collapse(true)
-
-      editor.focus()
-      attachment.remove()
-
-      if (target.block.isConnected) {
-        const selection = window.getSelection()
-        selection?.removeAllRanges()
-        selection?.addRange(range)
-      }
-
-      editor.editor.insertHTML(html)
-      editor.dispatchEvent(new Event("input", { bubbles: true }))
+    // The top-level child of the editor that contains this figure. Trix renders
+    // one element per document block, so these are the units a move reorders.
+    const blockContaining = (node: HTMLElement): HTMLElement | null => {
+      let current: HTMLElement = node
+      while (current.parentElement && current.parentElement !== editor) current = current.parentElement
+      return current.parentElement === editor ? current : null
     }
 
+    // Put an attachment into Trix's "being edited" state -- the state that
+    // shows its caption field and its toolbar. Trix only enters it from a
+    // mousedown of its own, which is no help either when that mousedown's
+    // selection gets reset (see onUp) or after a move has replaced the element.
+    const editAttachmentForFigure = (figure: Element | null | undefined) => {
+      const trixId = figure?.getAttribute("data-trix-id")
+      if (!trixId) return
+      const attachment = editor.editor
+        .getDocument()
+        .getAttachments()
+        .find((a) => String(a.id) === trixId)
+      if (attachment) editor.editor.composition.editAttachment(attachment)
+    }
+
+    // Move the figure's whole block to sit before or after the target block.
+    //
+    // This reorders Trix's serialized HTML and reloads it, rather than splicing
+    // the live document through Trix's mutation APIs. The obvious approach --
+    // remove the attachment, then insert it at a captured DOM Range -- cannot
+    // work: the Attachment objects on editor.getDocument() are plain models
+    // with no remove() of their own (only the ManagedAttachment passed to
+    // trix-attachment-add has one), and any removal re-renders the blocks the
+    // captured Range was anchored to. Reordering the serialization sidesteps
+    // both problems and is order-of-blocks-in, order-of-blocks-out.
+    //
+    // The cost is that a move is one undo step that restores the whole document
+    // rather than a fine-grained edit, which for a whole-block move is what the
+    // author would expect to get back anyway.
+    const commitMove = (figure: HTMLElement, target: DropTarget) => {
+      // Re-resolve the figure by id. The one handed to us may already be
+      // detached: selecting an attachment -- which Trix does on the very
+      // mousedown that starts a drag -- re-renders it, so by the time the drag
+      // ends the element captured at the start is a corpse, and every drop
+      // silently did nothing.
+      const trixId = figure.getAttribute("data-trix-id")
+      const live = figure.isConnected
+        ? figure
+        : trixId
+          ? editor.querySelector<HTMLElement>(`[data-trix-id="${trixId}"]`)
+          : null
+      if (!live) return
+
+      const sourceBlock = blockContaining(live)
+      if (!sourceBlock || !target.block.isConnected) return
+      if (target.block === sourceBlock) return
+
+      const liveBlocks = Array.from(editor.children) as HTMLElement[]
+      const from = liveBlocks.indexOf(sourceBlock)
+      const to = liveBlocks.indexOf(target.block)
+      if (from < 0 || to < 0) return
+
+      const serialized = Array.from(
+        new DOMParser().parseFromString(editor.value, "text/html").body.children,
+      )
+      // The serialized blocks line up with the rendered ones by index. If that
+      // ever stops holding, bail rather than reorder the wrong block.
+      if (serialized.length !== liveBlocks.length) return
+
+      // Where the block lands once it has been lifted out of the list.
+      let insertAt = target.insertBefore ? to : to + 1
+      if (from < insertAt) insertAt -= 1
+      if (insertAt === from) return
+
+      const [moved] = serialized.splice(from, 1)
+      serialized.splice(insertAt, 0, moved)
+
+      // Take the attachment editor down before swapping the document out from
+      // under it. Its controller holds a reference to the figure it was
+      // installed on; reloading leaves it pointing at a detached element and
+      // Trix's own click handling then throws on the next click on any image
+      // (getRangeOfAttachment on an attachment the document no longer has).
+      editor.editor.composition.stopEditingAttachment()
+      editor.editor.loadHTML(serialized.map((block) => block.outerHTML).join(""))
+
+      // Re-select the image at its new home. Without this every nudge costs the
+      // author the selection -- and with it the toolbar they are clicking --
+      // so moving an image three blocks would mean three round trips to it.
+      //
+      // Two frames, not one. One frame is enough for the element to exist, but
+      // not for Trix to have finished rendering the reloaded document, and
+      // re-installing the attachment editor into that half-settled state leaves
+      // its element-to-attachment mapping stale: the next DOM mutation anywhere
+      // in the editor makes Trix re-parse into a document whose attachments no
+      // longer match the data-trix-id attributes still on the figures, and from
+      // then on every click on an image throws inside Trix. The alignment
+      // effect above mutates figure classes on each change, so this is a
+      // reachable state, not a theoretical one.
+      requestAnimationFrame(() => { requestAnimationFrame(() => {
+        if (!editor.isConnected) return
+        editAttachmentForFigure(editor.children[insertAt]?.querySelector("[data-trix-id]"))
+      }) })
+    }
+
+    // Note the absence of preventDefault on the mousedown itself. Suppressing
+    // the default is what a drag needs (it stops the browser turning the
+    // gesture into a text selection), but on a plain click it also blocks the
+    // native focus/selection that Trix uses to select the attachment and raise
+    // its caption field and toolbar. So the default is left alone until the
+    // pointer has actually travelled far enough to be a drag.
     const beginDrag = (figure: HTMLElement, downEvent: MouseEvent) => {
-      downEvent.preventDefault()
       const startX = downEvent.clientX
       const startY = downEvent.clientY
       let dragging = false
@@ -413,6 +483,9 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         dragging = true
         figure.classList.add("attachment--dragging")
         document.body.style.cursor = "grabbing"
+        // Drop whatever text selection the un-prevented mousedown started, so
+        // the drag doesn't paint a selection highlight across the article.
+        window.getSelection()?.removeAllRanges()
       }
 
       const onMove = (moveEvent: MouseEvent) => {
@@ -422,6 +495,9 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
           if (dx < DRAG_THRESHOLD_PX && dy < DRAG_THRESHOLD_PX) return
           enterDragMode()
         }
+        // Now that this is a drag, keep the browser from extending a text
+        // selection under the pointer.
+        moveEvent.preventDefault()
 
         const block = findBlockAt(moveEvent.clientY)
         if (!block) {
@@ -451,11 +527,15 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         if (dragging && dropTarget) {
           commitMove(figure, dropTarget)
         } else if (!dragging) {
-          // Treat as a plain click: select the figure and restore focus so
-          // subsequent keyboard input still lands in the editor (our
-          // preventDefault on mousedown blocked the native focus path).
           selectFigure(figure)
-          editor.focus()
+          // Re-assert Trix's own attachment selection. Trix makes it on
+          // mousedown, but when the click is what focuses the editor in the
+          // first place, the focus that follows resets the selection and takes
+          // the attachment toolbar back down with it -- so the first click on
+          // an image in a freshly loaded editor appeared to do nothing, and it
+          // took a second click to get at Remove or the move buttons. Trix
+          // ignores this when the attachment is already the one being edited.
+          editAttachmentForFigure(figure)
         }
       }
 
@@ -464,11 +544,21 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       activeGestureCleanup = cleanup
     }
 
+    // Trix's own attachment chrome: the caption (static <figcaption>, and the
+    // <textarea> that replaces it while editing) and the floating toolbar that
+    // carries Remove. These have to keep their native mousedown, because that
+    // is the event Trix uses to select the attachment and focus the caption
+    // field. Running beginDrag over them instead -- it calls preventDefault,
+    // and its mouseup pulls focus back to the editor body -- is what made the
+    // caption impossible to click into.
+    const TRIX_ATTACHMENT_CHROME = "figcaption, .attachment__caption, .attachment__toolbar"
+
     // ── Selection / drag entry point (capture phase so Trix can't preempt) ──
     const onEditorMouseDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement
       const figure = target.closest(".attachment--preview") as HTMLElement | null
       if (!figure) return
+      if (target.closest(TRIX_ATTACHMENT_CHROME)) return
       beginDrag(figure, event)
     }
     const onDocumentMouseDown = (event: MouseEvent) => {
@@ -479,6 +569,61 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       selectFigure(null)
     }
 
+    // ── Move buttons on the attachment toolbar ─────────────────────────────
+    // Dragging is workable in a short article and miserable in a long one,
+    // where the drop target is off screen and the page has to auto-scroll.
+    // These step the image over one block at a time, need no aim, and are the
+    // only way to move an image without a mouse. They ride along on the toolbar
+    // Trix already shows over a selected attachment, next to Remove.
+
+    const siblingBlock = (figure: HTMLElement, direction: "up" | "down"): HTMLElement | null => {
+      const block = blockContaining(figure)
+      const sibling = direction === "up" ? block?.previousElementSibling : block?.nextElementSibling
+      return sibling instanceof HTMLElement ? sibling : null
+    }
+
+    const onBeforeToolbar = (event: Event) => {
+      const { toolbar, attachment } = event as TrixAttachmentToolbarEvent
+      const figure = editor.querySelector<HTMLElement>(`[data-trix-id="${String(attachment.id)}"]`)
+      // Only previewable attachments are positioned as their own block; a file
+      // stub sits inline in a paragraph, where "move up a block" is meaningless.
+      if (!figure?.classList.contains("attachment--preview")) return
+
+      const group = document.createElement("span")
+      group.className = "trix-button-group trix-button-group--move"
+
+      for (const direction of ["up", "down"] as const) {
+        const button = document.createElement("button")
+        button.type = "button"
+        button.className = `trix-button trix-button--move trix-button--move-${direction}`
+        button.title = direction === "up" ? "Move image up" : "Move image down"
+        button.textContent = direction === "up" ? "↑" : "↓"
+        // Nothing to swap with at the top or bottom of the document.
+        button.disabled = !siblingBlock(figure, direction)
+        // Suppress mousedown so pressing the button doesn't collapse the
+        // attachment selection (and tear down this very toolbar) before the
+        // click lands.
+        button.addEventListener("mousedown", (mouseEvent) => { mouseEvent.preventDefault() })
+        button.addEventListener("click", (clickEvent) => {
+          clickEvent.preventDefault()
+          const target = siblingBlock(figure, direction)
+          if (target) commitMove(figure, { block: target, insertBefore: direction === "up" })
+        })
+        group.appendChild(button)
+      }
+
+      toolbar.querySelector(".trix-button-row")?.appendChild(group)
+    }
+
+    // With the mousedown default no longer suppressed, the browser is free to
+    // start its own native image drag, which would race our rearrange gesture
+    // and can drop the image into another window entirely.
+    const onDragStart = (event: DragEvent) => {
+      if ((event.target as HTMLElement | null)?.closest(".attachment--preview")) event.preventDefault()
+    }
+
+    editor.addEventListener("dragstart", onDragStart)
+    editor.addEventListener("trix-attachment-before-toolbar", onBeforeToolbar)
     editor.addEventListener("mousedown", onEditorMouseDown, true)
     document.addEventListener("mousedown", onDocumentMouseDown)
 
@@ -486,6 +631,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       // Abort any in-progress drag so we don't leave document-level
       // listeners or a stuck `grabbing` cursor behind on unmount.
       if (activeGestureCleanup) activeGestureCleanup()
+      editor.removeEventListener("dragstart", onDragStart)
+      editor.removeEventListener("trix-attachment-before-toolbar", onBeforeToolbar)
       editor.removeEventListener("mousedown", onEditorMouseDown, true)
       document.removeEventListener("mousedown", onDocumentMouseDown)
       dropIndicator.remove()
@@ -503,6 +650,12 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       const target = event.target as HTMLElement | null
       const link = target?.closest("a")
       if (!link || !editor.contains(link)) return
+      // An image preview is something you edit, not something you follow. Trix
+      // wraps an attachment that has an href in an <a> spanning the whole
+      // figure, so navigating here would make the image and its caption field
+      // unclickable. Attachments we create no longer set href, but content
+      // saved before that -- or pasted as <a><img></a> -- still can.
+      if (link.closest(".attachment--preview")) return
       const href = link.getAttribute("href")
       if (!href) return
       event.preventDefault()

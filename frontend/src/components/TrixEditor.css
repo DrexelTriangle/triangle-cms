@@ -241,7 +241,22 @@ trix-editor.trix-content .attachment img {
   max-width: 100%;
   height: auto;
   border-radius: calc(var(--radius, 0.5rem) - 2px);
-  cursor: move;
+  /* `grab` rather than `move`: it reads as "pick this up", and pairs with the
+     `grabbing` cursor the drag handler sets on the body mid-drag. */
+  cursor: grab;
+  transition: outline-color 100ms ease-out;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+/* Hovering the image is the only hint that it can be picked up at all, so make
+   it visible before the author commits to a drag. */
+trix-editor.trix-content .attachment--preview:hover img {
+  outline-color: hsl(var(--border, 220 13% 91%));
+}
+
+trix-editor.trix-content .attachment.attachment--preview.attachment--dragging img {
+  cursor: grabbing;
 }
 
 /* Caption. Trix renders <figcaption class="attachment__caption">; when the
@@ -259,6 +274,41 @@ trix-editor.trix-content .attachment__caption {
 trix-editor.trix-content .attachment__caption .attachment__name,
 trix-editor.trix-content .attachment__caption .attachment__size {
   display: inline;
+}
+
+/* An image with no caption yet. Trix marks the empty <figcaption> with
+   data-trix-placeholder ("Add a caption…") but ships no CSS for it, so the
+   element collapses to zero height -- invisible, and with nothing to click.
+   Rendering the placeholder gives the author both the prompt and the target. */
+trix-editor.trix-content .attachment__caption[data-trix-placeholder]:empty::before {
+  content: attr(data-trix-placeholder);
+  opacity: 0.65;
+}
+
+/* Widen the hit area so the caption row is easy to land on, and say so with the
+   cursor. Sized to its own text rather than to the figure, which is full-bleed:
+   a hover highlight stretching the whole column would read as a selected
+   paragraph, not as a caption field. min-width keeps an empty one big enough to
+   aim at. */
+trix-editor.trix-content .attachment--preview .attachment__caption {
+  width: fit-content;
+  min-width: 14em;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: 0.35em 0.6em;
+  border-radius: calc(var(--radius, 0.5rem) - 4px);
+  cursor: text;
+}
+
+trix-editor.trix-content .attachment--preview .attachment__caption:hover {
+  background: hsl(var(--muted, 220 14% 96%));
+}
+
+/* While editing, the caption is a textarea sized at width:100% of this box, so
+   fit-content would collapse it to nothing as soon as the text was cleared. */
+trix-editor.trix-content .attachment--preview .attachment__caption--editing {
+  width: min(100%, 32em);
+  background: hsl(var(--muted, 220 14% 96%));
 }
 
 trix-editor.trix-content .attachment__caption-editor {
@@ -285,6 +335,104 @@ trix-editor.trix-content .attachment__caption-editor::placeholder {
 trix-editor.trix-content .attachment.attachment--preview.attachment--selected img {
   outline: 2px solid hsl(var(--primary, 243 75% 59%));
   outline-offset: 2px;
+}
+
+/* ── Attachment toolbar (Remove, plus our move buttons) ──────────────────────
+   Trix floats this over the top edge of a selected attachment. It ships only
+   positioning, so without this the buttons are unstyled browser chrome sitting
+   on top of the image. Pulled fully above the image rather than overlapping it,
+   so it never covers the picture it belongs to. */
+
+trix-editor.trix-content .attachment__toolbar {
+  top: -2.4em;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+trix-editor.trix-content .attachment__toolbar .trix-button-row {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid hsl(var(--border, 220 13% 91%));
+  border-radius: var(--radius, 0.5rem);
+  background: hsl(var(--card, 0 0% 100%));
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+  pointer-events: auto;
+}
+
+trix-editor.trix-content .attachment__toolbar .trix-button-group {
+  display: inline-flex;
+  gap: 2px;
+  border: none;
+  margin: 0;
+}
+
+/* Separator between Trix's Remove group and our move group. */
+trix-editor.trix-content .attachment__toolbar .trix-button-group + .trix-button-group {
+  margin-left: 4px;
+  padding-left: 5px;
+  border-left: 1px solid hsl(var(--border, 220 13% 91%));
+}
+
+trix-editor.trix-content .attachment__toolbar .trix-button {
+  float: none;
+  border: none;
+  background: transparent;
+  color: hsl(var(--foreground, 224 71% 4%));
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1;
+  padding: 0 8px;
+  min-width: 26px;
+  height: 26px;
+  border-radius: calc(var(--radius, 0.5rem) - 3px);
+  cursor: pointer;
+}
+
+trix-editor.trix-content .attachment__toolbar .trix-button:hover:not(:disabled) {
+  background: hsl(var(--muted, 220 14% 96%));
+}
+
+trix-editor.trix-content .attachment__toolbar .trix-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+trix-editor.trix-content .attachment__toolbar .trix-button--move {
+  font-size: 14px;
+}
+
+/* Trix also hangs a filename/filesize pill off the toolbar. Ours carry no
+   filesize and a filename the author never chose, so it renders as a small
+   dark blob sitting on the corner of the image with nothing legible in it. */
+trix-editor.trix-content .attachment__toolbar .attachment__metadata-container {
+  display: none;
+}
+
+/* Remove. Trix draws this as a white circle with a 2px `highlight` (system
+   accent) border and hides the text label behind text-indent, showing an ✕ via
+   a ::before background image. Keep the icon -- undoing the text-indent would
+   leave the button empty -- and drop only the standalone-circle chrome, which
+   looks wrong now that it sits inside a grouped toolbar. */
+trix-editor.trix-content .attachment__toolbar .trix-button--remove {
+  position: relative;
+  width: 26px;
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--radius, 0.5rem) - 3px);
+  background-color: transparent;
+  box-shadow: none;
+}
+
+trix-editor.trix-content .attachment__toolbar .trix-button--remove::before {
+  background-size: 64%;
+  opacity: 0.75;
+}
+
+trix-editor.trix-content .attachment__toolbar .trix-button--remove:hover {
+  border-color: transparent;
+  background-color: hsl(var(--destructive, 0 72% 51%) / 0.12);
 }
 
 /* Drag-in-progress state on the source figure. */
