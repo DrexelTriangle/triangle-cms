@@ -407,35 +407,87 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     }
 
     // ── Drag-to-rearrange ──────────────────────────────────────────────────
-    type DropTarget = { block: HTMLElement; insertBefore: boolean }
+    // A drop position is a *boundary* between top-level blocks, identified by
+    // the index the dragged block would occupy: boundary i sits above block i,
+    // and boundary blocks.length sits below the last one.
+    type DropTarget = { index: number }
 
     const DRAG_THRESHOLD_PX = 5
 
-    // Find which top-level block the cursor is over (or nearest by Y). We
-    // intentionally include the dragged figure's own block as a candidate so
-    // the drop indicator still appears when an editor contains only one
-    // block. The actual no-op check (drop ≈ no move) happens at commit time.
-    const findBlockAt = (clientY: number): HTMLElement | null => {
+    const boundaryY = (blocks: HTMLElement[], index: number): number => {
+      const rect = (blocks[index === 0 ? 0 : index - 1]).getBoundingClientRect()
+      return index === 0 ? rect.top : rect.bottom
+    }
+
+    // ── Auto-scroll while dragging ─────────────────────────────────────────
+    // How close to the edge the pointer has to get before the view starts
+    // moving, and the fastest it will go, per frame.
+    const AUTO_SCROLL_EDGE_PX = 80
+    const AUTO_SCROLL_MAX_PX = 22
+
+    // Whatever actually scrolls the editor: an overflowing ancestor if the page
+    // puts the article in its own pane, otherwise the window. Resolved per drag
+    // rather than once, since the layout an editor sits in can change.
+    const scrollContainer = (): HTMLElement | null => {
+      let current = editor.parentElement
+      while (current && current !== document.body) {
+        const overflowY = window.getComputedStyle(current).overflowY
+        if (/(auto|scroll|overlay)/.test(overflowY) && current.scrollHeight > current.clientHeight) {
+          return current
+        }
+        current = current.parentElement
+      }
+      return null
+    }
+
+    // Where the dragged block would land, as a boundary index -- or null if it
+    // cannot go anywhere from here.
+    //
+    // Only boundaries clear of the dragged block itself are candidates: the two
+    // touching it leave the document exactly as it was. They used to be offered,
+    // and since an image block is as tall as the image, the pointer spent the
+    // whole of a short drag inside them -- the indicator appeared, tracked the
+    // pointer, and then the drop did nothing. Moving an image at all meant
+    // dragging clear past its own block and half of the next one, with the
+    // indicator claiming otherwise the entire way. That is the bug this shape
+    // exists to remove: every boundary drawn is now one that moves something.
+    //
+    // Which side to look at is decided by the pointer against the block's own
+    // midpoint, not by nearest-boundary-overall. Nearest alone inverts at the
+    // ends of the document: dragging the first image upwards has no boundary
+    // above it, and the closest one anywhere is the gap *below* its neighbour,
+    // so the image jumped downwards in answer to an upwards drag. Picking the
+    // side first means an upwards drag either moves the image up or does
+    // nothing, never the opposite.
+    const findDropIndex = (clientY: number, fromIndex: number): number | null => {
       const blocks = Array.from(editor.children) as HTMLElement[]
-      let nearest: HTMLElement | null = null
-      let nearestDist = Infinity
-      for (const block of blocks) {
-        const rect = block.getBoundingClientRect()
-        if (clientY >= rect.top && clientY <= rect.bottom) return block
-        const dist = clientY < rect.top ? rect.top - clientY : clientY - rect.bottom
-        if (dist < nearestDist) {
-          nearestDist = dist
-          nearest = block
+      if (blocks.length === 0) return null
+
+      const source = fromIndex >= 0 ? blocks[fromIndex] : null
+      let first = 0
+      let last = blocks.length
+      if (source) {
+        const rect = source.getBoundingClientRect()
+        if (clientY < rect.top + rect.height / 2) last = fromIndex - 1
+        else first = fromIndex + 2
+      }
+
+      let best: number | null = null
+      let bestDist = Infinity
+      for (let index = first; index <= last; index++) {
+        const dist = Math.abs(clientY - boundaryY(blocks, index))
+        if (dist < bestDist) {
+          bestDist = dist
+          best = index
         }
       }
-      return nearest
+      return best
     }
 
     const positionDropIndicator = (target: DropTarget) => {
       const wrapperRect = wrapper.getBoundingClientRect()
       const editorRect = editor.getBoundingClientRect()
-      const blockRect = target.block.getBoundingClientRect()
-      const y = target.insertBefore ? blockRect.top : blockRect.bottom
+      const y = boundaryY(Array.from(editor.children) as HTMLElement[], target.index)
 
       const editorLeft = editorRect.left - wrapperRect.left
       const editorWidth = editorRect.width
@@ -453,6 +505,24 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       let current: HTMLElement = node
       while (current.parentElement && current.parentElement !== editor) current = current.parentElement
       return current.parentElement === editor ? current : null
+    }
+
+    // Re-resolve a figure by id. The element captured when a gesture started may
+    // already be detached: selecting an attachment -- which Trix does on the very
+    // mousedown that starts a drag -- re-renders it, so an identical figure has
+    // taken its place. Anything that asks "which block is this image in?" has to
+    // go through here or it gets the answer for a corpse.
+    const liveFigure = (figure: HTMLElement): HTMLElement | null => {
+      if (figure.isConnected) return figure
+      const trixId = figure.getAttribute("data-trix-id")
+      return trixId ? editor.querySelector<HTMLElement>(`[data-trix-id="${trixId}"]`) : null
+    }
+
+    // Index of the top-level block holding this figure, or -1.
+    const blockIndexOf = (figure: HTMLElement): number => {
+      const live = liveFigure(figure)
+      const block = live ? blockContaining(live) : null
+      return block ? (Array.from(editor.children) as HTMLElement[]).indexOf(block) : -1
     }
 
     // Put an attachment into Trix's "being edited" state -- the state that
@@ -484,27 +554,10 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     // fine-grained edit, which for a whole-block move is what the author would
     // expect to get back anyway.
     const commitMove = (figure: HTMLElement, target: DropTarget) => {
-      // Re-resolve the figure by id. The one handed to us may already be
-      // detached: selecting an attachment -- which Trix does on the very
-      // mousedown that starts a drag -- re-renders it, so by the time the drag
-      // ends the element captured at the start is a corpse, and every drop
-      // silently did nothing.
-      const trixId = figure.getAttribute("data-trix-id")
-      const live = figure.isConnected
-        ? figure
-        : trixId
-          ? editor.querySelector<HTMLElement>(`[data-trix-id="${trixId}"]`)
-          : null
-      if (!live) return
-
-      const sourceBlock = blockContaining(live)
-      if (!sourceBlock || !target.block.isConnected) return
-      if (target.block === sourceBlock) return
-
       const liveBlocks = Array.from(editor.children) as HTMLElement[]
-      const from = liveBlocks.indexOf(sourceBlock)
-      const to = liveBlocks.indexOf(target.block)
-      if (from < 0 || to < 0) return
+      const from = blockIndexOf(figure)
+      if (from < 0) return
+      if (target.index < 0 || target.index > liveBlocks.length) return
 
       const serialized = Array.from(
         new DOMParser().parseFromString(editor.value, "text/html").body.children,
@@ -514,7 +567,7 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       if (serialized.length !== liveBlocks.length) return
 
       // Where the block lands once it has been lifted out of the list.
-      let insertAt = target.insertBefore ? to : to + 1
+      let insertAt = target.index
       if (from < insertAt) insertAt -= 1
       if (insertAt === from) return
 
@@ -573,6 +626,61 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       const startY = downEvent.clientY
       let dragging = false
       let dropTarget: DropTarget | null = null
+      // The pointer's last known position, which auto-scroll keeps re-reading:
+      // while the view is moving under a stationary mouse there are no further
+      // mousemove events, but the block under that unchanged position changes
+      // every frame.
+      let lastClientY = downEvent.clientY
+      let scroller: HTMLElement | null = null
+      let autoScrollFrame: number | null = null
+
+      // Recomputed on every move: Trix re-renders the figure during the drag,
+      // and the indicator must exclude the boundaries around wherever the
+      // block is *now*, or it offers no-op drops again.
+      const updateDropTarget = () => {
+        const index = findDropIndex(lastClientY, blockIndexOf(figure))
+        if (index === null) {
+          dropIndicator.style.display = "none"
+          dropTarget = null
+          return
+        }
+        dropTarget = { index }
+        positionDropIndicator(dropTarget)
+      }
+
+      // Scroll the view when the pointer is held near its top or bottom edge,
+      // speeding up the closer to the edge it gets. Without this, a drop target
+      // that starts off screen is unreachable: the gesture is driven by the
+      // mouse alone, and a long article is taller than the window, so an image
+      // could only ever be moved as far as the visible page.
+      const autoScrollStep = () => {
+        autoScrollFrame = null
+        if (!dragging) return
+
+        const bounds = scroller
+          ? scroller.getBoundingClientRect()
+          : { top: 0, bottom: window.innerHeight }
+        let delta = 0
+        if (lastClientY < bounds.top + AUTO_SCROLL_EDGE_PX) {
+          delta = -(bounds.top + AUTO_SCROLL_EDGE_PX - lastClientY)
+        } else if (lastClientY > bounds.bottom - AUTO_SCROLL_EDGE_PX) {
+          delta = lastClientY - (bounds.bottom - AUTO_SCROLL_EDGE_PX)
+        }
+
+        if (delta !== 0) {
+          const speed = Math.min(AUTO_SCROLL_MAX_PX, Math.abs(delta) / AUTO_SCROLL_EDGE_PX * AUTO_SCROLL_MAX_PX)
+          const by = Math.sign(delta) * Math.max(2, speed)
+          if (scroller) scroller.scrollTop += by
+          else window.scrollBy(0, by)
+          // The document just moved under the pointer, so the boundary the
+          // pointer now sits at is a different one.
+          updateDropTarget()
+        }
+
+        // Keep polling even when standing still, so pushing back into the edge
+        // zone resumes scrolling without needing a fresh mousemove.
+        autoScrollFrame = requestAnimationFrame(autoScrollStep)
+      }
 
       const enterDragMode = () => {
         dragging = true
@@ -581,9 +689,12 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         // Drop whatever text selection the un-prevented mousedown started, so
         // the drag doesn't paint a selection highlight across the article.
         window.getSelection()?.removeAllRanges()
+        scroller = scrollContainer()
+        autoScrollFrame = requestAnimationFrame(autoScrollStep)
       }
 
       const onMove = (moveEvent: MouseEvent) => {
+        lastClientY = moveEvent.clientY
         if (!dragging) {
           const dx = Math.abs(moveEvent.clientX - startX)
           const dy = Math.abs(moveEvent.clientY - startY)
@@ -593,23 +704,18 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         // Now that this is a drag, keep the browser from extending a text
         // selection under the pointer.
         moveEvent.preventDefault()
-
-        const block = findBlockAt(moveEvent.clientY)
-        if (!block) {
-          dropIndicator.style.display = "none"
-          dropTarget = null
-          return
-        }
-        const blockRect = block.getBoundingClientRect()
-        const insertBefore = moveEvent.clientY < blockRect.top + blockRect.height / 2
-        dropTarget = { block, insertBefore }
-        positionDropIndicator(dropTarget)
+        updateDropTarget()
       }
 
       // Idempotent state-restorer, invoked from onUp on normal release AND
       // from the outer effect's cleanup if the component unmounts mid-drag.
       const cleanup = () => {
         gestureActive = false
+        dragging = false
+        if (autoScrollFrame !== null) {
+          cancelAnimationFrame(autoScrollFrame)
+          autoScrollFrame = null
+        }
         document.removeEventListener("mousemove", onMove)
         document.removeEventListener("mouseup", onUp)
         document.body.style.cursor = ""
@@ -619,10 +725,14 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
 
       const onUp = () => {
         activeGestureCleanup = null
+        // Read before cleanup, which clears `dragging` to stop the auto-scroll
+        // loop -- reading after it would make every drop look like a click.
+        const wasDragging = dragging
+        const releasedOn = dropTarget
         cleanup()
-        if (dragging && dropTarget) {
-          commitMove(figure, dropTarget)
-        } else if (!dragging) {
+        if (wasDragging && releasedOn) {
+          commitMove(figure, releasedOn)
+        } else if (!wasDragging) {
           selectFigure(figure)
           // Re-assert Trix's own attachment selection. Trix makes it on
           // mousedown, but when the click is what focuses the editor in the
@@ -673,10 +783,14 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     // only way to move an image without a mouse. They ride along on the toolbar
     // Trix already shows over a selected attachment, next to Remove.
 
-    const siblingBlock = (figure: HTMLElement, direction: "up" | "down"): HTMLElement | null => {
-      const block = blockContaining(figure)
-      const sibling = direction === "up" ? block?.previousElementSibling : block?.nextElementSibling
-      return sibling instanceof HTMLElement ? sibling : null
+    // One step in `direction` as a boundary index: up is the boundary above the
+    // previous block, down is the boundary below the next one. Null at the ends,
+    // where there is nothing to swap with.
+    const stepTarget = (figure: HTMLElement, direction: "up" | "down"): DropTarget | null => {
+      const from = blockIndexOf(figure)
+      if (from < 0) return null
+      const index = direction === "up" ? from - 1 : from + 2
+      return index >= 0 && index <= editor.children.length ? { index } : null
     }
 
     const onBeforeToolbar = (event: Event) => {
@@ -696,15 +810,15 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         button.title = direction === "up" ? "Move image up" : "Move image down"
         button.textContent = direction === "up" ? "↑" : "↓"
         // Nothing to swap with at the top or bottom of the document.
-        button.disabled = !siblingBlock(figure, direction)
+        button.disabled = !stepTarget(figure, direction)
         // Suppress mousedown so pressing the button doesn't collapse the
         // attachment selection (and tear down this very toolbar) before the
         // click lands.
         button.addEventListener("mousedown", (mouseEvent) => { mouseEvent.preventDefault() })
         button.addEventListener("click", (clickEvent) => {
           clickEvent.preventDefault()
-          const target = siblingBlock(figure, direction)
-          if (target) commitMove(figure, { block: target, insertBefore: direction === "up" })
+          const target = stepTarget(figure, direction)
+          if (target) commitMove(figure, target)
         })
         group.appendChild(button)
       }
@@ -768,6 +882,20 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     // and keep the target test for the rest of the time (a native image drag
     // out of the article is never something we want). Capture phase on the
     // document, because Trix has dragstart handlers of its own on the editor.
+    //
+    // KNOWN BUG (Firefox, unconfirmed against a real build): under Playwright's
+    // Firefox this guard never runs, because no dragstart is delivered to the
+    // page at all -- and neither is the mouseup. The gesture begins, the drop
+    // indicator appears and tracks the pointer, and then the release is simply
+    // never seen, so onUp does not fire and nothing is committed. A
+    // capture-phase listener on document sees no mouseup either, which is the
+    // signature of the browser taking over the event stream for a drag session
+    // of its own. If that is what is happening, no amount of preventDefault
+    // here can help and the gesture needs to move to pointer events with
+    // setPointerCapture, which is designed to hold the stream against exactly
+    // this. Not fixed because it could not be told apart from an artefact of
+    // Playwright's Firefox build; reproduce in a real Firefox before rewriting.
+    // Chromium is unaffected -- there the dragstart arrives and is prevented.
     const onDragStart = (event: DragEvent) => {
       if (gestureActive || (event.target as HTMLElement | null)?.closest(".attachment--preview")) {
         event.preventDefault()
