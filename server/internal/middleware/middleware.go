@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"server/internal/metrics"
+	"strconv"
 	"time"
 )
 
@@ -81,5 +83,24 @@ func Recovery(next http.Handler) http.Handler {
 		}()
 
 		next.ServeHTTP(w, r)
+	})
+}
+func Metrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &responseRecord{ResponseWriter: w}
+
+		next.ServeHTTP(rec, r)
+
+		if rec.status == 0 {
+			rec.status = http.StatusOK
+		}
+		route := r.Pattern
+		if route == "" {
+			route = "unmatched"
+		}
+		status := strconv.Itoa(rec.status)
+		metrics.RequestsTotal.WithLabelValues(r.Method, route, status).Inc()
+		metrics.RequestDuration.WithLabelValues(r.Method, route, status).Observe(time.Since(start).Seconds())
 	})
 }

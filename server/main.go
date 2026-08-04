@@ -323,8 +323,11 @@ func newDefaultServer(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Lo
 	}
 	return &stdHTTPServer{
 		Server: &http.Server{
-			Addr:      ":8080",
-			Handler:   middleware.Chain(mux, middleware.Logging, middleware.Recovery),
+			Addr: ":8080",
+			// Metrics is outermost: Chain applies in reverse, so it wraps
+			// Recovery and therefore records the 500 a panic turns into rather
+			// than losing the request entirely.
+			Handler:   middleware.Chain(mux, middleware.Metrics, middleware.Logging, middleware.Recovery),
 			TLSConfig: tlsConfig,
 			ErrorLog:  slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		},

@@ -10,11 +10,18 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, queryEmbedder handlers.QueryEmbedder) {
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
+	// Prometheus scrape target. Unauthenticated by design, and safe only
+	// because Nginx proxies just /v1 and /swagger: nothing routes /metrics in
+	// from outside, and Prometheus reaches it over the host loopback port the
+	// slot publishes. If a public vhost ever forwards /metrics, put it behind
+	// auth first -- it exposes route names, traffic volumes, and error rates.
+	mux.Handle("GET /metrics", promhttp.Handler())
 
 	mux.HandleFunc("GET /v1/health", handlers.HealthCheck)
 	mux.HandleFunc("GET /v1/health/db", handlers.HealthReady(conn))
