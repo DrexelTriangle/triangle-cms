@@ -448,8 +448,14 @@ function MediaDetailPanel({ item, onClose, onSave }: MediaDetailPanelProps) {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [onClose])
 
-  const copyPath = async () => {
-    if (await copyText(item.path)) {
+  // The URL, not the bare path: what people paste this into (a story, a
+  // message, a browser) needs the whole link to resolve. The server returns a
+  // root-relative URL when MEDIA_BASE_URL is unset -- media is then served from
+  // this same origin, so resolving against it gives the link people expect.
+  const fullUrl = new URL(item.url, window.location.origin).href
+
+  const copyUrl = async () => {
+    if (await copyText(fullUrl)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
       return
@@ -496,13 +502,13 @@ function MediaDetailPanel({ item, onClose, onSave }: MediaDetailPanelProps) {
         </dl>
 
         <div className="flex flex-col gap-1">
-          <span className="text-sm text-muted-foreground">Path</span>
+          <span className="text-sm text-muted-foreground">URL</span>
           <div className="flex items-center gap-2">
-            <code className="flex-1 rounded-lg bg-muted px-2 py-1.5 text-xs text-foreground break-all">{item.path}</code>
+            <code className="flex-1 rounded-lg bg-muted px-2 py-1.5 text-xs text-foreground break-all">{fullUrl}</code>
             <button
-              aria-label="Copy path"
+              aria-label="Copy URL"
               className="p-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              onClick={() => void copyPath()}
+              onClick={() => void copyUrl()}
               type="button"
             >
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
