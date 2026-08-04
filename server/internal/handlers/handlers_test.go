@@ -118,10 +118,13 @@ func TestAppendCategorySlugCondition(t *testing.T) {
 		t.Fatalf("expected 3 args, got %d", len(args))
 	}
 
+	// Patterns are anchored on the JSON quotes so a slug matches a whole
+	// category, never a fragment of a longer one -- see
+	// db.CategoryMatchPatterns.
 	wantArgs := []string{
-		"%comics-puzzles%",
-		"%comics puzzles%",
-		"%comics & puzzles%",
+		`%"comics-puzzles"%`,
+		`%"comics puzzles"%`,
+		`%"comics & puzzles"%`,
 	}
 	for i, want := range wantArgs {
 		got, ok := args[i].(string)

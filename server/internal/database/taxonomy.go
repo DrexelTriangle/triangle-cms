@@ -19,7 +19,33 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
-// CategoryMatchPatterns returns the LOWER(`categories`) LIKE patterns that
+// CategoryColumnExpr is the SQL expression every category match runs against.
+//
+// `articles`.`categories` is a JSON array of category titles, but it is written
+// by two producers that escape it differently: the ETL emits a plain "&", while
+// Go's encoding/json HTML-escapes it to a backslash-u escape (see FormatTags),
+// so an article edited in the CMS stops matching the very section it is filed
+// under. Folding that escape away here means callers only ever reason about one
+// spelling. FormatTags no longer produces it, but rows written before that fix
+// still carry it.
+const CategoryColumnExpr = "REPLACE(LOWER(`categories`), '\\\\u0026', '&')"
+
+// categoryAliases maps a taxonomy slug to the category titles articles are
+// really filed under, for the cases where the corpus and the slug disagree.
+//
+// These are not spelling variants a rule could derive -- the section is named
+// one thing and the category another -- and before exact matching they were
+// carried accidentally by substring matching ("entertainment" happened to be
+// inside "Arts & Entertainment"). Making them explicit is what lets the match
+// be exact everywhere else.
+var categoryAliases = map[string][]string{
+	"entertainment":       {"arts & entertainment"},
+	"science-tech":        {"science & technology"},
+	"from-the-editor":     {"from the editor's desk"},
+	"happening-in-philly": {"what's happening in philly"},
+}
+
+// CategoryMatchPatterns returns the CategoryColumnExpr LIKE patterns that
 // identify articles filed under a taxonomy slug.
 //
 // WordPress category text does not match our slugs literally, so a slug stands
@@ -27,6 +53,14 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 // This is the single definition of "is this article in this section" -- both the
 // article listing and the count rebuild call it, because when they disagreed a
 // section could list 2545 articles while reporting 8.
+//
+// Every pattern is anchored on the JSON quotes around a member, so a slug
+// matches a WHOLE category and never a fragment of a longer one. Unanchored
+// patterns silently merged sibling taxonomies: `%puzzles%` matched the parent
+// title "Comics & Puzzles" and so pulled all 219 comics into the Puzzles
+// subsection, and `%men's basketball%` is a substring of "Women's Basketball",
+// which folded the women's team into the men's. Both read as plausible-but-wrong
+// pages rather than as errors, so anchoring is load-bearing, not cosmetic.
 func CategoryMatchPatterns(slug string) []string {
 	normalized := strings.ToLower(strings.TrimSpace(slug))
 	if normalized == "" {
@@ -35,22 +69,28 @@ func CategoryMatchPatterns(slug string) []string {
 
 	patterns := make([]string, 0, 4)
 	add := func(value string) {
+		// The JSON quotes are what make the match exact; without them a
+		// pattern matches any category containing the phrase.
+		pattern := `%"` + value + `"%`
 		for _, existing := range patterns {
-			if existing == value {
+			if existing == pattern {
 				return
 			}
 		}
-		patterns = append(patterns, value)
+		patterns = append(patterns, pattern)
 	}
 
-	add("%" + normalized + "%")
+	add(normalized)
 	if strings.Contains(normalized, "-") {
 		spaced := strings.ReplaceAll(normalized, "-", " ")
-		add("%" + spaced + "%")
-		add("%" + strings.ReplaceAll(normalized, "-", " & ") + "%")
+		add(spaced)
+		add(strings.ReplaceAll(normalized, "-", " & "))
 		if possessive := possessiveVariant(spaced); possessive != "" {
-			add("%" + possessive + "%")
+			add(possessive)
 		}
+	}
+	for _, alias := range categoryAliases[normalized] {
+		add(alias)
 	}
 	return patterns
 }
@@ -142,7 +182,7 @@ func TaxonomyCountCondition(slugs []string) (string, []any) {
 	var args []any
 	for _, slug := range slugs {
 		for _, pattern := range CategoryMatchPatterns(slug) {
-			clauses = append(clauses, "LOWER(`categories`) LIKE ?")
+			clauses = append(clauses, CategoryColumnExpr+" LIKE ?")
 			args = append(args, pattern)
 		}
 	}
