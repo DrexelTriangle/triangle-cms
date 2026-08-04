@@ -403,6 +403,16 @@ trix-editor.trix-content .attachment__toolbar .trix-button--move {
   font-size: 14px;
 }
 
+trix-editor.trix-content .attachment__toolbar .trix-button--copy-url .trix-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Confirmation tick, matching "Copy article link" going green on success. */
+trix-editor.trix-content .attachment__toolbar .trix-button--copied {
+  color: hsl(var(--primary, 243 75% 59%));
+}
+
 /* Trix also hangs a filename/filesize pill off the toolbar. Ours carry no
    filesize and a filename the author never chose, so it renders as a small
    dark blob sitting on the corner of the image with nothing legible in it. */

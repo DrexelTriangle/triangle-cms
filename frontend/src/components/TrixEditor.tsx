@@ -3,6 +3,7 @@ import "trix"
 import "trix/dist/trix.css"
 import "./TrixEditor.css"
 import { apiBaseUrl } from "../auth/urls"
+import { copyText } from "../lib/clipboard"
 import MediaPicker, { type MediaPickerItem } from "./MediaPicker"
 import {
   ALIGNMENTS,
@@ -22,6 +23,36 @@ if (typeof window !== "undefined" && window.Trix) {
   window.Trix.config.attachments.preview.caption.name = false
   window.Trix.config.attachments.preview.caption.size = false
 }
+
+// The attachment toolbar is built by Trix as plain DOM, not by React, so its
+// icons are hand-built SVG rather than the lucide components used elsewhere.
+// These are lucide's own Copy and Check paths, so the button reads the same as
+// "Copy article link" in the editor header.
+const svgIcon = (paths: string[]): SVGSVGElement => {
+  const ns = "http://www.w3.org/2000/svg"
+  const svg = document.createElementNS(ns, "svg")
+  svg.setAttribute("viewBox", "0 0 24 24")
+  svg.setAttribute("fill", "none")
+  svg.setAttribute("stroke", "currentColor")
+  svg.setAttribute("stroke-width", "2")
+  svg.setAttribute("stroke-linecap", "round")
+  svg.setAttribute("stroke-linejoin", "round")
+  svg.setAttribute("aria-hidden", "true")
+  svg.classList.add("trix-icon")
+  for (const d of paths) {
+    const path = document.createElementNS(ns, "path")
+    path.setAttribute("d", d)
+    svg.appendChild(path)
+  }
+  return svg
+}
+
+const copyIcon = () => svgIcon([
+  "M20 9h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2z",
+  "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
+])
+
+const checkIcon = () => svgIcon(["M20 6 9 17l-5-5"])
 
 // Hosts we may embed directly. A pasted image already served from our own media
 // infrastructure needs no sideload — it is the same file we would be copying.
@@ -610,6 +641,47 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
           if (target) commitMove(figure, { block: target, insertBefore: direction === "up" })
         })
         group.appendChild(button)
+      }
+
+      // Copy the image's URL, matching the "Copy article link" button in the
+      // editor header: same clipboard helper (which falls back to execCommand,
+      // since the CMS is served over plain HTTP where navigator.clipboard does
+      // not exist) and the same swap-to-a-tick confirmation.
+      const url = typeof attachment.getAttribute("url") === "string" ? String(attachment.getAttribute("url")) : ""
+      if (url) {
+        const copyGroup = document.createElement("span")
+        copyGroup.className = "trix-button-group trix-button-group--copy"
+
+        const copyButton = document.createElement("button")
+        copyButton.type = "button"
+        copyButton.className = "trix-button trix-button--copy-url"
+        copyButton.title = `Copy image URL (${url})`
+        copyButton.appendChild(copyIcon())
+
+        let resetIcon: number | undefined
+        copyButton.addEventListener("mousedown", (mouseEvent) => { mouseEvent.preventDefault() })
+        copyButton.addEventListener("click", (clickEvent) => {
+          clickEvent.preventDefault()
+          void copyText(url).then((copied) => {
+            if (!copied) {
+              setNotice("Could not copy the image URL. Your browser blocked clipboard access.")
+              return
+            }
+            copyButton.replaceChildren(checkIcon())
+            copyButton.classList.add("trix-button--copied")
+            window.clearTimeout(resetIcon)
+            resetIcon = window.setTimeout(() => {
+              // The toolbar is torn down whenever the image is deselected, so
+              // by the time this fires the button may be long gone.
+              if (!copyButton.isConnected) return
+              copyButton.replaceChildren(copyIcon())
+              copyButton.classList.remove("trix-button--copied")
+            }, 1500)
+          })
+        })
+
+        copyGroup.appendChild(copyButton)
+        toolbar.querySelector(".trix-button-row")?.appendChild(copyGroup)
       }
 
       toolbar.querySelector(".trix-button-row")?.appendChild(group)
