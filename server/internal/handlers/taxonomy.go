@@ -76,18 +76,41 @@ func normalizeCategoryAliases(aliases []string) (string, error) {
 	return db.MarshalCategoryJSON(cleaned)
 }
 
-// refreshCategoryAliasCache reloads the in-memory aliases after a taxonomy
-// write. A failure here does not fail the request -- the row is already saved,
-// and matching keeps using the previous aliases until the next write or
-// restart -- but it must be loud, because the symptom otherwise is an edit that
-// appears to do nothing.
-func refreshCategoryAliasCache(r *http.Request, conn *sql.DB) {
+// refreshTaxonomyDerivedState brings everything downstream of a taxonomy write
+// back in line: the in-memory aliases that article matching reads, and the
+// stored article_count the sections screen shows.
+//
+// Both matter for the same reason. Matching updates the moment the cache
+// reloads, but article_count is a stored number, so without recounting an
+// editor who fixes a section sees it start working on the site while the screen
+// still shows 0 -- a successful fix that looks like a failed one. Only the
+// touched rows are recounted; see RebuildTaxonomyArticleCountsFor.
+//
+// Neither failure fails the request: the row is already saved, and both are
+// recoverable at the next write or restart. They are logged loudly instead,
+// because the symptom otherwise is an edit that appears to do nothing.
+//
+// Callers pass every slug the write touched, INCLUDING a parent whose row is
+// about to disappear -- parents cannot be resolved once the child is deleted.
+func refreshTaxonomyDerivedState(r *http.Request, conn *sql.DB, slugs ...string) {
 	if conn == nil {
 		return
 	}
 	if err := db.RefreshCategoryAliases(r.Context(), conn); err != nil {
 		slog.Error("failed to refresh category alias cache", "error", err)
 	}
+	if err := db.RebuildTaxonomyArticleCountsFor(r.Context(), conn, slugs...); err != nil {
+		slog.Error("failed to recount taxonomy articles after a write", "slugs", slugs, "error", err)
+	}
+}
+
+// parentSlugForRecount narrows validateTaxonomyParent's any-typed result to the
+// slug string, or "" for a section.
+func parentSlugForRecount(parentSlug any) string {
+	if parent, ok := parentSlug.(string); ok {
+		return parent
+	}
+	return ""
 }
 
 func taxonomyItemArticleCount(ctx context.Context, conn *sql.DB, taxType, slug string) (int64, error) {
@@ -323,7 +346,7 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		refreshCategoryAliasCache(r, conn)
+		refreshTaxonomyDerivedState(r, conn, slug, parentSlugForRecount(parentSlug))
 		action := "taxonomy_created"
 		if taxType == string(models.TaxonomyTypeTag) {
 			action = "tag_created"
@@ -450,7 +473,7 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 		if taxType == string(models.TaxonomyTypeTag) {
 			action = "tag_updated"
 		}
-		refreshCategoryAliasCache(r, conn)
+		refreshTaxonomyDerivedState(r, conn, slug, newSlug, parentSlugForRecount(parentSlug))
 		activity.LogRequest(r, action, fmt.Sprintf("%s: %s", taxType, title), "old_slug", slug, "new_slug", newSlug)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -479,6 +502,20 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
+		// Captured before the row goes away: once it is deleted its parent can
+		// no longer be looked up, and the parent's count changes because a
+		// section matches its own slug OR any of its children's.
+		var deletedParentSlug string
+		if conn != nil {
+			var parent sql.NullString
+			if err := conn.QueryRowContext(r.Context(),
+				"SELECT parent_slug FROM site_taxonomy WHERE kind = ? AND slug = ? LIMIT 1",
+				taxType, slug,
+			).Scan(&parent); err == nil && parent.Valid {
+				deletedParentSlug = strings.TrimSpace(parent.String)
+			}
+		}
+
 		if conn != nil {
 			// Existence check only -- the count it returns is the cached one.
 			if _, err := taxonomyItemArticleCount(r.Context(), conn, taxType, slug); err == sql.ErrNoRows {
@@ -530,7 +567,7 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "taxonomy item not found")
 			return
 		}
-		refreshCategoryAliasCache(r, conn)
+		refreshTaxonomyDerivedState(r, conn, slug, deletedParentSlug)
 		action := "taxonomy_deleted"
 		if taxType == string(models.TaxonomyTypeTag) {
 			action = "tag_deleted"

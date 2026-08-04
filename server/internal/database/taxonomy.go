@@ -305,36 +305,45 @@ func TaxonomyCountCondition(slugs []string) (string, []any) {
 	return "(" + strings.Join(clauses, " OR ") + ")", args
 }
 
+// countArticlesForSlugs counts the articles a taxonomy row matches, over the
+// same population the public listing shows, so article_count equals the total a
+// reader actually pages through.
+func countArticlesForSlugs(ctx context.Context, conn *sql.DB, slug string, matched []string) (int64, error) {
+	condition, args := TaxonomyCountCondition(matched)
+	if condition == "" {
+		return 0, nil
+	}
+	var count int64
+	query := "SELECT COUNT(*) FROM `articles` WHERE `archived_at` IS NULL AND `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND " + condition
+	if err := conn.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	if count == 0 {
+		// The failure mode this catches: matching is exact, so a slug that is
+		// not the canonicalized category string resolves to nothing and its
+		// page renders empty. That looks like a section with no content rather
+		// than a misconfiguration, which is exactly how four sections stayed
+		// broken until someone noticed the comics were in the wrong place.
+		// Name it out loud.
+		slog.Warn("taxonomy slug matches no articles; it likely needs a category alias",
+			"slug", slug, "matched_slugs", matched)
+	}
+	return count, nil
+}
+
 func RebuildTaxonomyArticleCounts(ctx context.Context, conn *sql.DB) error {
 	matchSlugs, err := taxonomyMatchSlugs(ctx, conn)
 	if err != nil {
 		return err
 	}
 
-	// Counted over the same population the public listing shows, so
-	// article_count equals the total a reader actually pages through.
 	counts := make(map[string]int64, len(matchSlugs))
 	for slug, slugs := range matchSlugs {
-		condition, args := TaxonomyCountCondition(slugs)
-		if condition == "" {
-			continue
-		}
-		var count int64
-		query := "SELECT COUNT(*) FROM `articles` WHERE `archived_at` IS NULL AND `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND " + condition
-		if err := conn.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		count, err := countArticlesForSlugs(ctx, conn, slug, slugs)
+		if err != nil {
 			return err
 		}
 		counts[slug] = count
-		if count == 0 {
-			// The failure mode this catches: matching is exact, so a slug
-			// that is not the canonicalized category string resolves to
-			// nothing and its page renders empty. That looks like a section
-			// with no content rather than a misconfiguration, which is
-			// exactly how four sections stayed broken until someone noticed
-			// the comics were in the wrong place. Name it out loud.
-			slog.Warn("taxonomy slug matches no articles; it likely needs a category alias",
-				"slug", slug, "matched_slugs", slugs)
-		}
 	}
 
 	tx, err := conn.BeginTx(ctx, nil)
@@ -368,4 +377,91 @@ func RebuildTaxonomyArticleCounts(ctx context.Context, conn *sql.DB) error {
 	}
 
 	return tx.Commit()
+}
+
+// RebuildTaxonomyArticleCountsFor recounts only the rows a single taxonomy edit
+// can have changed, so a save in the sections screen can refresh the number it
+// just invalidated without paying for a full rebuild.
+//
+// A full rebuild runs one scan of the articles table per taxonomy row -- fine as
+// startup or maintenance work, far too slow to sit inside a save. The blast
+// radius of one edit is small: the row itself, plus its parent section, because
+// a section matches its own slug OR any of its children's. Nothing else moves.
+//
+// Callers pass the slugs they touched; parents are resolved here.
+func RebuildTaxonomyArticleCountsFor(ctx context.Context, conn *sql.DB, slugs ...string) error {
+	matchSlugs, err := taxonomyMatchSlugs(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	parents, err := taxonomyParentsBySlug(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	affected := make(map[string]struct{}, len(slugs)*2)
+	for _, slug := range slugs {
+		normalized := strings.TrimSpace(slug)
+		if normalized == "" {
+			continue
+		}
+		affected[normalized] = struct{}{}
+		if parent := parents[normalized]; parent != "" {
+			affected[parent] = struct{}{}
+		}
+	}
+	if len(affected) == 0 {
+		return nil
+	}
+
+	stmt, err := conn.PrepareContext(ctx, `
+		UPDATE site_taxonomy
+		SET article_count = ?
+		WHERE kind IN ('section', 'subsection') AND slug = ?
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for slug := range affected {
+		matched, ok := matchSlugs[slug]
+		if !ok {
+			// Deleted by the edit that triggered this; nothing to update.
+			continue
+		}
+		count, err := countArticlesForSlugs(ctx, conn, slug, matched)
+		if err != nil {
+			return err
+		}
+		if _, err := stmt.ExecContext(ctx, count, slug); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func taxonomyParentsBySlug(ctx context.Context, conn *sql.DB) (map[string]string, error) {
+	rows, err := conn.QueryContext(ctx, `
+		SELECT slug, COALESCE(parent_slug, '')
+		FROM site_taxonomy
+		WHERE kind = 'subsection'
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	parents := make(map[string]string)
+	for rows.Next() {
+		var slug, parent string
+		if err := rows.Scan(&slug, &parent); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(parent) != "" {
+			parents[slug] = parent
+		}
+	}
+	return parents, rows.Err()
 }

@@ -355,3 +355,130 @@ func TestTaxonomyHTTPDeleteRefusesSectionWithSubsections(t *testing.T) {
 		t.Fatalf("delete of a parent section = %d, want 400: %s", refused.Code, refused.Body.String())
 	}
 }
+
+// TestTaxonomyHTTPAliasSaveUpdatesTheDisplayedCount closes the loop the sections
+// screen actually shows. Matching goes live the moment the alias cache reloads,
+// but article_count is stored, so without a recount the editor's fix works on
+// the site while the screen still reads 0 -- a successful fix that looks failed.
+func TestTaxonomyHTTPAliasSaveUpdatesTheDisplayedCount(t *testing.T) {
+	conn := taxonomyHTTPTestDB(t)
+	ctx := context.Background()
+
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO articles (id, categories, pub_date) VALUES
+			(1, '["Restaurant Reviews"]', UTC_TIMESTAMP()),
+			(2, '["Restaurant Reviews"]', UTC_TIMESTAMP()),
+			(3, '["News"]', UTC_TIMESTAMP())`,
+	); err != nil {
+		t.Fatalf("insert articles: %v", err)
+	}
+
+	if code := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
+		"type":            "section",
+		"slug":            "food",
+		"canonical_title": "Food",
+	}).Code; code != http.StatusCreated {
+		t.Fatalf("POST = %d", code)
+	}
+
+	// Nothing is filed under "Food", so the screen shows 0 and flags it.
+	if got := findItem(t, getTaxonomyItems(t, conn), "food").ArticleCount; got != 0 {
+		t.Fatalf("count before the fix = %d, want 0", got)
+	}
+
+	// The editor supplies the real category name.
+	if code := taxonomyRequest(t, PutTaxonomyItem(conn), http.MethodPut, "/v1/taxonomy/section/food", map[string]any{
+		"slug":             "food",
+		"canonical_title":  "Food",
+		"parent_slug":      nil,
+		"category_aliases": []string{"Restaurant Reviews"},
+	}).Code; code != http.StatusNoContent {
+		t.Fatalf("PUT = %d", code)
+	}
+
+	// ...and the number must be right on the very next load, with no rebuild
+	// and no restart.
+	if got := findItem(t, getTaxonomyItems(t, conn), "food").ArticleCount; got != 2 {
+		t.Errorf("count after the fix = %d, want 2 -- the save did not recount", got)
+	}
+}
+
+// TestTaxonomyHTTPSubsectionSaveRecountsItsParent covers the blast radius: a
+// section matches its own slug OR any child's, so fixing a child moves the
+// parent's number too.
+func TestTaxonomyHTTPSubsectionSaveRecountsItsParent(t *testing.T) {
+	conn := taxonomyHTTPTestDB(t)
+	ctx := context.Background()
+
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO articles (id, categories, pub_date) VALUES
+			(1, '["Beer Reviews"]', UTC_TIMESTAMP())`,
+	); err != nil {
+		t.Fatalf("insert articles: %v", err)
+	}
+
+	for _, body := range []map[string]any{
+		{"type": "section", "slug": "food", "canonical_title": "Food"},
+		{"type": "subsection", "slug": "drinks", "canonical_title": "Drinks", "parent_slug": "food"},
+	} {
+		if code := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", body).Code; code != http.StatusCreated {
+			t.Fatalf("POST %v = %d", body, code)
+		}
+	}
+
+	if code := taxonomyRequest(t, PutTaxonomyItem(conn), http.MethodPut, "/v1/taxonomy/subsection/drinks", map[string]any{
+		"slug":             "drinks",
+		"canonical_title":  "Drinks",
+		"parent_slug":      "food",
+		"category_aliases": []string{"Beer Reviews"},
+	}).Code; code != http.StatusNoContent {
+		t.Fatalf("PUT = %d", code)
+	}
+
+	items := getTaxonomyItems(t, conn)
+	if got := findItem(t, items, "drinks").ArticleCount; got != 1 {
+		t.Errorf("subsection count = %d, want 1", got)
+	}
+	if got := findItem(t, items, "food").ArticleCount; got != 1 {
+		t.Errorf("parent section count = %d, want 1 -- the parent was not recounted", got)
+	}
+}
+
+// TestTaxonomyHTTPDeleteRecountsTheParent covers the case where the parent
+// cannot be resolved after the fact, because the child row is gone by then.
+//
+// Deleting an EMPTY child cannot move a correct parent count -- an empty child
+// contributes nothing -- so the parent's stored count is staled first. If the
+// delete recounts it, the stale number is corrected; if it does not, the stale
+// number survives.
+func TestTaxonomyHTTPDeleteRecountsTheParent(t *testing.T) {
+	conn := taxonomyHTTPTestDB(t)
+	ctx := context.Background()
+
+	for _, body := range []map[string]any{
+		{"type": "section", "slug": "food", "canonical_title": "Food"},
+		{"type": "subsection", "slug": "drinks", "canonical_title": "Drinks", "parent_slug": "food"},
+	} {
+		if code := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", body).Code; code != http.StatusCreated {
+			t.Fatalf("POST %v = %d", body, code)
+		}
+	}
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO articles (id, categories, pub_date) VALUES (1, '["Food"]', UTC_TIMESTAMP())`,
+	); err != nil {
+		t.Fatalf("insert article: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		"UPDATE site_taxonomy SET article_count = 99 WHERE slug = 'food'",
+	); err != nil {
+		t.Fatalf("stale the parent count: %v", err)
+	}
+
+	if code := taxonomyRequest(t, DeleteTaxonomyItem(conn), http.MethodDelete, "/v1/taxonomy/subsection/drinks", nil).Code; code != http.StatusNoContent {
+		t.Fatalf("DELETE = %d", code)
+	}
+
+	if got := findItem(t, getTaxonomyItems(t, conn), "food").ArticleCount; got != 1 {
+		t.Errorf("parent count after deleting a child = %d, want 1 -- the parent was not recounted", got)
+	}
+}
