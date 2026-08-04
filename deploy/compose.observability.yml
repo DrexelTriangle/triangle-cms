@@ -1,15 +1,17 @@
-# Observability stack (Loki + Promtail + Grafana), deployed and upgraded
-# independently of the CMS. This is intentionally a SEPARATE Compose project from
-# compose.cms.yml: a CMS deploy must never `docker compose down` this stack, and
-# an observability change must never touch the CMS slots or MariaDB.
+# Observability stack (Loki + Promtail + Grafana + Prometheus), deployed and
+# upgraded independently of the CMS. This is intentionally a SEPARATE Compose
+# project from compose.cms.yml: a CMS deploy must never `docker compose down`
+# this stack, and an observability change must never touch the CMS slots or
+# MariaDB.
 #
-# Promtail scrapes container logs from the host's /var/lib/docker/containers, so
-# it collects CMS stdout regardless of the CMS being on a different network.
+# Promtail collects container logs through the Docker daemon API, and Prometheus
+# scrapes each CMS slot's /metrics over the host gateway. Both therefore work
+# regardless of the CMS living in a different Compose project on its own network.
 #
 # Usage (from this directory):
-#   docker compose -f compose.observability.yml --env-file cms.env up -d
+#   docker compose -f compose.observability.yml --env-file <env> up -d
 #
-# Grafana admin credentials come from cms.env (host-only, not committed).
+# Grafana admin credentials come from that env file (host-only, not committed).
 
 name: triangle-observability
 
@@ -78,7 +80,30 @@ services:
       - "127.0.0.1:3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ../observability/grafana/provisioning/datasources/loki.yml:/etc/grafana/provisioning/datasources/loki.yml:ro,z
+      # Whole directories rather than the single loki.yml file, so adding a
+      # datasource or dashboard is a file drop rather than a Compose edit.
+      - ../observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
+      - ../observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
+    networks:
+      - observability_net
+
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      # Match Loki's two-week retention so the two halves of the dashboard
+      # cover the same window and neither outgrows the disk it shares with the
+      # CMS.
+      - "--storage.tsdb.retention.time=14d"
+    volumes:
+      - ../observability/prometheus/prometheus.delta.yml:/etc/prometheus/prometheus.yml:ro,z
+      - prometheus_data:/prometheus
+    # The CMS slots publish to host loopback from a different Compose project,
+    # so they are only reachable through the host gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - observability_net
 
@@ -86,6 +111,7 @@ volumes:
   loki_data:
   promtail_positions:
   grafana_data:
+  prometheus_data:
 
 networks:
   observability_net:

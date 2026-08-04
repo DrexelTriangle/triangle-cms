@@ -106,6 +106,31 @@ Delta's own Grafana (`127.0.0.1:3000`, admin credentials from `cms.env`) stays
 as a local fallback and is reachable only over an SSH tunnel. Basic auth here
 travels in cleartext; fold this endpoint into TLS when TLS lands on Delta.
 
+### Metrics and the CMS dashboard
+
+The backend exposes Prometheus metrics on `GET /metrics`, and the stack runs a
+Prometheus that scrapes both slots over the host gateway
+(`observability/prometheus/prometheus.delta.yml`). The "CMS Dashboard" is
+provisioned from `observability/grafana/provisioning/dashboards/` and appears in
+any Grafana that mounts that directory -- no manual import.
+
+`/metrics` is unauthenticated. That is safe only because Nginx proxies just
+`/v1` and `/swagger`, so nothing routes it in from outside and Prometheus
+reaches it on the slot's loopback port. If a vhost ever forwards `/metrics`, put
+it behind auth first: it exposes route names, traffic volumes, and error rates.
+
+`up{job="cms"}` returns **two** series, one per slot, each labelled
+`slot="blue"` / `slot="green"`. The idle slot being up is normal and says
+nothing about which one serves traffic.
+
+Dashboards are provisioned but `allowUiUpdates` is on, so they can be edited in
+the UI. Those edits live only in Grafana's database until pulled back into the
+repo:
+
+```
+GRAFANA_ADMIN_USER=... GRAFANA_ADMIN_PASSWORD=... scripts/pull-dashboards.sh
+```
+
 ### Reading blue/green logs in Grafana
 
 Both slots run all the time. Only one receives traffic, and **nothing in the log

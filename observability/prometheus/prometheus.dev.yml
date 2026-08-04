@@ -1,0 +1,22 @@
+# Local development scrape config, for the root docker-compose.yml stack.
+#
+# The dev `cms` service serves TLS on 8080 with the self-signed cert in
+# server/certs, hence scheme: https and insecure_skip_verify. Delta runs the
+# backend in CMS_SERVER_MODE=internal-http behind Nginx and has two slots
+# rather than one, so it uses prometheus.delta.yml instead.
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # The job name must stay "cms": the provisioned dashboard filters on
+  # job="cms" in queries like up{job="cms"} and go_goroutines{job="cms"}.
+  - job_name: cms
+    metrics_path: /metrics
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    static_configs:
+      - targets: ["cms:8080"]
+        labels:
+          slot: dev

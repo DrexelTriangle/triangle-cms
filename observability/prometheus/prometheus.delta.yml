@@ -1,0 +1,34 @@
+# Delta scrape config, for deploy/compose.observability.yml.
+#
+# Two differences from the dev config, both structural rather than cosmetic:
+#
+#   1. Plain HTTP. Delta runs the backend with CMS_SERVER_MODE=internal-http
+#      behind Nginx, so the slots speak HTTP on their loopback ports. Scraping
+#      https:// here fails the handshake and the dashboard shows no data.
+#
+#   2. Both slots, always. Blue and green both run permanently and only one is
+#      wired up in Nginx, so scraping "the backend" is not a single target. Each
+#      carries a `slot` label; `up{job="cms"}` will legitimately show two series.
+#      Which one is live is decided by Nginx, not by anything Prometheus can
+#      see -- see the blue/green section in deploy/README.md.
+#
+# The CMS containers sit in a different Compose project on their own network and
+# publish only to host loopback, so targets go via the host gateway rather than
+# by container name.
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # The job name must stay "cms": the provisioned dashboard filters on
+  # job="cms" in queries like up{job="cms"} and go_goroutines{job="cms"}.
+  - job_name: cms
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["host.docker.internal:8081"]
+        labels:
+          slot: blue
+      - targets: ["host.docker.internal:8082"]
+        labels:
+          slot: green
