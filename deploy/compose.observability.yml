@@ -97,6 +97,14 @@ services:
       # cover the same window and neither outgrows the disk it shares with the
       # CMS.
       - "--storage.tsdb.retention.time=14d"
+    # Loopback only, on 19090 so host Nginx can bind the natural 9090 for the
+    # Triangle Grafana (see nginx/triangle-prometheus.conf). Prometheus has no
+    # authentication of its own, so this must never be published to a routable
+    # address directly. Note that --web.enable-admin-api and
+    # --web.enable-lifecycle are deliberately absent above: without them the
+    # delete-series, reload and quit endpoints do not exist at all.
+    ports:
+      - "127.0.0.1:19090:9090"
     volumes:
       - ../observability/prometheus/prometheus.delta.yml:/etc/prometheus/prometheus.yml:ro,z
       - prometheus_data:/prometheus
