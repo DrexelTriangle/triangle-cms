@@ -344,7 +344,7 @@ func GetPolls(conn *sql.DB) http.Handler {
 }
 
 // @Summary List all polls including drafts
-// @Description Editor-facing listing. Separate from GET /v1/polls so unpublished questions are never reachable without admin auth.
+// @Description Editor-facing listing. Separate from GET /v1/polls so unpublished questions are never reachable without auth.
 // @Tags poll
 // @Produce json
 // @Param limit query int false "Max polls to return (default 50, max 200)"

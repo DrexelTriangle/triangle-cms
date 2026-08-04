@@ -2839,7 +2839,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Editor-facing listing. Separate from GET /v1/polls so unpublished questions are never reachable without admin auth.",
+                "description": "Editor-facing listing. Separate from GET /v1/polls so unpublished questions are never reachable without auth.",
                 "produces": [
                     "application/json"
                 ],

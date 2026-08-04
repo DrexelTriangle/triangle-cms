@@ -3124,7 +3124,7 @@ paths:
   /v1/polls/manage:
     get:
       description: Editor-facing listing. Separate from GET /v1/polls so unpublished
-        questions are never reachable without admin auth.
+        questions are never reachable without auth.
       parameters:
       - description: Max polls to return (default 50, max 200)
         in: query
