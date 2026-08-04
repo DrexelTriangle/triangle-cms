@@ -2203,6 +2203,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			"excerpt":          "excerpt",
 			"content":          "text",
 			"categories":       "categories",
+			"tags":             "tags",
 			"published_date":   "pub_date",
 			"is_featured":      "priority",
 			"breaking_news":    "breaking_news",
@@ -2224,24 +2225,30 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				continue
 			}
 			switch jsonField {
-			case "categories":
+			case "categories", "tags":
 				arr, ok := v.([]any)
 				if !ok {
-					writeError(w, http.StatusBadRequest, "categories must be an array of strings")
+					writeError(w, http.StatusBadRequest, jsonField+" must be an array of strings")
 					return
 				}
-				categories := make([]string, 0, len(arr))
+				values := make([]string, 0, len(arr))
 				for _, raw := range arr {
 					s, ok := raw.(string)
 					if !ok {
-						writeError(w, http.StatusBadRequest, "categories must be an array of strings")
+						writeError(w, http.StatusBadRequest, jsonField+" must be an array of strings")
 						return
 					}
-					categories = append(categories, s)
+					values = append(values, s)
 				}
 				setCols = append(setCols, column)
-				setArgs = append(setArgs, db.FormatTags(categories))
-				nextCategories = categories
+				formatted := db.FormatTags(values)
+				if jsonField == "tags" && formatted == "" {
+					formatted = "[]"
+				}
+				setArgs = append(setArgs, formatted)
+				if jsonField == "categories" {
+					nextCategories = values
+				}
 			case "published_date":
 				s, ok := v.(string)
 				if !ok {

@@ -37,6 +37,10 @@ type ApiArticleDetail = {
     seo_title?: string
     meta_description?: string
     focus_keyword?: string
+    tags?: Array<{
+      name?: string
+      slug?: string
+    }>
   }
 }
 
@@ -50,6 +54,7 @@ type PatchPayload = {
   photo_url: string
   breaking_news: boolean
   categories: string[]
+  tags: string[]
   authors: number[]
   focus_keyword: string
   meta_description: string
@@ -89,6 +94,20 @@ const slugifyCategory = (value: string): string =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
+
+const parseSEOTags = (value: string): string[] => {
+  const seen = new Set<string>()
+  return value
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter((tag) => {
+      if (!tag) return false
+      const key = tag.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
 
 const toLocalInput = (value?: string): string => {
   if (!value) return ""
@@ -192,6 +211,7 @@ function EditArticleView() {
   const [keyphrase, setKeyphrase] = useState("")
   const [metaDescription, setMetaDescription] = useState("")
   const [seoTitle, setSeoTitle] = useState("")
+  const [seoTagsInput, setSeoTagsInput] = useState("")
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
   // Byline order is selection order: the list is sent as-is and rendered in that
@@ -216,6 +236,7 @@ function EditArticleView() {
     photoURL,
     breakingNews,
     selectedCategorySlugs,
+    seoTagsInput,
     selectedAuthorIds,
     keyphrase,
     metaDescription,
@@ -232,6 +253,7 @@ function EditArticleView() {
     photoURL,
     breakingNews,
     selectedCategorySlugs,
+    seoTagsInput,
     selectedAuthorIds,
     keyphrase,
     metaDescription,
@@ -276,6 +298,10 @@ function EditArticleView() {
           setExcerpt(payload.excerpt ?? "")
           setKeyphrase(payload.seo?.focus_keyword ?? "")
           setSeoTitle(payload.seo?.seo_title ?? "")
+          setSeoTagsInput((payload.seo?.tags ?? [])
+            .map((tag) => (tag.name ?? "").trim())
+            .filter((tag) => tag.length > 0)
+            .join(", "))
           // Fall back to the excerpt as a starting point when no meta description
           // has been saved yet.
           setMetaDescription(payload.seo?.meta_description ?? payload.excerpt ?? "")
@@ -502,6 +528,7 @@ function EditArticleView() {
         ?? categorySlug
       ).trim())
       .filter((category) => category.length > 0)
+    const seoTags = parseSEOTags(seoTagsInput)
 
     // Rows with neither an author nor a category are filtered out of the listing
     // as import artifacts. Drafts are exempt from that filter for editors, so
@@ -544,6 +571,7 @@ function EditArticleView() {
           photo_url: photoURL.trim(),
           breaking_news: breakingNews,
           categories,
+          tags: seoTags,
           authors: selectedAuthorIds,
           focus_keyword: keyphrase.trim(),
           meta_description: metaDescription.trim(),
@@ -577,6 +605,7 @@ function EditArticleView() {
         photo_url: photoURL.trim(),
         breaking_news: breakingNews,
         categories,
+        tags: seoTags,
         authors: selectedAuthorIds,
         focus_keyword: keyphrase.trim(),
         meta_description: metaDescription.trim(),
@@ -1176,6 +1205,17 @@ function EditArticleView() {
                 placeholder="e.g. campus housing"
                 type="text"
                 value={keyphrase}
+              />
+            </label>
+
+            <label className={labelClass}>
+              <span className={labelTextClass}>SEO Tags</span>
+              <input
+                className={inputClass}
+                onChange={(e) => setSeoTagsInput(e.target.value)}
+                placeholder="Comma-separated tags"
+                type="text"
+                value={seoTagsInput}
               />
             </label>
 
