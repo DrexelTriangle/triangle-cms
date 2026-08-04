@@ -249,27 +249,28 @@ function MediaView() {
           )}
         </div>
 
-        {isAdmin && (
-          <div className="flex items-center gap-2">
-            <input
-              accept="image/jpeg,image/png,image/gif,image/webp"
-              className="hidden"
-              multiple
-              onChange={(e) => void handleUpload(e.target.files)}
-              ref={fileInputRef}
-              type="file"
-            />
-            <button
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-              disabled={uploadStatus !== null}
-              onClick={() => fileInputRef.current?.click()}
-              type="button"
-            >
-              <Upload className="w-4 h-4" aria-hidden="true" />
-              {uploadStatus ?? "Upload"}
-            </button>
-          </div>
-        )}
+        {/* Uploading is part of writing a story, so it stays open to any
+            signed-in editor -- the same rule POST /v1/media applies. Only the
+            destructive and bulk actions (delete, reindex) are admin-only. */}
+        <div className="flex items-center gap-2">
+          <input
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            className="hidden"
+            multiple
+            onChange={(e) => void handleUpload(e.target.files)}
+            ref={fileInputRef}
+            type="file"
+          />
+          <button
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            disabled={uploadStatus !== null}
+            onClick={() => fileInputRef.current?.click()}
+            type="button"
+          >
+            <Upload className="w-4 h-4" aria-hidden="true" />
+            {uploadStatus ?? "Upload"}
+          </button>
+        </div>
       </div>
 
       {/* Search, and the curated-gallery filter */}
@@ -331,9 +332,13 @@ function MediaView() {
                 ? "Nothing is on the public photo gallery yet. Open an image and tick “Show on the photo gallery”."
                 : "No media items yet."}
           </p>
-          {!search && !galleryOnly && isAdmin && (
+          {/* Reindex lives in Settings, which is admin-only, so only admins are
+              pointed at it; uploading is open to everyone signed in. */}
+          {!search && !galleryOnly && (
             <p className="text-xs">
-              Upload a file, or run Reindex Media in Settings to pull in already-migrated images.
+              {isAdmin
+                ? "Upload a file, or run Reindex Media in Settings to pull in already-migrated images."
+                : "Upload a file to get started."}
             </p>
           )}
         </div>
@@ -414,7 +419,6 @@ function MediaView() {
         <MediaDetailPanel
           key={selected.id}
           item={selected}
-          canEdit={isAdmin}
           onClose={() => setSelected(null)}
           onSave={handleSaveDetails}
         />
@@ -425,12 +429,11 @@ function MediaView() {
 
 type MediaDetailPanelProps = {
   item: MediaItem
-  canEdit: boolean
   onClose: () => void
   onSave: (item: MediaItem, patch: MediaPatch) => Promise<void>
 }
 
-function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelProps) {
+function MediaDetailPanel({ item, onClose, onSave }: MediaDetailPanelProps) {
   const [altText, setAltText] = useState(item.alt_text ?? "")
   const [caption, setCaption] = useState(item.caption ?? "")
   const [inGallery, setInGallery] = useState(item.in_gallery ?? false)
@@ -456,7 +459,7 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
 
   const save = async () => {
     setIsSaving(true)
-    await onSave(item, canEdit ? { alt_text: altText, caption, in_gallery: inGallery } : { in_gallery: inGallery })
+    await onSave(item, { alt_text: altText, caption, in_gallery: inGallery })
     setIsSaving(false)
   }
 
@@ -510,8 +513,7 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Alt text</span>
           <input
-            className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-60"
-            disabled={!canEdit}
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
             onChange={(e) => setAltText(e.target.value)}
             placeholder="Describe the image for screen readers"
             value={altText}
@@ -521,8 +523,7 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
         <label className="flex flex-col gap-1 text-sm">
           <span className="text-muted-foreground">Caption</span>
           <textarea
-            className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-60"
-            disabled={!canEdit}
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
             onChange={(e) => setCaption(e.target.value)}
             rows={3}
             value={caption}
@@ -530,9 +531,7 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
         </label>
 
         {/* The library is every file on the media server, house ads and comics
-            included, so the public gallery is opt-in per image. Curating it is
-            photo-desk work rather than administration, so it is open to
-            editors even where the metadata fields above are not. */}
+            included, so the public gallery is opt-in per image. */}
         <label className="flex items-start gap-2 text-sm">
           <input
             checked={inGallery}
@@ -554,7 +553,7 @@ function MediaDetailPanel({ item, canEdit, onClose, onSave }: MediaDetailPanelPr
           onClick={() => void save()}
           type="button"
         >
-          {isSaving ? "Saving..." : canEdit ? "Save details" : "Save gallery choice"}
+          {isSaving ? "Saving..." : "Save details"}
         </button>
       </aside>
     </div>
