@@ -65,13 +65,18 @@ not a query.
 2. Create the datasource credentials and install the Nginx site:
 
    ```
-   sudo htpasswd -B -c /etc/nginx/triangle-loki.htpasswd triangle-grafana
-   sudo chown root:www-data /etc/nginx/triangle-loki.htpasswd
-   sudo chmod 0640 /etc/nginx/triangle-loki.htpasswd
-   sudo cp nginx/triangle-loki.conf /etc/nginx/sites-available/
+   sudo htpasswd -B -c /etc/nginx/triangle-observability.htpasswd triangle-grafana
+   sudo chown root:www-data /etc/nginx/triangle-observability.htpasswd
+   sudo chmod 0640 /etc/nginx/triangle-observability.htpasswd
+   sudo cp nginx/triangle-loki.conf nginx/triangle-prometheus.conf \
+     /etc/nginx/sites-available/
    sudo ln -s ../sites-available/triangle-loki.conf /etc/nginx/sites-enabled/
+   sudo ln -s ../sites-available/triangle-prometheus.conf /etc/nginx/sites-enabled/
    sudo nginx -t && sudo nginx -s reload
    ```
+
+   Both endpoints share one htpasswd file, so the Triangle Grafana uses the same
+   credentials for its Loki and Prometheus datasources.
 
    Note that `htpasswd` is not installed on Delta by default; it ships in
    `apache2-utils` on Debian/Ubuntu and `httpd-tools` on RHEL-family hosts.
@@ -98,9 +103,16 @@ not a query.
      'localhost:3100/loki/api/v1/label/container/values'
    ```
 
-4. In the Triangle Grafana, add a Loki datasource with URL
-   `http://<delta-vpn-ip>:3100`, Basic auth enabled, and those credentials. No
-   path prefix or extra headers are needed.
+4. In the Triangle Grafana, add two datasources, both with Basic auth enabled
+   and the same credentials. No path prefix or extra headers are needed:
+
+   | Type | URL |
+   | --- | --- |
+   | Loki | `http://<delta-vpn-ip>:3100` |
+   | Prometheus | `http://<delta-vpn-ip>:9090` |
+
+   The CMS dashboard needs both: 14 of its 18 panels query Prometheus and only
+   3 query Loki, so a Loki-only setup renders a mostly empty dashboard.
 
 Delta's own Grafana (`127.0.0.1:3000`, admin credentials from `cms.env`) stays
 as a local fallback and is reachable only over an SSH tunnel. Basic auth here
