@@ -64,7 +64,11 @@ type AttachmentData = {
   previewable?: boolean
 }
 
-/** The piece attributes Trix stores in data-trix-attributes. */
+/**
+ * The piece attributes Trix stores in data-trix-attributes. `align` is only
+ * kept because TrixEditor.tsx adds it to AttachmentPiece.permittedAttributes;
+ * Trix strips unrecognised piece attributes on its own.
+ */
 type AttachmentAttributes = {
   caption?: string
   presentation?: string
@@ -159,7 +163,9 @@ export const articleHtmlToTrix = (html: string): string => {
     if (width) data.width = width
     if (height) data.height = height
 
-    const attributes: AttachmentAttributes = { presentation: "gallery" }
+    // Deliberately no presentation. Trix's "gallery" presentation fuses
+    // adjacent images into a single block -- see the config in TrixEditor.tsx.
+    const attributes: AttachmentAttributes = {}
     if (caption) attributes.caption = caption
     if (align) attributes.align = align
 
@@ -173,7 +179,24 @@ export const articleHtmlToTrix = (html: string): string => {
     if (alt) newImg.setAttribute("alt", alt)
     figure.appendChild(newImg)
 
-    container.replaceWith(figure)
+    // Give each image a block of its own. Trix deliberately does not count an
+    // attachment element as a block (its isBlockElement bails on anything
+    // carrying data-trix-attachment), so figures that are siblings in the
+    // stored markup -- the ordinary shape of the WordPress corpus -- parse into
+    // one shared block. A block is the unit the editor's reordering moves, so
+    // that made two adjacent images inseparable: dragging either moved both,
+    // and swapping them was not expressible at all. The <div> wrapper is how
+    // Trix serializes an attachment block itself, so this round-trips cleanly.
+    //
+    // Only at the top level: a <div> nested inside a <p> would not survive
+    // being re-parsed, and a figure already inside a block has one.
+    if (container.parentElement === doc.body) {
+      const block = doc.createElement("div")
+      block.appendChild(figure)
+      container.replaceWith(block)
+    } else {
+      container.replaceWith(figure)
+    }
     changed = true
   }
 

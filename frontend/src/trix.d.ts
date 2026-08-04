@@ -21,6 +21,10 @@ declare global {
       config: {
         attachments: {
           preview: {
+            // Trix's default is "gallery", which is what makes its gallery
+            // filter fuse adjacent images into one block. Nullable so we can
+            // turn that off -- see TrixEditor.tsx.
+            presentation: string | null
             caption: {
               name: boolean
               size: boolean
@@ -28,6 +32,10 @@ declare global {
           }
         }
       }
+      // The attribute allowlist Trix applies to the piece that carries an
+      // attachment. Anything not in it is stripped the moment the piece is
+      // built, so an attribute has to be added here to survive a re-render.
+      AttachmentPiece: { permittedAttributes: string[] }
       Attachment: new (attributes: TrixAttachmentAttributes) => TrixAttachment
       // Trix re-exports its internal models on the global. HTMLParser is how a
       // Document is built from HTML without going through Editor#loadHTML,

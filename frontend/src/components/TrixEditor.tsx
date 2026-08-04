@@ -22,6 +22,27 @@ import {
 if (typeof window !== "undefined" && window.Trix) {
   window.Trix.config.attachments.preview.caption.name = false
   window.Trix.config.attachments.preview.caption.size = false
+
+  // Keep every image in a block of its own. Trix tags previewable attachments
+  // with presentation "gallery" by default, and its attachmentGalleryFilter
+  // then fuses any run of two or more adjacent ones into a single
+  // attachmentGallery block. That block is the unit our reordering works in, so
+  // two images placed next to each other became one thing: dragging either
+  // moved both, and swapping them with each other was not expressible at all.
+  // Nothing here styles galleries, so switching the presentation off costs
+  // nothing and leaves the filter with no run to ever match.
+  window.Trix.config.attachments.preview.presentation = null
+
+  // Let alignment survive on the attachment piece. Trix's permitted list is
+  // ["caption", "presentation"] and removeProhibitedAttributes drops everything
+  // else as soon as the piece is built, so `align` only ever lived on the live
+  // figure as a class our own effect re-applied. That class was enough to make
+  // alignment look preserved until Trix re-rendered the figure from the piece
+  // -- which editing a caption does -- at which point the alignment silently
+  // vanished from both the editor and the saved article.
+  if (!window.Trix.AttachmentPiece.permittedAttributes.includes("align")) {
+    window.Trix.AttachmentPiece.permittedAttributes.push("align")
+  }
 }
 
 // The attachment toolbar is built by Trix as plain DOM, not by React, so its
@@ -76,9 +97,31 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
   const toolbarId = useId()
   const editorRef = useRef<TrixEditorElement>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
-  // Tracks the last HTML we emitted so we don't call loadHTML on our own onChange updates,
-  // which would reset the cursor mid-edit.
-  const lastEmittedRef = useRef<string>("")
+  // Every HTML string we have emitted since the last load from outside, so we
+  // never call loadHTML on our own output -- which would reset the document and
+  // drop the caret at the top of the article mid-edit.
+  //
+  // This has to be a set of everything emitted, not just the most recent one.
+  // The effect below is passive, so React can run it with a `value` several
+  // keystrokes behind what the editor already holds; a single "last emitted"
+  // string has by then moved on, the stale echo fails the comparison, and the
+  // editor is reloaded from it. That is the "type fast and your text jumps to
+  // the top" bug: each reload rewound the document and reset the caret to 0, so
+  // the following keystrokes landed at the start of the article.
+  const emittedRef = useRef<Set<string>>(new Set())
+  // Bounded so a long editing session (one entry per keystroke) doesn't grow
+  // without limit. Re-inserting keeps the set in least-recently-emitted order,
+  // so eviction drops the entries least likely to still be in flight.
+  const rememberEmitted = useCallback((html: string) => {
+    const emitted = emittedRef.current
+    emitted.delete(html)
+    emitted.add(html)
+    while (emitted.size > 100) {
+      const oldest = emitted.values().next()
+      if (oldest.done) break
+      emitted.delete(oldest.value)
+    }
+  }, [])
   // Caret position captured before the picker steals focus, so the image lands
   // where the author was typing rather than at the top of the document.
   const savedRangeRef = useRef<[number, number] | null>(null)
@@ -89,10 +132,14 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
-    if (value !== lastEmittedRef.current) {
-      editor.editor.loadHTML(articleHtmlToTrix(value))
-      lastEmittedRef.current = value
-    }
+    // An echo of our own output, however far behind. Reloading would only undo
+    // edits the author has already made.
+    if (emittedRef.current.has(value)) return
+    // A genuine load from outside: the editor is about to hold exactly this, so
+    // nothing emitted before it can still be worth honouring.
+    emittedRef.current.clear()
+    emittedRef.current.add(value)
+    editor.editor.loadHTML(articleHtmlToTrix(value))
   }, [value])
 
   useEffect(() => {
@@ -101,18 +148,18 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
 
     const handleChange = () => {
       // Emit the semantic markup we persist, not Trix's internal attachment
-      // format. lastEmittedRef has to hold the *converted* HTML: it is compared
+      // format. What we remember has to be the *converted* HTML: it is compared
       // against the incoming value prop to decide whether to reload the editor,
       // and reloading on our own output would reset the caret on every
       // keystroke.
       const html = trixHtmlToArticle(editor.value)
-      lastEmittedRef.current = html
+      rememberEmitted(html)
       onChange(html)
     }
 
     editor.addEventListener("trix-change", handleChange)
     return () => { editor.removeEventListener("trix-change", handleChange) }
-  }, [onChange])
+  }, [onChange, rememberEmitted])
 
   // Reflect each attachment's stored alignment onto the live figure so our CSS
   // can style it. Alignment round-trips as a data-trix-attributes value (Trix
@@ -343,6 +390,9 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     wrapper.appendChild(dropIndicator)
 
     let activeFigure: HTMLElement | null = null
+    // True from the mousedown on a figure until the mouse is released, whether
+    // or not the pointer has travelled far enough to count as a drag yet.
+    let gestureActive = false
     // Per-gesture cleanup set while a drag is in progress so the outer effect's
     // teardown can abort it on unmount (prevents leaked document listeners and
     // a stuck `grabbing` cursor).
@@ -559,6 +609,7 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       // Idempotent state-restorer, invoked from onUp on normal release AND
       // from the outer effect's cleanup if the component unmounts mid-drag.
       const cleanup = () => {
+        gestureActive = false
         document.removeEventListener("mousemove", onMove)
         document.removeEventListener("mouseup", onUp)
         document.body.style.cursor = ""
@@ -584,6 +635,7 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         }
       }
 
+      gestureActive = true
       document.addEventListener("mousemove", onMove)
       document.addEventListener("mouseup", onUp)
       activeGestureCleanup = cleanup
@@ -702,13 +754,27 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     }
 
     // With the mousedown default no longer suppressed, the browser is free to
-    // start its own native image drag, which would race our rearrange gesture
-    // and can drop the image into another window entirely.
+    // start its own native drag, which would race our rearrange gesture and can
+    // drop the image into another window entirely. Once a native drag begins
+    // the browser stops sending mousemove, so our gesture goes dead and the
+    // image simply stays where it was.
+    //
+    // Keying this off the event target alone is not enough. Trix selects the
+    // attachment on the same mousedown that starts the gesture, so what the
+    // browser goes on to drag is the *selection*, and the dragstart it fires
+    // for that is targeted at whatever node the selection is anchored in --
+    // routinely the editor or a text block rather than anything inside the
+    // figure. So suppress unconditionally while our own gesture is in flight,
+    // and keep the target test for the rest of the time (a native image drag
+    // out of the article is never something we want). Capture phase on the
+    // document, because Trix has dragstart handlers of its own on the editor.
     const onDragStart = (event: DragEvent) => {
-      if ((event.target as HTMLElement | null)?.closest(".attachment--preview")) event.preventDefault()
+      if (gestureActive || (event.target as HTMLElement | null)?.closest(".attachment--preview")) {
+        event.preventDefault()
+      }
     }
 
-    editor.addEventListener("dragstart", onDragStart)
+    document.addEventListener("dragstart", onDragStart, true)
     editor.addEventListener("trix-attachment-before-toolbar", onBeforeToolbar)
     editor.addEventListener("mousedown", onEditorMouseDown, true)
     document.addEventListener("mousedown", onDocumentMouseDown)
@@ -717,7 +783,7 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       // Abort any in-progress drag so we don't leave document-level
       // listeners or a stuck `grabbing` cursor behind on unmount.
       if (activeGestureCleanup) activeGestureCleanup()
-      editor.removeEventListener("dragstart", onDragStart)
+      document.removeEventListener("dragstart", onDragStart, true)
       editor.removeEventListener("trix-attachment-before-toolbar", onBeforeToolbar)
       editor.removeEventListener("mousedown", onEditorMouseDown, true)
       document.removeEventListener("mousedown", onDocumentMouseDown)
