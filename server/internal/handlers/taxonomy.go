@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -23,17 +24,70 @@ func isValidTaxonomyType(taxType string) bool {
 	return validTaxonomyTypes[strings.TrimSpace(taxType)]
 }
 
+// taxonomySelectColumns is the column list every taxonomy read shares, kept in
+// one place so a new column cannot be added to some queries and missed by
+// others -- scanTaxonomyRow depends on this exact order.
+const taxonomySelectColumns = "id, kind, slug, canonical_title, parent_slug, article_count, category_aliases"
+
 func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, error) {
 	var item models.TaxonomyItem
 	var parentSlug sql.NullString
-	if err := row.Scan(&item.ID, &item.Type, &item.Slug, &item.CanonicalTitle, &parentSlug, &item.ArticleCount); err != nil {
+	var aliases sql.NullString
+	if err := row.Scan(&item.ID, &item.Type, &item.Slug, &item.CanonicalTitle, &parentSlug, &item.ArticleCount, &aliases); err != nil {
 		return models.TaxonomyItem{}, err
 	}
 	if parentSlug.Valid && parentSlug.String != "" {
 		s := parentSlug.String
 		item.ParentSlug = &s
 	}
+	parsed, err := db.ParseCategoryAliases(aliases.String)
+	if err != nil {
+		return models.TaxonomyItem{}, err
+	}
+	// Always a list, never null, so the editor can bind to it directly.
+	item.CategoryAliases = parsed
+	if item.CategoryAliases == nil {
+		item.CategoryAliases = []string{}
+	}
 	return item, nil
+}
+
+// normalizeCategoryAliases trims and de-duplicates, dropping blanks. Returns
+// the JSON to store; an empty list is stored as [] rather than NULL so it stays
+// distinguishable from "never set", which is what the defaults seed on.
+func normalizeCategoryAliases(aliases []string) (string, error) {
+	cleaned := make([]string, 0, len(aliases))
+	for _, alias := range aliases {
+		trimmed := strings.TrimSpace(alias)
+		if trimmed == "" {
+			continue
+		}
+		duplicate := false
+		for _, existing := range cleaned {
+			if strings.EqualFold(existing, trimmed) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return db.MarshalCategoryJSON(cleaned)
+}
+
+// refreshCategoryAliasCache reloads the in-memory aliases after a taxonomy
+// write. A failure here does not fail the request -- the row is already saved,
+// and matching keeps using the previous aliases until the next write or
+// restart -- but it must be loud, because the symptom otherwise is an edit that
+// appears to do nothing.
+func refreshCategoryAliasCache(r *http.Request, conn *sql.DB) {
+	if conn == nil {
+		return
+	}
+	if err := db.RefreshCategoryAliases(r.Context(), conn); err != nil {
+		slog.Error("failed to refresh category alias cache", "error", err)
+	}
 }
 
 func taxonomyItemArticleCount(ctx context.Context, conn *sql.DB, taxType, slug string) (int64, error) {
@@ -117,10 +171,10 @@ func GetTaxonomy(conn *sql.DB) http.HandlerFunc {
 				writeError(w, http.StatusBadRequest, "type must be one of: section, subsection, tag")
 				return
 			}
-			query = "SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy WHERE kind = ? ORDER BY id ASC"
+			query = "SELECT " + taxonomySelectColumns + " FROM site_taxonomy WHERE kind = ? ORDER BY id ASC"
 			args = []any{taxType}
 		} else {
-			query = "SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy ORDER BY kind ASC, id ASC"
+			query = "SELECT " + taxonomySelectColumns + " FROM site_taxonomy ORDER BY kind ASC, id ASC"
 		}
 
 		rows, err := conn.QueryContext(r.Context(), query, args...)
@@ -172,7 +226,7 @@ func GetTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 		}
 
 		row := conn.QueryRowContext(r.Context(),
-			"SELECT id, kind, slug, canonical_title, parent_slug, article_count FROM site_taxonomy WHERE kind = ? AND slug = ?",
+			"SELECT "+taxonomySelectColumns+" FROM site_taxonomy WHERE kind = ? AND slug = ?",
 			taxType, slug,
 		)
 		item, err := scanTaxonomyRow(row)
@@ -234,14 +288,21 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		aliases, err := normalizeCategoryAliases(body.CategoryAliases)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "category_aliases must be a list of strings")
+			return
+		}
+
 		_, err = db.Insert(r.Context(), conn, "site_taxonomy",
-			[]string{"id", "kind", "slug", "canonical_title", "parent_slug", "article_count"},
-			nextID, taxType, slug, title, parentSlug, 0,
+			[]string{"id", "kind", "slug", "canonical_title", "parent_slug", "article_count", "category_aliases"},
+			nextID, taxType, slug, title, parentSlug, 0, aliases,
 		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		refreshCategoryAliasCache(r, conn)
 		action := "taxonomy_created"
 		if taxType == string(models.TaxonomyTypeTag) {
 			action = "tag_created"
@@ -330,10 +391,26 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			}
 		}
 
+		// Omitting category_aliases leaves the stored value alone; sending []
+		// clears it. Without that distinction, every edit made from a client
+		// that does not know about aliases would silently wipe them.
+		columns := []string{"slug", "canonical_title", "parent_slug"}
+		values := []any{newSlug, title, parentSlug}
+		if body.CategoryAliases != nil {
+			aliases, err := normalizeCategoryAliases(*body.CategoryAliases)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "category_aliases must be a list of strings")
+				return
+			}
+			columns = append(columns, "category_aliases")
+			values = append(values, aliases)
+		}
+		values = append(values, taxType, slug)
+
 		result, err := db.Update(r.Context(), conn, "site_taxonomy",
-			[]string{"slug", "canonical_title", "parent_slug"},
+			columns,
 			"kind = ? AND slug = ?",
-			newSlug, title, parentSlug, taxType, slug,
+			values...,
 		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -352,6 +429,7 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 		if taxType == string(models.TaxonomyTypeTag) {
 			action = "tag_updated"
 		}
+		refreshCategoryAliasCache(r, conn)
 		activity.LogRequest(r, action, fmt.Sprintf("%s: %s", taxType, title), "old_slug", slug, "new_slug", newSlug)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -421,6 +499,7 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "taxonomy item not found")
 			return
 		}
+		refreshCategoryAliasCache(r, conn)
 		action := "taxonomy_deleted"
 		if taxType == string(models.TaxonomyTypeTag) {
 			action = "tag_deleted"

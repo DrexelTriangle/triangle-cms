@@ -3,7 +3,10 @@ package database
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"log/slog"
 	"strings"
+	"sync"
 )
 
 func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
@@ -12,11 +15,131 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 		return err
 	}
 
-	_, err = conn.ExecContext(ctx, `
+	if _, err = conn.ExecContext(ctx, `
 		ALTER TABLE site_taxonomy
 		ADD COLUMN IF NOT EXISTS article_count BIGINT UNSIGNED NOT NULL DEFAULT 0
+	`); err != nil {
+		return err
+	}
+
+	if _, err = conn.ExecContext(ctx, `
+		ALTER TABLE site_taxonomy
+		ADD COLUMN IF NOT EXISTS category_aliases JSON NULL
+	`); err != nil {
+		return err
+	}
+
+	if err = SeedDefaultCategoryAliases(ctx, conn); err != nil {
+		return err
+	}
+	return RefreshCategoryAliases(ctx, conn)
+}
+
+// defaultCategoryAliases are the slug -> category-title mismatches that existed
+// before aliases were editable data, seeded so upgrading an existing database
+// does not silently empty four sections.
+//
+// Only applied where category_aliases IS NULL, so "never set" stays
+// distinguishable from an empty array an editor deliberately saved.
+var defaultCategoryAliases = map[string][]string{
+	"entertainment":       {"Arts & Entertainment"},
+	"science-tech":        {"Science & Technology"},
+	"from-the-editor":     {"From the Editor's Desk"},
+	"happening-in-philly": {"What's Happening in Philly"},
+}
+
+func SeedDefaultCategoryAliases(ctx context.Context, conn *sql.DB) error {
+	for slug, aliases := range defaultCategoryAliases {
+		payload, err := MarshalCategoryJSON(aliases)
+		if err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `
+			UPDATE site_taxonomy
+			SET category_aliases = ?
+			WHERE slug = ? AND category_aliases IS NULL
+		`, payload, slug); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// categoryAliasCache holds site_taxonomy's aliases in memory so
+// CategoryMatchPatterns can stay a pure function of a slug. Reloading it is
+// cheap (the table is ~50 rows) and only happens at startup and after a
+// taxonomy write, which keeps the article-listing path free of an extra query.
+var (
+	categoryAliasMu     sync.RWMutex
+	categoryAliasBySlug = map[string][]string{}
+)
+
+// RefreshCategoryAliases reloads the alias cache from site_taxonomy. Call it
+// after any write to the table, or matching will keep using the old aliases
+// until the process restarts.
+func RefreshCategoryAliases(ctx context.Context, conn *sql.DB) error {
+	rows, err := conn.QueryContext(ctx, `
+		SELECT slug, category_aliases
+		FROM site_taxonomy
+		WHERE category_aliases IS NOT NULL
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	loaded := make(map[string][]string)
+	for rows.Next() {
+		var slug string
+		var raw sql.NullString
+		if err := rows.Scan(&slug, &raw); err != nil {
+			return err
+		}
+		aliases, err := ParseCategoryAliases(raw.String)
+		if err != nil {
+			// One malformed row must not blank every other section's
+			// aliases, so skip it and keep going.
+			slog.Warn("ignoring malformed taxonomy category_aliases", "slug", slug, "error", err)
+			continue
+		}
+		if len(aliases) > 0 {
+			loaded[strings.ToLower(strings.TrimSpace(slug))] = aliases
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	categoryAliasMu.Lock()
+	categoryAliasBySlug = loaded
+	categoryAliasMu.Unlock()
+	return nil
+}
+
+// ParseCategoryAliases decodes the stored JSON array, dropping blanks. An empty
+// or absent value is not an error -- most rows have no aliases.
+func ParseCategoryAliases(raw string) ([]string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "null" {
+		return nil, nil
+	}
+	var decoded []string
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		return nil, err
+	}
+	aliases := make([]string, 0, len(decoded))
+	for _, alias := range decoded {
+		if cleaned := strings.TrimSpace(alias); cleaned != "" {
+			aliases = append(aliases, cleaned)
+		}
+	}
+	return aliases, nil
+}
+
+func categoryAliasesFor(slug string) []string {
+	categoryAliasMu.RLock()
+	defer categoryAliasMu.RUnlock()
+	return categoryAliasBySlug[slug]
 }
 
 // CategoryColumnExpr is the SQL expression every category match runs against.
@@ -29,21 +152,6 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 // spelling. FormatTags no longer produces it, but rows written before that fix
 // still carry it.
 const CategoryColumnExpr = "REPLACE(LOWER(`categories`), '\\\\u0026', '&')"
-
-// categoryAliases maps a taxonomy slug to the category titles articles are
-// really filed under, for the cases where the corpus and the slug disagree.
-//
-// These are not spelling variants a rule could derive -- the section is named
-// one thing and the category another -- and before exact matching they were
-// carried accidentally by substring matching ("entertainment" happened to be
-// inside "Arts & Entertainment"). Making them explicit is what lets the match
-// be exact everywhere else.
-var categoryAliases = map[string][]string{
-	"entertainment":       {"arts & entertainment"},
-	"science-tech":        {"science & technology"},
-	"from-the-editor":     {"from the editor's desk"},
-	"happening-in-philly": {"what's happening in philly"},
-}
 
 // CategoryMatchPatterns returns the CategoryColumnExpr LIKE patterns that
 // identify articles filed under a taxonomy slug.
@@ -61,6 +169,11 @@ var categoryAliases = map[string][]string{
 // subsection, and `%men's basketball%` is a substring of "Women's Basketball",
 // which folded the women's team into the men's. Both read as plausible-but-wrong
 // pages rather than as errors, so anchoring is load-bearing, not cosmetic.
+//
+// Because the match is exact, a slug that is not the canonicalized category
+// string resolves to nothing on its own -- it needs an alias row. Those come
+// from the cache, so callers must have run RefreshCategoryAliases first;
+// EnsureTaxonomyTable does it at startup.
 func CategoryMatchPatterns(slug string) []string {
 	normalized := strings.ToLower(strings.TrimSpace(slug))
 	if normalized == "" {
@@ -89,8 +202,8 @@ func CategoryMatchPatterns(slug string) []string {
 			add(possessive)
 		}
 	}
-	for _, alias := range categoryAliases[normalized] {
-		add(alias)
+	for _, alias := range categoryAliasesFor(normalized) {
+		add(strings.ToLower(strings.TrimSpace(alias)))
 	}
 	return patterns
 }
@@ -212,6 +325,16 @@ func RebuildTaxonomyArticleCounts(ctx context.Context, conn *sql.DB) error {
 			return err
 		}
 		counts[slug] = count
+		if count == 0 {
+			// The failure mode this catches: matching is exact, so a slug
+			// that is not the canonicalized category string resolves to
+			// nothing and its page renders empty. That looks like a section
+			// with no content rather than a misconfiguration, which is
+			// exactly how four sections stayed broken until someone noticed
+			// the comics were in the wrong place. Name it out loud.
+			slog.Warn("taxonomy slug matches no articles; it likely needs a category alias",
+				"slug", slug, "matched_slugs", slugs)
+		}
 	}
 
 	tx, err := conn.BeginTx(ctx, nil)

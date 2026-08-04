@@ -54,6 +54,22 @@ func TestCategoryMatchPatternsEmpty(t *testing.T) {
 	}
 }
 
+// withCategoryAliases installs aliases in the cache for one test, standing in
+// for what RefreshCategoryAliases loads from site_taxonomy, and restores the
+// previous contents afterwards.
+func withCategoryAliases(t *testing.T, aliases map[string][]string) {
+	t.Helper()
+	categoryAliasMu.Lock()
+	previous := categoryAliasBySlug
+	categoryAliasBySlug = aliases
+	categoryAliasMu.Unlock()
+	t.Cleanup(func() {
+		categoryAliasMu.Lock()
+		categoryAliasBySlug = previous
+		categoryAliasMu.Unlock()
+	})
+}
+
 // escapedAmp is the escape encoding/json emits for "&". Assembled by
 // concatenation so the sequence cannot be folded back into a literal "&" by an
 // editor or a copy-paste, which would make the tests below silently vacuous.
@@ -119,6 +135,12 @@ func TestCategoryMatchDoesNotMatchLongerCategory(t *testing.T) {
 func TestCategoryMatchResolvesAliases(t *testing.T) {
 	// The section is "Entertainment" but every article is filed under "Arts &
 	// Entertainment"; exact matching only works because the alias is explicit.
+	withCategoryAliases(t, map[string][]string{
+		"entertainment":       {"Arts & Entertainment"},
+		"science-tech":        {"Science & Technology"},
+		"from-the-editor":     {"From the Editor's Desk"},
+		"happening-in-philly": {"What's Happening in Philly"},
+	})
 	for slug, categories := range map[string]string{
 		"entertainment":       `["Arts & Entertainment"]`,
 		"science-tech":        `["Science & Technology", "Opinion"]`,
@@ -134,6 +156,7 @@ func TestCategoryMatchResolvesAliases(t *testing.T) {
 func TestCategoryMatchToleratesEscapedAmpersand(t *testing.T) {
 	// Articles saved through the CMS before the FormatTags fix carry the
 	// HTML-escaped ampersand; they must still match their section.
+	withCategoryAliases(t, map[string][]string{"entertainment": {"Arts & Entertainment"}})
 	if !matchesCategories("comics-puzzles", `["Crossword","Comics `+escapedAmp+` Puzzles"]`) {
 		t.Error("an escaped-ampersand row must still match its section")
 	}
@@ -203,10 +226,86 @@ func TestFormatTagsKeepsAmpersandUnescaped(t *testing.T) {
 func TestFormatTagsRoundTripsThroughTheMatcher(t *testing.T) {
 	// The two halves of the fix have to agree: whatever FormatTags writes must
 	// still match the section it names.
+	withCategoryAliases(t, map[string][]string{"entertainment": {"Arts & Entertainment"}})
 	if !matchesCategories("comics-puzzles", FormatTags([]string{"Comics", "Comics & Puzzles"})) {
 		t.Error("a CMS-saved article must match its own section")
 	}
 	if !matchesCategories("entertainment", FormatTags([]string{"Arts & Entertainment"})) {
 		t.Error("a CMS-saved article must match its own section via alias")
+	}
+}
+
+func TestParseCategoryAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{"empty", "", nil},
+		{"sql null", "null", nil},
+		{"empty array", "[]", []string{}},
+		{"one", `["Arts & Entertainment"]`, []string{"Arts & Entertainment"}},
+		{"trims and drops blanks", `["  Arts & Entertainment  ", "", "   "]`, []string{"Arts & Entertainment"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseCategoryAliases(tc.raw)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("alias %d = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParseCategoryAliasesRejectsMalformed(t *testing.T) {
+	// A malformed value must surface as an error rather than resolving to "no
+	// aliases", which would empty the section without saying why.
+	if _, err := ParseCategoryAliases(`{"not":"an array"}`); err == nil {
+		t.Fatal("expected an error for a non-array value")
+	}
+}
+
+func TestCategoryAliasesAreCaseInsensitiveOnTheSlug(t *testing.T) {
+	// Aliases are keyed by lowercased slug, and the stored title's casing must
+	// not matter either -- patterns are matched against a lowercased column.
+	withCategoryAliases(t, map[string][]string{"entertainment": {"ARTS & ENTERTAINMENT"}})
+	if !matchesCategories("Entertainment", `["Arts & Entertainment"]`) {
+		t.Error("alias matching must be case-insensitive")
+	}
+}
+
+func TestCategoryMatchPatternsDeduplicatesAliases(t *testing.T) {
+	// An alias that merely restates a derived pattern must not double the
+	// placeholders in every query that uses the slug.
+	withCategoryAliases(t, map[string][]string{"comics": {"Comics"}})
+	assertPatterns(t, "comics", []string{`%"comics"%`})
+}
+
+func TestDefaultCategoryAliasesCoverTheKnownMismatches(t *testing.T) {
+	// These four sections are named differently from the category their
+	// articles carry. Losing a default silently empties a section on upgrade,
+	// so pin them.
+	want := map[string]string{
+		"entertainment":       "Arts & Entertainment",
+		"science-tech":        "Science & Technology",
+		"from-the-editor":     "From the Editor's Desk",
+		"happening-in-philly": "What's Happening in Philly",
+	}
+	for slug, alias := range want {
+		got, ok := defaultCategoryAliases[slug]
+		if !ok {
+			t.Errorf("missing default alias for %q", slug)
+			continue
+		}
+		if len(got) != 1 || got[0] != alias {
+			t.Errorf("default alias for %q = %v, want [%q]", slug, got, alias)
+		}
 	}
 }

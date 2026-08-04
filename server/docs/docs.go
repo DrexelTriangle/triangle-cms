@@ -98,6 +98,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Filter by author display name or slug (partial match)",
+                        "name": "author",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Filter by section slug",
                         "name": "section_slug",
                         "in": "query"
@@ -3164,56 +3170,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/v1/search": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "articles"
-                ],
-                "summary": "Search articles",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Search term",
-                        "name": "q",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "default": 20,
-                        "description": "Max results",
-                        "name": "limit",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Offset",
-                        "name": "offset",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/models.ArticleListItem"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/v1/sections/{section_slug}/articles": {
             "get": {
                 "produces": [
@@ -4435,6 +4391,9 @@ const docTemplate = `{
                 "published_date": {
                     "type": "string"
                 },
+                "scheduled_date": {
+                    "type": "string"
+                },
                 "seo_title": {
                     "type": "string"
                 },
@@ -4564,6 +4523,9 @@ const docTemplate = `{
                 "photo_url": {
                     "type": "string"
                 },
+                "published_date": {
+                    "type": "string"
+                },
                 "seo_title": {
                     "type": "string"
                 },
@@ -4572,6 +4534,12 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/models.ArticleStatus"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "title": {
                     "type": "string"
@@ -4668,11 +4636,20 @@ const docTemplate = `{
                 "photo_url": {
                     "type": "string"
                 },
+                "published_date": {
+                    "type": "string"
+                },
                 "seo_title": {
                     "type": "string"
                 },
                 "status": {
                     "$ref": "#/definitions/models.ArticleStatus"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "title": {
                     "type": "string"
@@ -4683,10 +4660,12 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "draft",
+                "scheduled",
                 "published"
             ],
             "x-enum-varnames": [
                 "ArticleStatusDraft",
+                "ArticleStatusScheduled",
                 "ArticleStatusPublished"
             ]
         },
@@ -5862,6 +5841,12 @@ const docTemplate = `{
                 "canonical_title": {
                     "type": "string"
                 },
+                "category_aliases": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "parent_slug": {
                     "type": "string"
                 },
@@ -5882,6 +5867,13 @@ const docTemplate = `{
                 "canonical_title": {
                     "type": "string"
                 },
+                "category_aliases": {
+                    "description": "CategoryAliases are extra category titles whose articles belong to this\nitem, for when the corpus disagrees with the slug (the Entertainment\nsection is filed under \"Arts \u0026 Entertainment\"). Article matching is\nexact, so a slug that is not the category string needs one of these.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -5901,6 +5893,13 @@ const docTemplate = `{
             "properties": {
                 "canonical_title": {
                     "type": "string"
+                },
+                "category_aliases": {
+                    "description": "Pointer so an omitted field leaves the stored aliases alone, while an\nexplicit [] clears them.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "parent_slug": {
                     "type": "string"

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Columns3, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react"
+import { AlertTriangle, Columns3, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 
 type TaxonomyKind = "section" | "subsection"
@@ -11,6 +11,7 @@ type TaxonomyItem = {
   canonical_title: string
   parent_slug?: string | null
   article_count: number
+  category_aliases?: string[] | null
 }
 
 type SectionRow = {
@@ -26,6 +27,10 @@ type FormState = {
   canonicalTitle: string
   slug: string
   parentSlug: string
+  // One alias per line in the textarea; articles are matched on the whole
+  // category name, so this is how a section whose slug differs from its
+  // category ("entertainment" vs "Arts & Entertainment") finds its articles.
+  categoryAliases: string
 }
 
 type EditorState =
@@ -47,7 +52,14 @@ const emptyForm: FormState = {
   canonicalTitle: "",
   slug: "",
   parentSlug: "",
+  categoryAliases: "",
 }
+
+// Article matching is exact, so a slug that is not the category name resolves
+// to nothing and the section page renders empty -- which reads as "no articles
+// yet" rather than as a misconfiguration. Say what it usually means.
+const emptyCountHint =
+  "No articles match this item. If it should have articles, add the exact category name they are filed under under Category Names."
 
 const slugify = (value: string) =>
   value
@@ -205,6 +217,7 @@ export default function SectionsView() {
       canonicalTitle: item.canonical_title,
       slug: item.slug,
       parentSlug: item.parent_slug ?? "",
+      categoryAliases: (item.category_aliases ?? []).join("\n"),
     })
     setSlugTouched(true)
     setError(null)
@@ -241,6 +254,10 @@ export default function SectionsView() {
     const canonicalTitle = form.canonicalTitle.trim()
     const slug = slugify(form.slug)
     const parentSlug = form.type === "subsection" ? form.parentSlug.trim() : ""
+    const categoryAliases = form.categoryAliases
+      .split("\n")
+      .map((alias) => alias.trim())
+      .filter((alias) => alias.length > 0)
 
     if (!canonicalTitle) {
       setError("Name is required.")
@@ -263,6 +280,7 @@ export default function SectionsView() {
         slug,
         canonical_title: canonicalTitle,
         parent_slug: form.type === "subsection" ? parentSlug : null,
+        category_aliases: categoryAliases,
       }
 
       const response = editor.mode === "create"
@@ -278,6 +296,7 @@ export default function SectionsView() {
             slug,
             canonical_title: canonicalTitle,
             parent_slug: form.type === "subsection" ? parentSlug : null,
+            category_aliases: categoryAliases,
           }),
         })
 
@@ -426,7 +445,15 @@ export default function SectionsView() {
                     <td className="px-4 py-3 text-muted-foreground">{typeLabel(item)}</td>
                     <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{item.slug}</td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                          articleCount === 0
+                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-500"
+                            : "bg-primary/10 text-primary"
+                        }`}
+                        title={articleCount === 0 ? emptyCountHint : undefined}
+                      >
+                        {articleCount === 0 ? <AlertTriangle className="w-3 h-3" /> : null}
                         {articleCount.toLocaleString()}
                       </span>
                     </td>
@@ -521,6 +548,23 @@ export default function SectionsView() {
                   </select>
                 </label>
               ) : null}
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Category Names</span>
+                <textarea
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  rows={3}
+                  placeholder="Arts &amp; Entertainment"
+                  value={form.categoryAliases}
+                  onChange={(event) => setForm((current) => ({ ...current, categoryAliases: event.target.value }))}
+                />
+                <span className="text-xs text-muted-foreground">
+                  One per line. Articles are matched on the exact category name, so add one
+                  here whenever the name on the articles differs from the name above &mdash;
+                  the Entertainment section holds articles filed under &ldquo;Arts &amp; Entertainment&rdquo;.
+                  Leave empty when they match.
+                </span>
+              </label>
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
               <button

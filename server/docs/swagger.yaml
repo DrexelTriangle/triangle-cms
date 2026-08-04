@@ -121,6 +121,8 @@ definitions:
         type: string
       published_date:
         type: string
+      scheduled_date:
+        type: string
       seo_title:
         type: string
       slug:
@@ -206,12 +208,18 @@ definitions:
         type: string
       photo_url:
         type: string
+      published_date:
+        type: string
       seo_title:
         type: string
       slug:
         type: string
       status:
         $ref: '#/definitions/models.ArticleStatus'
+      tags:
+        items:
+          type: string
+        type: array
       title:
         type: string
     type: object
@@ -277,20 +285,28 @@ definitions:
         type: string
       photo_url:
         type: string
+      published_date:
+        type: string
       seo_title:
         type: string
       status:
         $ref: '#/definitions/models.ArticleStatus'
+      tags:
+        items:
+          type: string
+        type: array
       title:
         type: string
     type: object
   models.ArticleStatus:
     enum:
     - draft
+    - scheduled
     - published
     type: string
     x-enum-varnames:
     - ArticleStatusDraft
+    - ArticleStatusScheduled
     - ArticleStatusPublished
   models.ArticlesResponse:
     properties:
@@ -1055,6 +1071,10 @@ definitions:
     properties:
       canonical_title:
         type: string
+      category_aliases:
+        items:
+          type: string
+        type: array
       parent_slug:
         type: string
       slug:
@@ -1068,6 +1088,15 @@ definitions:
         type: integer
       canonical_title:
         type: string
+      category_aliases:
+        description: |-
+          CategoryAliases are extra category titles whose articles belong to this
+          item, for when the corpus disagrees with the slug (the Entertainment
+          section is filed under "Arts & Entertainment"). Article matching is
+          exact, so a slug that is not the category string needs one of these.
+        items:
+          type: string
+        type: array
       id:
         type: integer
       parent_slug:
@@ -1081,6 +1110,13 @@ definitions:
     properties:
       canonical_title:
         type: string
+      category_aliases:
+        description: |-
+          Pointer so an omitted field leaves the stored aliases alone, while an
+          explicit [] clears them.
+        items:
+          type: string
+        type: array
       parent_slug:
         type: string
       slug:
@@ -1172,6 +1208,10 @@ paths:
       - description: Filter by author slug
         in: query
         name: author_slug
+        type: string
+      - description: Filter by author display name or slug (partial match)
+        in: query
+        name: author
         type: string
       - description: Filter by section slug
         in: query
@@ -3150,39 +3190,6 @@ paths:
       summary: List all polls including drafts
       tags:
       - poll
-  /v1/search:
-    get:
-      parameters:
-      - description: Search term
-        in: query
-        name: q
-        required: true
-        type: string
-      - default: 20
-        description: Max results
-        in: query
-        name: limit
-        type: integer
-      - description: Offset
-        in: query
-        name: offset
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/models.ArticleListItem'
-            type: array
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Search articles
-      tags:
-      - articles
   /v1/sections/{section_slug}/articles:
     get:
       parameters:
