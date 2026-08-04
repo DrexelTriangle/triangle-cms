@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import type { KeyboardEvent } from "react"
 import { ArrowLeft, Save, Image, Search, X, Copy, Check } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -109,6 +110,21 @@ const parseSEOTags = (value: string): string[] => {
     })
 }
 
+// Appends whatever tags are in `raw` (Enter commits one, a pasted list commits
+// several) to the already-committed ones, skipping case-insensitive duplicates.
+// Returns the original array when nothing new was added so the caller can avoid
+// a pointless state update.
+const addSEOTags = (existing: string[], raw: string): string[] => {
+  const seen = new Set(existing.map((tag) => tag.toLowerCase()))
+  const added = parseSEOTags(raw).filter((tag) => {
+    const key = tag.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  return added.length > 0 ? [...existing, ...added] : existing
+}
+
 const toLocalInput = (value?: string): string => {
   if (!value) return ""
   const date = new Date(value)
@@ -211,7 +227,10 @@ function EditArticleView() {
   const [keyphrase, setKeyphrase] = useState("")
   const [metaDescription, setMetaDescription] = useState("")
   const [seoTitle, setSeoTitle] = useState("")
-  const [seoTagsInput, setSeoTagsInput] = useState("")
+  const [seoTags, setSeoTags] = useState<string[]>([])
+  // Text sitting in the tag box that has not been committed to a chip yet. It is
+  // still saved, so a half-typed tag is not silently dropped by an autosave.
+  const [seoTagDraft, setSeoTagDraft] = useState("")
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
   // Byline order is selection order: the list is sent as-is and rendered in that
@@ -236,7 +255,8 @@ function EditArticleView() {
     photoURL,
     breakingNews,
     selectedCategorySlugs,
-    seoTagsInput,
+    seoTags,
+    seoTagDraft,
     selectedAuthorIds,
     keyphrase,
     metaDescription,
@@ -253,7 +273,8 @@ function EditArticleView() {
     photoURL,
     breakingNews,
     selectedCategorySlugs,
-    seoTagsInput,
+    seoTags,
+    seoTagDraft,
     selectedAuthorIds,
     keyphrase,
     metaDescription,
@@ -298,10 +319,11 @@ function EditArticleView() {
           setExcerpt(payload.excerpt ?? "")
           setKeyphrase(payload.seo?.focus_keyword ?? "")
           setSeoTitle(payload.seo?.seo_title ?? "")
-          setSeoTagsInput((payload.seo?.tags ?? [])
+          setSeoTags(addSEOTags([], (payload.seo?.tags ?? [])
             .map((tag) => (tag.name ?? "").trim())
             .filter((tag) => tag.length > 0)
-            .join(", "))
+            .join(", ")))
+          setSeoTagDraft("")
           // Fall back to the excerpt as a starting point when no meta description
           // has been saved yet.
           setMetaDescription(payload.seo?.meta_description ?? payload.excerpt ?? "")
@@ -528,7 +550,7 @@ function EditArticleView() {
         ?? categorySlug
       ).trim())
       .filter((category) => category.length > 0)
-    const seoTags = parseSEOTags(seoTagsInput)
+    const seoTagsToSave = addSEOTags(seoTags, seoTagDraft)
 
     // Rows with neither an author nor a category are filtered out of the listing
     // as import artifacts. Drafts are exempt from that filter for editors, so
@@ -571,7 +593,7 @@ function EditArticleView() {
           photo_url: photoURL.trim(),
           breaking_news: breakingNews,
           categories,
-          tags: seoTags,
+          tags: seoTagsToSave,
           authors: selectedAuthorIds,
           focus_keyword: keyphrase.trim(),
           meta_description: metaDescription.trim(),
@@ -605,7 +627,7 @@ function EditArticleView() {
         photo_url: photoURL.trim(),
         breaking_news: breakingNews,
         categories,
-        tags: seoTags,
+        tags: seoTagsToSave,
         authors: selectedAuthorIds,
         focus_keyword: keyphrase.trim(),
         meta_description: metaDescription.trim(),
@@ -670,6 +692,29 @@ function EditArticleView() {
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const labelClass = "flex flex-col gap-1.5"
   const labelTextClass = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+  const commitSeoTagDraft = () => {
+    if (!seoTagDraft.trim()) {
+      setSeoTagDraft("")
+      return
+    }
+    setSeoTags((current) => addSEOTags(current, seoTagDraft))
+    setSeoTagDraft("")
+  }
+
+  const handleSeoTagKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" || event.key === ",") {
+      // Enter would otherwise submit the form; a comma is accepted as a second
+      // way to commit so pasted comma-separated lists still work.
+      event.preventDefault()
+      commitSeoTagDraft()
+      return
+    }
+    if (event.key === "Backspace" && seoTagDraft === "" && seoTags.length > 0) {
+      event.preventDefault()
+      setSeoTags((current) => current.slice(0, -1))
+    }
+  }
+
   const publishDateInFuture = publishTiming === "schedule" && isFutureDate(publishedAt)
   const autoSaveStatusText = !isNew && (isAutoSaving || autoSaveMessage)
     ? (isAutoSaving ? "Autosaving..." : autoSaveMessage)
@@ -1210,13 +1255,33 @@ function EditArticleView() {
 
             <label className={labelClass}>
               <span className={labelTextClass}>SEO Tags</span>
-              <input
-                className={inputClass}
-                onChange={(e) => setSeoTagsInput(e.target.value)}
-                placeholder="Comma-separated tags"
-                type="text"
-                value={seoTagsInput}
-              />
+              <div className="flex flex-wrap items-center gap-1.5 w-full px-2 py-1.5 rounded-lg border border-border bg-background focus-within:ring-2 focus-within:ring-primary/40 focus-within:border-primary transition cursor-text">
+                {seoTags.map((tag) => (
+                  <span
+                    className="inline-flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full bg-muted text-xs font-medium text-foreground"
+                    key={tag.toLowerCase()}
+                  >
+                    {tag}
+                    <button
+                      aria-label={`Remove tag ${tag}`}
+                      className="rounded-full p-0.5 text-muted-foreground hover:text-foreground hover:bg-border transition-colors cursor-pointer"
+                      onClick={() => setSeoTags((current) => current.filter((item) => item !== tag))}
+                      type="button"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  className="flex-1 min-w-[8rem] bg-transparent px-1 py-0.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  onBlur={commitSeoTagDraft}
+                  onChange={(e) => setSeoTagDraft(e.target.value)}
+                  onKeyDown={handleSeoTagKeyDown}
+                  placeholder={seoTags.length > 0 ? "Add another tag" : "Type a tag, press Enter"}
+                  type="text"
+                  value={seoTagDraft}
+                />
+              </div>
             </label>
 
             <label className={labelClass}>
