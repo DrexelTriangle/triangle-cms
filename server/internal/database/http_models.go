@@ -488,26 +488,36 @@ func ParsePublishedAt(value string) *time.Time {
 	return nil
 }
 
+// MarshalCategoryJSON encodes category text as JSON WITHOUT HTML-escaping.
+//
+// Use this for anything holding a category title. json.Marshal escapes "&" into
+// a backslash-u escape, and category matching compares against the plain
+// character the ETL writes, so an escaped value stops matching its own section:
+// saving an article in the CMS used to rewrite "Comics & Puzzles" and quietly
+// drop the article out of Comics & Puzzles. Both the articles column and
+// site_taxonomy aliases go through here so the two can never disagree.
+func MarshalCategoryJSON(value any) (string, error) {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return "", err
+	}
+	// Encode appends a newline that the column should not carry.
+	return strings.TrimRight(buf.String(), "\n"), nil
+}
+
 // FormatTags encodes categories as the JSON array the `categories` column
 // stores.
-//
-// It deliberately does not use json.Marshal: that HTML-escapes "&" into a
-// backslash-u escape, so saving an article in the CMS rewrote "Comics & Puzzles"
-// into a spelling the section matcher no longer recognized, quietly dropping the
-// article out of its own section. The ETL writes the character plainly, and the
-// two producers have to agree.
 func FormatTags(categories []string) string {
 	if len(categories) == 0 {
 		return ""
 	}
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(categories); err != nil {
+	encoded, err := MarshalCategoryJSON(categories)
+	if err != nil {
 		return strings.Join(categories, ",")
 	}
-	// Encode appends a newline that the column should not carry.
-	return strings.TrimRight(buf.String(), "\n")
+	return encoded
 }
 
 func defaultCommentStatus() string {

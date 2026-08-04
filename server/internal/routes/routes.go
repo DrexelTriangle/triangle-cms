@@ -29,6 +29,10 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 		authMW = middleware.RequireAuth(verifier, conn, oidcCfg)
 	}
 	adminOnly := middleware.RequireAdmin
+	// Sections are editorial configuration, not account administration, so
+	// editors manage them. Deletion is still limited to items nothing uses --
+	// that guard lives in the handler and applies to admins too.
+	editorOrAdmin := middleware.RequireEditor
 
 	// Public, but identity-aware: these endpoints serve the public site and must
 	// answer anonymous callers, while an authenticated editor gets the wider
@@ -138,9 +142,9 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("PATCH /v1/settings/homepage-carousel", authMW(adminOnly(handlers.PatchHomepageCarousel(conn))))
 	mux.Handle("PATCH /v1/settings/footer", authMW(adminOnly(handlers.PatchFooterSettings(conn))))
 	mux.Handle("POST /v1/settings/taxonomy/rebuild", authMW(adminOnly(handlers.PostRebuildTaxonomyCounts(conn))))
-	mux.Handle("POST /v1/taxonomy", authMW(adminOnly(handlers.PostTaxonomy(conn))))
-	mux.Handle("PUT /v1/taxonomy/{type}/{slug}", authMW(adminOnly(handlers.PutTaxonomyItem(conn))))
-	mux.Handle("DELETE /v1/taxonomy/{type}/{slug}", authMW(adminOnly(handlers.DeleteTaxonomyItem(conn))))
+	mux.Handle("POST /v1/taxonomy", authMW(editorOrAdmin(handlers.PostTaxonomy(conn))))
+	mux.Handle("PUT /v1/taxonomy/{type}/{slug}", authMW(editorOrAdmin(handlers.PutTaxonomyItem(conn))))
+	mux.Handle("DELETE /v1/taxonomy/{type}/{slug}", authMW(editorOrAdmin(handlers.DeleteTaxonomyItem(conn))))
 
 	if verifier != nil {
 		mux.Handle("POST /v1/authors", authMW(adminOnly(handlers.PostAuthors(conn))))

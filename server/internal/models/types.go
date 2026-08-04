@@ -269,17 +269,26 @@ type TaxonomyItem struct {
 	CanonicalTitle string  `json:"canonical_title"`
 	ParentSlug     *string `json:"parent_slug,omitempty"`
 	ArticleCount   int64   `json:"article_count"`
+	// CategoryAliases are extra category titles whose articles belong to this
+	// item, for when the corpus disagrees with the slug (the Entertainment
+	// section is filed under "Arts & Entertainment"). Article matching is
+	// exact, so a slug that is not the category string needs one of these.
+	CategoryAliases []string `json:"category_aliases"`
 }
 
 type TaxonomyInput struct {
-	Type           string  `json:"type"`
-	Slug           string  `json:"slug"`
-	CanonicalTitle string  `json:"canonical_title"`
-	ParentSlug     *string `json:"parent_slug,omitempty"`
+	Type            string   `json:"type"`
+	Slug            string   `json:"slug"`
+	CanonicalTitle  string   `json:"canonical_title"`
+	ParentSlug      *string  `json:"parent_slug,omitempty"`
+	CategoryAliases []string `json:"category_aliases,omitempty"`
 }
 
 type TaxonomyPut struct {
 	Slug           string  `json:"slug,omitempty"`
 	CanonicalTitle string  `json:"canonical_title"`
 	ParentSlug     *string `json:"parent_slug,omitempty"`
+	// Pointer so an omitted field leaves the stored aliases alone, while an
+	// explicit [] clears them.
+	CategoryAliases *[]string `json:"category_aliases,omitempty"`
 }
