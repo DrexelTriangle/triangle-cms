@@ -57,6 +57,21 @@ func taxonomyHTTPTestDB(t *testing.T) *sql.DB {
 	if err := db.EnsureTaxonomyTable(ctx, conn); err != nil {
 		t.Fatalf("ensure taxonomy table: %v", err)
 	}
+	// Deletion asks the articles table for a live count, so every test needs
+	// one even when it files no articles.
+	if _, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS articles"); err != nil {
+		t.Fatalf("drop articles: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, `
+		CREATE TABLE articles (
+			id BIGINT PRIMARY KEY,
+			categories JSON NULL,
+			archived_at DATETIME NULL,
+			pub_date DATETIME NULL
+		)`); err != nil {
+		t.Fatalf("create articles: %v", err)
+	}
+	t.Cleanup(func() { _, _ = conn.ExecContext(context.Background(), "DROP TABLE IF EXISTS articles") })
 	return conn
 }
 
@@ -256,5 +271,87 @@ func TestTaxonomyHTTPAliasesAreNotHTMLEscaped(t *testing.T) {
 	}
 	if want := `["Arts & Entertainment"]`; stored != want {
 		t.Fatalf("stored %s, want %s -- an escaped ampersand matches no article", stored, want)
+	}
+}
+
+// TestTaxonomyHTTPDeleteRefusesWhenArticlesExist covers the guard that keeps
+// deletion safe now that editors can do it.
+func TestTaxonomyHTTPDeleteRefusesWhenArticlesExist(t *testing.T) {
+	conn := taxonomyHTTPTestDB(t)
+	ctx := context.Background()
+
+	if code := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
+		"type":            "section",
+		"slug":            "sports",
+		"canonical_title": "Sports",
+	}).Code; code != http.StatusCreated {
+		t.Fatalf("POST = %d", code)
+	}
+
+	// An empty section deletes fine.
+	empty := taxonomyRequest(t, DeleteTaxonomyItem(conn), http.MethodDelete, "/v1/taxonomy/section/sports", nil)
+	if empty.Code != http.StatusNoContent {
+		t.Fatalf("delete of an empty section = %d: %s", empty.Code, empty.Body.String())
+	}
+
+	// Recreate it, this time with an article filed under it. site_taxonomy's
+	// article_count is still 0 -- nothing has rebuilt it -- so this is exactly
+	// the stale-count case the live count exists to catch.
+	if code := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
+		"type":            "section",
+		"slug":            "sports",
+		"canonical_title": "Sports",
+	}).Code; code != http.StatusCreated {
+		t.Fatalf("re-POST = %d", code)
+	}
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO articles (id, categories, pub_date) VALUES (1, '["Sports"]', UTC_TIMESTAMP())`,
+	); err != nil {
+		t.Fatalf("insert article: %v", err)
+	}
+
+	var storedCount int64
+	if err := conn.QueryRowContext(ctx,
+		"SELECT article_count FROM site_taxonomy WHERE slug = 'sports'",
+	).Scan(&storedCount); err != nil {
+		t.Fatalf("read stored count: %v", err)
+	}
+	if storedCount != 0 {
+		t.Fatalf("stored count = %d, want a stale 0 for this test to mean anything", storedCount)
+	}
+
+	refused := taxonomyRequest(t, DeleteTaxonomyItem(conn), http.MethodDelete, "/v1/taxonomy/section/sports", nil)
+	if refused.Code != http.StatusBadRequest {
+		t.Fatalf("delete of a section with articles = %d, want 400: %s", refused.Code, refused.Body.String())
+	}
+
+	var remaining int
+	if err := conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM site_taxonomy WHERE slug = 'sports'",
+	).Scan(&remaining); err != nil {
+		t.Fatalf("count remaining: %v", err)
+	}
+	if remaining != 1 {
+		t.Error("the section was deleted despite having articles")
+	}
+}
+
+// TestTaxonomyHTTPDeleteRefusesSectionWithSubsections keeps the other half of
+// "empty" honest: a section that still parents subsections is not empty.
+func TestTaxonomyHTTPDeleteRefusesSectionWithSubsections(t *testing.T) {
+	conn := taxonomyHTTPTestDB(t)
+
+	for _, body := range []map[string]any{
+		{"type": "section", "slug": "sports", "canonical_title": "Sports"},
+		{"type": "subsection", "slug": "squash", "canonical_title": "Squash", "parent_slug": "sports"},
+	} {
+		if code := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", body).Code; code != http.StatusCreated {
+			t.Fatalf("POST %v = %d", body, code)
+		}
+	}
+
+	refused := taxonomyRequest(t, DeleteTaxonomyItem(conn), http.MethodDelete, "/v1/taxonomy/section/sports", nil)
+	if refused.Code != http.StatusBadRequest {
+		t.Fatalf("delete of a parent section = %d, want 400: %s", refused.Code, refused.Body.String())
 	}
 }

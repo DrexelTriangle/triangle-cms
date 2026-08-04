@@ -99,6 +99,27 @@ func taxonomyItemArticleCount(ctx context.Context, conn *sql.DB, taxType, slug s
 	return count, err
 }
 
+// liveTaxonomyArticleCount counts what the item matches RIGHT NOW, rather than
+// trusting the stored article_count.
+//
+// The stored count is only as fresh as the last rebuild, so it reads 0 both for
+// an item that is genuinely empty and for one whose articles simply have not
+// been counted yet -- after a reseed, or after an alias was just added. Deletion
+// is guarded on "nothing uses this", so it has to ask the articles table, not a
+// cached number. Everything else can keep using the cheap stored value.
+func liveTaxonomyArticleCount(ctx context.Context, conn *sql.DB, slug string) (int64, error) {
+	condition, args := db.TaxonomyCountCondition([]string{slug})
+	if condition == "" {
+		return 0, nil
+	}
+	var count int64
+	query := "SELECT COUNT(*) FROM `articles` WHERE `archived_at` IS NULL AND " + condition
+	if err := conn.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func taxonomyItemExists(ctx context.Context, conn *sql.DB, taxType, slug string) (bool, error) {
 	var exists int
 	err := conn.QueryRowContext(ctx,
@@ -459,19 +480,17 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 		if conn != nil {
-			count, err := taxonomyItemArticleCount(r.Context(), conn, taxType, slug)
-			if err == sql.ErrNoRows {
+			// Existence check only -- the count it returns is the cached one.
+			if _, err := taxonomyItemArticleCount(r.Context(), conn, taxType, slug); err == sql.ErrNoRows {
 				writeError(w, http.StatusNotFound, "taxonomy item not found")
 				return
-			}
-			if err != nil {
+			} else if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			if count > 0 {
-				writeError(w, http.StatusBadRequest, "taxonomy item cannot be deleted while articles use it")
-				return
-			}
+			// Children first: it is an indexed lookup on one small table, and
+			// it is the more specific reason to refuse, so it should not be
+			// preempted by a scan of every article.
 			if taxType == string(models.TaxonomyTypeSection) {
 				hasChildren, err := taxonomySectionHasChildren(r.Context(), conn, slug)
 				if err != nil {
@@ -482,6 +501,18 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 					writeError(w, http.StatusBadRequest, "section cannot be deleted while subsections use it")
 					return
 				}
+			}
+			// Deletion is irreversible and editors can do it, so ask the
+			// articles table rather than a number that may predate the last
+			// reseed or alias change.
+			count, err := liveTaxonomyArticleCount(r.Context(), conn, slug)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if count > 0 {
+				writeError(w, http.StatusBadRequest, "taxonomy item cannot be deleted while articles use it")
+				return
 			}
 		}
 

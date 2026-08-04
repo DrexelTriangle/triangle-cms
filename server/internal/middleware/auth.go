@@ -150,3 +150,16 @@ func RequireAdmin(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// RequireEditor allows editors as well as admins, for the things editors run
+// day to day. Same predicate as requireArticleWriteRole, at the route layer.
+func RequireEditor(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := UserFromContext(r.Context())
+		if !ok || (user.Role != models.RoleAdmin && user.Role != models.RoleEditor) {
+			jsonError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
