@@ -80,7 +80,12 @@ services:
   # use it and a deploy never has to wait for a model to load. Not exposed to the
   # host -- only the backends talk to it, over the internal network.
   embeddings:
-    image: ${CMS_EMBEDDINGS_IMAGE:-ghcr.io/drexeltriangle/triangle-cms-embeddings}:${CMS_IMAGE_TAG:?CMS_IMAGE_TAG is required}
+    # Tagged by content, not by commit: CMS_EMBEDDINGS_TAG is the git tree hash
+    # of embeddings/, so it only changes when the sidecar itself changes. Tagging
+    # it with the commit SHA meant every deploy pulled a "new" image and
+    # recreated the container, reloading the model for ~60s each time, even for
+    # commits that touched nothing but Go code. deploy.sh derives the value.
+    image: ${CMS_EMBEDDINGS_IMAGE:-ghcr.io/drexeltriangle/triangle-cms-embeddings}:${CMS_EMBEDDINGS_TAG:?CMS_EMBEDDINGS_TAG is required}
     restart: unless-stopped
     stop_grace_period: 10s
     environment:

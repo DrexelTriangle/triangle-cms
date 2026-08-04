@@ -164,4 +164,8 @@ jobs:
           OIDC_CLIENT_SECRET: ci-placeholder
           FRONTEND_ORIGIN: http://delta-placeholder
           OIDC_REDIRECT_URI: http://delta-placeholder/auth/callback
-        run: docker compose -f deploy/compose.cms.yml config >/dev/null
+        # CMS_EMBEDDINGS_TAG is derived rather than hardcoded, so this also
+        # checks that the derivation deploy.sh uses still resolves.
+        run: |
+          CMS_EMBEDDINGS_TAG="$(git rev-parse HEAD:embeddings)" \
+            docker compose -f deploy/compose.cms.yml config >/dev/null
