@@ -110,24 +110,26 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/poll/options", handlers.GetPollOptions(conn))
 
 	// Poll archive. GET /v1/polls is public and hides drafts; the editor-facing
-	// listing that includes them is a separate admin-gated path.
+	// listing that includes them is a separate authenticated path.
 	mux.Handle("GET /v1/polls", handlers.GetPolls(conn))
 	mux.Handle("GET /v1/polls/{id}", handlers.GetPollByID(conn))
 	mux.Handle("GET /v1/developing-stories", handlers.GetDevelopingStories(conn))
 	mux.Handle("GET /v1/taxonomy", handlers.GetTaxonomy(conn))
 	mux.Handle("GET /v1/taxonomy/{type}/{slug}", handlers.GetTaxonomyItem(conn))
-	mux.Handle("PATCH /v1/poll/title", authMW(adminOnly(handlers.PatchPollTitle(conn))))
-	mux.Handle("POST /v1/poll/options", authMW(adminOnly(handlers.PostPollOption(conn))))
-	mux.Handle("PATCH /v1/poll/options", authMW(adminOnly(handlers.PatchPollOption(conn))))
-	mux.Handle("DELETE /v1/poll/options", authMW(adminOnly(handlers.DeletePollOption(conn))))
+	// Running the poll is part of editorial work, not site administration, so
+	// authoring and moderating questions is open to any signed-in editor.
+	mux.Handle("PATCH /v1/poll/title", authMW(handlers.PatchPollTitle(conn)))
+	mux.Handle("POST /v1/poll/options", authMW(handlers.PostPollOption(conn)))
+	mux.Handle("PATCH /v1/poll/options", authMW(handlers.PatchPollOption(conn)))
+	mux.Handle("DELETE /v1/poll/options", authMW(handlers.DeletePollOption(conn)))
 	// "manage" is a literal segment, so Go's mux prefers it over /v1/polls/{id}.
-	mux.Handle("GET /v1/polls/manage", authMW(adminOnly(handlers.GetPollsManage(conn))))
-	mux.Handle("POST /v1/polls", authMW(adminOnly(handlers.PostPollRecord(conn))))
-	mux.Handle("PATCH /v1/polls/{id}", authMW(adminOnly(handlers.PatchPollRecord(conn))))
-	mux.Handle("DELETE /v1/polls/{id}", authMW(adminOnly(handlers.DeletePollRecord(conn))))
-	mux.Handle("POST /v1/polls/{id}/options", authMW(adminOnly(handlers.PostPollRecordOption(conn))))
-	mux.Handle("PATCH /v1/polls/{id}/options/{option_id}", authMW(adminOnly(handlers.PatchPollRecordOption(conn))))
-	mux.Handle("DELETE /v1/polls/{id}/options/{option_id}", authMW(adminOnly(handlers.DeletePollRecordOption(conn))))
+	mux.Handle("GET /v1/polls/manage", authMW(handlers.GetPollsManage(conn)))
+	mux.Handle("POST /v1/polls", authMW(handlers.PostPollRecord(conn)))
+	mux.Handle("PATCH /v1/polls/{id}", authMW(handlers.PatchPollRecord(conn)))
+	mux.Handle("DELETE /v1/polls/{id}", authMW(handlers.DeletePollRecord(conn)))
+	mux.Handle("POST /v1/polls/{id}/options", authMW(handlers.PostPollRecordOption(conn)))
+	mux.Handle("PATCH /v1/polls/{id}/options/{option_id}", authMW(handlers.PatchPollRecordOption(conn)))
+	mux.Handle("DELETE /v1/polls/{id}/options/{option_id}", authMW(handlers.DeletePollRecordOption(conn)))
 	mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))
 	mux.Handle("DELETE /v1/developing-stories", authMW(adminOnly(handlers.DeleteDevelopingStory(conn))))
 	mux.Handle("PATCH /v1/settings/site", authMW(adminOnly(handlers.PatchSiteSettings(conn))))
