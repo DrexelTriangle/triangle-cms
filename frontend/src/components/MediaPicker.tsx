@@ -30,6 +30,10 @@ type MediaPickerProps = {
 
 const PAGE_SIZE = 60
 
+// How far ahead of the sentinel to start fetching, so the next page is usually
+// already in place by the time the author scrolls to the bottom of the grid.
+const LOAD_MORE_MARGIN = "400px"
+
 async function errorMessage(response: Response, fallback: string) {
   try {
     const body = (await response.json()) as { error?: string }
@@ -53,14 +57,28 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
 
   const [items, setItems] = useState<MediaPickerItem[]>([])
   const [searchInput, setSearchInput] = useState("")
-  const [search, setSearch] = useState("")
+  // The search and the offset travel together so a new search always starts
+  // from the top: changing them separately would briefly request page 2 of the
+  // old results under the new query.
+  const [request, setRequest] = useState({ search: "", offset: 0 })
+  const [hasMore, setHasMore] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [urlInput, setUrlInput] = useState(initialUrl)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // A state-held node rather than a ref: the sentinel mounts and unmounts with
+  // the grid, and the observer effect has to re-run when it does.
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
+
+  const search = request.search
 
   useEffect(() => {
-    const timer = setTimeout(() => setSearch(searchInput.trim()), 300)
+    const timer = setTimeout(() => {
+      const next = searchInput.trim()
+      setRequest((prev) => (prev.search === next ? prev : { search: next, offset: 0 }))
+    }, 300)
     return () => clearTimeout(timer)
   }, [searchInput])
 
@@ -74,31 +92,59 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
 
   useEffect(() => {
     const controller = new AbortController()
+    const isFirstPage = request.offset === 0
 
     const load = async () => {
-      setIsLoading(true)
+      if (isFirstPage) setIsLoading(true)
+      else setIsLoadingMore(true)
       setError(null)
       try {
-        const params = new URLSearchParams({ limit: String(PAGE_SIZE) })
-        if (search) params.set("search", search)
+        const params = new URLSearchParams({
+          limit: String(PAGE_SIZE),
+          offset: String(request.offset),
+        })
+        if (request.search) params.set("search", request.search)
         const response = await apiFetch(`/v1/media/gallery?${params.toString()}`, {
           signal: controller.signal,
         })
         if (!response.ok) throw new Error(await errorMessage(response, `Request failed (${response.status})`))
         const payload = (await response.json()) as GalleryResponse
         if (controller.signal.aborted) return
-        setItems(payload.media ?? [])
+        const page = payload.media ?? []
+        setItems((prev) => (isFirstPage ? page : [...prev, ...page]))
+        // A short page means the library is exhausted; a full one only means
+        // there might be more, which the next scroll will find out.
+        setHasMore(page.length === PAGE_SIZE)
       } catch (err) {
         if (controller.signal.aborted) return
         setError(err instanceof Error ? err.message : "Unable to load media.")
+        // Otherwise the sentinel is still on screen and would immediately retry
+        // the failing request in a loop.
+        setHasMore(false)
       } finally {
-        if (!controller.signal.aborted) setIsLoading(false)
+        if (!controller.signal.aborted) {
+          setIsLoading(false)
+          setIsLoadingMore(false)
+        }
       }
     }
 
     void load()
     return () => controller.abort()
-  }, [apiFetch, search])
+  }, [apiFetch, request])
+
+  useEffect(() => {
+    if (!sentinel || !hasMore || isLoading || isLoadingMore) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        setRequest((prev) => (prev.offset === items.length ? prev : { ...prev, offset: items.length }))
+      },
+      { root: scrollRef.current, rootMargin: LOAD_MORE_MARGIN },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [sentinel, hasMore, isLoading, isLoadingMore, items.length])
 
   const handleUpload = useCallback(
     async (files: FileList | null) => {
@@ -204,7 +250,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
           </div>
         )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto" ref={scrollRef}>
           {isLoading ? (
             <p className="py-12 text-center text-sm text-muted-foreground">Loading media...</p>
           ) : items.length === 0 ? (
@@ -240,6 +286,16 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
                 </button>
               ))}
             </div>
+          )}
+          {!isLoading && items.length > 0 && (
+            <>
+              {hasMore && <div aria-hidden="true" ref={setSentinel} className="h-px" />}
+              {(isLoadingMore || (!hasMore && !error)) && (
+                <p aria-live="polite" className="py-4 text-center text-sm text-muted-foreground">
+                  {isLoadingMore ? "Loading more..." : "End of media library"}
+                </p>
+              )}
+            </>
           )}
         </div>
 
