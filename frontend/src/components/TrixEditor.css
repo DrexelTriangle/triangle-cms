@@ -244,6 +244,11 @@ trix-editor.trix-content .attachment img {
   /* `grab` rather than `move`: it reads as "pick this up", and pairs with the
      `grabbing` cursor the drag handler sets on the body mid-drag. */
   cursor: grab;
+  /* Keep the image out of the browser's native drag-and-drop, which races the
+     rearrange gesture in TrixEditor.tsx and takes the pointer stream with it.
+     Blink and WebKit honour this; Firefox does not, so the gesture also sets
+     draggable="false" on the image when it starts. */
+  -webkit-user-drag: none;
   transition: outline-color 100ms ease-out;
   outline: 2px solid transparent;
   outline-offset: 2px;

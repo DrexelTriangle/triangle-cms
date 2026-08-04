@@ -390,8 +390,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     wrapper.appendChild(dropIndicator)
 
     let activeFigure: HTMLElement | null = null
-    // True from the mousedown on a figure until the mouse is released, whether
-    // or not the pointer has travelled far enough to count as a drag yet.
+    // True from the pointerdown on a figure until the pointer is released,
+    // whether or not it has travelled far enough to count as a drag yet.
     let gestureActive = false
     // Per-gesture cleanup set while a drag is in progress so the outer effect's
     // teardown can abort it on unmount (prevents leaked document listeners and
@@ -615,20 +615,22 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       }) })
     }
 
-    // Note the absence of preventDefault on the mousedown itself. Suppressing
+    // Note the absence of preventDefault on the pointerdown itself. Suppressing
     // the default is what a drag needs (it stops the browser turning the
     // gesture into a text selection), but on a plain click it also blocks the
     // native focus/selection that Trix uses to select the attachment and raise
     // its caption field and toolbar. So the default is left alone until the
     // pointer has actually travelled far enough to be a drag.
-    const beginDrag = (figure: HTMLElement, downEvent: MouseEvent) => {
+    const beginDrag = (figure: HTMLElement, downEvent: PointerEvent) => {
+      const pointerId = downEvent.pointerId
       const startX = downEvent.clientX
       const startY = downEvent.clientY
       let dragging = false
+      let captured = false
       let dropTarget: DropTarget | null = null
       // The pointer's last known position, which auto-scroll keeps re-reading:
       // while the view is moving under a stationary mouse there are no further
-      // mousemove events, but the block under that unchanged position changes
+      // pointermove events, but the block under that unchanged position changes
       // every frame.
       let lastClientY = downEvent.clientY
       let scroller: HTMLElement | null = null
@@ -651,7 +653,7 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       // Scroll the view when the pointer is held near its top or bottom edge,
       // speeding up the closer to the edge it gets. Without this, a drop target
       // that starts off screen is unreachable: the gesture is driven by the
-      // mouse alone, and a long article is taller than the window, so an image
+      // pointer alone, and a long article is taller than the window, so an image
       // could only ever be moved as far as the visible page.
       const autoScrollStep = () => {
         autoScrollFrame = null
@@ -684,16 +686,39 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
 
       const enterDragMode = () => {
         dragging = true
-        figure.classList.add("attachment--dragging")
+
+        // Take ownership of the pointer stream for the rest of the gesture.
+        // This is the whole reason the gesture is on pointer events: with plain
+        // mouse events, anything that starts a native drag session mid-gesture
+        // (see the dragstart guard below) makes the browser stop delivering
+        // mousemove and -- fatally -- mouseup, so the release was never seen and
+        // nothing was ever committed. Capture is retargeted to the wrapper
+        // rather than the figure because Trix re-renders the figure during a
+        // drag; capturing on an element that then leaves the document drops the
+        // capture with it. Capture is taken here and not on pointerdown so that
+        // a plain click still reaches Trix untouched -- capturing at pointerdown
+        // retargets the compatibility mousedown too, which is the event Trix
+        // selects the attachment from.
+        try {
+          wrapper.setPointerCapture(pointerId)
+          captured = true
+        } catch {
+          // The pointer is already gone (released between the move and here).
+          // Nothing to hold; the gesture ends at the next up or cancel.
+        }
+
+        liveFigure(figure)?.classList.add("attachment--dragging")
         document.body.style.cursor = "grabbing"
-        // Drop whatever text selection the un-prevented mousedown started, so
-        // the drag doesn't paint a selection highlight across the article.
+        // Drop whatever text selection the un-prevented pointerdown started, so
+        // the drag doesn't paint a selection highlight across the article -- and
+        // so there is no selection left for the browser to want to drag.
         window.getSelection()?.removeAllRanges()
         scroller = scrollContainer()
         autoScrollFrame = requestAnimationFrame(autoScrollStep)
       }
 
-      const onMove = (moveEvent: MouseEvent) => {
+      const onMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== pointerId) return
         lastClientY = moveEvent.clientY
         if (!dragging) {
           const dx = Math.abs(moveEvent.clientX - startX)
@@ -707,8 +732,9 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         updateDropTarget()
       }
 
-      // Idempotent state-restorer, invoked from onUp on normal release AND
-      // from the outer effect's cleanup if the component unmounts mid-drag.
+      // Idempotent state-restorer, invoked from onUp on normal release, from
+      // onCancel if the browser takes the pointer away, AND from the outer
+      // effect's cleanup if the component unmounts mid-drag.
       const cleanup = () => {
         gestureActive = false
         dragging = false
@@ -716,14 +742,29 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
           cancelAnimationFrame(autoScrollFrame)
           autoScrollFrame = null
         }
-        document.removeEventListener("mousemove", onMove)
-        document.removeEventListener("mouseup", onUp)
+        document.removeEventListener("pointermove", onMove)
+        document.removeEventListener("pointerup", onUp)
+        document.removeEventListener("pointercancel", onCancel)
+        if (captured) {
+          captured = false
+          if (wrapper.hasPointerCapture(pointerId)) wrapper.releasePointerCapture(pointerId)
+        }
         document.body.style.cursor = ""
-        if (figure.isConnected) figure.classList.remove("attachment--dragging")
+        liveFigure(figure)?.classList.remove("attachment--dragging")
         dropIndicator.style.display = "none"
       }
 
-      const onUp = () => {
+      // The pointer was taken away mid-gesture -- a touch turning into a scroll,
+      // the window losing the device. Abandon the move rather than committing to
+      // wherever the indicator happened to be.
+      const onCancel = (cancelEvent: PointerEvent) => {
+        if (cancelEvent.pointerId !== pointerId) return
+        activeGestureCleanup = null
+        cleanup()
+      }
+
+      const onUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== pointerId) return
         activeGestureCleanup = null
         // Read before cleanup, which clears `dragging` to stop the auto-scroll
         // loop -- reading after it would make every drop look like a click.
@@ -746,8 +787,13 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       }
 
       gestureActive = true
-      document.addEventListener("mousemove", onMove)
-      document.addEventListener("mouseup", onUp)
+      // Listening on the document rather than on the capture target: captured
+      // events are retargeted to the wrapper but still bubble from there, so one
+      // set of listeners covers both halves of the gesture (before the threshold,
+      // when there is no capture, and after it, when there is).
+      document.addEventListener("pointermove", onMove)
+      document.addEventListener("pointerup", onUp)
+      document.addEventListener("pointercancel", onCancel)
       activeGestureCleanup = cleanup
     }
 
@@ -761,14 +807,28 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     const TRIX_ATTACHMENT_CHROME = "figcaption, .attachment__caption, .attachment__toolbar"
 
     // ── Selection / drag entry point (capture phase so Trix can't preempt) ──
-    const onEditorMouseDown = (event: MouseEvent) => {
+    const onEditorPointerDown = (event: PointerEvent) => {
+      // Mouse and pen only. Touch is deliberately left to the browser so that a
+      // swipe starting on an image still scrolls the article; the move buttons
+      // on the attachment toolbar are how an image gets reordered without a
+      // pointing device.
+      if (event.pointerType === "touch") return
+      if (!event.isPrimary || event.button !== 0) return
       const target = event.target as HTMLElement
       const figure = target.closest(".attachment--preview") as HTMLElement | null
       if (!figure) return
       if (target.closest(TRIX_ATTACHMENT_CHROME)) return
+
+      // Take the image out of the browser's native drag-and-drop before it can
+      // consider starting a session of its own: an <img> is draggable by default,
+      // and once a native drag begins the pointer stream is the browser's, not
+      // ours. Re-applied on every gesture because Trix rebuilds attachment
+      // figures from its own model and drops attributes it did not put there.
+      for (const image of figure.querySelectorAll("img")) image.draggable = false
+
       beginDrag(figure, event)
     }
-    const onDocumentMouseDown = (event: MouseEvent) => {
+    const onDocumentPointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement
       // Don't deselect when the click lands on another figure; that has its own
       // selection semantics.
@@ -867,10 +927,10 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       toolbar.querySelector(".trix-button-row")?.appendChild(group)
     }
 
-    // With the mousedown default no longer suppressed, the browser is free to
+    // With the pointerdown default no longer suppressed, the browser is free to
     // start its own native drag, which would race our rearrange gesture and can
     // drop the image into another window entirely. Once a native drag begins
-    // the browser stops sending mousemove, so our gesture goes dead and the
+    // the browser stops sending pointer events, so our gesture goes dead and the
     // image simply stays where it was.
     //
     // Keying this off the event target alone is not enough. Trix selects the
@@ -883,19 +943,17 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     // out of the article is never something we want). Capture phase on the
     // document, because Trix has dragstart handlers of its own on the editor.
     //
-    // KNOWN BUG (Firefox, unconfirmed against a real build): under Playwright's
-    // Firefox this guard never runs, because no dragstart is delivered to the
-    // page at all -- and neither is the mouseup. The gesture begins, the drop
-    // indicator appears and tracks the pointer, and then the release is simply
-    // never seen, so onUp does not fire and nothing is committed. A
-    // capture-phase listener on document sees no mouseup either, which is the
-    // signature of the browser taking over the event stream for a drag session
-    // of its own. If that is what is happening, no amount of preventDefault
-    // here can help and the gesture needs to move to pointer events with
-    // setPointerCapture, which is designed to hold the stream against exactly
-    // this. Not fixed because it could not be told apart from an artefact of
-    // Playwright's Firefox build; reproduce in a real Firefox before rewriting.
-    // Chromium is unaffected -- there the dragstart arrives and is prevented.
+    // This guard alone is not enough, and used not to be the only problem. In
+    // Firefox on Windows and macOS a native drag session was starting anyway and
+    // taking the event stream with it: the gesture began, the drop indicator
+    // appeared and tracked the pointer, and the release was then never delivered,
+    // so nothing was ever committed -- an image that could be picked up and never
+    // put down. It went unnoticed for a while because Firefox on Linux keeps
+    // delivering input during a drag session, so the same build worked there.
+    // It is defended in three places now, and this is the last of them: the
+    // images are marked non-draggable when a gesture starts (onEditorPointerDown),
+    // the pointer is captured once the gesture is really a drag (enterDragMode),
+    // and any dragstart that still gets raised is cancelled here.
     const onDragStart = (event: DragEvent) => {
       if (gestureActive || (event.target as HTMLElement | null)?.closest(".attachment--preview")) {
         event.preventDefault()
@@ -904,8 +962,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
 
     document.addEventListener("dragstart", onDragStart, true)
     editor.addEventListener("trix-attachment-before-toolbar", onBeforeToolbar)
-    editor.addEventListener("mousedown", onEditorMouseDown, true)
-    document.addEventListener("mousedown", onDocumentMouseDown)
+    editor.addEventListener("pointerdown", onEditorPointerDown, true)
+    document.addEventListener("pointerdown", onDocumentPointerDown)
 
     return () => {
       // Abort any in-progress drag so we don't leave document-level
@@ -913,8 +971,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       if (activeGestureCleanup) activeGestureCleanup()
       document.removeEventListener("dragstart", onDragStart, true)
       editor.removeEventListener("trix-attachment-before-toolbar", onBeforeToolbar)
-      editor.removeEventListener("mousedown", onEditorMouseDown, true)
-      document.removeEventListener("mousedown", onDocumentMouseDown)
+      editor.removeEventListener("pointerdown", onEditorPointerDown, true)
+      document.removeEventListener("pointerdown", onDocumentPointerDown)
       dropIndicator.remove()
     }
   }, [])
