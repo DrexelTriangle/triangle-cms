@@ -114,6 +114,13 @@ services:
     read_only: true
     security_opt:
       - no-new-privileges:true
+      # Local-dev only. On SELinux hosts (Fedora) the daemon socket is labelled
+      # container_var_run_t, which a confined container may not connect to: the
+      # mount succeeds, Promtail starts, and every discovery refresh fails with
+      # "permission denied while trying to connect to the Docker daemon socket".
+      # Delta is Ubuntu 24.04 with no SELinux, so compose.observability.yml
+      # deliberately does NOT carry this relaxation.
+      - label:disable
     cap_drop:
       - ALL
     command: ["-config.file=/etc/promtail/config.yml"]
@@ -123,7 +130,9 @@ services:
     volumes:
       - ./observability/promtail-config.yml:/etc/promtail/config.yml:ro,z
       - promtail_positions:/tmp
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro,z
+      # Must match deploy/compose.observability.yml: the shared promtail config
+      # discovers containers over the Docker API rather than tailing files.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - triangle_net
 

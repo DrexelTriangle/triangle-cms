@@ -19,6 +19,118 @@ Delta does not run MariaDB, MaxScale, Grafana, Loki, or Promtail in the CMS
 deployment Compose project. The backend connects to the external database/proxy
 endpoint supplied by `DB_HOST` and `DB_PORT` in the host-only `cms.env`.
 
+Loki and Promtail do run on Delta, but in the separate `triangle-observability`
+Compose project (`compose.observability.yml`). Nothing in CI/CD starts it: the
+deploy scripts pin `COMPOSE_FILE` to `compose.cms.yml` so that a CMS deploy can
+never tear the log stack down. It is brought up by hand, once, and `restart:
+unless-stopped` keeps it up across deploys.
+
+## Exposing Loki to the Triangle Grafana
+
+The Triangle Grafana queries Delta's Loki as a datasource. Loki has no
+authentication of its own in any configuration, so it is published only to
+`127.0.0.1:13100` and fronted by the `nginx/triangle-loki.conf` site on port
+3100, which adds basic auth, blocks the write path, and 404s everything that is
+not a query.
+
+1. Install the stack into a stable directory on Delta. Do **not** run it out of
+   the runner's checkout at
+   `/home/triangle-runner/actions-runner/_work/triangle-cms/triangle-cms`: that
+   is the only checkout on the host that contains `observability/`, but
+   `actions/checkout` resets it on every deploy, which would yank the bind-mount
+   sources out from under a long-lived stack. Copy the files to a path the
+   runner never touches:
+
+   ```
+   mkdir -p ~/triangle-observability
+   cd ~/triangle-observability
+   sudo cp -r /home/triangle-runner/actions-runner/_work/triangle-cms/triangle-cms/observability .
+   sudo cp /home/triangle-runner/actions-runner/_work/triangle-cms/triangle-cms/deploy/compose.observability.yml .
+   sudo chown -R "$USER:$USER" observability compose.observability.yml
+   ```
+
+   The Compose file resolves its mounts as `../observability/`, so move it into
+   a `deploy/` subdirectory alongside the copied tree, or adjust the paths to
+   match wherever you put it. Then:
+
+   ```
+   docker compose -f compose.observability.yml --env-file ~/triangle-deploy/cms.env up -d
+   docker compose -f compose.observability.yml ps
+   ```
+
+   `cms.env` must define `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD` or
+   the stack refuses to start. Re-copy `observability/` after any change to
+   those configs lands on main — this copy does not update itself.
+
+2. Create the datasource credentials and install the Nginx site:
+
+   ```
+   sudo htpasswd -B -c /etc/nginx/triangle-loki.htpasswd triangle-grafana
+   sudo chown root:www-data /etc/nginx/triangle-loki.htpasswd
+   sudo chmod 0640 /etc/nginx/triangle-loki.htpasswd
+   sudo cp nginx/triangle-loki.conf /etc/nginx/sites-available/
+   sudo ln -s ../sites-available/triangle-loki.conf /etc/nginx/sites-enabled/
+   sudo nginx -t && sudo nginx -s reload
+   ```
+
+   Note that `htpasswd` is not installed on Delta by default; it ships in
+   `apache2-utils` on Debian/Ubuntu and `httpd-tools` on RHEL-family hosts.
+
+3. Verify from Delta before handing the details over. Expect `401` then `200`:
+
+   ```
+   curl -s -o /dev/null -w '%{http_code}\n' localhost:3100/loki/api/v1/labels
+   curl -s -o /dev/null -w '%{http_code}\n' -u triangle-grafana \
+     localhost:3100/loki/api/v1/labels
+   ```
+
+   `curl -s localhost:3100/ready` reports `Pattern Ingester not ready: waiting
+   for 15s after being ready` indefinitely, and that is expected rather than a
+   fault: `loki-config.yml` enables `pattern_ingester`, whose readiness never
+   latches in a single-binary deployment. Loki serves queries normally. Use the
+   authenticated `/loki/api/v1/labels` call above as the real health signal.
+
+   Then confirm logs are actually arriving, which is the check that catches a
+   log-driver mismatch. This must return a non-empty list of container names:
+
+   ```
+   curl -s -u triangle-grafana \
+     'localhost:3100/loki/api/v1/label/container/values'
+   ```
+
+4. In the Triangle Grafana, add a Loki datasource with URL
+   `http://<delta-vpn-ip>:3100`, Basic auth enabled, and those credentials. No
+   path prefix or extra headers are needed.
+
+Delta's own Grafana (`127.0.0.1:3000`, admin credentials from `cms.env`) stays
+as a local fallback and is reachable only over an SSH tunnel. Basic auth here
+travels in cleartext; fold this endpoint into TLS when TLS lands on Delta.
+
+### Reading blue/green logs in Grafana
+
+Both slots run all the time. Only one receives traffic, and **nothing in the log
+stream says which one** -- the idle slot goes on emitting healthchecks
+indefinitely, so it is entirely possible to read the wrong slot's logs and
+conclude the site is idle. The active slot is whatever Nginx currently points
+at:
+
+```
+sudo cat /etc/nginx/triangle-cms/active-upstreams.conf   # set $triangle_cms_slot blue;
+```
+
+Filter by slot in Grafana with the `compose_service` label
+(`backend-blue`, `frontend-green`, ...) or `container`
+(`triangle-cms-backend-blue-1`). Two consequences of how Compose names things:
+
+- Container names are reused across deploys, so labels do not churn and
+  cardinality stays flat. But the pre-deploy and post-deploy containers for a
+  slot land in the *same* stream, so a deploy boundary is only visible by
+  timestamp, not by label.
+- A slot's logs are captured from the moment its container starts, including
+  startup and crash output, even though discovery only refreshes every 15s.
+  Promtail backfills from the beginning of a newly discovered container's log,
+  so a container that dies during a deploy still gets its logs shipped.
+
 Nginx serves whichever frontend slot is active and proxies `/v1`, `/swagger`,
 and `/swagger/` to the matching backend slot. The initial Nginx config listens on
 HTTP with `server_name _`, so it works through Delta's VPN IP or hostname before
@@ -36,6 +148,7 @@ behind Nginx.
 - `cms.env.example` - sanitized variable-name-only production env template.
 - `nginx/triangle-cms.conf` - host Nginx site template.
 - `nginx/triangle-cms-active-upstreams.conf.example` - generated include seed.
+- `nginx/triangle-loki.conf` - read-only Loki endpoint for the Triangle Grafana.
 - `scripts/deploy.sh` - deploy exact SHA to inactive slot, switch, smoke test.
 - `scripts/rollback.sh` - explicit rollback to the other slot or named slot.
 
