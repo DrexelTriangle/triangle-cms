@@ -29,6 +29,12 @@ declare global {
         }
       }
       Attachment: new (attributes: TrixAttachmentAttributes) => TrixAttachment
+      // Trix re-exports its internal models on the global. HTMLParser is how a
+      // Document is built from HTML without going through Editor#loadHTML,
+      // which would reset the undo stack.
+      HTMLParser: {
+        parse(html: string, options?: { referenceElement?: Element }): { getDocument(): TrixDocument }
+      }
     }
   }
 
@@ -44,11 +50,16 @@ declare global {
   interface TrixComposition {
     editAttachment(attachment: TrixAttachment, options?: { editCaption?: boolean }): void
     stopEditingAttachment(): void
+    // Replaces the document in place. Unlike Editor#loadHTML / loadSnapshot,
+    // this leaves the UndoManager alone, so a caller that has recorded its own
+    // undo entry stays undoable.
+    setDocument(document: TrixDocument): void
   }
 
   interface TrixEditorInternal {
     composition: TrixComposition
     loadHTML(html: string): void
+    recordUndoEntry(description: string, options?: { context?: unknown; consolidatable?: boolean }): void
     getDocument(): TrixDocument
     getSelectedRange(): [number, number]
     setSelectedRange(range: [number, number] | number): void

@@ -430,9 +430,9 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     // captured Range was anchored to. Reordering the serialization sidesteps
     // both problems and is order-of-blocks-in, order-of-blocks-out.
     //
-    // The cost is that a move is one undo step that restores the whole document
-    // rather than a fine-grained edit, which for a whole-block move is what the
-    // author would expect to get back anyway.
+    // A move is one undo step that restores the whole document rather than a
+    // fine-grained edit, which for a whole-block move is what the author would
+    // expect to get back anyway.
     const commitMove = (figure: HTMLElement, target: DropTarget) => {
       // Re-resolve the figure by id. The one handed to us may already be
       // detached: selecting an attachment -- which Trix does on the very
@@ -477,7 +477,21 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       // Trix's own click handling then throws on the next click on any image
       // (getRangeOfAttachment on an attachment the document no longer has).
       editor.editor.composition.stopEditingAttachment()
-      editor.editor.loadHTML(serialized.map((block) => block.outerHTML).join(""))
+
+      // Swap the document in under a recorded undo entry, rather than through
+      // loadHTML. loadHTML routes to Editor#loadSnapshot, which replaces the
+      // whole UndoManager -- so a move was not merely un-undoable, it silently
+      // threw away every undo step the author had built up before it.
+      // recordUndoEntry snapshots the current document and selection onto the
+      // stack, and Composition#setDocument then mutates without disturbing it.
+      const Trix = window.Trix
+      if (!Trix) return
+      const movedDocument = Trix.HTMLParser.parse(serialized.map((block) => block.outerHTML).join(""), {
+        referenceElement: editor,
+      }).getDocument()
+
+      editor.editor.recordUndoEntry("Move Image")
+      editor.editor.composition.setDocument(movedDocument)
 
       // Re-select the image at its new home. Without this every nudge costs the
       // author the selection -- and with it the toolbar they are clicking --
