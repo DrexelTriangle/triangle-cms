@@ -581,6 +581,11 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		excerpt = deriveExcerpt(body.Content)
 	}
 
+	tags := FormatTags(body.Tags)
+	if tags == "" {
+		tags = "[]"
+	}
+
 	return []any{
 		body.Title,
 		slug,
@@ -597,7 +602,7 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		// Default tags/metadata to empty JSON so list filters that don't
 		// COALESCE these columns (e.g. exclude_type) don't drop new articles
 		// on a NULL comparison.
-		"[]",
+		tags,
 		"{}",
 		strings.TrimSpace(body.FocusKeyword),
 		strings.TrimSpace(body.MetaDescription),

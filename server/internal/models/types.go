@@ -153,6 +153,7 @@ type ArticleInput struct {
 	Content         string        `json:"content"`
 	Excerpt         string        `json:"excerpt,omitempty"`
 	Categories      []string      `json:"categories"`
+	Tags            []string      `json:"tags,omitempty"`
 	PhotoURL        string        `json:"photo_url"`
 	IsFeatured      bool          `json:"is_featured"`
 	BreakingNews    bool          `json:"breaking_news"`
@@ -169,6 +170,7 @@ type ArticlePatch struct {
 	Authors         *[]int64       `json:"authors,omitempty"`
 	Content         *string        `json:"content,omitempty"`
 	Categories      *[]string      `json:"categories,omitempty"`
+	Tags            *[]string      `json:"tags,omitempty"`
 	Excerpt         *string        `json:"excerpt,omitempty"`
 	PhotoURL        *string        `json:"photo_url,omitempty"`
 	IsFeatured      *bool          `json:"is_featured,omitempty"`

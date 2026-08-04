@@ -121,6 +121,37 @@ func TestArticleInputToDBFields_StoresFuturePublishDateAsSchedule(t *testing.T) 
 	}
 }
 
+func TestArticleInputToDBFields_StoresTags(t *testing.T) {
+	fields := ArticleInputToDBFields(models.ArticleInput{
+		Title:   "Tagged story",
+		Content: "Body",
+		Status:  models.ArticleStatusDraft,
+		Tags:    []string{"campus", "housing"},
+	})
+
+	const tagsFieldIndex = 12
+	got, ok := fields[tagsFieldIndex].(string)
+	if !ok {
+		t.Fatalf("tags field has type %T, want string", fields[tagsFieldIndex])
+	}
+	if got != `["campus","housing"]` {
+		t.Fatalf("tags = %q, want JSON tag list", got)
+	}
+}
+
+func TestArticleInputToDBFields_DefaultsEmptyTagsToJSONList(t *testing.T) {
+	fields := ArticleInputToDBFields(models.ArticleInput{
+		Title:   "Untagged story",
+		Content: "Body",
+		Status:  models.ArticleStatusDraft,
+	})
+
+	const tagsFieldIndex = 12
+	if got := fields[tagsFieldIndex]; got != "[]" {
+		t.Fatalf("empty tags = %v, want []", got)
+	}
+}
+
 // A full replacement is still an edit, and it used to write mod_date = NULL.
 // Two things depend on that column: the public sitemap's lastmod is
 // COALESCE(mod_date, pub_date), and the embedding reconciler decides a vector is
