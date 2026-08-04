@@ -68,6 +68,15 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, models.ErrorResponse{Error: msg})
 }
 
+func requireArticleWriteRole(w http.ResponseWriter, r *http.Request) bool {
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok || (user.Role != models.RoleAdmin && user.Role != models.RoleEditor) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	return true
+}
+
 func clientIP(r *http.Request) string {
 	xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
 	if xff != "" {
@@ -2001,6 +2010,9 @@ func DeleteComment(conn *sql.DB) http.HandlerFunc {
 // @Router /v1/articles [post]
 func PostArticles(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireArticleWriteRole(w, r) {
+			return
+		}
 		var body models.ArticleInput
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -2065,20 +2077,8 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		unlock := articleEditLocks.Lock(slug)
 		defer unlock()
-		if user, ok := middleware.UserFromContext(r.Context()); ok && user.Role != models.RoleAdmin {
-			if user.AuthorID == nil {
-				writeError(w, http.StatusForbidden, "forbidden")
-				return
-			}
-			owned, err := db.ArticleHasAuthor(r.Context(), conn, slug, *user.AuthorID)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			if !owned {
-				writeError(w, http.StatusForbidden, "forbidden")
-				return
-			}
+		if !requireArticleWriteRole(w, r) {
+			return
 		}
 		var body models.Article
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -2155,20 +2155,8 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		unlock := articleEditLocks.Lock(slug)
 		defer unlock()
-		if user, ok := middleware.UserFromContext(r.Context()); ok && user.Role != models.RoleAdmin {
-			if user.AuthorID == nil {
-				writeError(w, http.StatusForbidden, "forbidden")
-				return
-			}
-			owned, err := db.ArticleHasAuthor(r.Context(), conn, slug, *user.AuthorID)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			if !owned {
-				writeError(w, http.StatusForbidden, "forbidden")
-				return
-			}
+		if !requireArticleWriteRole(w, r) {
+			return
 		}
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -2377,9 +2365,7 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		unlock := articleEditLocks.Lock(slug)
 		defer unlock()
-		user, ok := middleware.UserFromContext(r.Context())
-		if !ok || (user.Role != models.RoleAdmin && user.Role != models.RoleEditor) {
-			writeError(w, http.StatusForbidden, "forbidden")
+		if !requireArticleWriteRole(w, r) {
 			return
 		}
 		categories, found, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, false)
@@ -2426,9 +2412,7 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		unlock := articleEditLocks.Lock(slug)
 		defer unlock()
-		user, ok := middleware.UserFromContext(r.Context())
-		if !ok || (user.Role != models.RoleAdmin && user.Role != models.RoleEditor) {
-			writeError(w, http.StatusForbidden, "forbidden")
+		if !requireArticleWriteRole(w, r) {
 			return
 		}
 		categories, found, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, true)

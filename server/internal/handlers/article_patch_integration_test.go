@@ -13,6 +13,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	db "server/internal/database"
+	"server/internal/middleware"
+	"server/internal/models"
 )
 
 // CMS_TEST_DSN='user:pw@tcp(127.0.0.1:3306)/cms_test?parseTime=true&multiStatements=true' go test ./internal/handlers/ -run ArticlePatchHTTP -v
@@ -112,7 +114,7 @@ func articlePatchTestDB(t *testing.T) *sql.DB {
 func patchArticleRequest(slug, body string) *http.Request {
 	req := httptest.NewRequest(http.MethodPatch, "/v1/articles/"+slug, strings.NewReader(body))
 	req.SetPathValue("slug", slug)
-	return req
+	return req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Name: "Editor", Role: models.RoleEditor}))
 }
 
 func articlePubDate(t *testing.T, conn *sql.DB, slug string) sql.NullTime {
