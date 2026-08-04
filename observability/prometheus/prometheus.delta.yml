@@ -12,9 +12,10 @@
 #      Which one is live is decided by Nginx, not by anything Prometheus can
 #      see -- see the blue/green section in deploy/README.md.
 #
-# The CMS containers sit in a different Compose project on their own network and
-# publish only to host loopback, so targets go via the host gateway rather than
-# by container name.
+# Targets are container names on the CMS project's network, which Prometheus
+# joins (see compose.observability.yml). Going via the host gateway does not
+# work: the slots publish to 127.0.0.1 only, so the gateway address refuses the
+# connection. Port 8080 is the in-container port, not the published one.
 
 global:
   scrape_interval: 15s
@@ -26,9 +27,9 @@ scrape_configs:
     metrics_path: /metrics
     scheme: http
     static_configs:
-      - targets: ["host.docker.internal:8081"]
+      - targets: ["triangle-cms-backend-blue-1:8080"]
         labels:
           slot: blue
-      - targets: ["host.docker.internal:8082"]
+      - targets: ["triangle-cms-backend-green-1:8080"]
         labels:
           slot: green

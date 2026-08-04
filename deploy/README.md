@@ -109,8 +109,15 @@ travels in cleartext; fold this endpoint into TLS when TLS lands on Delta.
 ### Metrics and the CMS dashboard
 
 The backend exposes Prometheus metrics on `GET /metrics`, and the stack runs a
-Prometheus that scrapes both slots over the host gateway
-(`observability/prometheus/prometheus.delta.yml`). The "CMS Dashboard" is
+Prometheus that scrapes both slots by container name
+(`observability/prometheus/prometheus.delta.yml`). To do that it attaches to the
+CMS project's network, declared `external` so this stack never owns it. The
+consequence is an ordering dependency: the CMS stack must be up first, or
+Compose refuses to start this one with a missing-network error.
+
+Scraping via the host gateway does not work, and it is worth knowing why before
+"simplifying" it back: the slots publish to `127.0.0.1:8081/8082`, loopback
+only, so a container dialling `172.17.0.1` gets connection refused. The "CMS Dashboard" is
 provisioned from `observability/grafana/provisioning/dashboards/` and appears in
 any Grafana that mounts that directory -- no manual import.
 
