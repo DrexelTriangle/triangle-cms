@@ -56,6 +56,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The sidecar image is tagged by content rather than by commit: the git
+      # tree hash of embeddings/ changes only when something in that directory
+      # changes. deploy/scripts/deploy.sh derives the identical value, so the two
+      # cannot disagree.
+      - name: Compute the embeddings tag
+        id: embeddings_tag
+        run: echo "value=$(git rev-parse HEAD:embeddings)" >> "$GITHUB_OUTPUT"
+
+      # This image bakes in ~130MB of model weights, so building it is by far the
+      # slowest step here -- and it was rebuilt on every push to main, including
+      # the overwhelming majority that touch nothing but Go or TypeScript. A tag
+      # that already exists is by definition built from identical content.
+      - name: Check whether the embeddings image already exists
+        id: embeddings_exists
+        run: |
+          if docker manifest inspect "${{ steps.image.outputs.embeddings }}:${{ steps.embeddings_tag.outputs.value }}" >/dev/null 2>&1; then
+            echo "skipping the embeddings build: ${{ steps.embeddings_tag.outputs.value }} is already published"
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and publish backend
         uses: docker/build-push-action@v6
         with:
@@ -82,16 +104,14 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-      # The embedding sidecar. Its Dockerfile bakes the model weights in, so this
-      # build downloads ~130MB from Hugging Face; the gha cache keeps that to the
-      # commits that actually touch embeddings/.
       - name: Build and publish embeddings sidecar
+        if: steps.embeddings_exists.outputs.value != 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./embeddings
           file: ./embeddings/Dockerfile
           push: true
-          tags: ${{ steps.image.outputs.embeddings }}:${{ steps.sha.outputs.value }}
+          tags: ${{ steps.image.outputs.embeddings }}:${{ steps.embeddings_tag.outputs.value }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.sha.outputs.value }}
