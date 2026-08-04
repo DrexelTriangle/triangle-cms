@@ -100,12 +100,17 @@ services:
     volumes:
       - ../observability/prometheus/prometheus.delta.yml:/etc/prometheus/prometheus.yml:ro,z
       - prometheus_data:/prometheus
-    # The CMS slots publish to host loopback from a different Compose project,
-    # so they are only reachable through the host gateway.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    # Prometheus joins the CMS project's network read-only so it can scrape the
+    # slots by container name.
+    #
+    # The host gateway does NOT work here, which is easy to get wrong: the CMS
+    # slots publish to 127.0.0.1:8081/8082, loopback only, so a container
+    # reaching for the gateway address (172.17.0.1) gets connection refused.
+    # Joining the network reaches the containers on their own port 8080 instead,
+    # and needs no change to compose.cms.yml and no new host exposure.
     networks:
       - observability_net
+      - cms_net
 
 volumes:
   loki_data:
@@ -116,3 +121,11 @@ volumes:
 networks:
   observability_net:
     driver: bridge
+  # The CMS project's network, created by compose.cms.yml. Declared external so
+  # this stack attaches to it rather than owning it -- nothing here can create,
+  # modify, or remove it. The cost of this is a real ordering dependency: the
+  # CMS stack must be up before this one starts, or Compose fails with a missing
+  # network instead of silently scraping nothing.
+  cms_net:
+    external: true
+    name: triangle-cms_triangle_net
