@@ -96,3 +96,8 @@ rpl_semi_sync_master_timeout     = 1000
 # down, the zero-loss guarantee is NOT in force. Alert on
 # Rpl_semi_sync_master_status = OFF rather than assuming it holds.
 rpl_semi_sync_master_wait_no_slave = OFF
+# Slave side, inert while this node is the primary. Present so that after a
+# failover and auto_rejoin — when this node comes back as a REPLICA of DB2 — it
+# registers as a semi-sync client instead of silently leaving the new primary
+# running asynchronously. Mirrors replica.cnf; both nodes carry both roles.
+rpl_semi_sync_slave_enabled      = ON

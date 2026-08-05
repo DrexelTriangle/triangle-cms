@@ -85,7 +85,13 @@ never left the boxes.
   MARIADB_PORT=3306
   MAXSCALE_USER=maxscale
   MAXSCALE_PASSWORD=...
+  REPL_USER=repl
+  REPL_PASSWORD=...        # what mariadbmon writes into CHANGE MASTER
   ```
+
+  All six are required. Removing any one leaves an unsubstituted `$VAR` in the
+  config and MaxScale will not start — worth remembering when editing this file
+  with `sed`, where a range delete can silently take an adjacent line with it.
 
 ## Accounts on DB1
 
@@ -231,13 +237,29 @@ match the other two hosts, or run steps 1–3 from the Proxmox console.
    > actually removes the bypass, because Delta is no longer permitted to reach
    > 3306 at all.
 
-7. **Grant MaxScale the failover privileges** it does not currently hold, on
-   DB1:
+7. **Grant MaxScale the failover privileges**, on **both** hosts:
 
    ```sql
-   GRANT REPLICATION SLAVE ADMIN, SUPER, PROCESS, EVENT, SET USER, RELOAD
+   GRANT REPLICATION SLAVE ADMIN, SUPER, PROCESS, EVENT, SET USER, RELOAD,
+         BINLOG ADMIN, CONNECTION ADMIN, REPLICATION MASTER ADMIN,
+         READ_ONLY ADMIN, SHOW DATABASES
      ON *.* TO 'maxscale'@'10.248.40.183';
    ```
+
+   **`BINLOG ADMIN` is the one that is easy to miss and it breaks `auto_rejoin`
+   outright.** MariaDB 10.5+ split the old catch-all `SUPER` into discrete
+   privileges, so holding `SUPER` no longer implies it. Without it mariadbmon
+   cannot run `SET @@session.sql_log_bin=0` while demoting a returning primary
+   and loops forever on:
+
+   ```
+   Failed to prepare (demote) standalone server 'primary' for rejoin.
+   ```
+
+   Apply it on the current replica under `SET SESSION sql_log_bin=0` as well —
+   a grant made only on the primary reaches the replica by replication, but the
+   node that needs it during a rejoin is the one that is *not* currently
+   replicating.
 
 8. **Point MaxScale at DB2 and enable failover.** Set
    `REPLICA_HOST=10.248.40.155` in `/etc/maxscale.secrets.d/backend.env`
@@ -339,9 +361,31 @@ Stop MariaDB on DB1 (`systemctl stop mariadb`), then watch MaxScale's log at
 should show DB2 as `Master, Running`. Confirm the CMS still serves and can write.
 
 Then start DB1 again and confirm `auto_rejoin` brings it back as
-`Slave, Running`. **If it does not rejoin, that is the safety net working, not a
-bug** — check for divergence before forcing anything. Finish by switching back
-with the `switchover` command above so DB1 is primary again.
+`Slave, Running`. **If it does not rejoin, that is often the safety net working
+rather than a bug** — compare `@@gtid_current_pos` on both before forcing
+anything. A returning node that is merely *behind* (its GTID is a prefix of the
+new primary's) is cleanly rejoinable; one that is genuinely diverged is refused
+by `gtid_strict_mode`, and that refusal is correct.
+
+Two non-divergence failures seen on the first real test, both worth recognising:
+
+- **`Failed to prepare (demote) standalone server for rejoin`, repeating every
+  monitor tick** — the monitor user is missing `BINLOG ADMIN`. See step 7.
+- **Rejoin appears to succeed then instantly reverts** (`new_slave` followed by
+  `lost_slave` about two seconds later). The monitor built the replication link
+  with the wrong credentials; `replication_user`/`replication_password` default
+  to the *monitor* user, which is host-scoped to the MaxScale host and so does
+  not exist from the rejoining node. `maxscale.cnf` now sets them to `repl`
+  explicitly. MaxScale reports this only as `lost_slave` — the real error is on
+  the rejoining node, in `SHOW SLAVE STATUS` `Last_IO_Error` (1045).
+  **After fixing it, clear the stale connection** with
+  `STOP SLAVE; RESET SLAVE ALL;` on the rejoining node: while a replica
+  connection exists the node is no longer "standalone", so the monitor will not
+  rebuild it and simply leaves it broken.
+
+Finish by switching back with the `switchover` command above so DB1 is primary
+again, and confirm semi-sync re-engages (`Rpl_semi_sync_master_status = ON`,
+`clients = 1`) on whichever node ends up primary.
 
 ### Manual failover, without MaxScale
 

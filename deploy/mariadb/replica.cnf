@@ -79,9 +79,21 @@ binlog_expire_logs_seconds       = 604800
 slave_parallel_threads           = 4
 slave_parallel_mode              = optimistic
 
-# --- Semi-synchronous replication: SLAVE side ---------------------------------
-# The replica acknowledges each binlog event back to the primary, which is what
+# --- Semi-synchronous replication ---------------------------------------------
+# BOTH sides are enabled on BOTH nodes, because either node can hold either role
+# after a failover. MariaDB only acts on the side matching its current role, so
+# the master settings sit inert here until this node is promoted.
+#
+# Slave side: acknowledges each binlog event back to the primary, which is what
 # lets automated failover promote DB2 without losing acknowledged commits. Must
 # be ON here for the primary's AFTER_SYNC wait to ever be satisfied — if this is
 # OFF, the primary just times out and degrades to async on every commit.
 rpl_semi_sync_slave_enabled      = ON
+# Master side: inert while this node is a replica, load-bearing the moment it is
+# promoted. Without it a failover silently drops to asynchronous replication —
+# losing the zero-data-loss guarantee at exactly the moment you have just proven
+# you need it. Values must match primary.cnf; see the rationale there.
+rpl_semi_sync_master_enabled     = ON
+rpl_semi_sync_master_wait_point  = AFTER_SYNC
+rpl_semi_sync_master_timeout     = 1000
+rpl_semi_sync_master_wait_no_slave = OFF

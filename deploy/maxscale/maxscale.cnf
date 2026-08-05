@@ -44,6 +44,17 @@ module=mariadbmon
 servers=primary,replica
 user=$MAXSCALE_USER
 password=$MAXSCALE_PASSWORD
+# Credentials mariadbmon writes into CHANGE MASTER when it promotes, demotes or
+# rejoins a node. MUST be set explicitly: when omitted these DEFAULT TO THE
+# MONITOR USER above, and mariadbmon then builds the replication link as
+# maxscale@<the rejoining node's IP> — an account that does not exist, because
+# the monitor user is host-scoped to the MaxScale host. The symptom is a rejoin
+# that appears to succeed and then immediately flips back
+# ("new_slave" followed by "lost_slave" ~2s later), with the real cause only
+# visible on the rejoining node as SHOW SLAVE STATUS Last_IO_Error 1045.
+# `repl` is host-scoped to BOTH DB hosts precisely so either direction works.
+replication_user=$REPL_USER
+replication_password=$REPL_PASSWORD
 monitor_interval=2000ms
 
 # --- Automated failover ------------------------------------------------------
