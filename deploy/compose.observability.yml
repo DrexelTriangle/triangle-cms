@@ -20,9 +20,14 @@
 # removing it costs no alerting -- see deploy/mariadb/README.md.
 #
 # The dashboard JSON is still kept in observability/grafana/dashboards/ as the
-# source of truth to import into the central Grafana. Its panels hard-bind to
-# datasource UIDs "prometheus" and "loki", so those UIDs must be reproduced
-# there exactly or the panels come up empty.
+# source of truth to import into the central Grafana. Its panels do NOT hard-bind
+# to datasource UIDs any more: they resolve through the "prometheus_ds" and
+# "loki_ds" template variables, because the central Grafana already had its own
+# Prometheus and Loki and the Delta ones necessarily got different UIDs there.
+# Both variables carry regex /-delta$/, so they bind to the Delta datasources on
+# import rather than defaulting to the central pair and coming up empty. That
+# regex is the one coupling left: a Delta datasource renamed out of the *-delta
+# convention drops out of the dropdown and the panels go blank again.
 
 name: triangle-observability
 

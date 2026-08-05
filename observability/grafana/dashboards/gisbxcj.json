@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "${loki_ds}"
       },
       "fieldConfig": {
         "defaults": {
@@ -119,7 +119,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${prometheus_ds}"
       },
       "fieldConfig": {
         "defaults": {
@@ -230,7 +230,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${prometheus_ds}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -246,7 +246,8 @@
     },
     {
       "datasource": {
-        "uid": "prometheus"
+        "uid": "${prometheus_ds}",
+        "type": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -310,7 +311,8 @@
     },
     {
       "datasource": {
-        "uid": "prometheus"
+        "uid": "${prometheus_ds}",
+        "type": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -377,7 +379,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${prometheus_ds}"
       },
       "fieldConfig": {
         "defaults": {
@@ -461,7 +463,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${prometheus_ds}"
           },
           "editorMode": "code",
           "expr": "process_resident_memory_bytes{job=\"cms\"} ",
@@ -472,7 +474,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${prometheus_ds}"
           },
           "editorMode": "code",
           "expr": "go_goroutines{job=\"cms\"}",
@@ -485,7 +487,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${prometheus_ds}"
           },
           "editorMode": "code",
           "expr": "rate(process_cpu_seconds_total{job=\"cms\"}[5ms])",
@@ -502,7 +504,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${prometheus_ds}"
       },
       "fieldConfig": {
         "defaults": {
@@ -615,7 +617,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${prometheus_ds}"
           },
           "editorMode": "code",
           "expr": "sum by (status) (rate(http_requests_total[5m]))",
@@ -631,7 +633,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${prometheus_ds}"
       },
       "description": "How long requests take. p50 = typical, p95/p99 = the slowest requests. Rising p99 = slow tail.",
       "fieldConfig": {
@@ -716,7 +718,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${prometheus_ds}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))",
@@ -727,7 +729,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${prometheus_ds}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))",
@@ -740,7 +742,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${prometheus_ds}"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))",
@@ -757,7 +759,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${prometheus_ds}"
       },
       "description": "Where traffic concentrates\n",
       "fieldConfig": {
@@ -815,7 +817,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${prometheus_ds}"
           },
           "editorMode": "code",
           "expr": "topk(5, sum by(route) (rate(http_requests_total[5m]))) * 1000",
@@ -830,7 +832,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "${loki_ds}"
       },
       "description": "Main explorer, without health and metrics",
       "fieldConfig": {
@@ -871,7 +873,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "${loki_ds}"
       },
       "description": "All errors from 400 and above are displayed here",
       "fieldConfig": {
@@ -915,7 +917,38 @@
   "schemaVersion": 41,
   "tags": [],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "prometheus_ds",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "/-delta$/",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Loki",
+        "multi": false,
+        "name": "loki_ds",
+        "options": [],
+        "query": "loki",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "/-delta$/",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
   },
   "time": {
     "from": "now-24h",
