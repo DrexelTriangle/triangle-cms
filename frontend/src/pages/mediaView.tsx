@@ -38,6 +38,8 @@ type MediaResponse = {
 
 const PAGE_SIZE = 60
 
+const LOAD_MORE_MARGIN = "400px"
+
 function formatBytes(bytes?: number) {
   if (!bytes || bytes <= 0) return ""
   const units = ["B", "KB", "MB", "GB"]
@@ -71,6 +73,9 @@ function MediaView() {
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
+  const isLoadingMoreRef = useRef(false)
 
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
@@ -124,7 +129,9 @@ function MediaView() {
     return () => controller.abort()
   }, [fetchPage])
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async () => {
+    if (isLoadingMoreRef.current) return
+    isLoadingMoreRef.current = true
     setIsLoadingMore(true)
     try {
       const payload = await fetchPage(mediaItems.length)
@@ -133,10 +140,25 @@ function MediaView() {
       setHasMore(Boolean(payload.pagination?.has_more))
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load more media.")
+      setHasMore(false)
     } finally {
+      isLoadingMoreRef.current = false
       setIsLoadingMore(false)
     }
-  }
+  }, [fetchPage, mediaItems.length])
+
+  useEffect(() => {
+    if (!sentinel || !hasMore || isLoading || isLoadingMore) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return
+        void loadMore()
+      },
+      { rootMargin: LOAD_MORE_MARGIN },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [sentinel, hasMore, isLoading, isLoadingMore, loadMore])
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -398,17 +420,13 @@ function MediaView() {
             ))}
           </div>
 
-          {hasMore && (
-            <div className="flex justify-center">
-              <button
-                className="px-4 py-2 rounded-lg border border-border text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
-                disabled={isLoadingMore}
-                onClick={() => void loadMore()}
-                type="button"
-              >
-                {isLoadingMore ? "Loading..." : `Load more (${String(mediaItems.length)} of ${String(totalCount)})`}
-              </button>
-            </div>
+          {hasMore && <div aria-hidden="true" ref={setSentinel} className="h-px" />}
+          {(isLoadingMore || (!hasMore && !error)) && (
+            <p className="text-center text-sm text-muted-foreground">
+              {isLoadingMore
+                ? "Loading more..."
+                : `${String(mediaItems.length)} of ${String(totalCount)} shown`}
+            </p>
           )}
         </>
       )}
