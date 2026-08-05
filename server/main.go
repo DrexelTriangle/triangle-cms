@@ -18,6 +18,7 @@ import (
 	"server/internal/handlers"
 	"server/internal/middleware"
 	"server/internal/routes"
+	"server/internal/slack"
 
 	"strconv"
 	"strings"
@@ -40,6 +41,9 @@ const (
 	serverModeInternalHTTP = "internal-http"
 	akismetAPIKeyEnv       = "AKISMET_API_KEY"
 	akismetBlogURLEnv      = "AKISMET_BLOG_URL"
+	slackWebhookURLEnv     = "SLACK_WEBHOOK_URL"
+	slackSigningSecretEnv  = "SLACK_SIGNING_SECRET"
+	slackQueueURLEnv       = "SLACK_CLASSIFIEDS_QUEUE_URL"
 	defaultShutdownTimeout = 10 * time.Second
 )
 
@@ -64,6 +68,7 @@ type runDeps struct {
 	oidcVerifier    *oidc.IDTokenVerifier
 	oidcCfg         auth.OIDCConfig
 	spamChecker     akismet.Checker
+	slackNotifier   slack.Notifier
 }
 
 // @title Triangle CMS API
@@ -261,16 +266,20 @@ func main() {
 		slog.Error("invalid Akismet configuration", "error", err)
 		os.Exit(1)
 	}
-	if strings.TrimSpace(os.Getenv("SLACK_SIGNING_SECRET")) == "" {
-		slog.Warn("Slack classified moderation disabled: SLACK_SIGNING_SECRET not set; the interactivity endpoint will refuse requests")
+	slackNotifier, err := slackNotifierFromEnv()
+	if err != nil {
+		slog.Error("invalid Slack configuration", "error", err)
+		os.Exit(1)
 	}
+	logSlackModerationState(slackNotifier)
+
 	if spamChecker == nil {
 		slog.Warn("Akismet comment spam filtering disabled: AKISMET_API_KEY not set")
 	} else {
 		slog.Info("Akismet comment spam filtering enabled")
 	}
 
-	if err := run(defaultRunDeps(verifier, oidcCfg, spamChecker), db); err != nil {
+	if err := run(defaultRunDeps(verifier, oidcCfg, spamChecker, slackNotifier), db); err != nil {
 		slog.Error("server terminated", "error", err)
 		os.Exit(1)
 	}
@@ -303,7 +312,7 @@ func dbConfigFromEnv() (dbName, user, password, host string, port int, err error
 	return dbName, user, password, host, port, nil
 }
 
-func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker) runDeps {
+func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier) runDeps {
 	return runDeps{
 		loadX509KeyPair: tls.LoadX509KeyPair,
 		newServer:       newDefaultServer,
@@ -313,6 +322,7 @@ func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spa
 		oidcVerifier:    verifier,
 		oidcCfg:         oidcCfg,
 		spamChecker:     spamChecker,
+		slackNotifier:   slackNotifier,
 	}
 }
 
@@ -378,7 +388,7 @@ func run(deps runDeps, conn *sql.DB) error {
 	embedder := embeddings.New(os.Getenv("EMBEDDINGS_URL"), 2*time.Second)
 
 	mux := http.NewServeMux()
-	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, embedder)
+	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder)
 	server := deps.newServer(cert, mux, slog.Default())
 
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
@@ -462,4 +472,48 @@ func akismetCheckerFromEnv() (akismet.Checker, error) {
 		APIKey:  apiKey,
 		BlogURL: blogURL,
 	})
+}
+
+// slackNotifierFromEnv builds the classified notifier, or returns nil when no
+// webhook is configured — which is a supported way to run: submissions still
+// land in the CMS queue, they just do not announce themselves. A webhook that
+// is set but malformed is an error, because it would fail silently on every
+// submission otherwise.
+func slackNotifierFromEnv() (slack.Notifier, error) {
+	webhookURL := strings.TrimSpace(os.Getenv(slackWebhookURLEnv))
+	if webhookURL == "" {
+		return nil, nil
+	}
+
+	client, err := slack.NewClient(slack.Config{
+		WebhookURL: webhookURL,
+		QueueURL:   strings.TrimSpace(os.Getenv(slackQueueURLEnv)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", slackWebhookURLEnv, err)
+	}
+	return client, nil
+}
+
+// The two halves of Slack moderation are configured separately and half of it
+// is worse than none: a webhook with no signing secret puts buttons in the
+// channel that the callback will refuse, and a signing secret with no webhook
+// means no message is ever posted for anyone to click. Both are worth a
+// startup line naming the missing variable.
+func logSlackModerationState(notifier slack.Notifier) {
+	hasSecret := strings.TrimSpace(os.Getenv(slackSigningSecretEnv)) != ""
+
+	switch {
+	case notifier != nil && hasSecret:
+		slog.Info("Slack classified moderation enabled")
+	case notifier != nil:
+		slog.Warn("Slack classified moderation half-configured: " + slackSigningSecretEnv +
+			" not set; notifications will be posted but the Approve/Reject buttons will be refused")
+	case hasSecret:
+		slog.Warn("Slack classified moderation half-configured: " + slackWebhookURLEnv +
+			" not set; no notification is posted, so the interactivity endpoint will never be called")
+	default:
+		slog.Warn("Slack classified moderation disabled: neither " + slackWebhookURLEnv + " nor " +
+			slackSigningSecretEnv + " is set; submissions wait in the CMS queue")
+	}
 }

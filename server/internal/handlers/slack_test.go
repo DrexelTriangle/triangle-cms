@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,6 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"server/internal/slack"
 )
 
 const testSigningSecret = "8f742231b10e8888abcd99yyyzzz85a5"
@@ -150,6 +153,36 @@ func TestPostSlackClassifiedAction_RefusesWhenUnconfigured(t *testing.T) {
 
 	if rec.Code != 503 {
 		t.Fatalf("expected 503 when the signing secret is unset, got %d", rec.Code)
+	}
+}
+
+type stubNotifier struct{}
+
+func (stubNotifier) NotifyClassified(context.Context, slack.Classified) error { return nil }
+
+// The queue UI tells moderators they can approve from Slack based on this. A
+// signing secret with no webhook posts nothing, so there is no notification to
+// approve from — reporting "configured" there is the bug this guards.
+func TestSlackModerationConfigured_RequiresBothHalves(t *testing.T) {
+	cases := []struct {
+		name     string
+		notifier slack.Notifier
+		secret   string
+		want     bool
+	}{
+		{"webhook and secret", stubNotifier{}, testSigningSecret, true},
+		{"secret but no webhook", nil, testSigningSecret, false},
+		{"webhook but no secret", stubNotifier{}, "", false},
+		{"neither", nil, "", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("SLACK_SIGNING_SECRET", c.secret)
+			if got := SlackModerationConfigured(c.notifier); got != c.want {
+				t.Fatalf("expected %v, got %v", c.want, got)
+			}
+		})
 	}
 }
 

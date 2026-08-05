@@ -30,7 +30,7 @@ func TestRegister_ReadEndpointsPublicWithVerifier(t *testing.T) {
 	defer conn.Close()
 
 	mux := http.NewServeMux()
-	Register(mux, conn, verifier, auth.OIDCConfig{}, nil, nil)
+	Register(mux, conn, verifier, auth.OIDCConfig{}, nil, nil, nil)
 
 	public := []string{
 		"/v1/articles",
@@ -78,7 +78,7 @@ func TestRegister_SettingsWriteEndpointsGated(t *testing.T) {
 	})
 
 	mux := http.NewServeMux()
-	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil)
+	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil, nil)
 
 	tests := []struct {
 		method string
@@ -106,7 +106,7 @@ func TestRegister_SettingsWriteEndpointsGated(t *testing.T) {
 
 func TestRegister_PublicRoute(t *testing.T) {
 	mux := http.NewServeMux()
-	Register(mux, nil, nil, auth.OIDCConfig{}, nil, nil)
+	Register(mux, nil, nil, auth.OIDCConfig{}, nil, nil, nil)
 
 	tests := []struct {
 		name       string
@@ -172,7 +172,7 @@ func TestRegister_MediaEndpointsGated(t *testing.T) {
 	})
 
 	mux := http.NewServeMux()
-	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil)
+	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil, nil)
 
 	tests := []struct {
 		method string

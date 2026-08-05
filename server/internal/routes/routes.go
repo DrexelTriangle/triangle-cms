@@ -7,6 +7,7 @@ import (
 	"server/internal/auth"
 	"server/internal/handlers"
 	"server/internal/middleware"
+	"server/internal/slack"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -14,7 +15,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, queryEmbedder handlers.QueryEmbedder) {
+func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder) {
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 	// Prometheus scrape target. Unauthenticated by design, and safe only
 	// because Nginx proxies just /v1 and /swagger: nothing routes /metrics in
@@ -69,8 +70,8 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	// session — hence no authMW on that route. "manage" is a literal segment,
 	// so Go's mux prefers it over /v1/classifieds/{id}.
 	mux.Handle("GET /v1/classifieds", handlers.GetClassifieds(conn))
-	mux.Handle("POST /v1/classifieds", middleware.RateLimitByIP(5, time.Minute)(handlers.PostClassified(conn)))
-	mux.Handle("GET /v1/classifieds/manage", authMW(handlers.GetClassifiedsManage(conn)))
+	mux.Handle("POST /v1/classifieds", middleware.RateLimitByIP(5, time.Minute)(handlers.PostClassified(conn, slackNotifier)))
+	mux.Handle("GET /v1/classifieds/manage", authMW(handlers.GetClassifiedsManage(conn, slackNotifier)))
 	mux.Handle("PATCH /v1/classifieds/{id}", authMW(handlers.PatchClassified(conn)))
 	mux.Handle("DELETE /v1/classifieds/{id}", authMW(adminOnly(handlers.DeleteClassified(conn))))
 	mux.Handle("POST /v1/integrations/slack/classifieds", middleware.RateLimitByIP(30, time.Minute)(handlers.PostSlackClassifiedAction(conn)))
