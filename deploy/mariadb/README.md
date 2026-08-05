@@ -424,12 +424,65 @@ recovery. Confirm what actually fired with:
 grep "changed state" /var/log/maxscale/maxscale.log
 ```
 
-### What it does not cover
+### The MaxScale-down watchdog
 
-The script can only report events MaxScale is alive to observe, so **it cannot
-tell you MaxScale itself has died** — and because the write path is fenced to
-MaxScale, that is a total outage. Closing this needs an external check
-(Delta's Prometheus can reach the host); it is not built yet.
+The script can only report events MaxScale is alive to observe, so it cannot
+tell you MaxScale *itself* died — and because the write path is fenced to
+MaxScale, that is a total outage. That gap is covered from **outside** the
+database tier, by the observability stack on Delta:
+
+```
+blackbox_exporter --TCP connect--> 10.248.40.183:4006
+        ^                                  |
+        | scrape                           v
+   Prometheus  ---->  Grafana alert  ---->  Slack
+                      probe_success == 0 for 1m
+```
+
+- [../../observability/blackbox/blackbox.yml](../../observability/blackbox/blackbox.yml)
+  — a plain TCP connect, no MySQL login, so no credentials are needed.
+- [../../observability/prometheus/prometheus.delta.yml](../../observability/prometheus/prometheus.delta.yml)
+  — job `blackbox-tcp`, with the usual exporter relabel indirection.
+- [../../observability/grafana/provisioning/alerting/maxscale.yml](../../observability/grafana/provisioning/alerting/maxscale.yml)
+  — rule `maxscale-unreachable` plus the `slack-triangle` contact point.
+
+**Why `:4006` and not the admin API:** 4006 is the port the CMS actually uses,
+so it tests the real dependency; the admin API (8989) would have to be opened to
+Delta and it can reconfigure MaxScale, which is a much worse thing to expose.
+MaxScale 24.02 serves no Prometheus endpoint anyway (`/metrics` and
+`/v1/metrics` both 404).
+
+**DB1/DB2 are deliberately not probed** — their 3306 is firewalled to the
+MaxScale host and the DB peer, so Delta cannot reach them by design and such a
+target would alert forever.
+
+`noDataState: Alerting` is intentional: if the probe series disappears, nobody
+is watching the database tier, which is worth waking someone for even though
+the cause is Prometheus rather than MaxScale.
+
+> **The Slack webhook is supplied by `SLACK_WEBHOOK_URL` in
+> `observability.env`**, and defaults to a non-functional placeholder so the
+> stack still starts without it (Grafana's provisioning rejects an empty URL).
+> Until it is set, the alert fires correctly in Grafana and delivery fails in
+> the Grafana log — visible, not silent. Note this is a **second** place the
+> webhook is needed: the MaxScale host has its own copy in
+> `/etc/maxscale.secrets.d/alert.env`, because the two alert paths run on
+> different machines by design.
+
+**Testing it by changing the probe target leaves a stale series behind.** The
+old `instance` keeps its last value inside Prometheus's 5-minute instant-query
+lookback, so the rule goes on firing for several minutes after you revert. That
+is an artifact of the test, not of the alert: in normal operation the target
+never changes, `probe_success` moves 1→0→1 on one series, and recovery is
+immediate.
+
+**The observability stack does not live in the runner's checkout.** It runs from
+`/home/tadmin/triangle-observability` on Delta — a hand-copied tree, not a git
+clone — with `--env-file ../observability.env` (not `cms.env`, despite what
+deploy/README.md says elsewhere). Changing any file above means copying it there
+and restarting the affected service; note `docker compose up -d` will NOT
+restart Prometheus for a config-file-only change, so `restart prometheus`
+explicitly.
 
 ### Manual failover, without MaxScale
 
