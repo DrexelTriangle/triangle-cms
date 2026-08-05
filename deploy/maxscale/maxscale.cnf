@@ -44,13 +44,85 @@ module=mariadbmon
 servers=primary,replica
 user=$MAXSCALE_USER
 password=$MAXSCALE_PASSWORD
+# Credentials mariadbmon writes into CHANGE MASTER when it promotes, demotes or
+# rejoins a node. MUST be set explicitly: when omitted these DEFAULT TO THE
+# MONITOR USER above, and mariadbmon then builds the replication link as
+# maxscale@<the rejoining node's IP> — an account that does not exist, because
+# the monitor user is host-scoped to the MaxScale host. The symptom is a rejoin
+# that appears to succeed and then immediately flips back
+# ("new_slave" followed by "lost_slave" ~2s later), with the real cause only
+# visible on the rejoining node as SHOW SLAVE STATUS Last_IO_Error 1045.
+# `repl` is host-scoped to BOTH DB hosts precisely so either direction works.
+replication_user=$REPL_USER
+replication_password=$REPL_PASSWORD
 monitor_interval=2000ms
-# Keep replicas read-only automatically. Automated failover is OFF by default:
-# promoting a replica on a 2-node async pair risks split-brain/data loss and
-# should be a deliberate ops action. See deploy/mariadb/README.md to enable.
-enforce_read_only_slaves=true
+
+# --- Alerting ----------------------------------------------------------------
+# Fired by the monitor on each event below, as the `maxscale` user. See
+# deploy/maxscale/maxscale-alert.sh — it always writes
+# /var/log/maxscale/failover-events.log and posts to Slack only if
+# /etc/maxscale.secrets.d/alert.env supplies a webhook, so it is safe to install
+# before that exists. The script must stay well inside script_timeout or it
+# blocks the monitor; the curl inside it is capped at 10s.
+#
+# NOTE this can only report what MaxScale is alive to observe — it cannot tell
+# you MaxScale itself has died. That needs an external check.
+script=/usr/local/bin/maxscale-alert.sh $EVENT $INITIATOR $NODELIST $PARENT
+script_timeout=90000ms
+# Explicit rather than the default "all": these are the transitions worth waking
+# someone for. slave_down/lost_slave are included deliberately — on a two-node
+# pair, losing the replica silently degrades semi-sync to async, so it is the
+# moment the zero-data-loss guarantee stops holding.
+# `slave_up` and `new_slave` are BOTH needed and are not the same transition:
+# new_slave is [Running]->[Slave,Running] (a standalone node joining), slave_up
+# is [Down]->[Slave,Running] (a node coming back from an outage). Listing only
+# new_slave means an outage alerts on the way down and stays silent on recovery.
+events=master_down,master_up,lost_master,new_master,slave_down,slave_up,lost_slave,new_slave,server_down,server_up
+
+# --- Automated failover ------------------------------------------------------
+# ON. This was previously off because promoting a replica on a 2-node ASYNC pair
+# loses the un-replicated tail of the write stream and can split-brain. Both of
+# those are addressed elsewhere rather than by leaving failover off:
+#
+#   Data loss  -> replication is now SEMI-SYNCHRONOUS with wait_point=AFTER_SYNC
+#                 (see deploy/mariadb/primary.cnf). DB1 does not acknowledge a
+#                 commit until DB2 holds the event durably, so a promotion
+#                 cannot discard an acknowledged write.
+#   Split-brain -> a 2-node cluster has no quorum and therefore cannot VOTE on
+#                 who is alive. Instead the write path is fenced AT THE NETWORK:
+#                 3306 on both DB hosts is firewalled to this host and the DB
+#                 peer only, so MaxScale is the ONLY route to the databases.
+#                 "MaxScale cannot see DB1" therefore also means "the CMS cannot
+#                 see DB1", and promoting DB2 cannot produce two servers taking
+#                 application writes.
+#                 Do NOT try to fence this by dropping triangle_user@<delta>:
+#                 MaxScale authenticates a client against the backend user table
+#                 using the CLIENT's own source address, so that account is what
+#                 lets Delta log in THROUGH MaxScale. Dropping it does not close
+#                 a bypass, it just breaks the site. See deploy/mariadb/README.md.
+#   Divergence  -> gtid_strict_mode=ON on both nodes, so a rejoining old primary
+#                 that diverged is REFUSED by auto_rejoin instead of silently
+#                 corrupting the dataset.
+#
+# Residual, accepted: while DB2 is down, semi-sync degrades to async
+# (rpl_semi_sync_master_wait_no_slave=OFF) and the zero-loss guarantee lapses;
+# and MaxScale itself remains a single point of failure. Closing either needs a
+# third node. See deploy/mariadb/README.md.
+auto_failover=true
+# Consecutive failed monitor passes before the master is declared down.
+# 5 x 2000ms = ~10s of confirmed unreachability, which rides out a container
+# migration or a brief network blip without promoting.
+failcount=5
+failover_timeout=90000ms
+# Rejoin a returning old primary as a replica automatically; gtid_strict_mode
+# makes this refuse rather than corrupt if it diverged.
 auto_rejoin=true
-auto_failover=false
+# Force every non-primary node read_only, so the demoted server cannot take
+# writes even if something reaches it directly.
+enforce_read_only_slaves=true
+# Two-node primary/replica and nothing else — reject any topology MaxScale did
+# not expect rather than trying to reason about it.
+enforce_simple_topology=true
 
 # --- Service: read/write split router ----------------------------------------
 [Read-Write-Split]

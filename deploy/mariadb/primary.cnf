@@ -74,3 +74,38 @@ binlog_expire_logs_seconds       = 604800  # keep 7 days of binlogs for replica 
 gtid_domain_id                   = 1
 gtid_strict_mode                 = ON
 log_slave_updates                = ON      # lets the replica be chained / used for backups
+
+# --- Semi-synchronous replication: MASTER side --------------------------------
+# This is the setting that makes MaxScale's automated failover safe to turn on.
+# Without it, replication is async: DB1 acknowledges a commit to the CMS before
+# DB2 has seen it, so promoting DB2 silently discards the tail of the write
+# stream. With it, a commit is not acknowledged until DB2 has the event.
+rpl_semi_sync_master_enabled     = ON
+# AFTER_SYNC (not the AFTER_COMMIT default): wait for the replica's ack BEFORE
+# committing to the storage engine, so a write is never visible to other
+# sessions on DB1 until it is safe on DB2. AFTER_COMMIT makes the write visible
+# first, which is precisely the window that loses data on promotion.
+rpl_semi_sync_master_wait_point  = AFTER_SYNC
+# How long a commit waits for an ack before degrading to async, in ms.
+rpl_semi_sync_master_timeout     = 1000
+# OFF is load-bearing for availability. With the ON default, DB1 pays the full
+# timeout above on EVERY commit while no replica is connected — so planned DB2
+# maintenance would add a second of latency to every write. OFF drops straight
+# to async the moment there is no semi-sync replica, and back to semi-sync when
+# DB2 reconnects. The tradeoff is real and must be understood: while DB2 is
+# down, the zero-loss guarantee is NOT in force.
+#
+# MONITOR THIS WITH Rpl_semi_sync_master_clients, NOT ..._status. Verified by
+# stopping DB2 on 2026-08-05: status stayed **ON** through seven unacknowledged
+# commits while clients sat at 0 and no_tx climbed 0 -> 7. With
+# wait_no_slave=OFF the master never enters the "off" state it would otherwise
+# fall into, so status is not evidence the guarantee is holding.
+#   Rpl_semi_sync_master_clients  == 0  -> nothing is acknowledging: ALERT
+#   Rpl_semi_sync_master_no_tx    rising -> commits completing unacknowledged
+#   Rpl_semi_sync_master_yes_tx   rising -> the guarantee is actually in force
+rpl_semi_sync_master_wait_no_slave = OFF
+# Slave side, inert while this node is the primary. Present so that after a
+# failover and auto_rejoin — when this node comes back as a REPLICA of DB2 — it
+# registers as a semi-sync client instead of silently leaving the new primary
+# running asynchronously. Mirrors replica.cnf; both nodes carry both roles.
+rpl_semi_sync_slave_enabled      = ON

@@ -33,3 +33,32 @@ scrape_configs:
       - targets: ["triangle-cms-backend-green-1:8080"]
         labels:
           slot: green
+
+  # Watchdog for the database tier's single point of failure.
+  #
+  # The write path is fenced so MaxScale is the ONLY route to the databases, so
+  # MaxScale being down is a total outage — and it is precisely the outage
+  # MaxScale's own alert script cannot report, because the process that would
+  # send the alert is the one that died. This probes it from Delta instead.
+  #
+  # DB1/DB2 are deliberately NOT probed here: their 3306 is firewalled to the
+  # MaxScale host and the DB peer, so Delta cannot reach them by design, and a
+  # target that can never succeed is a permanently firing alert.
+  - job_name: blackbox-tcp
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets: ["10.248.40.183:4006"]
+        labels:
+          service: maxscale
+    # The standard blackbox indirection: Prometheus scrapes the EXPORTER, and
+    # the real target travels as a query parameter. Without this rewrite
+    # Prometheus would try to scrape 10.248.40.183:4006 as if it served metrics.
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
