@@ -1,19 +1,19 @@
 [mysqld]
 # =============================================================================
-# Triangle CMS — MariaDB READ REPLICA (DB2) config. NOT YET DEPLOYED: DB2 does
-# not exist as of 2026-07-30, so this is the config to install when it lands.
-# Runs on its OWN host (separate from DB1), replicating asynchronously from the
-# primary via GTID. Serves READ traffic only.
+# Triangle CMS — MariaDB REPLICA + FAILOVER TARGET (DB2) config.
+# Host: THETRIANGLE-DB2-LXC, 10.248.40.155, CT 111 (4 vCPU / 4 GB / 63 GB).
+# Runs on its OWN host (separate from DB1), replicating from the primary via
+# GTID with semi-synchronous acknowledgement. Serves READ traffic, and is
+# promoted to primary by MaxScale's mariadbmon on failover.
 # Installed natively at /etc/mysql/mariadb.conf.d/70-triangle-replica.cnf — the
 # 70- prefix is load-bearing, see bind-address below.
 # =============================================================================
 
 # --- Network ------------------------------------------------------------------
-# UNCOMMENT AND SET to DB2's internal NIC address before starting MariaDB.
 # Ubuntu's stock 50-server.cnf binds 127.0.0.1, which would leave the replica
 # unreachable from both MaxScale and the primary; this file must sort after it.
 # Firewall 3306 to the MaxScale and primary hosts only.
-# bind-address                   = 10.248.40.xxx
+bind-address                     = 10.248.40.155
 
 # --- InnoDB memory -----------------------------------------------------------
 # Sized to match the primary; see the rationale in primary.cnf. Adjust the two
@@ -24,13 +24,21 @@ innodb_buffer_pool_size          = 1G
 innodb_log_file_size             = 256M
 innodb_log_buffer_size           = 32M
 
-# --- Durability: relaxed on the replica ---------------------------------------
-# A read replica can re-fetch anything it loses on crash from the primary via
-# GTID, so we trade per-commit fsyncs for throughput on apply. Never do this on
-# the primary.
-innodb_flush_log_at_trx_commit   = 2
-sync_binlog                      = 0
+# --- Durability: FULL, same as the primary ------------------------------------
+# Deliberately NOT the relaxed (2 / 0) setting usually given to a read replica.
+# Two reasons, both consequences of DB2 being a failover target rather than a
+# pure read cache:
+#   1. On promotion DB2 *becomes* the primary. Relaxed settings would silently
+#      leave production running without per-commit fsyncs until someone noticed.
+#   2. Semi-sync's guarantee is only as strong as the ack. With sync_binlog=0
+#      the replica acks once the event is in the OS page cache, so a power loss
+#      on DB2 discards writes the primary already told the client were durable.
+# The CMS write volume is trivial (a newsroom, not a transaction processor), so
+# the throughput this costs is not measurable here.
+innodb_flush_log_at_trx_commit   = 1       # fsync redo on every commit
+sync_binlog                      = 1       # fsync binlog on every commit
 innodb_flush_method              = O_DIRECT
+innodb_doublewrite               = ON
 
 # --- Concurrency / caches ----------------------------------------------------
 max_connections                  = 300     # replica typically fields more read conns
@@ -70,3 +78,10 @@ binlog_expire_logs_seconds       = 604800
 # Parallel apply keeps replication lag low under write bursts from the primary.
 slave_parallel_threads           = 4
 slave_parallel_mode              = optimistic
+
+# --- Semi-synchronous replication: SLAVE side ---------------------------------
+# The replica acknowledges each binlog event back to the primary, which is what
+# lets automated failover promote DB2 without losing acknowledged commits. Must
+# be ON here for the primary's AFTER_SYNC wait to ever be satisfied — if this is
+# OFF, the primary just times out and degrades to async on every commit.
+rpl_semi_sync_slave_enabled      = ON

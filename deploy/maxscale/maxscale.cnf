@@ -45,12 +45,46 @@ servers=primary,replica
 user=$MAXSCALE_USER
 password=$MAXSCALE_PASSWORD
 monitor_interval=2000ms
-# Keep replicas read-only automatically. Automated failover is OFF by default:
-# promoting a replica on a 2-node async pair risks split-brain/data loss and
-# should be a deliberate ops action. See deploy/mariadb/README.md to enable.
-enforce_read_only_slaves=true
+
+# --- Automated failover ------------------------------------------------------
+# ON. This was previously off because promoting a replica on a 2-node ASYNC pair
+# loses the un-replicated tail of the write stream and can split-brain. Both of
+# those are addressed elsewhere rather than by leaving failover off:
+#
+#   Data loss  -> replication is now SEMI-SYNCHRONOUS with wait_point=AFTER_SYNC
+#                 (see deploy/mariadb/primary.cnf). DB1 does not acknowledge a
+#                 commit until DB2 holds the event durably, so a promotion
+#                 cannot discard an acknowledged write.
+#   Split-brain -> a 2-node cluster has no quorum and therefore cannot VOTE on
+#                 who is alive. Instead the write path is fenced: MaxScale is
+#                 the ONLY route to the databases (Delta's direct
+#                 triangle_user@10.248.40.168 grant is dropped, 3306 is
+#                 firewalled to this host and the DB peer). So "MaxScale cannot
+#                 see DB1" also means "the CMS cannot see DB1", and promoting
+#                 DB2 cannot produce two servers taking application writes.
+#   Divergence  -> gtid_strict_mode=ON on both nodes, so a rejoining old primary
+#                 that diverged is REFUSED by auto_rejoin instead of silently
+#                 corrupting the dataset.
+#
+# Residual, accepted: while DB2 is down, semi-sync degrades to async
+# (rpl_semi_sync_master_wait_no_slave=OFF) and the zero-loss guarantee lapses;
+# and MaxScale itself remains a single point of failure. Closing either needs a
+# third node. See deploy/mariadb/README.md.
+auto_failover=true
+# Consecutive failed monitor passes before the master is declared down.
+# 5 x 2000ms = ~10s of confirmed unreachability, which rides out a container
+# migration or a brief network blip without promoting.
+failcount=5
+failover_timeout=90000ms
+# Rejoin a returning old primary as a replica automatically; gtid_strict_mode
+# makes this refuse rather than corrupt if it diverged.
 auto_rejoin=true
-auto_failover=false
+# Force every non-primary node read_only, so the demoted server cannot take
+# writes even if something reaches it directly.
+enforce_read_only_slaves=true
+# Two-node primary/replica and nothing else — reject any topology MaxScale did
+# not expect rather than trying to reason about it.
+enforce_simple_topology=true
 
 # --- Service: read/write split router ----------------------------------------
 [Read-Write-Split]
