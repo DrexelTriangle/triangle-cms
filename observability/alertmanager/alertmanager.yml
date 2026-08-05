@@ -1,0 +1,43 @@
+# Alertmanager: routes Prometheus's database-tier alerts to Discord.
+#
+# Exists so the MaxScale watchdog does not live inside Grafana. Delta's
+# Prometheus is a datasource for the Triangle Grafana rather than part of it, so
+# keeping the rule and its delivery here means neither depends on which Grafana
+# is in front. See observability/prometheus/rules/database.yml.
+#
+# The webhook is NOT in this file. It is read from a path (0640, root:root on
+# the host) so the config can stay in git, matching how MaxScale keeps its own
+# secrets out of the world-readable maxscale.cnf.
+
+global:
+  # How long after the last firing evaluation an alert is considered resolved.
+  # Prometheus re-sends every evaluation while a rule fires, so this only has to
+  # outlast a couple of scrape intervals.
+  resolve_timeout: 5m
+
+route:
+  receiver: discord
+  # One notification per alert name rather than per instance. With two rules and
+  # one probe there is nothing to fan out, and grouping keeps a flapping backend
+  # from producing a message per transition.
+  group_by: [alertname]
+  # Short waits: these are total-outage alerts, not capacity warnings.
+  group_wait: 10s
+  group_interval: 1m
+  # Re-notify hourly while still firing, so an unresolved outage does not fall
+  # off the channel after a single message.
+  repeat_interval: 1h
+
+receivers:
+  - name: discord
+    discord_configs:
+      - webhook_url_file: /etc/alertmanager/discord-webhook
+        # Alertmanager colours the embed by status on its own — red firing,
+        # green resolved — so the text does not need to carry the severity.
+        # Keep both fields SHORT: this is a phone notification first and a
+        # document never. The detail belongs in the runbook, not the alert.
+        title: '{{ .CommonAnnotations.summary }}'
+        message: |-
+          {{ .CommonAnnotations.detail }}
+          {{ range .Alerts }}
+          `{{ .Labels.instance }}`{{ end }}

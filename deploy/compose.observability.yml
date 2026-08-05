@@ -1,4 +1,5 @@
-# Observability stack (Loki + Promtail + Grafana + Prometheus), deployed and
+# Observability stack (Loki + Promtail + Prometheus + Alertmanager + blackbox),
+# deployed and
 # upgraded independently of the CMS. This is intentionally a SEPARATE Compose
 # project from compose.cms.yml: a CMS deploy must never `docker compose down`
 # this stack, and an observability change must never touch the CMS slots or
@@ -11,7 +12,17 @@
 # Usage (from this directory):
 #   docker compose -f compose.observability.yml --env-file <env> up -d
 #
-# Grafana admin credentials come from that env file (host-only, not committed).
+# There is NO Grafana here. It was removed 2026-08-05: every dashboard now lives
+# in the central Triangle Grafana, which consumes this stack's Prometheus and
+# Loki as datasources over the Nginx endpoints in nginx/triangle-{prometheus,
+# loki}.conf. Running a second Grafana on Delta only duplicated that, and the
+# alerting it used to own now lives in Prometheus + Alertmanager, which is why
+# removing it costs no alerting -- see deploy/mariadb/README.md.
+#
+# The dashboard JSON is still kept in observability/grafana/dashboards/ as the
+# source of truth to import into the central Grafana. Its panels hard-bind to
+# datasource UIDs "prometheus" and "loki", so those UIDs must be reproduced
+# there exactly or the panels come up empty.
 
 name: triangle-observability
 
@@ -67,35 +78,6 @@ services:
     networks:
       - observability_net
 
-  grafana:
-    image: grafana/grafana:12.2.0
-    restart: unless-stopped
-    depends_on:
-      loki:
-        condition: service_healthy
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
-      # Slack destination for the provisioned MaxScale-down alert. Deliberately
-      # NOT `:?required` -- the alert rule and its Grafana UI state are useful
-      # on their own, and a missing webhook must not stop the whole stack from
-      # starting. The default is a syntactically valid but non-functional URL:
-      # Grafana's provisioning rejects an empty one, so a placeholder is what
-      # lets this deploy before the webhook exists. Delivery then fails and is
-      # logged until it is replaced, which is visible rather than silent.
-      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-https://hooks.slack.com/services/REPLACE-ME}
-    ports:
-      - "127.0.0.1:3000:3000"
-    volumes:
-      - grafana_data:/var/lib/grafana
-      # Whole directories rather than the single loki.yml file, so adding a
-      # datasource or dashboard is a file drop rather than a Compose edit.
-      - ../observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
-      - ../observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
-      - ../observability/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro,z
-    networks:
-      - observability_net
-
   # Probes MaxScale's client listener from Delta. This is the only thing in the
   # stack that can report the database tier being unreachable: MaxScale's own
   # alert script cannot, because a dead MaxScale sends nothing. See
@@ -115,6 +97,38 @@ services:
     # No ports published: only Prometheus talks to it, over the internal
     # network. It probes OUTWARD to the MaxScale host, which needs no inbound
     # exposure here.
+    networks:
+      - observability_net
+
+  # Delivers Prometheus's database-tier alerts to Discord. Deliberately NOT
+  # Grafana's built-in alerting: Delta's Prometheus is only a DATASOURCE for the
+  # Triangle Grafana, so a Grafana-owned rule would disappear when the local
+  # instance is retired -- while the metric kept being scraped and the dashboards
+  # kept looking healthy. Keeping rule and delivery next to the data means
+  # neither depends on which Grafana is in front.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ../observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro,z
+      # The Discord webhook, host-side and never in git. Alertmanager does no
+      # environment substitution in its config, so the URL is read from this
+      # path rather than injected -- same reasoning as MaxScale's alert.env.
+      - ${DISCORD_WEBHOOK_FILE:-/etc/triangle-observability/discord-webhook}:/etc/alertmanager/discord-webhook:ro
+      - alertmanager_data:/alertmanager
+    # Loopback only, and on 19093 to match the 1-prefixed convention the other
+    # loopback services here use. Alertmanager has no authentication of its own
+    # and its API can silence alerts, so it must never reach a routable address.
+    ports:
+      - "127.0.0.1:19093:9093"
     networks:
       - observability_net
 
@@ -138,6 +152,7 @@ services:
       - "127.0.0.1:19090:9090"
     volumes:
       - ../observability/prometheus/prometheus.delta.yml:/etc/prometheus/prometheus.yml:ro,z
+      - ../observability/prometheus/rules:/etc/prometheus/rules:ro,z
       - prometheus_data:/prometheus
     # Prometheus joins the CMS project's network read-only so it can scrape the
     # slots by container name.
@@ -152,9 +167,9 @@ services:
       - cms_net
 
 volumes:
+  alertmanager_data:
   loki_data:
   promtail_positions:
-  grafana_data:
   prometheus_data:
 
 networks:

@@ -336,7 +336,7 @@ Honest limits, all of which need a third node to close:
   `Rpl_semi_sync_master_clients == 0`, NOT on `Rpl_semi_sync_master_status`** —
   with `wait_no_slave=OFF` the status stays `ON` while commits go
   unacknowledged, so it is not evidence the guarantee holds. A `slave_down` /
-  `lost_slave` Slack alert (see Alerting) covers the same condition.
+  `lost_slave` Discord alert (see Alerting) covers the same condition.
 - **MaxScale is a single point of failure** and the sole arbiter. If it dies,
   the CMS is down regardless of how healthy both databases are. Fencing the
   write path to MaxScale deepens this dependency — that is the price of removing
@@ -403,11 +403,11 @@ in `events=`. It fires within one monitor tick, rather than waiting for a
 scrape, and it does not depend on Delta or the observability stack being up.
 
 It **always** appends to `/var/log/maxscale/failover-events.log` and posts to
-Slack only if `/etc/maxscale.secrets.d/alert.env` (0640 `root:maxscale`)
+Discord only if `/etc/maxscale.secrets.d/alert.env` (0640 `root:maxscale`)
 supplies a webhook:
 
 ```
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 
 With that empty it degrades to log-only, so it is safe to install first. The
@@ -429,22 +429,29 @@ grep "changed state" /var/log/maxscale/maxscale.log
 The script can only report events MaxScale is alive to observe, so it cannot
 tell you MaxScale *itself* died — and because the write path is fenced to
 MaxScale, that is a total outage. That gap is covered from **outside** the
-database tier, by the observability stack on Delta:
+database tier:
 
 ```
 blackbox_exporter --TCP connect--> 10.248.40.183:4006
-        ^                                  |
-        | scrape                           v
-   Prometheus  ---->  Grafana alert  ---->  Slack
-                      probe_success == 0 for 1m
+        |                                  ^
+        v scrape                           | (probe fails when MaxScale is down)
+   Prometheus ---> Alertmanager ---> Discord
+   rules/database.yml   discord_configs
 ```
 
 - [../../observability/blackbox/blackbox.yml](../../observability/blackbox/blackbox.yml)
   — a plain TCP connect, no MySQL login, so no credentials are needed.
-- [../../observability/prometheus/prometheus.delta.yml](../../observability/prometheus/prometheus.delta.yml)
-  — job `blackbox-tcp`, with the usual exporter relabel indirection.
-- [../../observability/grafana/provisioning/alerting/maxscale.yml](../../observability/grafana/provisioning/alerting/maxscale.yml)
-  — rule `maxscale-unreachable` plus the `slack-triangle` contact point.
+- [../../observability/prometheus/rules/database.yml](../../observability/prometheus/rules/database.yml)
+  — `MaxScaleUnreachable` and `MaxScaleProbeMissing`.
+- [../../observability/alertmanager/alertmanager.yml](../../observability/alertmanager/alertmanager.yml)
+  — routing and the Discord receiver.
+
+**This deliberately does NOT live in Grafana.** Delta's Prometheus is a
+*datasource* for the Triangle Grafana, not part of it, so a Grafana-owned alert
+rule would vanish the moment the local Grafana is retired — while blackbox kept
+probing, Prometheus kept scraping, and every dashboard kept looking healthy. The
+only symptom would be an alert that never arrives. Keeping the rule next to the
+data means it does not care which Grafana is in front.
 
 **Why `:4006` and not the admin API:** 4006 is the port the CMS actually uses,
 so it tests the real dependency; the admin API (8989) would have to be opened to
@@ -456,33 +463,49 @@ MaxScale 24.02 serves no Prometheus endpoint anyway (`/metrics` and
 MaxScale host and the DB peer, so Delta cannot reach them by design and such a
 target would alert forever.
 
-`noDataState: Alerting` is intentional: if the probe series disappears, nobody
-is watching the database tier, which is worth waking someone for even though
-the cause is Prometheus rather than MaxScale.
+`MaxScaleProbeMissing` replaces Grafana's `noDataState: Alerting`: if the probe
+series stops existing, nobody is watching the database tier, and that is not
+allowed to fail open.
 
-> **The Slack webhook is supplied by `SLACK_WEBHOOK_URL` in
-> `observability.env`**, and defaults to a non-functional placeholder so the
-> stack still starts without it (Grafana's provisioning rejects an empty URL).
-> Until it is set, the alert fires correctly in Grafana and delivery fails in
-> the Grafana log — visible, not silent. Note this is a **second** place the
-> webhook is needed: the MaxScale host has its own copy in
-> `/etc/maxscale.secrets.d/alert.env`, because the two alert paths run on
-> different machines by design.
+> **The Discord webhook is read from a file, not an environment variable** —
+> Alertmanager does no env substitution in its config. It lives at
+> `/etc/triangle-observability/discord-webhook` on Delta (0644 inside a 0700
+> directory; the container reads the bind mount directly, so the tight directory
+> costs nothing). Override the path with `DISCORD_WEBHOOK_FILE`.
+> This is the **second** place the webhook is needed: the MaxScale host has its
+> own copy in `/etc/maxscale.secrets.d/alert.env`, because the two alert paths
+> run on different machines by design.
 
-**Testing it by changing the probe target leaves a stale series behind.** The
-old `instance` keeps its last value inside Prometheus's 5-minute instant-query
-lookback, so the rule goes on firing for several minutes after you revert. That
-is an artifact of the test, not of the alert: in normal operation the target
-never changes, `probe_success` moves 1→0→1 on one series, and recovery is
-immediate.
+**Grafana provisioning only adds and updates — it never deletes.** Removing an
+alert rule or contact point from a provisioning file leaves it live in Grafana's
+database. `alerting/maxscale.yml` is therefore kept as a deletion-only file.
+**Order matters and getting it wrong crash-loops Grafana**: a contact point that
+a notification policy still references cannot be deleted, and Grafana exits with
 
-**The observability stack does not live in the runner's checkout.** It runs from
-`/home/tadmin/triangle-observability` on Delta — a hand-copied tree, not a git
-clone — with `--env-file ../observability.env` (not `cms.env`, despite what
-deploy/README.md says elsewhere). Changing any file above means copying it there
-and restarting the affected service; note `docker compose up -d` will NOT
-restart Prometheus for a config-file-only change, so `restart prometheus`
-explicitly.
+```
+ProvisioningServiceImpl run error: contact points:
+[alerting.notifications.contact-points.referenced]
+```
+
+rather than starting without its provisioning. Dropping the `policies:` block
+does not remove the policy either, so `resetPolicies` must hand routing back to
+the default before the contact points can go — and it takes a separate start to
+apply, so this is a two-pass change.
+
+**Testing by changing the probe target leaves a stale series behind.** The old
+`instance` keeps its last value inside Prometheus's 5-minute lookback, so the
+rule goes on firing for several minutes after you revert. That is an artifact of
+the test, not the alert: in normal operation the target never changes,
+`probe_success` moves 1→0→1 on one series, and recovery is immediate.
+
+**The observability stack deploys automatically**, as a step of the Deploy Delta
+workflow (`deploy/scripts/deploy-observability.sh`), so changing any file above
+means merging to main — not copying anything to Delta by hand. It runs from
+`~triangle-runner/triangle-observability`, synced from the runner's checkout,
+because `actions/checkout` resets the checkout itself on every deploy and would
+yank the bind-mount sources. The script restarts services only when the synced
+config actually changed, which matters because `docker compose up -d` will NOT
+restart a container when only a mounted file's contents differ.
 
 ### Manual failover, without MaxScale
 
