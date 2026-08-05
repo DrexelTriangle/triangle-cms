@@ -140,19 +140,47 @@ wait_for "alertmanager" "http://127.0.0.1:19093/-/healthy"
 # that is down, because it looks fine. Assert the rules actually loaded and that
 # Prometheus is talking to Alertmanager, rather than trusting "container is
 # running".
-rule_count="$(curl -fsS --max-time 5 http://127.0.0.1:19090/api/v1/rules \
-  | grep -o '"name":"[^"]*"' | wc -l)"
-if (( rule_count == 0 )); then
-  echo "prometheus loaded no alerting rules -- check observability/prometheus/rules/" >&2
-  exit 1
-fi
+#
+# These have to RETRY, not check once. /-/healthy goes green as soon as the web
+# server is listening, which is well before the rule manager has evaluated the
+# rule files and before the notifier has resolved alertmanager:9093 through
+# Docker DNS. Asserting immediately after a restart is a race, and it is the
+# race that made this step fail with "no active alertmanager" on a stack that
+# was in fact fine seconds later.
+retry_until() {
+  local label="$1"; shift
+  until "$@"; do
+    if (( SECONDS >= deadline )); then
+      echo "timed out: ${label}" >&2
+      obs_compose ps >&2 || true
+      return 1
+    fi
+    sleep 3
+  done
+  echo "  ok   ${label}"
+}
 
-if ! curl -fsS --max-time 5 http://127.0.0.1:19090/api/v1/alertmanagers \
-  | grep -q 'alertmanager'; then
-  echo "prometheus has no active alertmanager; alerts would fire into nothing" >&2
-  exit 1
-fi
-echo "  ok   alert rules loaded and alertmanager attached"
+has_alert_rules() {
+  local n
+  n="$(curl -fsS --max-time 5 http://127.0.0.1:19090/api/v1/rules \
+    | grep -o '"name":"[^"]*"' | wc -l)" || return 1
+  (( n > 0 ))
+}
+
+has_active_alertmanager() {
+  # Match the discovered URL, not the JSON keys: "activeAlertmanagers" and
+  # "droppedAlertmanagers" are always present, but capitalised, so a
+  # case-sensitive match on lowercase "alertmanager:9093" only hits a real
+  # entry. Checking activeAlertmanagers is non-empty would otherwise need a
+  # JSON parser this host is not guaranteed to have.
+  curl -fsS --max-time 5 http://127.0.0.1:19090/api/v1/alertmanagers \
+    | grep -q 'alertmanager:9093'
+}
+
+retry_until "alert rules loaded" has_alert_rules \
+  || { echo "prometheus loaded no alerting rules -- check observability/prometheus/rules/" >&2; exit 1; }
+retry_until "alertmanager attached" has_active_alertmanager \
+  || { echo "prometheus has no active alertmanager; alerts would fire into nothing" >&2; exit 1; }
 
 obs_compose ps --format '  {{.Service}}\t{{.Status}}'
 
