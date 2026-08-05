@@ -33,8 +33,9 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 scrape_configs:
-  # The job name must stay "cms": the provisioned dashboard filters on
-  # job="cms" in queries like up{job="cms"} and go_goroutines{job="cms"}.
+  # The job name must stay "cms": the CMS dashboard
+  # (observability/grafana/dashboards/gisbxcj.json) filters on job="cms" in
+  # queries like up{job="cms"} and go_goroutines{job="cms"}.
   - job_name: cms
     metrics_path: /metrics
     scheme: http
