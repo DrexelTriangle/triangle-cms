@@ -33,34 +33,49 @@ authentication of its own in any configuration, so it is published only to
 3100, which adds basic auth, blocks the write path, and 404s everything that is
 not a query.
 
-1. Install the stack into a stable directory on Delta. Do **not** run it out of
-   the runner's checkout at
-   `/home/triangle-runner/actions-runner/_work/triangle-cms/triangle-cms`: that
-   is the only checkout on the host that contains `observability/`, but
-   `actions/checkout` resets it on every deploy, which would yank the bind-mount
-   sources out from under a long-lived stack. Copy the files to a path the
-   runner never touches:
+1. **The stack deploys itself.** `deploy/scripts/deploy-observability.sh` runs
+   as a step of the Deploy Delta workflow, immediately after the CMS deploy, so
+   an observability change reaches Delta the same way application code does —
+   merge to main and wait. Nothing here needs starting by hand.
+
+   It syncs `observability/` and `compose.observability.yml` from the runner's
+   checkout into `~triangle-runner/triangle-observability` and runs Compose from
+   there. **It copies rather than running in place on purpose:** the checkout is
+   the only tree on Delta that contains `observability/`, but `actions/checkout`
+   resets it on every deploy, which would yank the bind-mount sources out from
+   under a long-lived stack. The destination is owned by the runner and sits
+   outside `_work/`, so Actions never touches it. Override with the
+   `DELTA_OBSERVABILITY_DIR` repository variable if the host is laid out
+   differently.
+
+   It **cannot** disturb the CMS: this is a separate Compose project, so
+   `up -d` cannot recreate or stop the slots. The one real coupling is that
+   Prometheus joins the CMS network, declared `external`, which is why the step
+   runs after the CMS deploy rather than beside it — and why a from-scratch
+   bring-up needs the CMS stack up first.
+
+   Two behaviours worth knowing before changing anything here:
+
+   - **A config-only change does not restart anything by itself.** `up -d` sees
+     an identical Compose spec and reports `Running` even though a mounted file's
+     contents changed, so the new config never takes effect. The script
+     fingerprints the synced tree and issues an explicit `restart` when it
+     differs — and skips it entirely when it does not, so an ordinary CMS deploy
+     costs nothing.
+   - **The sync is `--inplace`.** Ordinary `rsync` writes a temp file and
+     renames, giving every file a new inode, while a running container's bind
+     mount still holds the old one. That combination serves stale config that
+     looks correctly deployed.
+
+   The step fails the job if Prometheus comes up with zero alerting rules or no
+   attached Alertmanager, because a stack that is running but silently not
+   alerting is worse than one that is plainly down.
+
+   To run it by hand (from a repo checkout on Delta):
 
    ```
-   mkdir -p ~/triangle-observability
-   cd ~/triangle-observability
-   sudo cp -r /home/triangle-runner/actions-runner/_work/triangle-cms/triangle-cms/observability .
-   sudo cp /home/triangle-runner/actions-runner/_work/triangle-cms/triangle-cms/deploy/compose.observability.yml .
-   sudo chown -R "$USER:$USER" observability compose.observability.yml
+   deploy/scripts/deploy-observability.sh
    ```
-
-   The Compose file resolves its mounts as `../observability/`, so move it into
-   a `deploy/` subdirectory alongside the copied tree, or adjust the paths to
-   match wherever you put it. Then:
-
-   ```
-   docker compose -f compose.observability.yml --env-file ~/triangle-deploy/cms.env up -d
-   docker compose -f compose.observability.yml ps
-   ```
-
-   Re-copy `observability/` after any change to those configs lands on main —
-   this copy does not update itself. Note `docker compose up -d` will NOT
-   restart Prometheus for a config-file-only change; use `restart prometheus`.
 
 2. Create the datasource credentials and install the Nginx site:
 
@@ -76,7 +91,10 @@ not a query.
    ```
 
    Both endpoints share one htpasswd file, so the Triangle Grafana uses the same
-   credentials for its Loki and Prometheus datasources.
+   credentials for its Loki and Prometheus datasources. The plaintext is kept at
+   `/etc/triangle-observability/loki-datasource-password` (0600 root) — Nginx
+   stores only a bcrypt hash, so losing that file means resetting the password
+   rather than looking it up.
 
    Note that `htpasswd` is not installed on Delta by default; it ships in
    `apache2-utils` on Debian/Ubuntu and `httpd-tools` on RHEL-family hosts.
@@ -212,6 +230,8 @@ behind Nginx.
 - `nginx/triangle-cms-active-upstreams.conf.example` - generated include seed.
 - `nginx/triangle-loki.conf` - read-only Loki endpoint for the Triangle Grafana.
 - `scripts/deploy.sh` - deploy exact SHA to inactive slot, switch, smoke test.
+- `scripts/deploy-observability.sh` - sync and apply the observability stack;
+  runs as a Deploy Delta step after `deploy.sh`.
 - `scripts/rollback.sh` - explicit rollback to the other slot or named slot.
 
 ## One-Time Server Bootstrap

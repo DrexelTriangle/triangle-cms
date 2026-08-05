@@ -78,3 +78,17 @@ jobs:
           NGINX_ACTIVE_INCLUDE: ${{ vars.DELTA_NGINX_ACTIVE_INCLUDE }}
           PUBLIC_BASE_URL: ${{ vars.DELTA_PUBLIC_BASE_URL }}
         run: deploy/scripts/deploy.sh "${{ steps.sha.outputs.value }}"
+
+      # Runs AFTER the CMS deploy, deliberately. Prometheus joins the CMS
+      # Compose network, which is declared external, so that network has to
+      # exist before this stack will start.
+      #
+      # It is a separate Compose project, so nothing here can recreate or stop
+      # the CMS slots -- a failure below leaves the CMS deployed and serving. It
+      # still fails the job, because an observability stack that quietly stopped
+      # matching the repo is exactly the state that lets a database outage go
+      # unannounced.
+      - name: Deploy observability stack
+        env:
+          OBSERVABILITY_DIR: ${{ vars.DELTA_OBSERVABILITY_DIR }}
+        run: deploy/scripts/deploy-observability.sh

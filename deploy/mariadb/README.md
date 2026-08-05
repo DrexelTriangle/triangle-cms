@@ -498,13 +498,14 @@ rule goes on firing for several minutes after you revert. That is an artifact of
 the test, not the alert: in normal operation the target never changes,
 `probe_success` moves 1→0→1 on one series, and recovery is immediate.
 
-**The observability stack does not live in the runner's checkout.** It runs from
-`/home/tadmin/triangle-observability` on Delta — a hand-copied tree, not a git
-clone — with `--env-file ../observability.env` (not `cms.env`, despite what
-deploy/README.md says elsewhere). Changing any file above means copying it there
-and restarting the affected service; note `docker compose up -d` will NOT
-restart Prometheus for a config-file-only change, so `restart prometheus`
-explicitly.
+**The observability stack deploys automatically**, as a step of the Deploy Delta
+workflow (`deploy/scripts/deploy-observability.sh`), so changing any file above
+means merging to main — not copying anything to Delta by hand. It runs from
+`~triangle-runner/triangle-observability`, synced from the runner's checkout,
+because `actions/checkout` resets the checkout itself on every deploy and would
+yank the bind-mount sources. The script restarts services only when the synced
+config actually changed, which matters because `docker compose up -d` will NOT
+restart a container when only a mounted file's contents differ.
 
 ### Manual failover, without MaxScale
 
