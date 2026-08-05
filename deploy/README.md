@@ -77,16 +77,47 @@ not a query.
    deploy/scripts/deploy-observability.sh
    ```
 
-2. Create the datasource credentials and install the Nginx site:
+2. **The Nginx sites deploy automatically too**, in the same step. They are
+   installed into `/etc/nginx/triangle-observability/`, a directory the runner
+   OWNS, which a root-owned `/etc/nginx/conf.d/triangle-observability.conf`
+   pulls in with a wildcard `include`.
+
+   That indirection is deliberate: it keeps the runner's sudo rights at exactly
+   the two commands the CMS deploy already needs — `nginx -t` and
+   `nginx -s reload` — rather than granting write access to `/etc/nginx` or a
+   general "install this file as root" rule. It is the same shape as
+   `/etc/nginx/triangle-cms/`, which the runner already owns for blue/green.
+
+   The install is transactional, because this Nginx also serves the CMS: the
+   live files are snapshotted, the new ones installed, and `nginx -t` run
+   **before** any reload. A config that fails validation is reverted and the step
+   fails — Nginx keeps serving the old config throughout, and no broken file is
+   left on disk for the *next* reload (which could be the CMS deploy's) to trip
+   over.
+
+   `nginx/triangle-cms.conf` is deliberately NOT deployed this way: it is the
+   live site's own server block, a materially larger blast radius than two
+   loopback-proxying endpoints, and it changes about never.
+
+   The **one-time root bootstrap**, already done on Delta. Note the sites no
+   longer live in `sites-available`/`sites-enabled` — a copy in both places
+   would collide on the same `listen` ports:
+
+   ```
+   sudo install -d -o triangle-runner -g triangle-runner -m 0750 \
+     /etc/nginx/triangle-observability
+   printf 'include /etc/nginx/triangle-observability/*.conf;\n' \
+     | sudo tee /etc/nginx/conf.d/triangle-observability.conf >/dev/null
+   sudo nginx -t && sudo nginx -s reload
+   ```
+
+3. Create the datasource credentials (still a manual, one-time step — it is a
+   secret, not config):
 
    ```
    sudo htpasswd -B -c /etc/nginx/triangle-observability.htpasswd triangle-grafana
    sudo chown root:www-data /etc/nginx/triangle-observability.htpasswd
    sudo chmod 0640 /etc/nginx/triangle-observability.htpasswd
-   sudo cp nginx/triangle-loki.conf nginx/triangle-prometheus.conf \
-     /etc/nginx/sites-available/
-   sudo ln -s ../sites-available/triangle-loki.conf /etc/nginx/sites-enabled/
-   sudo ln -s ../sites-available/triangle-prometheus.conf /etc/nginx/sites-enabled/
    sudo nginx -t && sudo nginx -s reload
    ```
 
@@ -99,7 +130,7 @@ not a query.
    Note that `htpasswd` is not installed on Delta by default; it ships in
    `apache2-utils` on Debian/Ubuntu and `httpd-tools` on RHEL-family hosts.
 
-3. Verify from Delta before handing the details over. Expect `401` then `200`:
+4. Verify from Delta before handing the details over. Expect `401` then `200`:
 
    ```
    curl -s -o /dev/null -w '%{http_code}\n' localhost:3100/loki/api/v1/labels
@@ -121,7 +152,7 @@ not a query.
      'localhost:3100/loki/api/v1/label/container/values'
    ```
 
-4. In the Triangle Grafana, add two datasources, both with Basic auth enabled
+5. In the Triangle Grafana, add two datasources, both with Basic auth enabled
    and the same credentials. No path prefix or extra headers are needed:
 
    | Type | URL |
@@ -139,7 +170,7 @@ not a query.
    The dashboard needs both datasources: most panels query Prometheus and only
    3 query Loki, so a Loki-only setup renders a mostly empty dashboard.
 
-5. Import `observability/grafana/dashboards/gisbxcj.json`.
+6. Import `observability/grafana/dashboards/gisbxcj.json`.
 
 **Delta no longer runs its own Grafana** (removed 2026-08-05). Every dashboard
 lives in the central Triangle Grafana, which reaches this stack through the two
@@ -230,8 +261,8 @@ behind Nginx.
 - `nginx/triangle-cms-active-upstreams.conf.example` - generated include seed.
 - `nginx/triangle-loki.conf` - read-only Loki endpoint for the Triangle Grafana.
 - `scripts/deploy.sh` - deploy exact SHA to inactive slot, switch, smoke test.
-- `scripts/deploy-observability.sh` - sync and apply the observability stack;
-  runs as a Deploy Delta step after `deploy.sh`.
+- `scripts/deploy-observability.sh` - sync and apply the observability stack and
+  its Nginx sites; runs as a Deploy Delta step after `deploy.sh`.
 - `scripts/rollback.sh` - explicit rollback to the other slot or named slot.
 
 ## One-Time Server Bootstrap

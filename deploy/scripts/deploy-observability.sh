@@ -25,6 +25,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_DIR="$(cd "${DEPLOY_DIR}/.." && pwd)"
 
+# nginx_test / nginx_reload / atomic_install_file, shared with the CMS deploy so
+# both paths validate and reload Nginx exactly the same way.
+# shellcheck source=deploy/scripts/common.sh
+source "${SCRIPT_DIR}/common.sh"
+
 # Default under the runner's own home: writable by it, and outside _work/ so
 # actions/checkout never resets it. Overridable for a differently-laid-out host.
 OBSERVABILITY_DIR="${OBSERVABILITY_DIR:-${HOME}/triangle-observability}"
@@ -41,7 +46,11 @@ for f in "${SRC_COMPOSE}"; do
 done
 [[ -d "${SRC_TREE}" ]] || { echo "required directory not found: ${SRC_TREE}" >&2; exit 1; }
 
-compose() {
+# Deliberately NOT named `compose`: common.sh defines a compose() bound to
+# compose.cms.yml and the CMS env file. Shadowing it would work only because of
+# definition order, and anyone moving the `source` line above would silently
+# point every call in this script at the CMS stack.
+obs_compose() {
   # No --env-file: since Grafana was removed the only variable left is
   # DISCORD_WEBHOOK_FILE, which carries a default, so this stack needs no
   # secrets at deploy time. The webhook itself is a root-owned file on the host
@@ -94,7 +103,7 @@ echo "applying compose (project ${COMPOSE_PROJECT})"
 # --remove-orphans is what retires a service deleted from the compose file --
 # Grafana left this way. It is scoped to this project, so it cannot reach the
 # CMS slots.
-compose up -d --remove-orphans
+obs_compose up -d --remove-orphans
 
 if (( changed )); then
   # `up -d` does NOT restart a container when only the CONTENTS of a mounted
@@ -103,7 +112,7 @@ if (( changed )); then
   # explicit restart or it silently does not take effect. This is the single
   # easiest thing to get wrong here.
   echo "config changed; restarting services to pick it up"
-  compose restart
+  obs_compose restart
 else
   echo "no observability config change; skipping restart"
 fi
@@ -116,7 +125,7 @@ wait_for() {
   until curl -fsS -o /dev/null --max-time 5 "${url}"; do
     if (( SECONDS >= deadline )); then
       echo "timed out waiting for ${label} (${url})" >&2
-      compose ps >&2 || true
+      obs_compose ps >&2 || true
       return 1
     fi
     sleep 3
@@ -145,5 +154,114 @@ if ! curl -fsS --max-time 5 http://127.0.0.1:19090/api/v1/alertmanagers \
 fi
 echo "  ok   alert rules loaded and alertmanager attached"
 
-compose ps --format '  {{.Service}}\t{{.Status}}'
+obs_compose ps --format '  {{.Service}}\t{{.Status}}'
+
+# --- Nginx sites -------------------------------------------------------------
+# The read-only Loki and Prometheus endpoints the central Grafana connects to.
+# These are HOST config, not containers, so they deploy differently: the files
+# are installed into a directory the runner OWNS, which a root-owned
+# /etc/nginx/conf.d/triangle-observability.conf pulls in with a wildcard include.
+#
+# That indirection is the whole point. It keeps the runner's sudo rights at
+# exactly the two commands the CMS deploy already needs -- `nginx -t` and
+# `nginx -s reload` -- instead of granting it write access to /etc/nginx or a
+# general "install this file as root" rule. It is the same shape as
+# /etc/nginx/triangle-cms/, which the runner already owns for blue/green.
+NGINX_SITES_DIR="${NGINX_SITES_DIR:-/etc/nginx/triangle-observability}"
+NGINX_SITES=(triangle-loki.conf triangle-prometheus.conf)
+
+deploy_nginx_sites() {
+  local staging prior_dir changed=0 s src dst
+  if [[ ! -d "${NGINX_SITES_DIR}" ]]; then
+    cat >&2 <<EOF
+${NGINX_SITES_DIR} does not exist.
+
+This needs a one-time root bootstrap on the host (see deploy/README.md):
+
+  sudo install -d -o triangle-runner -g triangle-runner -m 0750 ${NGINX_SITES_DIR}
+  printf 'include %s/*.conf;\\n' "${NGINX_SITES_DIR}" \\
+    | sudo tee /etc/nginx/conf.d/triangle-observability.conf >/dev/null
+  sudo nginx -t && sudo nginx -s reload
+
+Failing rather than skipping: an Nginx site that silently stopped tracking the
+repo is how the datasource endpoints drift out from under the Grafana using them.
+EOF
+    return 1
+  fi
+  [[ -w "${NGINX_SITES_DIR}" ]] || {
+    echo "${NGINX_SITES_DIR} is not writable by $(id -un); it must be owned by the runner" >&2
+    return 1
+  }
+
+  for s in "${NGINX_SITES[@]}"; do
+    [[ -f "${DEPLOY_DIR}/nginx/${s}" ]] || {
+      echo "missing source: ${DEPLOY_DIR}/nginx/${s}" >&2; return 1; }
+    cmp -s "${DEPLOY_DIR}/nginx/${s}" "${NGINX_SITES_DIR}/${s}" || changed=1
+  done
+
+  if (( ! changed )); then
+    echo "  no nginx site change; skipping reload"
+    return 0
+  fi
+
+  # Snapshot whatever is live so a config that fails validation can be undone
+  # without a human. Nginx keeps serving the OLD config until a successful
+  # reload, so a failed `nginx -t` here is harmless as long as we put the files
+  # back -- the danger is leaving broken files on disk for the NEXT reload,
+  # which could be the CMS deploy's.
+  prior_dir="$(mktemp -d)"
+  staging="$(mktemp -d "${NGINX_SITES_DIR}/.stage.XXXXXX")"
+  # shellcheck disable=SC2064
+  trap "rm -rf '${prior_dir}' '${staging}'" RETURN
+
+  for s in "${NGINX_SITES[@]}"; do
+    [[ -f "${NGINX_SITES_DIR}/${s}" ]] && cp -p "${NGINX_SITES_DIR}/${s}" "${prior_dir}/${s}"
+  done
+
+  echo "  installing nginx sites: ${NGINX_SITES[*]}"
+  for s in "${NGINX_SITES[@]}"; do
+    src="${DEPLOY_DIR}/nginx/${s}"
+    dst="${NGINX_SITES_DIR}/${s}"
+    cp "${src}" "${staging}/${s}"
+    chmod 0644 "${staging}/${s}"
+    mv -f "${staging}/${s}" "${dst}"
+  done
+
+  restore_prior_sites() {
+    local t
+    for t in "${NGINX_SITES[@]}"; do
+      if [[ -f "${prior_dir}/${t}" ]]; then
+        cp -p "${prior_dir}/${t}" "${NGINX_SITES_DIR}/${t}"
+      else
+        rm -f "${NGINX_SITES_DIR}/${t}"
+      fi
+    done
+  }
+
+  if ! nginx_test; then
+    echo "nginx validation failed with the new observability sites; reverting" >&2
+    restore_prior_sites
+    if ! nginx_test; then
+      echo "CRITICAL: reverted observability sites still fail nginx validation; operator intervention required" >&2
+      return 10
+    fi
+    return 1
+  fi
+
+  if ! nginx_reload; then
+    echo "nginx reload failed; reverting observability sites" >&2
+    restore_prior_sites
+    nginx_test && nginx_reload || {
+      echo "CRITICAL: reload failed and restoration could not be reloaded; operator intervention required" >&2
+      return 11
+    }
+    return 1
+  fi
+
+  echo "  ok   nginx sites installed and reloaded"
+}
+
+echo "deploying nginx sites"
+deploy_nginx_sites
+
 echo "observability deployment complete"
