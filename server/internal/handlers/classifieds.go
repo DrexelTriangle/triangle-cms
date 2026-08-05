@@ -1,16 +1,20 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"server/internal/activity"
 	db "server/internal/database"
 	"server/internal/middleware"
 	"server/internal/models"
+	"server/internal/slack"
 )
 
 const (
@@ -40,9 +44,17 @@ func GetClassifieds(conn *sql.DB) http.Handler {
 	})
 }
 
+// How long the Slack post gets once the reader's response has already been
+// written. It is not on the request's critical path, but it must not outlive
+// the process's patience either.
+const classifiedNotifyTimeout = 10 * time.Second
+
 // PostClassified accepts a submission from the public form. It always lands as
 // pending: nothing a reader posts reaches the site without a moderator, whether
 // that moderator clicks in the CMS or in Slack.
+//
+// notifier may be nil, which means Slack is not configured: the submission is
+// stored and waits in the CMS queue instead.
 //
 // @Summary Submit a classified
 // @Tags classifieds
@@ -53,7 +65,7 @@ func GetClassifieds(conn *sql.DB) http.Handler {
 // @Failure 400 {object} models.ErrorResponse
 // @Failure 500 {object} models.ErrorResponse
 // @Router /v1/classifieds [post]
-func PostClassified(conn *sql.DB) http.Handler {
+func PostClassified(conn *sql.DB, notifier slack.Notifier) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body models.ClassifiedSubmitRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -93,8 +105,39 @@ func PostClassified(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		notifyClassifiedSubmitted(notifier, created)
 		writeJSON(w, http.StatusCreated, created)
 	})
+}
+
+// notifyClassifiedSubmitted posts the submission to Slack in the background.
+//
+// It deliberately cannot fail the request. The row is already in the CMS queue,
+// so a dead webhook costs a notification, not a reader's submission — and the
+// reader must not be shown a 500 for a moderation channel they have no idea
+// exists. The context is detached from the request because the response is
+// written immediately after this returns, which would otherwise cancel the post
+// mid-flight.
+func notifyClassifiedSubmitted(notifier slack.Notifier, c models.Classified) {
+	if notifier == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), classifiedNotifyTimeout)
+		defer cancel()
+
+		if err := notifier.NotifyClassified(ctx, slack.Classified{
+			ID:      c.ID,
+			Name:    c.Name,
+			Email:   c.Email,
+			Label:   c.Label,
+			Message: c.Message,
+			EndDate: c.EndDate,
+		}); err != nil {
+			slog.Error("could not post classified to Slack; it is still in the CMS moderation queue",
+				"classified_id", c.ID, "error", err)
+		}
+	}()
 }
 
 // GetClassifiedsManage is the moderation queue's listing: every status, with
@@ -111,7 +154,7 @@ func PostClassified(conn *sql.DB) http.Handler {
 // @Failure 500 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/classifieds/manage [get]
-func GetClassifiedsManage(conn *sql.DB) http.Handler {
+func GetClassifiedsManage(conn *sql.DB, notifier slack.Notifier) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
 		if status != "" && status != "all" && !db.ValidClassifiedStatuses[status] {
@@ -138,7 +181,7 @@ func GetClassifiedsManage(conn *sql.DB) http.Handler {
 			Classifieds:     items,
 			Pagination:      paginationResponse(page, limit, offset, offset+len(items) < totalCount, totalCount),
 			Counts:          counts,
-			SlackConfigured: SlackInteractivityConfigured(),
+			SlackConfigured: SlackModerationConfigured(notifier),
 		})
 	})
 }

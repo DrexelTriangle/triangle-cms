@@ -19,6 +19,7 @@ import (
 	"server/internal/activity"
 	db "server/internal/database"
 	"server/internal/models"
+	"server/internal/slack"
 )
 
 // Slack's interactivity contract: the request is signed with the app's signing
@@ -103,9 +104,12 @@ func PostSlackClassifiedAction(conn *sql.DB) http.Handler {
 		action := payload.Actions[0]
 		var status string
 		switch strings.ToLower(strings.TrimSpace(action.ActionID)) {
-		case "approved", "approve":
+		// slack.ActionApprove/ActionReject are what the outgoing message sends;
+		// the past-tense spellings are messages posted before this server owned
+		// the notification, still sitting in channel history.
+		case slack.ActionApprove, "approved":
 			status = models.ClassifiedStatusApproved
-		case "rejected", "reject":
+		case slack.ActionReject, "rejected":
 			status = models.ClassifiedStatusRejected
 		default:
 			writeError(w, http.StatusBadRequest, "unknown action")
@@ -228,11 +232,18 @@ func slackVerificationFailure(secret, timestamp, body, signature string, now tim
 }
 
 // SlackInteractivityConfigured reports whether the signing secret is present,
-// i.e. whether the Approve/Reject buttons can work at all. The CMS surfaces
-// this so the moderation queue does not promise Slack approvals that would
-// silently time out in the channel.
+// i.e. whether a button click could be verified if one ever arrived.
 func SlackInteractivityConfigured() bool {
 	return strings.TrimSpace(os.Getenv("SLACK_SIGNING_SECRET")) != ""
+}
+
+// SlackModerationConfigured reports whether the whole moderation loop works:
+// a message goes out (notifier) and the click that comes back can be verified
+// (signing secret). Both halves are required, and the signing secret alone is
+// not enough — with no webhook there is nothing in the channel to click, and
+// the queue would promise moderators an approval path that does not exist.
+func SlackModerationConfigured(notifier slack.Notifier) bool {
+	return notifier != nil && SlackInteractivityConfigured()
 }
 
 // A rejected request is worth knowing about — this is the one public write
