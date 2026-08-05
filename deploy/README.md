@@ -160,15 +160,22 @@ not a query.
    | Loki | `http://<delta-vpn-ip>:3100` |
    | Prometheus | `http://<delta-vpn-ip>:9090` |
 
-   **The datasource UIDs must be exactly `prometheus` and `loki`.** The CMS
-   dashboard hard-binds to them — 16 panel references to `prometheus`, 3 to
-   `loki` — and Grafana assigns a random UID to a datasource created through the
-   UI. Get this wrong and the dashboard imports cleanly and renders empty, with
-   no error beyond "datasource not found" inside each panel. Provision them, or
-   set the UID explicitly in the datasource's settings.
+   **Name them so they end in `-delta`** — in practice `prometheus-delta` and
+   `loki-delta`. The UIDs no longer matter: the CMS dashboard resolves its
+   datasources through two template variables (`prometheus_ds`, `loki_ds`)
+   whose `regex` is `/-delta$/`, so the dropdowns match only these two and bind
+   to them on import. Name one of them something else and it drops out of the
+   dropdown, and the panels go blank again.
 
-   The dashboard needs both datasources: most panels query Prometheus and only
-   3 query Loki, so a Loki-only setup renders a mostly empty dashboard.
+   This replaced hardcoded UIDs, which could not work here: the central Grafana
+   already had its own Prometheus and Loki holding the UIDs `prometheus` and
+   `loki`, and Grafana assigns a random UID to anything created through the UI.
+   Panels kept querying the *central* pair and rendered empty — the display name
+   was never what the dashboard looked at. The failure is silent: the dashboard
+   imports cleanly and every panel just shows no data.
+
+   The dashboard needs both datasources: 16 panel references query Prometheus
+   and only 3 query Loki, so a Loki-only setup renders a mostly empty dashboard.
 
 6. Import `observability/grafana/dashboards/gisbxcj.json`.
 
@@ -211,6 +218,12 @@ nothing about which one serves traffic.
 Dashboards can be edited in the Grafana UI, and those edits live only in that
 Grafana's database until pulled back into the repo. Point the script at whichever
 Grafana holds them — now the central one, not Delta:
+
+**Check the diff before committing a pull.** Grafana serializes the *resolved*
+datasource of each panel, so a round-trip through the UI can write concrete UIDs
+back over the `${prometheus_ds}` / `${loki_ds}` references and re-create exactly
+the breakage the template variables exist to prevent. If `git diff` after a pull
+shows `"uid"` values that are not `${...}`, restore them before committing.
 
 ```
 GF_URL=https://<central-grafana> \

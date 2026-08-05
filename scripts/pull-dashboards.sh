@@ -15,6 +15,13 @@ cd "$(dirname "$0")/.."
 #
 # The default below is the old local address and will simply fail to connect
 # now, which is the intended loud failure rather than a silent no-op.
+#
+# ALWAYS review `git diff` on the pulled JSON. The CMS dashboard resolves its
+# datasources through the "prometheus_ds" and "loki_ds" template variables, and
+# Grafana serializes whatever each panel resolved to -- so a pull can replace
+# every "${prometheus_ds}" with a concrete UID and silently re-introduce the
+# breakage those variables exist to prevent. Concrete UIDs are per-Grafana, so
+# the committed result would render empty anywhere else.
 GF_URL="${GF_URL:-http://127.0.0.1:3000}"
 # GRAFANA_ADMIN_* are what the Compose files use; GF_USER/GF_PASS stay as
 # fallbacks so an existing local .env keeps working.

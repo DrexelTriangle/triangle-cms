@@ -3,7 +3,9 @@
 Headless CMS replacement for The Triangle, with:
 - `server/` Go API
 - `frontend/` React frontend
-- `observability/` Loki + Promtail + Grafana
+- `observability/` Loki + Promtail + Prometheus, plus a Grafana in the local dev
+  stack only — on Delta the dashboards live in the central Triangle Grafana
+  (see `deploy/README.md`)
 - `scripts/` local setup helpers
 
 API docs and data models: https://github.com/DrexelTriangle/triangle-cms/wiki
