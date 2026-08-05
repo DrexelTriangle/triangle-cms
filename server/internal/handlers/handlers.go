@@ -1795,7 +1795,13 @@ func PostArticleComment(conn *sql.DB, spamChecker akismet.Checker) http.HandlerF
 			})
 			if err != nil {
 				status = "pending"
-				slog.Warn("akismet comment check failed; comment requires moderation", "article_slug", slug, "error", err)
+				if akismet.IsConfigError(err) {
+					// Nothing gets filtered until an operator fixes the key or
+					// blog URL, so this is a fault, not a hiccup.
+					slog.Error("akismet is misconfigured; spam filtering is not running", "article_slug", slug, "error", err)
+				} else {
+					slog.Warn("akismet comment check failed; comment requires moderation", "article_slug", slug, "error", err)
+				}
 			} else if isSpam {
 				status = "spam"
 			}

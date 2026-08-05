@@ -2,8 +2,10 @@ package akismet
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +17,36 @@ const (
 	defaultUserAgent = "TriangleCMS/1.0 | Akismet/1.1"
 	defaultTimeout   = 3 * time.Second
 )
+
+// Akismet answers every comment check with HTTP 200 and explains rejections
+// and account problems in these headers instead.
+const (
+	debugHelpHeader = "X-Akismet-Debug-Help"
+	alertCodeHeader = "X-Akismet-Alert-Code"
+	alertMsgHeader  = "X-Akismet-Alert-Msg"
+)
+
+// ConfigError reports a check Akismet refused to answer because of how the
+// integration is configured — an invalid or deactivated key, or a blog URL the
+// key does not cover. Retrying cannot fix it, so callers should treat it as an
+// operator-visible fault rather than a transient failure.
+type ConfigError struct {
+	Body      string
+	DebugHelp string
+}
+
+func (e *ConfigError) Error() string {
+	if e.DebugHelp != "" {
+		return fmt.Sprintf("akismet rejected the request as %q: %s", e.Body, e.DebugHelp)
+	}
+	return fmt.Sprintf("akismet rejected the request as %q; check AKISMET_API_KEY and AKISMET_BLOG_URL", e.Body)
+}
+
+// IsConfigError reports whether err is an Akismet configuration rejection.
+func IsConfigError(err error) bool {
+	var configErr *ConfigError
+	return errors.As(err, &configErr)
+}
 
 type Checker interface {
 	CheckComment(ctx context.Context, comment Comment) (bool, error)
@@ -132,9 +164,19 @@ func (c *Client) CheckComment(ctx context.Context, comment Comment) (bool, error
 		return false, fmt.Errorf("read akismet response: %w", err)
 	}
 	body := strings.TrimSpace(string(bodyBytes))
+	debugHelp := strings.TrimSpace(resp.Header.Get(debugHelpHeader))
 
 	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("akismet returned %s: %s", resp.Status, body)
+		return false, fmt.Errorf("akismet returned %s: %s%s", resp.Status, body, debugHelpSuffix(debugHelp))
+	}
+
+	// Alerts ride along with an otherwise good verdict to flag an account
+	// problem — a plan that does not cover this site, say — so they are worth
+	// surfacing even though the check itself succeeded.
+	if alertCode := strings.TrimSpace(resp.Header.Get(alertCodeHeader)); alertCode != "" {
+		slog.Warn("akismet account alert",
+			"alert_code", alertCode,
+			"alert_message", strings.TrimSpace(resp.Header.Get(alertMsgHeader)))
 	}
 
 	switch body {
@@ -142,9 +184,18 @@ func (c *Client) CheckComment(ctx context.Context, comment Comment) (bool, error
 		return true, nil
 	case "false":
 		return false, nil
+	case "invalid":
+		return false, &ConfigError{Body: body, DebugHelp: debugHelp}
 	default:
-		return false, fmt.Errorf("akismet returned unexpected response %q", body)
+		return false, fmt.Errorf("akismet returned unexpected response %q%s", body, debugHelpSuffix(debugHelp))
 	}
+}
+
+func debugHelpSuffix(debugHelp string) string {
+	if debugHelp == "" {
+		return ""
+	}
+	return " (" + debugHelp + ")"
 }
 
 func valueOrDefault(value, fallback string) string {
