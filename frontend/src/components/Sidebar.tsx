@@ -23,7 +23,8 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
-import logo from "../assets/logo.png"
+import logo from "../assets/logo.svg"
+import icon from "../assets/icon.svg"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useSessionAuth } from "../auth/sessionAuthContext"
@@ -158,7 +159,11 @@ export default function Sidebar() {
           collapsed && "justify-center px-0",
         )}
       >
-        <img src={logo} alt="Delta" className="w-30 h-30 shrink-0 object-contain" />
+        {collapsed ? (
+          <img src={icon} alt="Delta CMS" className="h-10 w-10 shrink-0" />
+        ) : (
+          <img src={logo} alt="Delta CMS" className="h-7 w-auto max-w-full object-contain" />
+        )}
         {/* {!collapsed && (
           <span className="text-lg font-bold text-white tracking-tight truncate">Delta CMS</span>
         )} */}
