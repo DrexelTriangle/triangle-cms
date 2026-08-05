@@ -107,8 +107,9 @@ func TestCheckCommentMapsHam(t *testing.T) {
 
 func TestCheckCommentRejectsUnexpectedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Akismet-Debug-Help", "Something went sideways")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("invalid"))
+		_, _ = w.Write([]byte("nonsense"))
 	}))
 	defer server.Close()
 
@@ -127,6 +128,94 @@ func TestCheckCommentRejectsUnexpectedResponse(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unexpected response") {
 		t.Fatalf("expected unexpected response error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "Something went sideways") {
+		t.Fatalf("expected debug help in error, got %v", err)
+	}
+	if IsConfigError(err) {
+		t.Fatalf("an unreadable response is not a configuration error, got %v", err)
+	}
+}
+
+func TestCheckCommentReportsInvalidKeyAsConfigError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Akismet-Debug-Help", `Empty "api_key" value`)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("invalid"))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		APIKey:   "test-key",
+		BlogURL:  "https://example.org",
+		Endpoint: server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	_, err = client.CheckComment(t.Context(), Comment{UserIP: "203.0.113.10", Content: "hello"})
+	if err == nil {
+		t.Fatal("expected configuration error")
+	}
+	if !IsConfigError(err) {
+		t.Fatalf("expected a configuration error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), `Empty "api_key" value`) {
+		t.Fatalf("expected Akismet debug help in error, got %v", err)
+	}
+}
+
+func TestCheckCommentReturnsVerdictAlongsideAccountAlert(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Akismet-Alert-Code", "301")
+		w.Header().Set("X-Akismet-Alert-Msg", "Upgrade required for a commercial site")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("true"))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		APIKey:   "test-key",
+		BlogURL:  "https://example.org",
+		Endpoint: server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	isSpam, err := client.CheckComment(t.Context(), Comment{UserIP: "203.0.113.10", Content: "hello"})
+	if err != nil {
+		t.Fatalf("an account alert must not fail the check: %v", err)
+	}
+	if !isSpam {
+		t.Fatal("expected spam verdict")
+	}
+}
+
+func TestCheckCommentIncludesDebugHelpOnHTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Akismet-Debug-Help", "Missing required field")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("bad request"))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		APIKey:   "test-key",
+		BlogURL:  "https://example.org",
+		Endpoint: server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	_, err = client.CheckComment(t.Context(), Comment{UserIP: "203.0.113.10", Content: "hello"})
+	if err == nil {
+		t.Fatal("expected HTTP status error")
+	}
+	if !strings.Contains(err.Error(), "Missing required field") {
+		t.Fatalf("expected debug help in error, got %v", err)
 	}
 }
 

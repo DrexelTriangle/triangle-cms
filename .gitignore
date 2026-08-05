@@ -18,3 +18,6 @@ deploy/*.env
 !deploy/*.env.example
 deploy/runner/
 ..env.un~
+
+# Local secret: Discord webhook for failover alerts (see deploy/mariadb/README.md)
+.webhook

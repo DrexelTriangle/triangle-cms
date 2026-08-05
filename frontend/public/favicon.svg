@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="124" height="124" viewBox="0 0 124 124">
+  <style>
+    /* Brand blue is the base color so the mark stays legible even where a
+       renderer ignores the media queries below (notably Safari). No CSS
+       custom properties here — librsvg and some icon pipelines drop them. */
+    .fill   { fill: #77a7d8; }
+    .stroke { fill: none; stroke: #77a7d8; stroke-width: 4; stroke-miterlimit: 10; }
+    @media (prefers-color-scheme: dark) {
+      .fill   { fill: #ffffff; }
+      .stroke { stroke: #ffffff; }
+    }
+    @media (prefers-color-scheme: light) {
+      .fill   { fill: #0f172a; }
+      .stroke { stroke: #0f172a; }
+    }
+  </style>
+  <g transform="translate(-135.95 -82.66)">
+    <path class="fill" d="M192.73,99.37l46.23,90.57h-98.78l52.55-90.57ZM186.8,121.87l-35.81,61.65h67.62l-31.8-61.65Z"/>
+    <line class="stroke" x1="163.08" y1="156.9" x2="255.71" y2="156.9"/>
+  </g>
+</svg>
