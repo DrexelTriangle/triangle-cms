@@ -197,14 +197,18 @@ match the other two hosts, or run steps 1–3 from the Proxmox console.
    Then on DB1, **verify rather than assume**:
 
    ```sql
-   SHOW STATUS LIKE 'Rpl_semi_sync_master_status';      -- must be ON
-   SHOW STATUS LIKE 'Rpl_semi_sync_master_clients';     -- must be 1
-   SHOW STATUS LIKE 'Rpl_semi_sync_master_no_tx';       -- should stop climbing
+   SHOW STATUS LIKE 'Rpl_semi_sync_master_clients';     -- must be 1  <- the real check
+   SHOW STATUS LIKE 'Rpl_semi_sync_master_yes_tx';      -- rises on acknowledged commits
+   SHOW STATUS LIKE 'Rpl_semi_sync_master_no_tx';       -- must NOT keep climbing
+   SHOW STATUS LIKE 'Rpl_semi_sync_master_status';      -- ON, but see below
    ```
 
-   `Rpl_semi_sync_master_status = OFF` with replication otherwise healthy means
-   it silently degraded to async — the zero-loss guarantee is not in force and
-   failover is not yet safe to enable.
+   **`clients` is the signal, not `status`.** With
+   `rpl_semi_sync_master_wait_no_slave=OFF`, `status` stays `ON` even while
+   nothing is acknowledging — verified by stopping DB2 on 2026-08-05: seven
+   commits completed unacknowledged (`no_tx` 0 → 7) with `status` still `ON`
+   and `clients` at 0. So `clients = 1` plus `yes_tx` rising is what shows the
+   guarantee is actually in force; `status = ON` on its own proves nothing.
 
 6. **Fence the write path — at the network, and ONLY at the network.** This is
    what removes the split-brain risk, and it is a prerequisite for step 8, not
@@ -329,7 +333,10 @@ Honest limits, all of which need a third node to close:
   the alternative is DB1 stalling every commit for `rpl_semi_sync_master_timeout`
   whenever DB2 is offline, turning a replica outage into a site outage. So
   DB2-down-then-DB1-dies can still lose writes. **Alert on
-  `Rpl_semi_sync_master_status`** rather than assuming the guarantee holds.
+  `Rpl_semi_sync_master_clients == 0`, NOT on `Rpl_semi_sync_master_status`** —
+  with `wait_no_slave=OFF` the status stays `ON` while commits go
+  unacknowledged, so it is not evidence the guarantee holds. A `slave_down` /
+  `lost_slave` Slack alert (see Alerting) covers the same condition.
 - **MaxScale is a single point of failure** and the sole arbiter. If it dies,
   the CMS is down regardless of how healthy both databases are. Fencing the
   write path to MaxScale deepens this dependency — that is the price of removing
@@ -384,8 +391,45 @@ Two non-divergence failures seen on the first real test, both worth recognising:
   rebuild it and simply leaves it broken.
 
 Finish by switching back with the `switchover` command above so DB1 is primary
-again, and confirm semi-sync re-engages (`Rpl_semi_sync_master_status = ON`,
-`clients = 1`) on whichever node ends up primary.
+again, and confirm semi-sync re-engages (`Rpl_semi_sync_master_clients = 1`)
+on whichever node ends up primary.
+
+## Alerting
+
+`maxscale.cnf` sets `script=` on the monitor, so mariadbmon runs
+[../maxscale/maxscale-alert.sh](../maxscale/maxscale-alert.sh) (installed as
+`/usr/local/bin/maxscale-alert.sh`, 0755) as the `maxscale` user on each event
+in `events=`. It fires within one monitor tick, rather than waiting for a
+scrape, and it does not depend on Delta or the observability stack being up.
+
+It **always** appends to `/var/log/maxscale/failover-events.log` and posts to
+Slack only if `/etc/maxscale.secrets.d/alert.env` (0640 `root:maxscale`)
+supplies a webhook:
+
+```
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+```
+
+With that empty it degrades to log-only, so it is safe to install first. The
+webhook must not go in `maxscale.cnf`, which is world-readable 0644.
+
+**Event names are not intuitive, and getting them wrong fails silently — you
+only notice by the alert that never arrives.** In particular `new_slave`
+(`[Running]→[Slave,Running]`, a standalone node joining) and `slave_up`
+(`[Down]→[Slave,Running]`, a node returning from an outage) are different
+transitions; listing only the former alerts on the way down and stays silent on
+recovery. Confirm what actually fired with:
+
+```sh
+grep "changed state" /var/log/maxscale/maxscale.log
+```
+
+### What it does not cover
+
+The script can only report events MaxScale is alive to observe, so **it cannot
+tell you MaxScale itself has died** — and because the write path is fenced to
+MaxScale, that is a total outage. Closing this needs an external check
+(Delta's Prometheus can reach the host); it is not built yet.
 
 ### Manual failover, without MaxScale
 

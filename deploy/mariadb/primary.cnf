@@ -93,8 +93,16 @@ rpl_semi_sync_master_timeout     = 1000
 # maintenance would add a second of latency to every write. OFF drops straight
 # to async the moment there is no semi-sync replica, and back to semi-sync when
 # DB2 reconnects. The tradeoff is real and must be understood: while DB2 is
-# down, the zero-loss guarantee is NOT in force. Alert on
-# Rpl_semi_sync_master_status = OFF rather than assuming it holds.
+# down, the zero-loss guarantee is NOT in force.
+#
+# MONITOR THIS WITH Rpl_semi_sync_master_clients, NOT ..._status. Verified by
+# stopping DB2 on 2026-08-05: status stayed **ON** through seven unacknowledged
+# commits while clients sat at 0 and no_tx climbed 0 -> 7. With
+# wait_no_slave=OFF the master never enters the "off" state it would otherwise
+# fall into, so status is not evidence the guarantee is holding.
+#   Rpl_semi_sync_master_clients  == 0  -> nothing is acknowledging: ALERT
+#   Rpl_semi_sync_master_no_tx    rising -> commits completing unacknowledged
+#   Rpl_semi_sync_master_yes_tx   rising -> the guarantee is actually in force
 rpl_semi_sync_master_wait_no_slave = OFF
 # Slave side, inert while this node is the primary. Present so that after a
 # failover and auto_rejoin — when this node comes back as a REPLICA of DB2 — it

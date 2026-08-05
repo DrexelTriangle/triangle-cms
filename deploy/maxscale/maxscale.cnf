@@ -57,6 +57,28 @@ replication_user=$REPL_USER
 replication_password=$REPL_PASSWORD
 monitor_interval=2000ms
 
+# --- Alerting ----------------------------------------------------------------
+# Fired by the monitor on each event below, as the `maxscale` user. See
+# deploy/maxscale/maxscale-alert.sh — it always writes
+# /var/log/maxscale/failover-events.log and posts to Slack only if
+# /etc/maxscale.secrets.d/alert.env supplies a webhook, so it is safe to install
+# before that exists. The script must stay well inside script_timeout or it
+# blocks the monitor; the curl inside it is capped at 10s.
+#
+# NOTE this can only report what MaxScale is alive to observe — it cannot tell
+# you MaxScale itself has died. That needs an external check.
+script=/usr/local/bin/maxscale-alert.sh $EVENT $INITIATOR $NODELIST $PARENT
+script_timeout=90000ms
+# Explicit rather than the default "all": these are the transitions worth waking
+# someone for. slave_down/lost_slave are included deliberately — on a two-node
+# pair, losing the replica silently degrades semi-sync to async, so it is the
+# moment the zero-data-loss guarantee stops holding.
+# `slave_up` and `new_slave` are BOTH needed and are not the same transition:
+# new_slave is [Running]->[Slave,Running] (a standalone node joining), slave_up
+# is [Down]->[Slave,Running] (a node coming back from an outage). Listing only
+# new_slave means an outage alerts on the way down and stays silent on recovery.
+events=master_down,master_up,lost_master,new_master,slave_down,slave_up,lost_slave,new_slave,server_down,server_up
+
 # --- Automated failover ------------------------------------------------------
 # ON. This was previously off because promoting a replica on a 2-node ASYNC pair
 # loses the un-replicated tail of the write stream and can split-brain. Both of
