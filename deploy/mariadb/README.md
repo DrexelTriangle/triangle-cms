@@ -336,7 +336,7 @@ Honest limits, all of which need a third node to close:
   `Rpl_semi_sync_master_clients == 0`, NOT on `Rpl_semi_sync_master_status`** —
   with `wait_no_slave=OFF` the status stays `ON` while commits go
   unacknowledged, so it is not evidence the guarantee holds. A `slave_down` /
-  `lost_slave` Slack alert (see Alerting) covers the same condition.
+  `lost_slave` Discord alert (see Alerting) covers the same condition.
 - **MaxScale is a single point of failure** and the sole arbiter. If it dies,
   the CMS is down regardless of how healthy both databases are. Fencing the
   write path to MaxScale deepens this dependency — that is the price of removing
@@ -403,11 +403,11 @@ in `events=`. It fires within one monitor tick, rather than waiting for a
 scrape, and it does not depend on Delta or the observability stack being up.
 
 It **always** appends to `/var/log/maxscale/failover-events.log` and posts to
-Slack only if `/etc/maxscale.secrets.d/alert.env` (0640 `root:maxscale`)
+Discord only if `/etc/maxscale.secrets.d/alert.env` (0640 `root:maxscale`)
 supplies a webhook:
 
 ```
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 
 With that empty it degrades to log-only, so it is safe to install first. The
@@ -435,7 +435,7 @@ database tier, by the observability stack on Delta:
 blackbox_exporter --TCP connect--> 10.248.40.183:4006
         ^                                  |
         | scrape                           v
-   Prometheus  ---->  Grafana alert  ---->  Slack
+   Prometheus  ---->  Grafana alert  ---->  Discord
                       probe_success == 0 for 1m
 ```
 
@@ -444,7 +444,7 @@ blackbox_exporter --TCP connect--> 10.248.40.183:4006
 - [../../observability/prometheus/prometheus.delta.yml](../../observability/prometheus/prometheus.delta.yml)
   — job `blackbox-tcp`, with the usual exporter relabel indirection.
 - [../../observability/grafana/provisioning/alerting/maxscale.yml](../../observability/grafana/provisioning/alerting/maxscale.yml)
-  — rule `maxscale-unreachable` plus the `slack-triangle` contact point.
+  — rule `maxscale-unreachable` plus the `discord-triangle` contact point.
 
 **Why `:4006` and not the admin API:** 4006 is the port the CMS actually uses,
 so it tests the real dependency; the admin API (8989) would have to be opened to
@@ -460,7 +460,7 @@ target would alert forever.
 is watching the database tier, which is worth waking someone for even though
 the cause is Prometheus rather than MaxScale.
 
-> **The Slack webhook is supplied by `SLACK_WEBHOOK_URL` in
+> **The Discord webhook is supplied by `DISCORD_WEBHOOK_URL` in
 > `observability.env`**, and defaults to a non-functional placeholder so the
 > stack still starts without it (Grafana's provisioning rejects an empty URL).
 > Until it is set, the alert fires correctly in Grafana and delivery fails in

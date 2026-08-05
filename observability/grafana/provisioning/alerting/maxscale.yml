@@ -5,23 +5,27 @@
 # databases, so that is a total outage — and the script that would report it
 # runs on the machine that stopped. See deploy/mariadb/README.md.
 #
-# $SLACK_WEBHOOK_URL is interpolated by Grafana from the container environment,
-# supplied by compose.observability.yml. Provisioning rejects an empty URL, so
-# the compose file defaults it to a placeholder; delivery then fails loudly in
-# Grafana's log rather than silently doing nothing.
+# $DISCORD_WEBHOOK_URL is interpolated by Grafana from the container
+# environment, supplied by compose.observability.yml. Provisioning rejects an
+# empty URL, so the compose file defaults it to a placeholder; delivery then
+# fails loudly in Grafana's log rather than silently doing nothing.
 apiVersion: 1
 
 contactPoints:
   - orgId: 1
-    name: slack-triangle
+    name: discord-triangle
     receivers:
-      - uid: slack-triangle-receiver
-        type: slack
+      - uid: discord-triangle-receiver
+        # Grafana's native Discord integration, not the `slack` type pointed at
+        # a Discord URL. Discord does accept Slack-shaped payloads on a /slack
+        # suffix, but it discards formatting it does not understand, so the
+        # native type renders correctly and fails honestly.
+        type: discord
         settings:
-          url: $SLACK_WEBHOOK_URL
-          title: '{{ template "slack.default.title" . }}'
-          text: |-
-            {{ range .Alerts }}*{{ .Status | toUpper }}* {{ .Labels.alertname }}
+          url: $DISCORD_WEBHOOK_URL
+          # Discord markdown: **bold**. Single asterisks are italics.
+          message: |-
+            {{ range .Alerts }}**{{ .Status | toUpper }}** — {{ .Labels.alertname }}
             {{ .Annotations.summary }}
             {{ .Annotations.description }}
             {{ end }}
@@ -29,9 +33,17 @@ contactPoints:
         # is information someone is actively waiting for.
         disableResolveMessage: false
 
+# Removing a contact point from this file does NOT delete it from Grafana —
+# provisioning only adds and updates. This alert was briefly configured for
+# Slack before the webhook turned out to be a Discord one, and the orphaned
+# receiver would otherwise sit there forever looking like a live destination.
+deleteContactPoints:
+  - orgId: 1
+    uid: slack-triangle-receiver
+
 policies:
   - orgId: 1
-    receiver: slack-triangle
+    receiver: discord-triangle
     group_by: [alertname]
     # Short waits: this is a total-outage alert, not a capacity warning.
     group_wait: 10s
@@ -95,7 +107,7 @@ groups:
             1 minute. The CMS reaches the databases ONLY through MaxScale (3306
             on DB1/DB2 is firewalled to the MaxScale host and the DB peer), so
             this is a full database outage, not a degraded read path.
-            MaxScale's own Slack alerts cannot fire for this — the process that
+            MaxScale's own Discord alerts cannot fire for this — the process that
             sends them is the one that is down.
             Check: systemctl status maxscale on 10.248.40.183, then
             maxctrl list servers. If MaxScale is healthy and this still fires,

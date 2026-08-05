@@ -60,7 +60,7 @@ monitor_interval=2000ms
 # --- Alerting ----------------------------------------------------------------
 # Fired by the monitor on each event below, as the `maxscale` user. See
 # deploy/maxscale/maxscale-alert.sh — it always writes
-# /var/log/maxscale/failover-events.log and posts to Slack only if
+# /var/log/maxscale/failover-events.log and posts to Discord only if
 # /etc/maxscale.secrets.d/alert.env supplies a webhook, so it is safe to install
 # before that exists. The script must stay well inside script_timeout or it
 # blocks the monitor; the curl inside it is capped at 10s.

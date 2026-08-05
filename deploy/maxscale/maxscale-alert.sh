@@ -8,17 +8,23 @@
 # here MUST have its own timeout.
 #
 # Design notes:
-#   - It ALWAYS writes the local log first and posts to Slack second. A failover
-#     that happened is a fact worth keeping even if Slack is unreachable, and
+#   - It ALWAYS writes the local log first and posts to Discord second. A failover
+#     that happened is a fact worth keeping even if Discord is unreachable, and
 #     the log is what you correlate against maxscale.log afterwards.
 #   - It exits 0 unconditionally. A non-zero exit here is noise in maxscale.log
 #     and there is nothing MaxScale can usefully do about a failed notification.
-#   - Until SLACK_WEBHOOK_URL is configured it degrades to log-only rather than
+#   - Until DISCORD_WEBHOOK_URL is configured it degrades to log-only rather than
 #     failing, so it is safe to install before the webhook exists.
 #
 # The webhook lives in /etc/maxscale.secrets.d/alert.env (0640 root:maxscale),
 # NOT here and NOT in maxscale.cnf, which is world-readable 0644:
-#   SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+#   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+#
+# Discord's NATIVE payload is used ({"content": ...}), not Slack's
+# ({"text": ...}). Discord will accept Slack-shaped payloads if you append
+# /slack to the webhook URL, but that path silently drops formatting it does not
+# understand, so the native field is the honest choice. Note the markup differs
+# from Slack: bold is **text**, not *text*.
 set -u
 
 EVENT="${1:-unknown}"
@@ -63,22 +69,23 @@ case "$EVENT" in
     NOTE="" ;;
 esac
 
-# --- Post to Slack, if configured --------------------------------------------
+# --- Post to Discord, if configured ------------------------------------------
 [ -r /etc/maxscale.secrets.d/alert.env ] && . /etc/maxscale.secrets.d/alert.env
-[ -n "${SLACK_WEBHOOK_URL:-}" ] || exit 0
+[ -n "${DISCORD_WEBHOOK_URL:-}" ] || exit 0
 
 # Build the message with RAW values, then escape exactly once when it becomes
 # JSON. Escaping the fields individually and then escaping the whole string
 # again would double every backslash.
-TEXT="${ICON} *MaxScale ${SEV}* — \`${EVENT}\`
-*initiator:* ${INITIATOR}
-*nodes:* ${NODELIST:-n/a}
-*parent:* ${PARENT:-n/a}
-*time:* ${TS}
+# Discord markdown: **bold**, `code`. Single asterisks would render as italics.
+TEXT="${ICON} **MaxScale ${SEV}** — \`${EVENT}\`
+**initiator:** ${INITIATOR}
+**nodes:** ${NODELIST:-n/a}
+**parent:** ${PARENT:-n/a}
+**time:** ${TS}
 ${NOTE}"
 
 # JSON string escaping: backslash and quote, then fold the real newlines into
-# \n. Literal newlines inside a JSON string are invalid and Slack rejects the
+# \n. Literal newlines inside a JSON string are invalid and Discord rejects the
 # payload outright, so the multi-line message above must be collapsed here.
 # The ':a;N;$!ba' idiom slurps the whole input before substituting.
 json_esc() {
@@ -87,13 +94,16 @@ json_esc() {
     | sed ':a;N;$!ba;s/\n/\\n/g'
 }
 
-# --max-time well under script_timeout so a slow Slack cannot stall the monitor.
-# Output is discarded: an error response body can echo the URL back.
-curl -sS -X POST \
+# --max-time well under script_timeout so a slow Discord cannot stall the
+# monitor. Output is discarded: an error response body can echo the URL back.
+# --fail makes curl return non-zero on a 4xx/5xx, which it does NOT do by
+# default — without it a rejected payload or a revoked webhook looks like
+# success and the failure is never logged.
+curl -sS --fail -X POST \
   --max-time 10 \
   -H 'Content-Type: application/json' \
-  --data "{\"text\":\"$(json_esc "$TEXT")\"}" \
-  "$SLACK_WEBHOOK_URL" >/dev/null 2>&1 \
-  || printf '%s event=%s slack_post_failed\n' "$TS" "$EVENT" >> "$LOG" 2>/dev/null
+  --data "{\"content\":\"$(json_esc "$TEXT")\"}" \
+  "$DISCORD_WEBHOOK_URL" >/dev/null 2>&1 \
+  || printf '%s event=%s discord_post_failed\n' "$TS" "$EVENT" >> "$LOG" 2>/dev/null
 
 exit 0
