@@ -1,114 +1,49 @@
-# Grafana unified-alerting provisioning: the database tier's outside-in watchdog.
+# The MaxScale watchdog MOVED OUT of Grafana on 2026-08-05.
 #
-# This exists to cover the one gap MaxScale's own alert script cannot: MaxScale
-# being dead. The write path is fenced so MaxScale is the only route to the
-# databases, so that is a total outage — and the script that would report it
-# runs on the machine that stopped. See deploy/mariadb/README.md.
+# It now lives in Prometheus and Alertmanager:
+#   observability/prometheus/rules/database.yml
+#   observability/alertmanager/alertmanager.yml
 #
-# $DISCORD_WEBHOOK_URL is interpolated by Grafana from the container
-# environment, supplied by compose.observability.yml. Provisioning rejects an
-# empty URL, so the compose file defaults it to a placeholder; delivery then
-# fails loudly in Grafana's log rather than silently doing nothing.
+# Why: Delta's Prometheus is a DATASOURCE for the Triangle Grafana, not part of
+# it. A Grafana-owned alert rule would have disappeared the moment the local
+# Grafana was retired — while blackbox kept probing, Prometheus kept scraping,
+# and every dashboard kept looking healthy. The only symptom would have been an
+# alert that never arrived. The rule now sits next to the data it reads, so it
+# does not care which Grafana is in front.
+#
+# THIS FILE MUST STAY. Grafana's file provisioning only ever adds and updates —
+# deleting a definition from disk leaves the object live in the database, so
+# these directives are the only supported way to remove what earlier versions of
+# this file created. They are idempotent, so re-running them costs nothing.
+#
+# ORDER MATTERS, and getting it wrong CRASH-LOOPS GRAFANA. A contact point that
+# a notification policy still references cannot be deleted:
+#
+#   ProvisioningServiceImpl run error: contact points:
+#   [alerting.notifications.contact-points.referenced]
+#
+# and Grafana exits rather than starting without its provisioning applied.
+# Removing the `policies:` block from this file does NOT drop the policy — same
+# add-and-update-only rule — so the reference survives and blocks the delete.
+# `resetPolicies` restores the default routing tree, which frees the reference.
+# It is applied in a separate pass from the deletes, hence the two-step comment
+# below.
 apiVersion: 1
 
-contactPoints:
-  - orgId: 1
-    name: discord-triangle
-    receivers:
-      - uid: discord-triangle-receiver
-        # Grafana's native Discord integration, not the `slack` type pointed at
-        # a Discord URL. Discord does accept Slack-shaped payloads on a /slack
-        # suffix, but it discards formatting it does not understand, so the
-        # native type renders correctly and fails honestly.
-        type: discord
-        settings:
-          url: $DISCORD_WEBHOOK_URL
-          # Discord markdown: **bold**. Single asterisks are italics.
-          message: |-
-            {{ range .Alerts }}**{{ .Status | toUpper }}** — {{ .Labels.alertname }}
-            {{ .Annotations.summary }}
-            {{ .Annotations.description }}
-            {{ end }}
-        # Recovery matters as much as onset here: a database outage that ended
-        # is information someone is actively waiting for.
-        disableResolveMessage: false
+# Step 1 — hand routing back to Grafana's default policy, so nothing references
+# the contact points that step 2 removes.
+resetPolicies:
+  - 1
 
-# Removing a contact point from this file does NOT delete it from Grafana —
-# provisioning only adds and updates. This alert was briefly configured for
-# Slack before the webhook turned out to be a Discord one, and the orphaned
-# receiver would otherwise sit there forever looking like a live destination.
+deleteRules:
+  - orgId: 1
+    uid: maxscale-unreachable
+
+# Step 2 — safe only once the policy above no longer points at them. If Grafana
+# ever crash-loops on the `referenced` error again, comment this block out,
+# start Grafana to let resetPolicies apply, then restore it.
 deleteContactPoints:
   - orgId: 1
     uid: slack-triangle-receiver
-
-policies:
   - orgId: 1
-    receiver: discord-triangle
-    group_by: [alertname]
-    # Short waits: this is a total-outage alert, not a capacity warning.
-    group_wait: 10s
-    group_interval: 1m
-    # Re-notify hourly while still firing, so an unresolved outage does not fall
-    # off the radar after a single message.
-    repeat_interval: 1h
-
-groups:
-  - orgId: 1
-    name: database-tier
-    folder: Alerts
-    # Evaluate every 30s. Prometheus scrapes every 15s, so this cannot miss a
-    # sustained failure while staying cheap.
-    interval: 30s
-    rules:
-      - uid: maxscale-unreachable
-        title: MaxScale unreachable
-        # Deliberately NOT "no data = alerting" for the probe itself: see
-        # noDataState below.
-        condition: threshold
-        for: 1m
-        data:
-          - refId: probe
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: prometheus
-            model:
-              refId: probe
-              editorMode: code
-              expr: probe_success{service="maxscale"}
-              instant: true
-              range: false
-          - refId: threshold
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: __expr__
-            model:
-              refId: threshold
-              type: threshold
-              expression: probe
-              conditions:
-                - evaluator:
-                    type: lt
-                    params: [1]
-        # If the probe series vanishes entirely, something is wrong with
-        # Prometheus or blackbox rather than with MaxScale — but the practical
-        # consequence is the same: nobody is watching the database tier. Alert
-        # on it rather than failing open.
-        noDataState: Alerting
-        execErrState: Alerting
-        labels:
-          severity: critical
-          component: database
-        annotations:
-          summary: "MaxScale is not accepting connections on 10.248.40.183:4006"
-          description: >-
-            A TCP probe from Delta to MaxScale's client listener has failed for
-            1 minute. The CMS reaches the databases ONLY through MaxScale (3306
-            on DB1/DB2 is firewalled to the MaxScale host and the DB peer), so
-            this is a full database outage, not a degraded read path.
-            MaxScale's own Discord alerts cannot fire for this — the process that
-            sends them is the one that is down.
-            Check: systemctl status maxscale on 10.248.40.183, then
-            maxctrl list servers. If MaxScale is healthy and this still fires,
-            suspect the network path from Delta rather than the database tier.
+    uid: discord-triangle-receiver

@@ -20,6 +20,18 @@
 global:
   scrape_interval: 15s
 
+# Alerting lives here rather than in Grafana so it survives the switch to the
+# Triangle Grafana, for which this Prometheus is only a datasource. A
+# Grafana-owned rule would vanish with the local instance while the metric kept
+# being scraped — dashboards fine, alerts silently gone.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   # The job name must stay "cms": the provisioned dashboard filters on
   # job="cms" in queries like up{job="cms"} and go_goroutines{job="cms"}.
