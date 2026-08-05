@@ -15,7 +15,7 @@ Delta runs:
 - Green frontend container on `127.0.0.1:8092`.
 - Green backend container on `127.0.0.1:8082`.
 
-Delta does not run MariaDB, MaxScale, Grafana, Loki, or Promtail in the CMS
+Delta does not run MariaDB, MaxScale, Loki, or Promtail in the CMS
 deployment Compose project. The backend connects to the external database/proxy
 endpoint supplied by `DB_HOST` and `DB_PORT` in the host-only `cms.env`.
 
@@ -58,9 +58,9 @@ not a query.
    docker compose -f compose.observability.yml ps
    ```
 
-   `cms.env` must define `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD` or
-   the stack refuses to start. Re-copy `observability/` after any change to
-   those configs lands on main — this copy does not update itself.
+   Re-copy `observability/` after any change to those configs lands on main —
+   this copy does not update itself. Note `docker compose up -d` will NOT
+   restart Prometheus for a config-file-only change; use `restart prometheus`.
 
 2. Create the datasource credentials and install the Nginx site:
 
@@ -111,12 +111,27 @@ not a query.
    | Loki | `http://<delta-vpn-ip>:3100` |
    | Prometheus | `http://<delta-vpn-ip>:9090` |
 
-   The CMS dashboard needs both: 14 of its 18 panels query Prometheus and only
+   **The datasource UIDs must be exactly `prometheus` and `loki`.** The CMS
+   dashboard hard-binds to them — 16 panel references to `prometheus`, 3 to
+   `loki` — and Grafana assigns a random UID to a datasource created through the
+   UI. Get this wrong and the dashboard imports cleanly and renders empty, with
+   no error beyond "datasource not found" inside each panel. Provision them, or
+   set the UID explicitly in the datasource's settings.
+
+   The dashboard needs both datasources: most panels query Prometheus and only
    3 query Loki, so a Loki-only setup renders a mostly empty dashboard.
 
-Delta's own Grafana (`127.0.0.1:3000`, admin credentials from `cms.env`) stays
-as a local fallback and is reachable only over an SSH tunnel. Basic auth here
-travels in cleartext; fold this endpoint into TLS when TLS lands on Delta.
+5. Import `observability/grafana/dashboards/gisbxcj.json`.
+
+**Delta no longer runs its own Grafana** (removed 2026-08-05). Every dashboard
+lives in the central Triangle Grafana, which reaches this stack through the two
+Nginx endpoints above, so a second local Grafana only duplicated it. Nothing was
+lost with it — the one dashboard it held was byte-identical to the repo copy.
+
+Removing it costs no alerting: the database-tier alerts live in Prometheus and
+Alertmanager, not Grafana, precisely so they survive this (see
+`deploy/mariadb/README.md`). Basic auth on these endpoints travels in cleartext;
+fold them into TLS when TLS lands on Delta.
 
 ### Metrics and the CMS dashboard
 
@@ -129,9 +144,11 @@ Compose refuses to start this one with a missing-network error.
 
 Scraping via the host gateway does not work, and it is worth knowing why before
 "simplifying" it back: the slots publish to `127.0.0.1:8081/8082`, loopback
-only, so a container dialling `172.17.0.1` gets connection refused. The "CMS Dashboard" is
-provisioned from `observability/grafana/provisioning/dashboards/` and appears in
-any Grafana that mounts that directory -- no manual import.
+only, so a container dialling `172.17.0.1` gets connection refused.
+
+The "CMS Dashboard" JSON lives at `observability/grafana/dashboards/gisbxcj.json`
+and is imported into the central Grafana by hand — there is no local Grafana to
+provision it into any more.
 
 `/metrics` is unauthenticated. That is safe only because Nginx proxies just
 `/v1` and `/swagger`, so nothing routes it in from outside and Prometheus
@@ -142,12 +159,13 @@ it behind auth first: it exposes route names, traffic volumes, and error rates.
 `slot="blue"` / `slot="green"`. The idle slot being up is normal and says
 nothing about which one serves traffic.
 
-Dashboards are provisioned but `allowUiUpdates` is on, so they can be edited in
-the UI. Those edits live only in Grafana's database until pulled back into the
-repo:
+Dashboards can be edited in the Grafana UI, and those edits live only in that
+Grafana's database until pulled back into the repo. Point the script at whichever
+Grafana holds them — now the central one, not Delta:
 
 ```
-GRAFANA_ADMIN_USER=... GRAFANA_ADMIN_PASSWORD=... scripts/pull-dashboards.sh
+GF_URL=https://<central-grafana> \
+  GRAFANA_ADMIN_USER=... GRAFANA_ADMIN_PASSWORD=... scripts/pull-dashboards.sh
 ```
 
 ### Reading blue/green logs in Grafana

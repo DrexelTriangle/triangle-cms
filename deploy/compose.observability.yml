@@ -1,4 +1,5 @@
-# Observability stack (Loki + Promtail + Grafana + Prometheus), deployed and
+# Observability stack (Loki + Promtail + Prometheus + Alertmanager + blackbox),
+# deployed and
 # upgraded independently of the CMS. This is intentionally a SEPARATE Compose
 # project from compose.cms.yml: a CMS deploy must never `docker compose down`
 # this stack, and an observability change must never touch the CMS slots or
@@ -11,7 +12,17 @@
 # Usage (from this directory):
 #   docker compose -f compose.observability.yml --env-file <env> up -d
 #
-# Grafana admin credentials come from that env file (host-only, not committed).
+# There is NO Grafana here. It was removed 2026-08-05: every dashboard now lives
+# in the central Triangle Grafana, which consumes this stack's Prometheus and
+# Loki as datasources over the Nginx endpoints in nginx/triangle-{prometheus,
+# loki}.conf. Running a second Grafana on Delta only duplicated that, and the
+# alerting it used to own now lives in Prometheus + Alertmanager, which is why
+# removing it costs no alerting -- see deploy/mariadb/README.md.
+#
+# The dashboard JSON is still kept in observability/grafana/dashboards/ as the
+# source of truth to import into the central Grafana. Its panels hard-bind to
+# datasource UIDs "prometheus" and "loki", so those UIDs must be reproduced
+# there exactly or the panels come up empty.
 
 name: triangle-observability
 
@@ -64,27 +75,6 @@ services:
       # way -- so this container is effectively root on the host, same as any
       # socket-mounted agent.
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - observability_net
-
-  grafana:
-    image: grafana/grafana:12.2.0
-    restart: unless-stopped
-    depends_on:
-      loki:
-        condition: service_healthy
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
-    ports:
-      - "127.0.0.1:3000:3000"
-    volumes:
-      - grafana_data:/var/lib/grafana
-      # Whole directories rather than the single loki.yml file, so adding a
-      # datasource or dashboard is a file drop rather than a Compose edit.
-      - ../observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
-      - ../observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
-      - ../observability/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro,z
     networks:
       - observability_net
 
@@ -180,7 +170,6 @@ volumes:
   alertmanager_data:
   loki_data:
   promtail_positions:
-  grafana_data:
   prometheus_data:
 
 networks:
