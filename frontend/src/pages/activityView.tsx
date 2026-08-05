@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Search, FileText, Tag, Settings, UserPlus, Users, RefreshCcw, Newspaper, ListTodo, Image, Upload, Trash2, MessageSquare } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 
@@ -69,6 +69,8 @@ const AVATAR_COLORS = [
   "bg-rose-500", "bg-teal-500", "bg-indigo-500", "bg-amber-500",
 ]
 
+const TOP_CONTRIBUTOR_LIMIT = 5
+
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
 }
@@ -101,7 +103,14 @@ export default function ActivityView() {
       .finally(() => setIsLoading(false))
   }, [apiFetch])
 
+  // First-appearance order. This is what pins a person to an avatar color, so
+  // it deliberately stays unsorted — reordering it would recolor the feed.
   const users = useMemo(() => [...new Set(events.map((event) => event.user || "System"))], [events])
+
+  const avatarColor = useCallback(
+    (user: string) => AVATAR_COLORS[users.indexOf(user) % AVATAR_COLORS.length],
+    [users],
+  )
 
   const filtered = useMemo(() => events.filter((event) => {
     const meta = actionMeta(event.action)
@@ -124,6 +133,20 @@ export default function ActivityView() {
     return [...counts.entries()]
       .map(([key, count]) => ({ key, meta: actionMeta(key), count }))
       .sort((a, b) => b.count - a.count || a.meta.label.localeCompare(b.meta.label))
+  }, [events])
+
+  // Busiest first and capped, so the card ranks people instead of just
+  // mirroring the order names happened to show up in the feed.
+  const topContributors = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const event of events) {
+      const user = event.user || "System"
+      counts.set(user, (counts.get(user) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .map(([user, count]) => ({ user, count }))
+      .sort((a, b) => b.count - a.count || a.user.localeCompare(b.user))
+      .slice(0, TOP_CONTRIBUTOR_LIMIT)
   }, [events])
 
   return (
@@ -164,10 +187,9 @@ export default function ActivityView() {
                 const meta = actionMeta(event.action)
                 const Icon = meta.icon
                 const user = event.user || "System"
-                const userIdx = users.indexOf(user)
                 return (
                   <div key={event.id} className="flex gap-4 rounded-xl border border-border bg-card px-4 py-3 hover:bg-muted/20 transition-colors">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${AVATAR_COLORS[userIdx % AVATAR_COLORS.length]}`}>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${avatarColor(user)}`}>
                       <span className="text-white text-xs font-bold">{initials(user)}</span>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -192,18 +214,19 @@ export default function ActivityView() {
           <div className="rounded-xl border border-border bg-card p-4">
             <h3 className="text-sm font-semibold text-foreground mb-3">Top Contributors</h3>
             <div className="flex flex-col gap-2">
-              {users.map((user, i) => {
-                const count = events.filter((event) => (event.user || "System") === user).length
-                return (
+              {topContributors.length === 0 ? (
+                <span className="text-xs text-muted-foreground">No contributors yet.</span>
+              ) : (
+                topContributors.map(({ user, count }) => (
                   <div key={user} className="flex items-center gap-2">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${AVATAR_COLORS[i % AVATAR_COLORS.length]}`}>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${avatarColor(user)}`}>
                       <span className="text-white text-[10px] font-bold">{initials(user)}</span>
                     </div>
                     <span className="text-sm text-foreground flex-1 truncate">{user.split(" ")[0]}</span>
                     <span className="text-xs font-semibold text-muted-foreground">{count}</span>
                   </div>
-                )
-              })}
+                ))
+              )}
             </div>
           </div>
 
