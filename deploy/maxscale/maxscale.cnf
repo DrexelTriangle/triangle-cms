@@ -56,12 +56,17 @@ monitor_interval=2000ms
 #                 commit until DB2 holds the event durably, so a promotion
 #                 cannot discard an acknowledged write.
 #   Split-brain -> a 2-node cluster has no quorum and therefore cannot VOTE on
-#                 who is alive. Instead the write path is fenced: MaxScale is
-#                 the ONLY route to the databases (Delta's direct
-#                 triangle_user@10.248.40.168 grant is dropped, 3306 is
-#                 firewalled to this host and the DB peer). So "MaxScale cannot
-#                 see DB1" also means "the CMS cannot see DB1", and promoting
-#                 DB2 cannot produce two servers taking application writes.
+#                 who is alive. Instead the write path is fenced AT THE NETWORK:
+#                 3306 on both DB hosts is firewalled to this host and the DB
+#                 peer only, so MaxScale is the ONLY route to the databases.
+#                 "MaxScale cannot see DB1" therefore also means "the CMS cannot
+#                 see DB1", and promoting DB2 cannot produce two servers taking
+#                 application writes.
+#                 Do NOT try to fence this by dropping triangle_user@<delta>:
+#                 MaxScale authenticates a client against the backend user table
+#                 using the CLIENT's own source address, so that account is what
+#                 lets Delta log in THROUGH MaxScale. Dropping it does not close
+#                 a bypass, it just breaks the site. See deploy/mariadb/README.md.
 #   Divergence  -> gtid_strict_mode=ON on both nodes, so a rejoining old primary
 #                 that diverged is REFUSED by auto_rejoin instead of silently
 #                 corrupting the dataset.

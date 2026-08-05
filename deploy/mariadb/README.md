@@ -91,24 +91,29 @@ never left the boxes.
 
 | Account | Grants | Why |
 | --- | --- | --- |
-| `triangle_user@10.248.40.183` | `ALL PRIVILEGES ON triangle.*` | the app, via MaxScale |
+| `triangle_user@10.248.40.168` | `ALL PRIVILEGES ON triangle.*` | **client-side auth**: lets Delta log in *through* MaxScale |
+| `triangle_user@10.248.40.183` | `ALL PRIVILEGES ON triangle.*` | **backend-side auth**: lets MaxScale open the backend connection |
 | `maxscale@10.248.40.183` | monitor, account reads, **+ failover admin** | promotes/demotes on failover |
 | `repl@10.248.40.155` | `REPLICATION SLAVE` | DB2's replication link |
+| `repl@10.248.40.154` | `REPLICATION SLAVE` | reverse link, for `auto_rejoin` after failover |
 
 `ALL PRIVILEGES` rather than DML-only because the CMS runs additive DDL
 (`ADD COLUMN IF NOT EXISTS`) at startup.
 
-**`triangle_user@10.248.40.168` (Delta direct) must be dropped**, and is listed
-here only so it is not recreated. It was a cutover-verification account that let
-Delta bypass MaxScale. Leaving it in place defeats the fencing that makes
-automated failover safe: it is a second write path to DB1 that survives MaxScale
-deciding DB1 is dead. See *Why automated failover is safe here* below.
+**Both `triangle_user` rows are required — do not "clean up" the Delta-scoped
+one.** MaxScale authenticates a client against the backend user table by the
+**client's own source address**, then connects to the backend from its own. Drop
+either and the CMS gets `Error 1045`. See the warning in step 6.
 
-The same account set must exist on **DB2**, because on promotion DB2 serves the
-application. `repl@10.248.40.154` is needed there too so that the old primary
-can replicate back after `auto_rejoin`. Grants replicate automatically once
-replication is running (they are DDL on `mysql.*`), so creating them on DB1
-after DB2 is attached is sufficient — but verify rather than assume.
+**Every one of these must exist on DB2 as well**, because on promotion DB2 serves
+the application and MaxScale re-authenticates everything against *its* user
+table. **`setup-replica.sh` does NOT copy them** — it dumps `--databases
+triangle`, which excludes `mysql.*` — so accounts created *before* replication
+started are absent on DB2, and only those created *after* replicate. Verify with
+`SELECT CONCAT(user,'@',host) FROM mysql.user` on both hosts; a mismatch here
+means a "successful" failover promotes a server nothing can log in to. To backfill
+without polluting the replication stream, apply them on DB2 under
+`SET SESSION sql_log_bin=0`.
 
 ## Bringing up DB2
 
@@ -195,17 +200,36 @@ match the other two hosts, or run steps 1–3 from the Proxmox console.
    it silently degraded to async — the zero-loss guarantee is not in force and
    failover is not yet safe to enable.
 
-6. **Fence the write path.** This is what removes the split-brain risk, and it
-   is a prerequisite for step 8, not an optional hardening pass:
+6. **Fence the write path — at the network, and ONLY at the network.** This is
+   what removes the split-brain risk, and it is a prerequisite for step 8, not
+   an optional hardening pass. Restrict 3306 on both DB hosts to MaxScale and
+   the DB peer:
 
-   ```sql
-   DROP USER 'triangle_user'@'10.248.40.168';   -- Delta's direct bypass
+   ```sh
+   ufw allow 22/tcp                                             # BEFORE enabling
+   ufw allow from 10.248.40.183 to any port 3306 proto tcp      # MaxScale
+   ufw allow from <the other DB host> to any port 3306 proto tcp # replication
+   ufw --force enable
    ```
 
-   and restrict 3306 on both DB hosts to MaxScale and the DB peer. **Do this
-   with Proxmox console access open** — DB1's firewall is currently wide open
-   (ufw inactive, iptables ACCEPT) and it was left that way deliberately to
-   avoid an SSH lockout on a remote host.
+   Add the `allow` rules **before** `enable`, and do it **with Proxmox console
+   access open** — `pct enter <ctid>` gets you back in if you cut yourself off.
+   Do DB2 first: a mistake there costs replication, a mistake on DB1 costs the
+   site.
+
+   > ⚠️ **Do NOT "fence" this by dropping `triangle_user@10.248.40.168`.**
+   > It looks like a direct-bypass account and it is not. **MaxScale
+   > authenticates a client against the backend's user table using the
+   > CLIENT's own source address**, so `triangle_user@<delta-ip>` is precisely
+   > what lets the CMS log in *through* MaxScale; `triangle_user@<maxscale-ip>`
+   > is what lets MaxScale then open the backend connection. **Both are
+   > required.** Dropping the Delta-scoped one closes no bypass and takes the
+   > site down with `Error 1045 Access denied for user
+   > 'triangle_user'@'10.248.40.168'` on any DB-backed route, while
+   > `/v1/health` keeps returning 200 — so it looks fine until someone loads a
+   > page. This was done and reverted on 2026-08-05. The firewall above is what
+   > actually removes the bypass, because Delta is no longer permitted to reach
+   > 3306 at all.
 
 7. **Grant MaxScale the failover privileges** it does not currently hold, on
    DB1:
@@ -258,12 +282,17 @@ window that loses data.
 **"Two nodes can't tell 'primary is dead' from 'I can't see the primary'."**
 Also true, and unfixable at that layer: a 2-node cluster has no quorum, so it
 cannot vote. The risk is removed structurally instead, by making MaxScale the
-**only** path to the databases — Delta's direct `triangle_user` grant is
-dropped and 3306 is firewalled to MaxScale and the DB peer. Once that holds,
-"MaxScale cannot reach DB1" implies "the CMS cannot reach DB1", so promoting
-DB2 cannot result in two servers taking application writes. The partition that
-would split-brain a quorum-less cluster instead just moves all traffic to the
-promoted node, which is the desired outcome.
+**only** path to the databases — 3306 on both DB hosts is firewalled to
+MaxScale and the DB peer, so nothing else can open a connection at all. Once
+that holds, "MaxScale cannot reach DB1" implies "the CMS cannot reach DB1", so
+promoting DB2 cannot result in two servers taking application writes. The
+partition that would split-brain a quorum-less cluster instead just moves all
+traffic to the promoted node, which is the desired outcome.
+
+Note this fencing is **purely a network property**. It is tempting to also
+revoke the app's Delta-scoped grant as "a second write path", but that account
+is not a bypass — it is how MaxScale authenticates the client — and removing it
+only breaks the site. See step 6.
 
 **"The old primary comes back and clobbers things."** `gtid_strict_mode=ON` on
 both nodes. A returning DB1 that diverged is *refused* by `auto_rejoin` and
