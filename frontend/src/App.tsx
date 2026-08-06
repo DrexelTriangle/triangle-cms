@@ -5,7 +5,6 @@ import Header from "./components/Header"
 import Sidebar from "./components/Sidebar"
 import DashboardPage from "./pages/DashboardPage"
 import LoginPage from "./pages/LoginPage"
-import SignupPage from "./pages/SignupPage"
 import AuthCallback from "./pages/AuthCallback"
 import ArticleView from "./pages/articleView"
 import DevelopingStoriesView from "./pages/developingStoriesView"
@@ -19,11 +18,10 @@ import ClassifiedsView from "./pages/classifiedsView"
 import ActivityView from "./pages/activityView"
 import NewsletterView from "./pages/newsletterView"
 import SeoView from "./pages/seoView"
-import PagesView from "./pages/pagesView"
 import SettingsPage from "./pages/settingsPage"
 import PollView from "./pages/pollView"
 
-const AUTH_ROUTES = ["/login", "/signup"]
+const AUTH_ROUTES = ["/login"]
 
 function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -82,7 +80,6 @@ export default function App() {
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
       </Routes>
     )
@@ -111,7 +108,6 @@ export default function App() {
         <Route path="/developing-stories/new" element={<ComingSoon page="New Developing Story" />} />
         <Route path="/newsletter" element={<NewsletterView />} />
         <Route path="/media" element={<MediaView />} />
-        <Route path="/pages" element={<PagesView />} />
         <Route path="/poll" element={<PollView />} />
         <Route path="/authors" element={<AuthorsView />} />
         <Route path="/sections" element={<SectionsView />} />
