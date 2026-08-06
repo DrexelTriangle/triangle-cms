@@ -69,7 +69,9 @@ func articleSearchTestDB(t *testing.T, withIndex bool) *sql.DB {
 			mod_date DATETIME NULL,
 			pub_date DATETIME NULL,
 			scheduled_pub_date DATETIME NULL,
-			archived_at DATETIME NULL
+			archived_at DATETIME NULL,
+			canonical_url LONGTEXT,
+			noindex BOOL NOT NULL DEFAULT 0
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`); err != nil {
 		t.Fatalf("create articles table: %v", err)

@@ -1177,7 +1177,7 @@ type ArticleParams struct {
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
 	q := r.URL.Query()
 	conditions, args := articleQueryFilters(r, params)
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date`, `scheduled_pub_date` FROM `articles`"
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date`, `scheduled_pub_date`, `canonical_url`, `noindex` FROM `articles`"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -1620,12 +1620,14 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 				SEOTitle:        a.SEOTitle,
 				MetaDescription: a.MetaDescription,
 				FocusKeyword:    a.FocusKeyword,
-				CanonicalURL:    "",
+				CanonicalURL:    a.CanonicalURL,
+				NoIndex:         a.NoIndex,
 				Tags:            seoTags,
 			},
 			Related: related,
 		}
 		resp.PublishedDate = a.PublishedAt
+		resp.ModifiedDate = a.ModifiedAt
 
 		writeJSON(w, http.StatusOK, resp)
 	}
@@ -2032,9 +2034,13 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "published_date has invalid format")
 			return
 		}
+		if _, ok := db.NormalizeCanonicalURL(body.CanonicalURL); !ok {
+			writeError(w, http.StatusBadRequest, "canonical_url must be an absolute http(s) URL")
+			return
+		}
 		fields := db.ArticleInputToDBFields(body)
 		result, err := db.Insert(r.Context(), conn, "articles",
-			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date"},
+			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date", "canonical_url", "noindex"},
 			fields...,
 		)
 		if err != nil {
@@ -2097,6 +2103,10 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
 		}
+		if _, ok := db.NormalizeCanonicalURL(body.CanonicalURL); !ok {
+			writeError(w, http.StatusBadRequest, "canonical_url must be an absolute http(s) URL")
+			return
+		}
 		oldCategories, isActiveArticle, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, false)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -2105,7 +2115,7 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		fields := db.ArticleToDBFields(body)
 		fields = append(fields, slug)
 		result, err := db.Update(r.Context(), conn, "articles",
-			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "focus_keyword", "meta_description", "seo_title", "scheduled_pub_date"},
+			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "focus_keyword", "meta_description", "seo_title", "scheduled_pub_date", "canonical_url", "noindex"},
 			"`slug` = ?",
 			fields...,
 		)
@@ -2207,6 +2217,8 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			"focus_keyword":    "focus_keyword",
 			"meta_description": "meta_description",
 			"seo_title":        "seo_title",
+			"canonical_url":    "canonical_url",
+			"noindex":          "noindex",
 		}
 		var publishedDateValue any
 		var scheduledDateValue any
@@ -2288,6 +2300,27 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				}
 				setCols = append(setCols, column)
 				setArgs = append(setArgs, strings.TrimSpace(s))
+			case "canonical_url":
+				s, ok := v.(string)
+				if !ok {
+					writeError(w, http.StatusBadRequest, "canonical_url must be a string")
+					return
+				}
+				normalized, valid := db.NormalizeCanonicalURL(s)
+				if !valid {
+					writeError(w, http.StatusBadRequest, "canonical_url must be an absolute http(s) URL")
+					return
+				}
+				setCols = append(setCols, column)
+				setArgs = append(setArgs, normalized)
+			case "noindex":
+				b, ok := v.(bool)
+				if !ok {
+					writeError(w, http.StatusBadRequest, "noindex must be a boolean")
+					return
+				}
+				setCols = append(setCols, column)
+				setArgs = append(setArgs, b)
 			case "slug":
 				s, ok := v.(string)
 				if !ok {

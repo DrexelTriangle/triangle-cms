@@ -101,8 +101,13 @@ type SEOResponse struct {
 	SEOTitle        string            `json:"seo_title"`
 	MetaDescription string            `json:"meta_description"`
 	FocusKeyword    string            `json:"focus_keyword"`
-	CanonicalURL    string            `json:"canonical_url"`
-	Tags            []CategorySummary `json:"tags"`
+	// CanonicalURL is the editor-supplied override for syndicated or reprinted
+	// pieces that should credit another publisher. Empty means "no override":
+	// the public site falls back to its own /article/<slug> URL.
+	CanonicalURL string `json:"canonical_url"`
+	// NoIndex asks the public site to emit robots noindex for this article.
+	NoIndex bool              `json:"noindex"`
+	Tags    []CategorySummary `json:"tags"`
 }
 
 type ArticleDetailResponse struct {
@@ -121,6 +126,11 @@ type ArticleDetailResponse struct {
 	SEO           SEOResponse       `json:"seo"`
 	Related       []ArticleListItem `json:"related"`
 	PublishedDate *time.Time        `json:"published_date,omitempty"`
+	// ModifiedDate is the article's last-edited time (the `mod_date` column the
+	// public sitemap already reports as <lastmod>). Exposed so the public site's
+	// NewsArticle dateModified agrees with the sitemap instead of silently
+	// falling back to the publish date.
+	ModifiedDate *time.Time `json:"modified_date,omitempty"`
 }
 
 type CommentResponse struct {

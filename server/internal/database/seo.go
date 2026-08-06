@@ -31,11 +31,14 @@ const (
 func GetSEOAudit(ctx context.Context, conn *sql.DB) (models.SEOAuditResponse, error) {
 	rows, err := conn.QueryContext(ctx, `
 		SELECT id, COALESCE(title, ''), COALESCE(slug, ''),
-		       COALESCE(seo_title, ''), COALESCE(meta_description, ''), COALESCE(focus_keyword, '')
+		       COALESCE(seo_title, ''), COALESCE(meta_description, ''), COALESCE(focus_keyword, ''),
+		       COALESCE(photo_url, ''), COALESCE(excerpt, '')
 		FROM articles
 		WHERE pub_date IS NOT NULL
 		  AND pub_date <= UTC_TIMESTAMP()
 		  AND pub_date >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? MONTH)
+		  AND archived_at IS NULL
+		  AND COALESCE(noindex, 0) = 0
 		ORDER BY pub_date DESC, id DESC
 	`, auditWindowMonths)
 	if err != nil {
@@ -45,6 +48,10 @@ func GetSEOAudit(ctx context.Context, conn *sql.DB) (models.SEOAuditResponse, er
 
 	issues := make([]models.SEOIssue, 0)
 	publishedCount := 0
+	// Meta descriptions duplicated across articles make the pages compete for
+	// the same snippet, so the first article using a description is recorded and
+	// every later one is reported against it.
+	firstUseOfMetaDesc := make(map[string]string)
 	for rows.Next() {
 		var (
 			id           int64
@@ -53,14 +60,30 @@ func GetSEOAudit(ctx context.Context, conn *sql.DB) (models.SEOAuditResponse, er
 			seoTitle     string
 			metaDesc     string
 			focusKeyword string
+			photoURL     string
+			excerpt      string
 		)
-		if err := rows.Scan(&id, &title, &slug, &seoTitle, &metaDesc, &focusKeyword); err != nil {
+		if err := rows.Scan(&id, &title, &slug, &seoTitle, &metaDesc, &focusKeyword, &photoURL, &excerpt); err != nil {
 			return models.SEOAuditResponse{}, err
 		}
 		publishedCount++
-		for _, issue := range auditArticle(id, slug, title, seoTitle, metaDesc, focusKeyword) {
-			issues = append(issues, issue)
+		articleIssues := auditArticle(id, slug, title, seoTitle, metaDesc, focusKeyword, photoURL, excerpt)
+
+		if key := strings.ToLower(strings.TrimSpace(metaDesc)); key != "" {
+			if firstSlug, seen := firstUseOfMetaDesc[key]; seen {
+				articleIssues = append(articleIssues, models.SEOIssue{
+					ArticleID: id,
+					Slug:      slug,
+					Title:     title,
+					Type:      "warning",
+					Issue:     "Meta description duplicates \"" + firstSlug + "\"",
+				})
+			} else {
+				firstUseOfMetaDesc[key] = slug
+			}
 		}
+
+		issues = append(issues, articleIssues...)
 	}
 	if err := rows.Err(); err != nil {
 		return models.SEOAuditResponse{}, err
@@ -79,7 +102,7 @@ func GetSEOAudit(ctx context.Context, conn *sql.DB) (models.SEOAuditResponse, er
 }
 
 // auditArticle returns the SEO issues for a single article.
-func auditArticle(id int64, slug, title, seoTitle, metaDesc, focusKeyword string) []models.SEOIssue {
+func auditArticle(id int64, slug, title, seoTitle, metaDesc, focusKeyword, photoURL, excerpt string) []models.SEOIssue {
 	var issues []models.SEOIssue
 	add := func(issueType, message string) {
 		issues = append(issues, models.SEOIssue{
@@ -114,5 +137,26 @@ func auditArticle(id int64, slug, title, seoTitle, metaDesc, focusKeyword string
 		add("warning", "Missing focus keyword")
 	}
 
+	// A missing featured image costs more than a thumbnail: the public site has
+	// no og:image to fall back on beyond the site logo, and the NewsArticle
+	// structured data carries an `image` array Google treats as required.
+	if !hasFeaturedImage(photoURL) {
+		add("error", "Missing featured image (no social preview or article image)")
+	}
+
+	// The excerpt is what the public site falls back to when meta_description is
+	// blank, so an article missing both has no description at all.
+	if strings.TrimSpace(excerpt) == "" && metaDesc == "" {
+		add("error", "No meta description and no excerpt to fall back on")
+	}
+
 	return issues
+}
+
+// hasFeaturedImage reports whether photo_url names a real image. Articles
+// imported from WordPress without a thumbnail carry the string "-1" rather than
+// NULL or an empty value, so that sentinel counts as missing.
+func hasFeaturedImage(photoURL string) bool {
+	trimmed := strings.TrimSpace(photoURL)
+	return trimmed != "" && trimmed != "-1"
 }

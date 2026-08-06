@@ -152,6 +152,20 @@ describe("EditArticleView autosave", () => {
     expect(patches[0].body).not.toHaveProperty("status")
   })
 
+  // The SEO fields live outside the body editor, so they are only autosaved if
+  // they are part of the dirty-check snapshot. They were not, and a toggle on
+  // its own was silently discarded.
+  it("autosaves a noindex toggle on its own", async () => {
+    const user = await renderEditor()
+
+    await user.click(screen.getByRole("checkbox", { name: /Hide from search engines/ }))
+    await waitOutAutosave()
+
+    const patches = patchCalls()
+    expect(patches).toHaveLength(1)
+    expect(patches[0].body?.noindex).toBe(true)
+  })
+
   it("publishes only when the publish button is pressed", async () => {
     const user = await renderEditor()
 

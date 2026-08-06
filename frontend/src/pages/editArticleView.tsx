@@ -38,6 +38,8 @@ type ApiArticleDetail = {
     seo_title?: string
     meta_description?: string
     focus_keyword?: string
+    canonical_url?: string
+    noindex?: boolean
     tags?: Array<{
       name?: string
       slug?: string
@@ -62,6 +64,8 @@ type PatchPayload = {
   focus_keyword: string
   meta_description: string
   seo_title: string
+  canonical_url: string
+  noindex: boolean
 }
 
 type ApiAuthor = {
@@ -90,6 +94,22 @@ type AuthorsResponse = {
 // The ETL pipeline normalizes the source, but this keeps the editor resilient.
 const normalizeCommentStatus = (raw: string | undefined): string =>
   (raw ?? "").trim().toLowerCase() === "closed" ? "closed" : "open"
+
+// Mirrors NormalizeCanonicalURL in the backend (database/http_models.go): blank
+// means "no override", anything else must be an absolute http(s) URL. Checked
+// here too so a half-typed URL surfaces as inline help rather than as a 400 on
+// the next autosave.
+const isValidCanonicalUrl = (value: string): boolean => {
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return false
+  }
+  return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.host !== ""
+}
 
 const slugifyCategory = (value: string): string =>
   value
@@ -235,6 +255,8 @@ function EditArticleView() {
   const [keyphrase, setKeyphrase] = useState("")
   const [metaDescription, setMetaDescription] = useState("")
   const [seoTitle, setSeoTitle] = useState("")
+  const [canonicalUrl, setCanonicalUrl] = useState("")
+  const [noIndex, setNoIndex] = useState(false)
   const [seoTags, setSeoTags] = useState<string[]>([])
   // Text sitting in the tag box that has not been committed to a chip yet. It is
   // still saved, so a half-typed tag is not silently dropped by an autosave.
@@ -270,6 +292,8 @@ function EditArticleView() {
     keyphrase,
     metaDescription,
     seoTitle,
+    canonicalUrl,
+    noIndex,
   }), [
     title,
     slugInput,
@@ -286,6 +310,8 @@ function EditArticleView() {
     keyphrase,
     metaDescription,
     seoTitle,
+    canonicalUrl,
+    noIndex,
   ])
 
   useEffect(() => {
@@ -326,6 +352,8 @@ function EditArticleView() {
           setExcerpt(payload.excerpt ?? "")
           setKeyphrase(payload.seo?.focus_keyword ?? "")
           setSeoTitle(payload.seo?.seo_title ?? "")
+          setCanonicalUrl(payload.seo?.canonical_url ?? "")
+          setNoIndex(payload.seo?.noindex ?? false)
           setSeoTags(addSEOTags([], (payload.seo?.tags ?? [])
             .map((tag) => (tag.name ?? "").trim())
             .filter((tag) => tag.length > 0)
@@ -589,6 +617,17 @@ function EditArticleView() {
       return
     }
 
+    // The API rejects a malformed canonical URL, so sending one mid-keystroke
+    // would turn every autosave into a failed save. Pause instead, the same way
+    // a half-entered schedule date does.
+    if (!isValidCanonicalUrl(canonicalUrl)) {
+      validationError(
+        "Canonical URL must be an absolute http(s) URL, or left blank.",
+        "Autosave paused until the canonical URL is valid.",
+      )
+      return
+    }
+
     try {
       if (isNew) {
         if (!title.trim()) {
@@ -610,6 +649,8 @@ function EditArticleView() {
           focus_keyword: keyphrase.trim(),
           meta_description: metaDescription.trim(),
           seo_title: seoTitle.trim(),
+          canonical_url: canonicalUrl.trim(),
+          noindex: noIndex,
         }
         const response = await apiFetch("/v1/articles", {
           method: "POST",
@@ -647,6 +688,8 @@ function EditArticleView() {
         focus_keyword: keyphrase.trim(),
         meta_description: metaDescription.trim(),
         seo_title: seoTitle.trim(),
+        canonical_url: canonicalUrl.trim(),
+        noindex: noIndex,
       }
 
       const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`, {
@@ -1330,6 +1373,37 @@ function EditArticleView() {
                 value={metaDescription}
               />
               <span className="text-[11px] text-muted-foreground">{metaDescription.length} characters</span>
+            </label>
+
+            <label className={labelClass}>
+              <span className={labelTextClass}>Canonical URL</span>
+              <input
+                className={inputClass}
+                onChange={(e) => setCanonicalUrl(e.target.value)}
+                placeholder="Defaults to this article's own URL"
+                type="url"
+                value={canonicalUrl}
+              />
+              <span className="text-[11px] text-muted-foreground">
+                {canonicalUrl.trim() && !isValidCanonicalUrl(canonicalUrl)
+                  ? "Must be an absolute http(s) URL, e.g. https://example.com/story."
+                  : "Set this only for reprints, to credit the original publisher."}
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                checked={noIndex}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                onChange={(e) => setNoIndex(e.target.checked)}
+                type="checkbox"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className={labelTextClass}>Hide from search engines</span>
+                <span className="text-[11px] text-muted-foreground">
+                  Adds noindex and drops the article from the sitemap. The article stays live.
+                </span>
+              </span>
             </label>
 
             {error && (
