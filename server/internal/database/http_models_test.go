@@ -181,3 +181,35 @@ func TestArticleToDBFields_StampsModifiedDate(t *testing.T) {
 		t.Errorf("mod_date = %s, want roughly now", raw)
 	}
 }
+
+// An article normally opens with its featured image, so an excerpt derived by
+// stripping tags used to start with the photo credit in the caption instead of
+// the story.
+func TestDeriveExcerpt_SkipsImageCaptions(t *testing.T) {
+	cases := map[string]string{
+		"editor and block-editor figures": `<figure class="wp-caption alignnone">` +
+			`<img src="/x.jpg" alt=""><figcaption class="wp-caption-text">Photo by Jane Doe.</figcaption>` +
+			`</figure><p>The story begins here.</p>`,
+		"classic-editor caption div": `<div class="wp-caption alignnone"><img src="/x.jpg" alt="">` +
+			`<p class="wp-caption-text">Photo by Jane Doe.</p></div><p>The story begins here.</p>`,
+		"bare figcaption": `<figcaption>Photo by Jane Doe.</figcaption><p>The story begins here.</p>`,
+	}
+
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := deriveExcerpt(content); got != "The story begins here." {
+				t.Errorf("deriveExcerpt = %q, want the article text without the caption", got)
+			}
+		})
+	}
+}
+
+// A caption mid-article should not cut the excerpt short either.
+func TestDeriveExcerpt_KeepsTextAroundAnInlineFigure(t *testing.T) {
+	content := `<p>Before.</p><figure class="wp-caption"><img src="/x.jpg" alt="">` +
+		`<figcaption class="wp-caption-text">Credit.</figcaption></figure><p>After.</p>`
+
+	if got := deriveExcerpt(content); got != "Before. After." {
+		t.Errorf("deriveExcerpt = %q, want both paragraphs and no caption", got)
+	}
+}

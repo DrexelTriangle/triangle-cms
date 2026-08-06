@@ -541,10 +541,25 @@ var slugDelimiterPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
 var htmlTagPattern = regexp.MustCompile(`<[^>]*>`)
 
+// Image captions are markup, not article text. An article normally opens with
+// its featured image, so stripping tags blindly made the caption -- a photo
+// credit line -- the first thing the derived excerpt picked up. This drops the
+// caption-bearing markup first: what the editor writes (trixHtmlToArticle emits
+// <figure class="wp-caption"><figcaption>) and both WordPress import shapes
+// (block: <figure><figcaption>; classic: <div class="wp-caption">…<p
+// class="wp-caption-text">, where removing the caption element is enough since
+// the surrounding div holds only the image).
+var captionMarkupPattern = regexp.MustCompile(
+	`(?is)<figure\b[^>]*>.*?</figure\s*>` +
+		`|<figcaption\b[^>]*>.*?</figcaption\s*>` +
+		`|<[a-z][a-z0-9]*\b[^>]*wp-caption-text[^>]*>.*?</[a-z][a-z0-9]*\s*>`)
+
 // deriveExcerpt builds a plain-text excerpt from HTML article content by
-// stripping tags, collapsing whitespace, and truncating to a word limit.
+// dropping image captions, stripping tags, collapsing whitespace, and
+// truncating to a word limit.
 func deriveExcerpt(content string) string {
-	text := htmlTagPattern.ReplaceAllString(content, " ")
+	text := captionMarkupPattern.ReplaceAllString(content, " ")
+	text = htmlTagPattern.ReplaceAllString(text, " ")
 	text = html.UnescapeString(text)
 	words := strings.Fields(text)
 	if len(words) == 0 {
