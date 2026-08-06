@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -41,11 +42,37 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 //
 // Only applied where category_aliases IS NULL, so "never set" stays
 // distinguishable from an empty array an editor deliberately saved.
+// The sports entries are a different case from the other four. Those four are
+// one section under two names; these are the sports that never became
+// subsections. WordPress category archives roll a parent up over its child
+// terms automatically, so /category/sports/ listed every article tagged "Men's
+// Lacrosse" without anyone configuring it. Matching here is flat -- a section
+// finds itself plus the subsections that have a row -- so a sport with no row
+// rolls up into nothing and its articles appear on no section page at all.
+//
+// Most sports articles also carry a literal "Sports" tag and were never
+// affected, which is why this surfaced as a handful of arbitrary-looking gaps
+// rather than as a whole missing sport.
+//
+// Aliases rather than subsection rows: these need to rejoin Sports, not to
+// acquire a nav entry and a page each. Adding a row is still the right move for
+// a sport the desk wants to feature.
 var defaultCategoryAliases = map[string][]string{
 	"entertainment":       {"Arts & Entertainment"},
 	"science-tech":        {"Science & Technology"},
 	"from-the-editor":     {"From the Editor's Desk"},
 	"happening-in-philly": {"What's Happening in Philly"},
+	"sports": {
+		"Men's Lacrosse",
+		"Women's Lacrosse",
+		"Tennis",
+		"Crew",
+		"Golf",
+		"Softball",
+		"Swimming & Diving",
+		"Running",
+		"Athlete of the Week",
+	},
 }
 
 func SeedDefaultCategoryAliases(ctx context.Context, conn *sql.DB) error {
@@ -329,6 +356,76 @@ func countArticlesForSlugs(ctx context.Context, conn *sql.DB, slug string, match
 			"slug", slug, "matched_slugs", matched)
 	}
 	return count, nil
+}
+
+// ReportOrphanedArticles logs published articles that match no taxonomy row at
+// all -- the inverse of the zero-match warning in countArticlesForSlugs.
+//
+// That warning catches a slug that finds no articles. This catches the
+// direction that actually loses content: an article whose categories name
+// nothing the taxonomy knows about is still published, still reachable by
+// direct link and by search, and appears on no section page. Nothing in the CMS
+// showed it was gone -- a section that quietly omits some of its articles reads
+// as a normal section -- so it took an editor noticing that men's lacrosse had
+// stopped appearing under Sports, months after the categories diverged.
+//
+// Diagnostic only: it names the gap and leaves the fix (an alias or a
+// subsection row) to a person, because which section an orphan belongs to is an
+// editorial call.
+func ReportOrphanedArticles(ctx context.Context, conn *sql.DB) error {
+	matchSlugs, err := taxonomyMatchSlugs(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	slugs := make([]string, 0, len(matchSlugs))
+	for slug := range matchSlugs {
+		slugs = append(slugs, slug)
+	}
+	condition, args := TaxonomyCountCondition(slugs)
+	if condition == "" {
+		return nil
+	}
+
+	const published = "`archived_at` IS NULL AND `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP()"
+
+	var orphaned int64
+	if err := conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM `articles` WHERE "+published+" AND NOT "+condition, args...,
+	).Scan(&orphaned); err != nil {
+		return err
+	}
+	if orphaned == 0 {
+		return nil
+	}
+
+	// The category sets are what a person needs to act: they say which
+	// spellings to alias, which is not recoverable from a bare count.
+	rows, err := conn.QueryContext(ctx,
+		"SELECT `categories`, COUNT(*) AS c FROM `articles` WHERE "+published+
+			" AND NOT "+condition+" GROUP BY `categories` ORDER BY c DESC LIMIT 10", args...,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	samples := make([]string, 0, 10)
+	for rows.Next() {
+		var categories sql.NullString
+		var count int64
+		if err := rows.Scan(&categories, &count); err != nil {
+			return err
+		}
+		samples = append(samples, fmt.Sprintf("%s (%d)", strings.TrimSpace(categories.String), count))
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	slog.Warn("published articles match no section or subsection and appear on no section page; they likely need a category alias",
+		"count", orphaned, "top_category_sets", strings.Join(samples, "; "))
+	return nil
 }
 
 func RebuildTaxonomyArticleCounts(ctx context.Context, conn *sql.DB) error {

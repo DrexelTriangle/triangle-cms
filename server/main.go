@@ -202,6 +202,11 @@ func main() {
 			os.Exit(1)
 		}
 		slog.Info("rebuilt taxonomy article counts at startup")
+
+		// Diagnostic, so a failure here must not keep the server down.
+		if err := database.ReportOrphanedArticles(context.Background(), db); err != nil {
+			slog.Error("failed to check for articles matching no section", "error", err)
+		}
 	}
 	if err := database.EnsurePollSettings(context.Background(), db); err != nil {
 		slog.Error("failed to seed poll settings", "error", err)
