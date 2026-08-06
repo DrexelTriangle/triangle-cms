@@ -290,8 +290,9 @@ func TestCategoryMatchPatternsDeduplicatesAliases(t *testing.T) {
 
 func TestDefaultCategoryAliasesCoverTheKnownMismatches(t *testing.T) {
 	// These four sections are named differently from the category their
-	// articles carry. Losing a default silently empties a section on upgrade,
-	// so pin them.
+	// articles carry. Losing one silently empties a section on upgrade, so pin
+	// them. Checked by containment, not equality: these rows also carry the
+	// orphaned categories that never became subsections, and that list grows.
 	want := map[string]string{
 		"entertainment":       "Arts & Entertainment",
 		"science-tech":        "Science & Technology",
@@ -304,8 +305,15 @@ func TestDefaultCategoryAliasesCoverTheKnownMismatches(t *testing.T) {
 			t.Errorf("missing default alias for %q", slug)
 			continue
 		}
-		if len(got) != 1 || got[0] != alias {
-			t.Errorf("default alias for %q = %v, want [%q]", slug, got, alias)
+		found := false
+		for _, candidate := range got {
+			if candidate == alias {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("default aliases for %q = %v, must include %q", slug, got, alias)
 		}
 	}
 }
@@ -419,5 +427,59 @@ func TestTaxonomySlugForCategoryReportsNothingWhenUnknown(t *testing.T) {
 	withCategorySlugsByTitle(t, map[string]string{"sports": "sports"})
 	if got := TaxonomySlugForCategory("Men's Lacrosse"); got != "" {
 		t.Errorf("got %q, want empty for a category with no page", got)
+	}
+}
+
+func TestOrphanAliasesRollUpIntoTheirSection(t *testing.T) {
+	// The 436 articles that matched no section at all. Each carried a category
+	// that WordPress rolled up through hierarchy and flat matching does not.
+	withCategoryAliases(t, defaultCategoryAliases)
+
+	for _, tc := range []struct{ slug, categories string }{
+		{"entertainment", `["Style"]`},
+		{"entertainment", `["Style", "Street Style"]`},
+		{"entertainment", `["Restaurant Reviews"]`},
+		{"opinion", `["Editorial"]`},
+		{"opinion", `["Letters to the Editor"]`},
+		{"columns", `["Podcasts", "Mark and Jair Explain Sports"]`},
+		{"columns", `["Ain't That Something With Brandon & Liz"]`},
+		{"comics-puzzles", `["Word Search"]`},
+		{"science-tech", `["Technically Speaking"]`},
+	} {
+		if !matchesCategories(tc.slug, tc.categories) {
+			t.Errorf("%s should roll up into %s", tc.categories, tc.slug)
+		}
+	}
+}
+
+func TestPodcastNamedForASectionStaysOutOfIt(t *testing.T) {
+	// "Mark and Jair Explain Sports" is a show, not a sports article. Under the
+	// old substring matching it was one of the 31 articles wrongly counted into
+	// Sports; it must reach Columns and only Columns.
+	withCategoryAliases(t, defaultCategoryAliases)
+
+	const categories = `["Podcasts", "Mark and Jair Explain Sports"]`
+	if matchesCategories("sports", categories) {
+		t.Error("a podcast named for Sports must not be filed under Sports")
+	}
+	if !matchesCategories("columns", categories) {
+		t.Error("it belongs to Columns")
+	}
+}
+
+func TestNoCategoryIsAliasedToTwoSections(t *testing.T) {
+	// An alias claimed by two sections puts the same article on both section
+	// pages, which reads as a duplicate rather than as a misconfiguration --
+	// the same way the original bug read as a normal section.
+	owner := map[string]string{}
+	for slug, aliases := range defaultCategoryAliases {
+		for _, alias := range aliases {
+			key := strings.ToLower(alias)
+			if previous, taken := owner[key]; taken {
+				t.Errorf("%q is aliased to both %q and %q", alias, previous, slug)
+				continue
+			}
+			owner[key] = slug
+		}
 	}
 }
