@@ -77,7 +77,9 @@ func articlePatchTestDB(t *testing.T) *sql.DB {
 			pub_date DATETIME NULL,
 			scheduled_pub_date DATETIME NULL,
 			last_pub_date DATETIME NULL,
-			archived_at DATETIME NULL
+			archived_at DATETIME NULL,
+			canonical_url LONGTEXT,
+			noindex BOOL NOT NULL DEFAULT 0
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`); err != nil {
 		t.Fatalf("create articles table: %v", err)
@@ -242,5 +244,83 @@ func TestArticlePatchHTTP_DraftSaveKeepsPublishDateForRepublish(t *testing.T) {
 	}
 	if !pubDate.Time.UTC().Equal(original) {
 		t.Fatalf("pub_date = %s, want the original %s", pubDate.Time.UTC(), original)
+	}
+}
+
+// The canonical URL override and the noindex flag have to survive a PATCH, and a
+// malformed canonical has to be refused rather than stored -- the public site
+// emits whatever is in that column verbatim.
+func TestArticlePatchHTTP_CanonicalURLAndNoIndexRoundTrip(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories, pub_date) VALUES (?, ?, ?, ?, UTC_TIMESTAMP())",
+		"Syndicated story", "syndicated-story", "Body", "News",
+	); err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	body := `{"title":"Syndicated story","content":"Body","categories":["News"],` +
+		`"canonical_url":"https://example.com/original","noindex":true}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("syndicated-story", body))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var canonical sql.NullString
+	var noIndex sql.NullBool
+	if err := conn.QueryRowContext(context.Background(),
+		"SELECT canonical_url, noindex FROM articles WHERE slug = ?", "syndicated-story",
+	).Scan(&canonical, &noIndex); err != nil {
+		t.Fatalf("read seo columns: %v", err)
+	}
+	if canonical.String != "https://example.com/original" {
+		t.Fatalf("canonical_url = %q, want the supplied override", canonical.String)
+	}
+	if !noIndex.Bool {
+		t.Fatal("noindex was not persisted")
+	}
+
+	// A relative canonical must be rejected outright, leaving the stored value be.
+	rec = httptest.NewRecorder()
+	body = `{"title":"Syndicated story","content":"Body","categories":["News"],"canonical_url":"/article/elsewhere"}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("syndicated-story", body))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("relative canonical status = %d, want 400; body = %s", rec.Code, rec.Body.String())
+	}
+	if err := conn.QueryRowContext(context.Background(),
+		"SELECT canonical_url FROM articles WHERE slug = ?", "syndicated-story",
+	).Scan(&canonical); err != nil {
+		t.Fatalf("re-read canonical_url: %v", err)
+	}
+	if canonical.String != "https://example.com/original" {
+		t.Fatalf("canonical_url = %q, want the rejected patch to have changed nothing", canonical.String)
+	}
+}
+
+// A noindexed article must drop out of the sitemap too: listing a URL whose page
+// says noindex is a contradiction search engines report as an error.
+func TestSitemapSlugsOmitsNoIndexedArticles(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories, pub_date, noindex) VALUES "+
+			"(?, ?, ?, ?, UTC_TIMESTAMP(), 0), (?, ?, ?, ?, UTC_TIMESTAMP(), 1)",
+		"Indexed", "indexed-story", "Body", "News",
+		"Hidden", "hidden-story", "Body", "News",
+	); err != nil {
+		t.Fatalf("seed articles: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	GetSitemapSlugs(conn).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sitemap/slugs", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sitemap status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+	payload := rec.Body.String()
+	if !strings.Contains(payload, "indexed-story") {
+		t.Fatalf("sitemap dropped an indexable article: %s", payload)
+	}
+	if strings.Contains(payload, "hidden-story") {
+		t.Fatalf("sitemap still lists a noindexed article: %s", payload)
 	}
 }

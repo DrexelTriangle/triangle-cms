@@ -126,8 +126,11 @@ type Article struct {
 	FocusKeyword    string           `json:"focus_keyword"`
 	MetaDescription string           `json:"meta_description"`
 	SEOTitle        string           `json:"seo_title"`
+	CanonicalURL    string           `json:"canonical_url"`
+	NoIndex         bool             `json:"noindex"`
 	CreatedAt       *time.Time       `json:"creation_date,omitempty"`
 	PublishedAt     *time.Time       `json:"published_date,omitempty"`
+	ModifiedAt      *time.Time       `json:"modified_date,omitempty"`
 	ScheduledAt     *time.Time       `json:"scheduled_date,omitempty"`
 }
 
@@ -163,6 +166,8 @@ type ArticleInput struct {
 	FocusKeyword    string        `json:"focus_keyword,omitempty"`
 	MetaDescription string        `json:"meta_description,omitempty"`
 	SEOTitle        string        `json:"seo_title,omitempty"`
+	CanonicalURL    string        `json:"canonical_url,omitempty"`
+	NoIndex         bool          `json:"noindex,omitempty"`
 }
 
 type ArticlePatch struct {
@@ -181,6 +186,8 @@ type ArticlePatch struct {
 	FocusKeyword    *string        `json:"focus_keyword,omitempty"`
 	MetaDescription *string        `json:"meta_description,omitempty"`
 	SEOTitle        *string        `json:"seo_title,omitempty"`
+	CanonicalURL    *string        `json:"canonical_url,omitempty"`
+	NoIndex         *bool          `json:"noindex,omitempty"`
 }
 
 type ArticleListParams struct {

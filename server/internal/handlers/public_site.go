@@ -45,6 +45,10 @@ func GetRandomArticle(conn *sql.DB) http.Handler {
 // the caller needs the whole set to bucket it by year, and both sitemap routes
 // fetch it in full.
 //
+// Articles flagged noindex are excluded: listing a URL in the sitemap while its
+// page asks robots not to index it is a contradiction search engines report as
+// an error, so the flag has to be honoured in both places or neither.
+//
 // @Summary List slugs and modification dates for the sitemap
 // @Tags articles
 // @Produce json
@@ -53,7 +57,7 @@ func GetRandomArticle(conn *sql.DB) http.Handler {
 // @Router /v1/sitemap/slugs [get]
 func GetSitemapSlugs(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rows, err := conn.QueryContext(r.Context(), "SELECT `slug`, COALESCE(`mod_date`, `pub_date`) FROM `articles` WHERE `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL AND TRIM(COALESCE(`slug`, '')) <> '' ORDER BY `pub_date` DESC")
+		rows, err := conn.QueryContext(r.Context(), "SELECT `slug`, COALESCE(`mod_date`, `pub_date`) FROM `articles` WHERE `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL AND TRIM(COALESCE(`slug`, '')) <> '' AND COALESCE(`noindex`, 0) = 0 ORDER BY `pub_date` DESC")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

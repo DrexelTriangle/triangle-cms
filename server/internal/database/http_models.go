@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,14 +36,19 @@ var ArticleSortByColumn = map[string]string{
 
 var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email", "login", "archived_at"}
 
+// ArticleColumns, articleSelectColumnsQualified, searchSelectColumns
+// (article_search.go) and the inline SELECT in handlers.ListArticles are all
+// consumed by the one positional ScanArticle below. Adding a column means adding
+// it to all four -- in the same place -- and to ScanArticle.
 var ArticleColumns = []string{
 	"id", "title", "slug", "description", "text", "excerpt", "tags", "categories",
 	"pub_date", "mod_date", "priority", "breaking_news",
 	"comment_status", "photo_url",
 	"focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date",
+	"canonical_url", "noindex",
 }
 
-const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`, a.`focus_keyword`, a.`meta_description`, a.`seo_title`, a.`creation_date`, a.`scheduled_pub_date`"
+const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`, a.`focus_keyword`, a.`meta_description`, a.`seo_title`, a.`creation_date`, a.`scheduled_pub_date`, a.`canonical_url`, a.`noindex`"
 
 // Image/photo URLs are canonicalized upstream in the WordPress ETL (see
 // wordpress-etl Utils/MediaURL) so `photo_url` and inline body images are stored
@@ -141,21 +147,34 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		breakingNews    sql.NullBool
 		commentStatus   sql.NullString
 		photoURL        sql.NullString
-		ignoredMod      sql.NullTime
+		modDate         sql.NullTime
 		focusKeyword    sql.NullString
 		metaDescription sql.NullString
 		seoTitle        sql.NullString
 		creationDate    sql.NullTime
 		scheduledDate   sql.NullTime
+		canonicalURL    sql.NullString
+		noIndex         sql.NullBool
 	)
 	err := rows.Scan(
 		&a.ID, &a.Title, &slug, &description, &text, &excerpt, &tags, &categories,
-		&pubDate, &ignoredMod, &priority, &breakingNews,
+		&pubDate, &modDate, &priority, &breakingNews,
 		&commentStatus, &photoURL,
 		&focusKeyword, &metaDescription, &seoTitle, &creationDate, &scheduledDate,
+		&canonicalURL, &noIndex,
 	)
 	if err != nil {
 		return models.Article{}, err
+	}
+	if modDate.Valid {
+		t := modDate.Time
+		a.ModifiedAt = &t
+	}
+	if canonicalURL.Valid {
+		a.CanonicalURL = strings.TrimSpace(canonicalURL.String)
+	}
+	if noIndex.Valid {
+		a.NoIndex = noIndex.Bool
 	}
 	if focusKeyword.Valid {
 		a.FocusKeyword = focusKeyword.String
@@ -208,6 +227,30 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		a.PhotoURL = photoURL.String
 	}
 	return a, nil
+}
+
+// NormalizeCanonicalURL trims a canonical-URL override and reports whether it is
+// usable. An empty value is valid and means "no override" -- the public site
+// falls back to its own /article/<slug> URL. A non-empty value must be an
+// absolute http(s) URL with a host: a relative or scheme-less string in a
+// <link rel="canonical"> is worse than no override at all, because it silently
+// resolves against the wrong origin.
+func NormalizeCanonicalURL(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", true
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return "", false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", false
+	}
+	if parsed.Host == "" {
+		return "", false
+	}
+	return trimmed, true
 }
 
 func parseStringListField(value sql.NullString) []string {
@@ -623,6 +666,11 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		tags = "[]"
 	}
 
+	// Handlers reject a malformed override before reaching here; normalizing
+	// again keeps a bad value out of the column rather than storing a canonical
+	// URL the public site would emit verbatim.
+	canonicalURL, _ := NormalizeCanonicalURL(body.CanonicalURL)
+
 	return []any{
 		body.Title,
 		slug,
@@ -648,6 +696,8 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		// CMS listing sorts unpublished rows by (pub_date is NULL until publish).
 		time.Now().UTC().Format("2006-01-02 15:04:05"),
 		scheduledAt,
+		canonicalURL,
+		body.NoIndex,
 	}
 }
 
@@ -667,6 +717,7 @@ func ArticleToDBFields(body models.Article) []any {
 	} else if body.Status == models.ArticleStatusPublished {
 		publishedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
 	}
+	canonicalURL, _ := NormalizeCanonicalURL(body.CanonicalURL)
 	return []any{
 		body.Title,
 		normalizeSlug(body.Slug),
@@ -689,5 +740,7 @@ func ArticleToDBFields(body models.Article) []any {
 		strings.TrimSpace(body.MetaDescription),
 		strings.TrimSpace(body.SEOTitle),
 		scheduledAt,
+		canonicalURL,
+		body.NoIndex,
 	}
 }
