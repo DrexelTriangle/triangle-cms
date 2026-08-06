@@ -66,13 +66,12 @@ func DefaultHomepageCarouselSlides() []models.HomepageCarouselSlide {
 }
 
 func GetHomepageCarousel(ctx context.Context, conn *sql.DB) ([]models.HomepageCarouselSlide, error) {
-	var raw string
-	err := conn.QueryRowContext(ctx, "SELECT value_text FROM cms_settings WHERE key_name = ? LIMIT 1", homepageCarouselSettingKey).Scan(&raw)
-	if err == sql.ErrNoRows {
-		return DefaultHomepageCarouselSlides(), nil
-	}
+	raw, found, err := readSettingRaw(ctx, conn, homepageCarouselSettingKey)
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		return DefaultHomepageCarouselSlides(), nil
 	}
 	if strings.TrimSpace(raw) == "" {
 		return DefaultHomepageCarouselSlides(), nil
@@ -93,12 +92,7 @@ func SetHomepageCarousel(ctx context.Context, conn *sql.DB, slides []models.Home
 		return err
 	}
 
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO cms_settings (key_name, value_text)
-		VALUES (?, ?)
-		ON DUPLICATE KEY UPDATE value_text = VALUES(value_text)
-	`, homepageCarouselSettingKey, string(payload))
-	return err
+	return writeSettingRaw(ctx, conn, homepageCarouselSettingKey, string(payload))
 }
 
 func PublishedHomepageCarousel(slides []models.HomepageCarouselSlide) []models.HomepageCarouselSlide {

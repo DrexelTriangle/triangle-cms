@@ -75,9 +75,9 @@ func GetBreakingNews(ctx context.Context, conn *sql.DB) (models.BreakingNewsSett
 		return models.BreakingNewsSettings{}, err
 	}
 	// getSetting falls back when the stored value is blank, so an empty banner
-	// text is read directly rather than through getSetting's fallback handling.
-	var text string
-	if err := conn.QueryRowContext(ctx, "SELECT value_text FROM cms_settings WHERE key_name = ? LIMIT 1", keyBreakingNewsText).Scan(&text); err != nil && err != sql.ErrNoRows {
+	// text is read raw rather than through getSetting's fallback handling.
+	text, _, err := readSettingRaw(ctx, conn, keyBreakingNewsText)
+	if err != nil {
 		return models.BreakingNewsSettings{}, err
 	}
 	return models.BreakingNewsSettings{
@@ -101,13 +101,12 @@ func SetBreakingNews(ctx context.Context, conn *sql.DB, s models.BreakingNewsSet
 // getSetting reads a single cms_settings value, returning fallback when the key
 // is absent or stored empty.
 func getSetting(ctx context.Context, conn *sql.DB, key, fallback string) (string, error) {
-	var value string
-	err := conn.QueryRowContext(ctx, "SELECT value_text FROM cms_settings WHERE key_name = ? LIMIT 1", key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return fallback, nil
-	}
+	value, found, err := readSettingRaw(ctx, conn, key)
 	if err != nil {
 		return "", err
+	}
+	if !found {
+		return fallback, nil
 	}
 	if value = strings.TrimSpace(value); value == "" {
 		return fallback, nil
@@ -116,12 +115,7 @@ func getSetting(ctx context.Context, conn *sql.DB, key, fallback string) (string
 }
 
 func setSetting(ctx context.Context, conn *sql.DB, key, value string) error {
-	_, err := conn.ExecContext(ctx, `
-		INSERT INTO cms_settings (key_name, value_text)
-		VALUES (?, ?)
-		ON DUPLICATE KEY UPDATE value_text = VALUES(value_text)
-	`, key, value)
-	return err
+	return writeSettingRaw(ctx, conn, key, value)
 }
 
 // GetSEOSettings returns the site-wide SEO/social defaults, falling back to the

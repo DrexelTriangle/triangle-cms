@@ -10,13 +10,12 @@ import (
 const developingStoriesSettingKey = "developing_stories_titles"
 
 func GetDevelopingStories(ctx context.Context, conn *sql.DB) ([]string, error) {
-	var raw string
-	err := conn.QueryRowContext(ctx, "SELECT value_text FROM cms_settings WHERE key_name = ? LIMIT 1", developingStoriesSettingKey).Scan(&raw)
-	if err == sql.ErrNoRows {
-		return []string{}, nil
-	}
+	raw, found, err := readSettingRaw(ctx, conn, developingStoriesSettingKey)
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		return []string{}, nil
 	}
 
 	var parsed []string
@@ -64,10 +63,5 @@ func SetDevelopingStories(ctx context.Context, conn *sql.DB, stories []string) e
 		return err
 	}
 
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO cms_settings (key_name, value_text)
-		VALUES (?, ?)
-		ON DUPLICATE KEY UPDATE value_text = VALUES(value_text)
-	`, developingStoriesSettingKey, string(payload))
-	return err
+	return writeSettingRaw(ctx, conn, developingStoriesSettingKey, string(payload))
 }
