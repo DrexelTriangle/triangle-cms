@@ -49,7 +49,9 @@ type PatchPayload = {
   title: string
   excerpt: string
   content: string
-  status: EditableStatus
+  // Both are omitted by autosave: a publish transition only happens when the
+  // editor presses the publish button.
+  status?: EditableStatus
   published_date?: string
   comment_status: string
   photo_url: string
@@ -199,6 +201,12 @@ function EditArticleView() {
   const currentSnapshotRef = useRef("")
   const lastSavedSnapshotRef = useRef("")
   const snapshotInitializedRef = useRef(false)
+  // Publish timing as it is actually stored, which is not the same thing as the
+  // radio selection: picking a timing is intent, and only the publish button
+  // commits it. Autosave reads these so it can never move an article between
+  // draft and live on its own.
+  const savedTimingRef = useRef<PublishTiming>("draft")
+  const savedPublishedAtRef = useRef("")
   // Name of another editor currently holding the edit lock, or null when we
   // hold it (or it's a new article). When set, editing is blocked so nobody
   // starts work they won't be able to save.
@@ -244,13 +252,14 @@ function EditArticleView() {
   const [taxonomyItems, setTaxonomyItems] = useState<TaxonomyItem[]>([])
   const [taxonomyLoading, setTaxonomyLoading] = useState(false)
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null)
+  // Publish timing is deliberately absent: it is not autosaved, so including it
+  // would both trigger a save the editor did not ask for and then mark the
+  // uncommitted timing as saved.
   const articleSnapshot = useMemo(() => JSON.stringify({
     title,
     slugInput: isNew ? slugInput : "",
     excerpt,
     content,
-    publishTiming,
-    publishedAt: publishTiming === "schedule" ? publishedAt : "",
     commentStatus,
     photoURL,
     breakingNews,
@@ -267,8 +276,6 @@ function EditArticleView() {
     isNew,
     excerpt,
     content,
-    publishTiming,
-    publishedAt,
     commentStatus,
     photoURL,
     breakingNews,
@@ -330,14 +337,15 @@ function EditArticleView() {
           setContent(payload.content ?? "")
           const payloadStatus = (payload.status ?? "draft").toLowerCase()
           const localPublishedAt = toLocalInput(payload.published_date)
-          setPublishTiming(
-            payloadStatus === "scheduled" || isFutureDate(localPublishedAt)
-              ? "schedule"
-              : payloadStatus === "published"
-                ? "now"
-                : "draft",
-          )
+          const loadedTiming: PublishTiming = payloadStatus === "scheduled" || isFutureDate(localPublishedAt)
+            ? "schedule"
+            : payloadStatus === "published"
+              ? "now"
+              : "draft"
+          setPublishTiming(loadedTiming)
           setPublishedAt(localPublishedAt)
+          savedTimingRef.current = loadedTiming
+          savedPublishedAtRef.current = loadedTiming === "schedule" ? localPublishedAt : ""
           setCommentStatus(normalizeCommentStatus(payload.comment_status))
           setPhotoURL(payload.featured_image ?? "")
           setBreakingNews(Boolean(payload.breaking_news))
@@ -540,7 +548,9 @@ function EditArticleView() {
       setAutoSaveMessage(null)
     }
 
-    const effectiveTiming = nextTiming ?? publishTiming
+    // Autosave saves content against the timing already on file; only an
+    // explicit save is allowed to act on the radio selection.
+    const effectiveTiming = autosave ? savedTimingRef.current : (nextTiming ?? publishTiming)
     const effectiveStatus: EditableStatus = effectiveTiming === "draft" ? "draft" : "published"
     const taxonomyBySlug = new Map(taxonomyItems.map((item) => [item.slug, item]))
     const categories = selectedCategorySlugs
@@ -563,16 +573,18 @@ function EditArticleView() {
       )
       return
     }
-    const publishedDateISO = effectiveTiming === "schedule" && publishedAt ? localInputToISO(publishedAt) : ""
-    if (effectiveTiming === "schedule" && !publishedAt) {
+    // Only an explicit save sends a date, so a half-edited schedule date must not
+    // hold the content autosave hostage.
+    const publishedDateISO = !autosave && effectiveTiming === "schedule" && publishedAt ? localInputToISO(publishedAt) : ""
+    if (!autosave && effectiveTiming === "schedule" && !publishedAt) {
       validationError("Choose a publish date before scheduling.", "Autosave paused until the schedule date is set.")
       return
     }
-    if (effectiveTiming === "schedule" && publishedAt && !publishedDateISO) {
+    if (!autosave && effectiveTiming === "schedule" && publishedAt && !publishedDateISO) {
       validationError("Publish date is invalid.", "Autosave paused until the schedule date is valid.")
       return
     }
-    if (effectiveTiming === "schedule" && !isFutureDate(publishedAt)) {
+    if (!autosave && effectiveTiming === "schedule" && !isFutureDate(publishedAt)) {
       validationError("Choose a future publish date, or use Publish now.", "Autosave paused until the schedule date is in the future.")
       return
     }
@@ -621,7 +633,10 @@ function EditArticleView() {
         title: title.trim(),
         excerpt: excerpt.trim(),
         content: content.trim(),
-        status: effectiveStatus,
+        // An autosave omits both fields entirely; the handler leaves pub_date and
+        // scheduled_pub_date untouched when neither is present, so the article
+        // stays exactly as published (or as draft) as the editor left it.
+        ...(autosave ? {} : { status: effectiveStatus }),
         ...(publishedDateISO ? { published_date: publishedDateISO } : {}),
         comment_status: commentStatus.trim() || "open",
         photo_url: photoURL.trim(),
@@ -648,6 +663,11 @@ function EditArticleView() {
         setPublishTiming(nextTiming)
         if (nextTiming !== "schedule") setPublishedAt("")
       }
+      if (!autosave) {
+        // The transition is now on file, so later autosaves save against it.
+        savedTimingRef.current = effectiveTiming
+        savedPublishedAtRef.current = effectiveTiming === "schedule" ? publishedAt : ""
+      }
       clearArticleListCache()
       lastSavedSnapshotRef.current = snapshotToSave
       if (autosave) {
@@ -671,22 +691,21 @@ function EditArticleView() {
     if (isNew || isLoading || lockedBy || isSaving || isAutoSaving) return
     if (!snapshotInitializedRef.current) return
     if (articleSnapshot === lastSavedSnapshotRef.current) return
-    if (publishTiming !== "draft" && selectedAuthorIds.length === 0 && selectedCategorySlugs.length === 0) {
+    // Keyed to the stored timing, not the radio: a live article must not lose its
+    // byline, and a draft the editor is only thinking about publishing is still a
+    // draft as far as autosave is concerned.
+    if (savedTimingRef.current !== "draft" && selectedAuthorIds.length === 0 && selectedCategorySlugs.length === 0) {
       setAutoSaveMessage("Autosave paused until an author or section is set.")
-      return
-    }
-    if (publishTiming === "schedule" && (!publishedAt || !isFutureDate(publishedAt))) {
-      setAutoSaveMessage("Autosave paused until the schedule date is valid.")
       return
     }
 
     setAutoSaveMessage("Unsaved changes.")
     const timer = window.setTimeout(() => {
-      void saveArticle(publishTiming, { autosave: true })
+      void saveArticle(undefined, { autosave: true })
     }, AUTOSAVE_DELAY_MS)
 
     return () => window.clearTimeout(timer)
-  }, [articleSnapshot, isAutoSaving, isLoading, isNew, isSaving, lockedBy, publishTiming, publishedAt, selectedAuthorIds, selectedCategorySlugs])
+  }, [articleSnapshot, isAutoSaving, isLoading, isNew, isSaving, lockedBy, selectedAuthorIds, selectedCategorySlugs])
 
   const inputClass ="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
@@ -740,6 +759,13 @@ function EditArticleView() {
       : "Choose a future date, or use Publish now."
   })()
   const publishActionLabel = publishTiming === "schedule" ? "Schedule" : publishTiming === "now" ? "Publish" : "Save Draft"
+  // Autosave deliberately leaves publish timing alone, so say so: otherwise a
+  // green "Autosaved." next to a freshly picked timing reads as if the timing
+  // went live too.
+  const timingChangePending = !isNew && (
+    publishTiming !== savedTimingRef.current
+    || (publishTiming === "schedule" && publishedAt !== savedPublishedAtRef.current)
+  )
   const publishSavingLabel = publishTiming === "schedule" ? "Scheduling..." : publishTiming === "now" ? "Publishing..." : "Saving..."
   const taxonomyBySlug = useMemo(() => new Map(taxonomyItems.map((item) => [item.slug, item])), [taxonomyItems])
   const categoryGroups = useMemo(() => {
@@ -1326,6 +1352,11 @@ function EditArticleView() {
                 <Save className="w-4 h-4" aria-hidden="true" />
                 {isSaving ? publishSavingLabel : publishActionLabel}
               </button>
+              {timingChangePending ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Publish timing is not autosaved — press {publishActionLabel} to apply it.
+                </p>
+              ) : null}
             </div>
             </div>
 
