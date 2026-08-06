@@ -129,6 +129,12 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // The image whose alt text is being edited, identified by attachment id
+  // because the attachment object itself is replaced whenever Trix re-renders.
+  const [altEditor, setAltEditor] = useState<{
+    attachmentId: number;
+    alt: string;
+  } | null>(null);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -408,7 +414,7 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
 
       if (!item.alt_text) {
         setNotice(
-          `Inserted ${item.file_name}, which has no alt text. Add it in the Media library.`,
+          `Inserted ${item.file_name}, which has no alt text. Click the image and use “Alt” to describe it.`,
         );
       }
     },
@@ -434,6 +440,29 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       editor.removeEventListener("trix-file-accept", handleFileAccept);
     };
   }, [openBlockForImage]);
+
+  // Write the edited alt text back onto the attachment. It lives in the
+  // attachment's own attributes, which is what Trix serializes into
+  // data-trix-attachment and what trixHtmlToArticle reads to emit <img alt>, so
+  // this is the value that publishes.
+  //
+  // Article-scoped by design: the attachment carries no library id (nothing
+  // survives a reload but the URL), and an image can legitimately want a
+  // different description in a different story. Setting the library's own alt
+  // text -- the value every future insertion starts from -- is the picker's job.
+  const saveAltText = useCallback((attachmentId: number, alt: string) => {
+    setAltEditor(null);
+    const editor = editorRef.current;
+    if (!editor) return;
+    const attachment = editor.editor
+      .getDocument()
+      .getAttachments()
+      .find((candidate) => candidate.id === attachmentId);
+    // Gone: the image was deleted while the dialog was open.
+    if (!attachment) return;
+    attachment.setAttributes({ alt });
+    editor.focus();
+  }, []);
 
   const openPicker = useCallback(() => {
     const editor = editorRef.current;
@@ -1035,6 +1064,36 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         toolbar.querySelector(".trix-button-row")?.appendChild(copyGroup);
       }
 
+      // Alt text, editable from here rather than only from the Media library.
+      // The caption is already editable in place (Trix's own caption field), so
+      // alt text was the one thing about an image an author had to leave the
+      // article to change -- and the one that has to be right before it
+      // publishes.
+      const altGroup = document.createElement("span");
+      altGroup.className = "trix-button-group trix-button-group--alt";
+
+      const alt =
+        typeof attachment.getAttribute("alt") === "string"
+          ? String(attachment.getAttribute("alt"))
+          : "";
+      const altButton = document.createElement("button");
+      altButton.type = "button";
+      altButton.className = `trix-button trix-button--alt${alt ? "" : " trix-button--alt-missing"}`;
+      altButton.textContent = "Alt";
+      altButton.title = alt ? `Alt text: ${alt}` : "No alt text — add a description";
+      altButton.addEventListener("mousedown", (mouseEvent) => {
+        mouseEvent.preventDefault();
+      });
+      altButton.addEventListener("click", (clickEvent) => {
+        clickEvent.preventDefault();
+        // Only the id travels into React state: the dialog outlives this
+        // toolbar (opening it deselects the attachment, which tears the toolbar
+        // down), so it re-finds the attachment in the document on save.
+        setAltEditor({ attachmentId: attachment.id, alt });
+      });
+      altGroup.appendChild(altButton);
+      toolbar.querySelector(".trix-button-row")?.appendChild(altGroup);
+
       toolbar.querySelector(".trix-button-row")?.appendChild(group);
     };
 
@@ -1531,6 +1590,17 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         </div>
       )}
 
+      {altEditor && (
+        <AltTextDialog
+          alt={altEditor.alt}
+          onCancel={() => {
+            setAltEditor(null);
+            editorRef.current?.focus();
+          }}
+          onSave={(alt) => saveAltText(altEditor.attachmentId, alt)}
+        />
+      )}
+
       {pickerOpen && (
         <MediaPicker
           onClose={() => {
@@ -1540,6 +1610,88 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
           onSelect={insertFromLibrary}
         />
       )}
+    </div>
+  );
+}
+
+type AltTextDialogProps = {
+  alt: string;
+  onSave: (alt: string) => void;
+  onCancel: () => void;
+};
+
+/**
+ * Alt-text prompt for the image the author has selected in the article.
+ *
+ * A modal rather than a field on the attachment toolbar: that toolbar is Trix's,
+ * it is destroyed the moment the attachment loses selection, and a text input
+ * living inside the contenteditable competes with Trix for every keystroke --
+ * the same reason the caption field is Trix's own and not ours.
+ */
+function AltTextDialog({ alt, onSave, onCancel }: AltTextDialogProps) {
+  const [draft, setDraft] = useState(alt);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onCancel}
+      role="presentation"
+    >
+      <div
+        aria-label="Alt text"
+        aria-modal="true"
+        className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-background p-5"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+      >
+        <h2 className="text-base font-semibold text-foreground">Alt text</h2>
+        <p className="text-sm text-muted-foreground">
+          What a screen reader announces in place of this image. Leave it empty
+          only if the image is decorative.
+        </p>
+        <textarea
+          aria-label="Alt text"
+          autoFocus
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+          onChange={(e) => setDraft(e.target.value)}
+          // Enter saves; the field is one sentence, not a paragraph.
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSave(draft.trim());
+            }
+          }}
+          placeholder="Describe the image"
+          rows={3}
+          value={draft}
+        />
+        <div className="flex justify-end gap-2">
+          <button
+            className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+            onClick={onCancel}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            onClick={() => onSave(draft.trim())}
+            type="button"
+          >
+            Save
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

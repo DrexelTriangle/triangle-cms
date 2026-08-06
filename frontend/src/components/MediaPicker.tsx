@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ImageOff, Search, Upload, X } from "lucide-react"
+import { ImageOff, Pencil, Search, Upload, X } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 
 export type MediaPickerItem = {
@@ -146,6 +146,13 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
     return () => observer.disconnect()
   }, [sentinel, hasMore, isLoading, isLoadingMore, items.length])
 
+  // Alt text saved from a tile belongs to the library record, so the grid has to
+  // show the new value straight away -- otherwise the "No alt text" warning
+  // stays up on an image that now has some.
+  const updateItem = useCallback((id: number, altText: string) => {
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, alt_text: altText } : item)))
+  }, [])
+
   const handleUpload = useCallback(
     async (files: FileList | null) => {
       const file = files?.[0]
@@ -261,29 +268,33 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
               {items.map((item) => (
-                <button
-                  className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary"
+                <div
+                  className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card transition-colors focus-within:border-primary hover:border-primary"
                   key={item.id}
-                  onClick={() => onSelect(item)}
-                  title={item.file_name}
-                  type="button"
                 >
-                  <span className="relative block aspect-square overflow-hidden bg-muted">
-                    <img
-                      alt={item.alt_text || item.file_name}
-                      className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      src={item.url}
-                    />
-                  </span>
-                  <span className="truncate px-2 py-1.5 text-xs text-foreground">{item.file_name}</span>
-                  {!item.alt_text && (
-                    // Surfaced here because this is the moment the choice is
-                    // made: an image with no alt text will publish without any.
-                    <span className="px-2 pb-1.5 text-[11px] text-muted-foreground">No alt text</span>
-                  )}
-                </button>
+                  <button
+                    className="flex flex-col text-left"
+                    onClick={() => onSelect(item)}
+                    title={item.file_name}
+                    type="button"
+                  >
+                    <span className="relative block aspect-square overflow-hidden bg-muted">
+                      <img
+                        alt={item.alt_text || item.file_name}
+                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        src={item.url}
+                      />
+                    </span>
+                    <span className="truncate px-2 py-1.5 text-xs text-foreground">{item.file_name}</span>
+                  </button>
+                  {/* Alt text is edited here, next to the image, because this is
+                      the moment the choice is made: an image with no alt text
+                      publishes without any, and sending the author to the Media
+                      library to fix that loses the article they were writing. */}
+                  <AltTextField item={item} onSaved={updateItem} />
+                </div>
               ))}
             </div>
           )}
@@ -319,6 +330,127 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
             </button>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+type AltTextFieldProps = {
+  item: MediaPickerItem
+  onSaved: (id: number, altText: string) => void
+}
+
+/**
+ * Inline alt-text editor for one tile.
+ *
+ * It writes to the library record (PATCH /v1/media/{id}), not to this article,
+ * so an image described once is described everywhere it is used -- the same
+ * contract the picker already relies on when it hands alt_text to the editor.
+ *
+ * Its own error state rather than the picker's banner: a failed save belongs
+ * next to the field that failed, and it must not clear the text the author just
+ * typed.
+ */
+function AltTextField({ item, onSaved }: AltTextFieldProps) {
+  const apiFetch = useApiFetch()
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState(item.alt_text ?? "")
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const altText = item.alt_text ?? ""
+
+  const save = async () => {
+    const next = draft.trim()
+    if (next === altText) {
+      setIsEditing(false)
+      return
+    }
+    setIsSaving(true)
+    setError(null)
+    try {
+      const response = await apiFetch(`/v1/media/${String(item.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alt_text: next }),
+      })
+      if (!response.ok) {
+        setError(await errorMessage(response, `Save failed (${response.status})`))
+        return
+      }
+      onSaved(item.id, next)
+      setIsEditing(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save alt text.")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  if (!isEditing) {
+    return (
+      <button
+        className={`flex items-center gap-1 px-2 pb-1.5 text-left text-[11px] hover:text-foreground ${
+          altText ? "text-muted-foreground" : "text-destructive"
+        }`}
+        onClick={() => {
+          setDraft(altText)
+          setError(null)
+          setIsEditing(true)
+        }}
+        title={altText || "Add alt text"}
+        type="button"
+      >
+        <Pencil className="h-3 w-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">{altText || "No alt text"}</span>
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1 px-2 pb-2">
+      <input
+        aria-label={`Alt text for ${item.file_name}`}
+        autoFocus
+        className="w-full rounded border border-border bg-background px-1.5 py-1 text-[11px] text-foreground focus:border-primary focus:outline-none"
+        disabled={isSaving}
+        onChange={(e) => setDraft(e.target.value)}
+        // Enter saves and Escape abandons, so the whole edit is one gesture
+        // without reaching for the buttons.
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            void save()
+          }
+          // Stopped from bubbling: the picker closes the whole modal on Escape,
+          // which would throw away the article's insertion point too.
+          if (e.key === "Escape") {
+            e.preventDefault()
+            e.stopPropagation()
+            setIsEditing(false)
+          }
+        }}
+        placeholder="Describe the image"
+        value={draft}
+      />
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+      <div className="flex gap-1">
+        <button
+          className="rounded bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          disabled={isSaving}
+          onClick={() => void save()}
+          type="button"
+        >
+          {isSaving ? "Saving..." : "Save"}
+        </button>
+        <button
+          className="rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+          disabled={isSaving}
+          onClick={() => setIsEditing(false)}
+          type="button"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   )

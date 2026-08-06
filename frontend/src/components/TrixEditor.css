@@ -415,6 +415,24 @@ trix-editor.trix-content .attachment__toolbar .trix-button--copy-url .trix-icon 
   height: 14px;
 }
 
+/* Alt text. Called out in the destructive colour when there is none, because an
+   image that publishes undescribed is the failure this button exists to catch
+   and nothing else on the page would say so. */
+trix-editor.trix-content .attachment__toolbar .trix-button--alt {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+trix-editor.trix-content .attachment__toolbar .trix-button--alt-missing {
+  color: hsl(var(--destructive, 0 72% 51%));
+}
+
+trix-editor.trix-content
+  .attachment__toolbar
+  .trix-button--alt-missing:hover:not(:disabled) {
+  background: hsl(var(--destructive, 0 72% 51%) / 0.12);
+}
+
 /* Confirmation tick, matching "Copy article link" going green on success. */
 trix-editor.trix-content .attachment__toolbar .trix-button--copied {
   color: hsl(var(--primary, 243 75% 59%));
