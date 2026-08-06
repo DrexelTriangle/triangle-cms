@@ -29,7 +29,7 @@ interface RecentArticle {
   id: number
   title: string
   slug: string
-  status: "published" | "draft"
+  status: "published" | "draft" | "scheduled"
   authors: { name: string }[]
   categories: { name: string }[]
   published_date: string | null
@@ -51,14 +51,30 @@ function getHour() {
   return "Good evening"
 }
 
+// Scheduled articles sit in the future, so the difference has to be read in
+// both directions — otherwise their date reads as "-429m ago".
 function timeAgo(dateStr: string | null) {
   if (!dateStr) return "—"
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
+  const target = new Date(dateStr).getTime()
+  if (Number.isNaN(target)) return "—"
+  const diff = Date.now() - target
+  const ahead = diff < 0
+  const mins = Math.floor(Math.abs(diff) / 60000)
+  if (mins < 1) return "just now"
+  const label =
+    mins < 60
+      ? `${mins}m`
+      : mins < 1440
+        ? `${Math.floor(mins / 60)}h`
+        : `${Math.floor(mins / 1440)}d`
+  return ahead ? `in ${label}` : `${label} ago`
+}
+
+// The articles page shows capitalized status labels ("Published", "Scheduled"),
+// so the dashboard badges match rather than showing the raw API value.
+function formatStatusLabel(status: string) {
+  if (!status) return "—"
+  return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()
 }
 
 function toCanonicalSlug(value: string) {
@@ -435,7 +451,7 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-3 py-2.5">
                           <Badge variant={article.status === "published" ? "success" : "secondary"} className="text-[11px]">
-                            {article.status}
+                            {formatStatusLabel(article.status)}
                           </Badge>
                         </td>
                         <td className="px-5 py-2.5 text-xs text-muted-foreground text-right hidden lg:table-cell">
