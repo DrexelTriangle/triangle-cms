@@ -51,14 +51,23 @@ function getHour() {
   return "Good evening"
 }
 
+// Scheduled articles sit in the future, so the difference has to be read in
+// both directions — otherwise their date reads as "-429m ago".
 function timeAgo(dateStr: string | null) {
   if (!dateStr) return "—"
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
+  const target = new Date(dateStr).getTime()
+  if (Number.isNaN(target)) return "—"
+  const diff = Date.now() - target
+  const ahead = diff < 0
+  const mins = Math.floor(Math.abs(diff) / 60000)
+  if (mins < 1) return "just now"
+  const label =
+    mins < 60
+      ? `${mins}m`
+      : mins < 1440
+        ? `${Math.floor(mins / 60)}h`
+        : `${Math.floor(mins / 1440)}d`
+  return ahead ? `in ${label}` : `${label} ago`
 }
 
 function toCanonicalSlug(value: string) {
