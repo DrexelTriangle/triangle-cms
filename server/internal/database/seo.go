@@ -118,9 +118,18 @@ func auditArticle(id int64, slug, title, seoTitle, metaDesc, focusKeyword, photo
 	metaDesc = strings.TrimSpace(metaDesc)
 	focusKeyword = strings.TrimSpace(focusKeyword)
 
-	if seoTitle == "" {
+	// A blank seo_title is not a defect: the public site renders the article
+	// title in its place (ArticleLayout.astro), so the page ships a correct
+	// <title> either way. Only the effective title's length matters, because
+	// that is what search results actually truncate.
+	effectiveTitle := seoTitle
+	if effectiveTitle == "" {
+		effectiveTitle = strings.TrimSpace(title)
+	}
+	switch {
+	case effectiveTitle == "":
 		add("warning", "Missing SEO title")
-	} else if utf8.RuneCountInString(seoTitle) > seoTitleMaxLen {
+	case utf8.RuneCountInString(effectiveTitle) > seoTitleMaxLen:
 		add("warning", "SEO title exceeds 60 characters")
 	}
 
