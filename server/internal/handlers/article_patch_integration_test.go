@@ -154,6 +154,62 @@ func TestArticlePatchHTTP_PublishedSaveKeepsOriginalPublishDate(t *testing.T) {
 	}
 }
 
+// Autosave sends the form without status or published_date, precisely so it can
+// never move an article across the draft/live line on its own. Content still has
+// to land.
+func TestArticlePatchHTTP_AutosaveWithoutStatusLeavesPublishStateAlone(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	scheduled := time.Date(2030, 6, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories, pub_date, scheduled_pub_date) VALUES (?, ?, ?, ?, ?, ?)",
+		"Unpublished story", "unpublished-story", "Body", "News", nil, nil,
+	); err != nil {
+		t.Fatalf("seed draft: %v", err)
+	}
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories, pub_date, scheduled_pub_date) VALUES (?, ?, ?, ?, ?, ?)",
+		"Queued story", "queued-story", "Body", "News", nil, scheduled.Format("2006-01-02 15:04:05"),
+	); err != nil {
+		t.Fatalf("seed scheduled article: %v", err)
+	}
+
+	autosaveBody := `{"title":"Edited title","excerpt":"","content":"Edited body",` +
+		`"comment_status":"open","photo_url":"","breaking_news":false,"categories":["News"],` +
+		`"tags":[],"authors":[],"focus_keyword":"","meta_description":"","seo_title":""}`
+
+	rec := httptest.NewRecorder()
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("unpublished-story", autosaveBody))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("draft autosave status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+	if pubDate := articlePubDate(t, conn, "unpublished-story"); pubDate.Valid {
+		t.Fatalf("autosave published a draft: pub_date = %s, want NULL", pubDate.Time.UTC())
+	}
+	var savedText string
+	if err := conn.QueryRowContext(context.Background(), "SELECT `text` FROM articles WHERE slug = ?", "unpublished-story").Scan(&savedText); err != nil {
+		t.Fatalf("read text: %v", err)
+	}
+	if savedText != "Edited body" {
+		t.Fatalf("text = %q, want the autosaved body", savedText)
+	}
+
+	rec = httptest.NewRecorder()
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("queued-story", autosaveBody))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("scheduled autosave status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+	if pubDate := articlePubDate(t, conn, "queued-story"); pubDate.Valid {
+		t.Fatalf("autosave published a scheduled article: pub_date = %s, want NULL", pubDate.Time.UTC())
+	}
+	var scheduledAfter sql.NullTime
+	if err := conn.QueryRowContext(context.Background(), "SELECT scheduled_pub_date FROM articles WHERE slug = ?", "queued-story").Scan(&scheduledAfter); err != nil {
+		t.Fatalf("read scheduled_pub_date: %v", err)
+	}
+	if !scheduledAfter.Valid || !scheduledAfter.Time.UTC().Equal(scheduled) {
+		t.Fatalf("scheduled_pub_date = %v, want %s (autosave moved the schedule)", scheduledAfter, scheduled)
+	}
+}
+
 func TestArticlePatchHTTP_DraftSaveKeepsPublishDateForRepublish(t *testing.T) {
 	conn := articlePatchTestDB(t)
 	original := time.Date(2025, 3, 4, 15, 30, 0, 0, time.UTC)
