@@ -98,9 +98,9 @@ type SubsectionArticlesResponse struct {
 }
 
 type SEOResponse struct {
-	SEOTitle        string            `json:"seo_title"`
-	MetaDescription string            `json:"meta_description"`
-	FocusKeyword    string            `json:"focus_keyword"`
+	SEOTitle        string `json:"seo_title"`
+	MetaDescription string `json:"meta_description"`
+	FocusKeyword    string `json:"focus_keyword"`
 	// CanonicalURL is the editor-supplied override for syndicated or reprinted
 	// pieces that should credit another publisher. Empty means "no override":
 	// the public site falls back to its own /article/<slug> URL.
@@ -122,10 +122,15 @@ type ArticleDetailResponse struct {
 	BreakingNews  bool              `json:"breaking_news"`
 	Status        ArticleStatus     `json:"status"`
 	FeaturedImage string            `json:"featured_image"`
-	Authors       []AuthorSummary   `json:"authors"`
-	SEO           SEOResponse       `json:"seo"`
-	Related       []ArticleListItem `json:"related"`
-	PublishedDate *time.Time        `json:"published_date,omitempty"`
+	// FeaturedImageAlt is the article's own description of its featured image.
+	// Empty means the public site has nothing to render, which is a defect worth
+	// surfacing rather than papering over with the headline: an alt that repeats
+	// the adjacent headline tells a screen-reader user nothing new.
+	FeaturedImageAlt string            `json:"featured_image_alt"`
+	Authors          []AuthorSummary   `json:"authors"`
+	SEO              SEOResponse       `json:"seo"`
+	Related          []ArticleListItem `json:"related"`
+	PublishedDate    *time.Time        `json:"published_date,omitempty"`
 	// ModifiedDate is the article's last-edited time (the `mod_date` column the
 	// public sitemap already reports as <lastmod>). Exposed so the public site's
 	// NewsArticle dateModified agrees with the sitemap instead of silently

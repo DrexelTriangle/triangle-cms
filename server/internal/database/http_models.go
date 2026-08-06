@@ -45,10 +45,10 @@ var ArticleColumns = []string{
 	"pub_date", "mod_date", "priority", "breaking_news",
 	"comment_status", "photo_url",
 	"focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date",
-	"canonical_url", "noindex",
+	"canonical_url", "noindex", "photo_alt",
 }
 
-const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`, a.`focus_keyword`, a.`meta_description`, a.`seo_title`, a.`creation_date`, a.`scheduled_pub_date`, a.`canonical_url`, a.`noindex`"
+const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`, a.`focus_keyword`, a.`meta_description`, a.`seo_title`, a.`creation_date`, a.`scheduled_pub_date`, a.`canonical_url`, a.`noindex`, a.`photo_alt`"
 
 // Image/photo URLs are canonicalized upstream in the WordPress ETL (see
 // wordpress-etl Utils/MediaURL) so `photo_url` and inline body images are stored
@@ -155,13 +155,14 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 		scheduledDate   sql.NullTime
 		canonicalURL    sql.NullString
 		noIndex         sql.NullBool
+		photoAlt        sql.NullString
 	)
 	err := rows.Scan(
 		&a.ID, &a.Title, &slug, &description, &text, &excerpt, &tags, &categories,
 		&pubDate, &modDate, &priority, &breakingNews,
 		&commentStatus, &photoURL,
 		&focusKeyword, &metaDescription, &seoTitle, &creationDate, &scheduledDate,
-		&canonicalURL, &noIndex,
+		&canonicalURL, &noIndex, &photoAlt,
 	)
 	if err != nil {
 		return models.Article{}, err
@@ -225,6 +226,9 @@ func ScanArticle(rows *sql.Rows) (models.Article, error) {
 	}
 	if photoURL.Valid {
 		a.PhotoURL = photoURL.String
+	}
+	if photoAlt.Valid {
+		a.PhotoAlt = photoAlt.String
 	}
 	return a, nil
 }
@@ -698,6 +702,7 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		scheduledAt,
 		canonicalURL,
 		body.NoIndex,
+		strings.TrimSpace(body.PhotoAlt),
 	}
 }
 
@@ -742,5 +747,6 @@ func ArticleToDBFields(body models.Article) []any {
 		scheduledAt,
 		canonicalURL,
 		body.NoIndex,
+		strings.TrimSpace(body.PhotoAlt),
 	}
 }

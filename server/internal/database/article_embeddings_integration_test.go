@@ -73,7 +73,8 @@ func articleEmbeddingsTestDB(t *testing.T) *sql.DB {
 			scheduled_pub_date DATETIME NULL,
 			archived_at DATETIME NULL,
 			canonical_url LONGTEXT,
-			noindex BOOL NOT NULL DEFAULT 0
+			noindex BOOL NOT NULL DEFAULT 0,
+			photo_alt LONGTEXT
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`); err != nil {
 		t.Fatalf("create articles table: %v", err)

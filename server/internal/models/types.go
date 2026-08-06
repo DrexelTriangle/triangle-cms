@@ -110,28 +110,33 @@ type AuthorListParams struct {
 }
 
 type Article struct {
-	Title           string           `json:"title"`
-	ID              int64            `json:"id"`
-	Authors         []AuthorOverview `json:"authors"`
-	Content         string           `json:"content"`
-	Categories      []string         `json:"categories"`
-	Tags            []string         `json:"-"`
-	Excerpt         string           `json:"excerpt"`
-	Slug            string           `json:"slug"`
-	PhotoURL        string           `json:"photo_url"`
-	IsFeatured      bool             `json:"is_featured"`
-	BreakingNews    bool             `json:"breaking_news"`
-	Status          ArticleStatus    `json:"status"`
-	CommentStatus   string           `json:"comment_status"`
-	FocusKeyword    string           `json:"focus_keyword"`
-	MetaDescription string           `json:"meta_description"`
-	SEOTitle        string           `json:"seo_title"`
-	CanonicalURL    string           `json:"canonical_url"`
-	NoIndex         bool             `json:"noindex"`
-	CreatedAt       *time.Time       `json:"creation_date,omitempty"`
-	PublishedAt     *time.Time       `json:"published_date,omitempty"`
-	ModifiedAt      *time.Time       `json:"modified_date,omitempty"`
-	ScheduledAt     *time.Time       `json:"scheduled_date,omitempty"`
+	Title      string           `json:"title"`
+	ID         int64            `json:"id"`
+	Authors    []AuthorOverview `json:"authors"`
+	Content    string           `json:"content"`
+	Categories []string         `json:"categories"`
+	Tags       []string         `json:"-"`
+	Excerpt    string           `json:"excerpt"`
+	Slug       string           `json:"slug"`
+	PhotoURL   string           `json:"photo_url"`
+	// PhotoAlt describes the featured image for screen readers. It is
+	// article-scoped rather than a lookup into the media library: the same photo
+	// can want a different description in a different story, and a featured image
+	// set by URL has no library record to read one from.
+	PhotoAlt        string        `json:"photo_alt"`
+	IsFeatured      bool          `json:"is_featured"`
+	BreakingNews    bool          `json:"breaking_news"`
+	Status          ArticleStatus `json:"status"`
+	CommentStatus   string        `json:"comment_status"`
+	FocusKeyword    string        `json:"focus_keyword"`
+	MetaDescription string        `json:"meta_description"`
+	SEOTitle        string        `json:"seo_title"`
+	CanonicalURL    string        `json:"canonical_url"`
+	NoIndex         bool          `json:"noindex"`
+	CreatedAt       *time.Time    `json:"creation_date,omitempty"`
+	PublishedAt     *time.Time    `json:"published_date,omitempty"`
+	ModifiedAt      *time.Time    `json:"modified_date,omitempty"`
+	ScheduledAt     *time.Time    `json:"scheduled_date,omitempty"`
 }
 
 type ArticleOverview struct {
@@ -158,6 +163,7 @@ type ArticleInput struct {
 	Categories      []string      `json:"categories"`
 	Tags            []string      `json:"tags,omitempty"`
 	PhotoURL        string        `json:"photo_url"`
+	PhotoAlt        string        `json:"photo_alt,omitempty"`
 	IsFeatured      bool          `json:"is_featured"`
 	BreakingNews    bool          `json:"breaking_news"`
 	Status          ArticleStatus `json:"status"`
@@ -178,6 +184,7 @@ type ArticlePatch struct {
 	Tags            *[]string      `json:"tags,omitempty"`
 	Excerpt         *string        `json:"excerpt,omitempty"`
 	PhotoURL        *string        `json:"photo_url,omitempty"`
+	PhotoAlt        *string        `json:"photo_alt,omitempty"`
 	IsFeatured      *bool          `json:"is_featured,omitempty"`
 	BreakingNews    *bool          `json:"breaking_news,omitempty"`
 	Status          *ArticleStatus `json:"status,omitempty"`
