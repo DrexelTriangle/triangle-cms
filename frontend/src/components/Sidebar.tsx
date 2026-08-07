@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { useLocation, useNavigate } from "react-router-dom"
+import { Link, useLocation, useNavigate } from "react-router-dom"
 import {
   LayoutDashboard,
   FileText,
@@ -153,7 +153,9 @@ export default function Sidebar() {
       )}
     >
       {/* Brand */}
-      <div
+      <Link
+        to="/"
+        aria-label="Dashboard"
         className={cn(
           "flex items-center gap-2.5 h-16 px-4 border-b border-sidebar-border shrink-0",
           collapsed && "justify-center px-0",
@@ -167,7 +169,7 @@ export default function Sidebar() {
         {/* {!collapsed && (
           <span className="text-lg font-bold text-white tracking-tight truncate">Delta CMS</span>
         )} */}
-      </div>
+      </Link>
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2">
