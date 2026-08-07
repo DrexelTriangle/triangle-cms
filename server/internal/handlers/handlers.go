@@ -2101,6 +2101,13 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		// See PatchArticle: featuring is exclusive.
+		if body.IsFeatured {
+			if err := db.ClearFeaturedExceptID(r.Context(), conn, articleID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 		if err := db.ReplaceArticleAuthors(r.Context(), conn, articleID, body.Authors); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2180,6 +2187,14 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		if rowsAffected == 0 {
 			writeError(w, http.StatusNotFound, "article not found")
 			return
+		}
+		// See PatchArticle: featuring is exclusive, so the previous pick is
+		// cleared once this one is safely written.
+		if body.IsFeatured {
+			if err := db.ClearFeaturedExcept(r.Context(), conn, body.Slug); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 		if err := db.ReplaceArticleAuthorsBySlug(r.Context(), conn, body.Slug, authorIDsFromOverviews(body.Authors)); err != nil {
 			if err == sql.ErrNoRows {
@@ -2272,6 +2287,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		var publishedDateValue any
 		var scheduledDateValue any
+		featuring := false
 		publishedDateSet := false
 		var statusValue models.ArticleStatus
 		statusSet := false
@@ -2379,6 +2395,15 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				}
 				setCols = append(setCols, column)
 				setArgs = append(setArgs, b)
+			case "is_featured":
+				b, ok := v.(bool)
+				if !ok {
+					writeError(w, http.StatusBadRequest, "is_featured must be a boolean")
+					return
+				}
+				setCols = append(setCols, column)
+				setArgs = append(setArgs, b)
+				featuring = b
 			case "slug":
 				s, ok := v.(string)
 				if !ok {
@@ -2425,6 +2450,15 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			}
 			if newSlug, ok := body["slug"].(string); ok && strings.TrimSpace(newSlug) != "" {
 				targetSlug = strings.TrimSpace(newSlug)
+			}
+		}
+		// Exactly one article is featured at a time: the homepage has one lead
+		// card, and leaving the old pick flagged would make the tiebreak, not
+		// the editor, decide which story runs.
+		if featuring {
+			if err := db.ClearFeaturedExcept(r.Context(), conn, targetSlug); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
 			}
 		}
 		if authorIDs != nil {
@@ -2546,6 +2580,57 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
+// homepageCacheControl bounds how long a featured-article change can take to
+// reach readers. 60s is short enough that an editor swapping the lead sees it
+// on the next reload rather than wondering whether the save worked, and long
+// enough that the homepage is not re-rendered per visitor.
+const homepageCacheControl = "public, max-age=60, stale-while-revalidate=300"
+
+// leadWithFeaturedArticle moves the featured article to the front of the
+// homepage news block. It is a no-op when nothing is featured, so the default
+// homepage stays newest-first.
+//
+// The featured article keeps its place in its own section block: a featured
+// sports story leads the homepage and still appears in the sports rundown,
+// which is what a lead story does in print. Only the news block dedupes, so a
+// featured news story is promoted rather than duplicated.
+func leadWithFeaturedArticle(r *http.Request, conn *sql.DB, homepage *models.HomepageResponse, excerptWords, newsLimit int, newsMatchSlugs []string) error {
+	featured, err := db.GetFeaturedArticle(r.Context(), conn)
+	if err != nil || featured == nil {
+		return err
+	}
+
+	articles := []models.Article{*featured}
+	if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
+		return err
+	}
+	items := articleListItems(articles, excerptWords, newsMatchSlugs...)
+	if len(items) == 0 {
+		return nil
+	}
+	homepage.News = spliceFeaturedLead(homepage.News, items[0], newsLimit)
+	return nil
+}
+
+// spliceFeaturedLead puts the featured article at the head of the news block,
+// dropping the copy already in the list so a featured news story is promoted
+// rather than printed twice. The list is re-trimmed to limit because splicing in
+// a story from another section would otherwise push the block one card past the
+// layout it was sized for.
+func spliceFeaturedLead(news []models.ArticleListItem, featured models.ArticleListItem, limit int) []models.ArticleListItem {
+	out := make([]models.ArticleListItem, 0, len(news)+1)
+	out = append(out, featured)
+	for _, item := range news {
+		if item.ID != featured.ID {
+			out = append(out, item)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
 // @Summary Get homepage data
 // @Tags homepage
 // @Produce json
@@ -2606,6 +2691,12 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 			DevelopingStories: developingStories,
 		}
 
+		// Captured from the news pass so the featured article, which may come
+		// from any section, gets the same category ordering as the block it is
+		// being spliced into.
+		var newsMatchSlugs []string
+		newsLimit := 0
+
 		for _, section := range sections {
 			if err := func(section struct {
 				slug  string
@@ -2640,6 +2731,8 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 				}
 				switch section.key {
 				case "news":
+					newsMatchSlugs = matchSlugs
+					newsLimit = limit
 					sectionArticles.News = articleListItems(articles, excerptWords, matchSlugs...)
 				case "opinion":
 					sectionArticles.Opinion = articleListItems(articles, excerptWords, matchSlugs...)
@@ -2658,6 +2751,28 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 				return
 			}
 		}
+
+		// The homepage lead is the first entry of the news block (Scalene's
+		// "3-6-3" layout renders news[0] as the big centre card), so featuring
+		// an article means moving it to the front of that list. It is spliced in
+		// rather than sorted into the news query because the featured article
+		// may be filed under any section -- a featured sports story still takes
+		// the lead card, which a news-scoped ORDER BY could never do.
+		if offset == 0 {
+			if err := leadWithFeaturedArticle(r, conn, &sectionArticles, excerptWords, newsLimit, newsMatchSlugs); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+
+		// The homepage carries the editor's live decisions -- the featured lead,
+		// the breaking-news banner, the carousel -- so it needs a short, stated
+		// freshness bound. Without a Cache-Control header every intermediary
+		// picks its own heuristic, and Scalene's fetch cache has no expiry to
+		// respect at all, so "featured" could take an unbounded time to appear.
+		// stale-while-revalidate keeps that bound cheap: a spike is still served
+		// from cache while one request refreshes it behind the scenes.
+		w.Header().Set("Cache-Control", homepageCacheControl)
 		writeJSON(w, http.StatusOK, sectionArticles)
 	}
 }

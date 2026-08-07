@@ -27,6 +27,7 @@ type ApiArticleDetail = {
   featured_image?: string
   featured_image_alt?: string
   breaking_news?: boolean
+  is_featured?: boolean
   categories?: Array<{
     name?: string
     slug?: string
@@ -63,6 +64,7 @@ type PatchPayload = {
   photo_url: string
   photo_alt: string
   breaking_news: boolean
+  is_featured: boolean
   categories: string[]
   tags: string[]
   authors: number[]
@@ -263,6 +265,7 @@ function EditArticleView() {
   const [photoURL, setPhotoURL] = useState("")
   const [photoAlt, setPhotoAlt] = useState("")
   const [breakingNews, setBreakingNews] = useState(false)
+  const [isFeatured, setIsFeatured] = useState(false)
   const [selectedCategorySlugs, setSelectedCategorySlugs] = useState<string[]>([])
   const [sectionSearch, setSectionSearch] = useState("")
   const [legacyCategoryTitlesBySlug, setLegacyCategoryTitlesBySlug] = useState<Record<string, string>>({})
@@ -300,6 +303,7 @@ function EditArticleView() {
     photoURL,
     photoAlt,
     breakingNews,
+    isFeatured,
     selectedCategorySlugs,
     seoTags,
     seoTagDraft,
@@ -319,6 +323,7 @@ function EditArticleView() {
     photoURL,
     photoAlt,
     breakingNews,
+    isFeatured,
     selectedCategorySlugs,
     seoTags,
     seoTagDraft,
@@ -394,6 +399,7 @@ function EditArticleView() {
           setPhotoURL(payload.featured_image ?? "")
           setPhotoAlt(payload.featured_image_alt ?? "")
           setBreakingNews(Boolean(payload.breaking_news))
+          setIsFeatured(Boolean(payload.is_featured))
           const legacyCategories: Record<string, string> = {}
           const categorySlugs = (payload.categories ?? [])
             .map((category) => {
@@ -661,6 +667,7 @@ function EditArticleView() {
           photo_url: photoURL.trim(),
           photo_alt: photoAlt.trim(),
           breaking_news: breakingNews,
+          is_featured: isFeatured,
           categories,
           tags: seoTagsToSave,
           authors: selectedAuthorIds,
@@ -706,6 +713,7 @@ function EditArticleView() {
         photo_url: photoURL.trim(),
         photo_alt: photoAlt.trim(),
         breaking_news: breakingNews,
+        is_featured: isFeatured,
         categories,
         tags: seoTagsToSave,
         authors: selectedAuthorIds,
@@ -1368,6 +1376,22 @@ function EditArticleView() {
                 type="checkbox"
               />
               <span className="font-medium text-foreground">Breaking news</span>
+            </label>
+
+            <label className="flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-3 text-sm">
+              <input
+                checked={isFeatured}
+                className="mt-0.5 h-4 w-4 rounded border-border"
+                onChange={(e) => setIsFeatured(e.target.checked)}
+                type="checkbox"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-foreground">Featured article</span>
+                <span className="text-[11px] text-muted-foreground">
+                  Runs as the big lead story on the homepage. Only one article can be
+                  featured, so this replaces the current one.
+                </span>
+              </span>
             </label>
 
             <div className={labelClass}>
