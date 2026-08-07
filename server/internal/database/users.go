@@ -26,6 +26,25 @@ func EnsureArticlesSchema(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
+// EnsureArticlesPublishedIndex adds the index the public listing orders on.
+//
+// Every public read -- homepage blocks, section pages, /v1/articles -- is
+// "newest published first, LIMIT n". Without an index on pub_date that is a
+// filesort over the whole migrated corpus on each of those requests; with one
+// the optimizer walks the index backwards and stops at the limit. `id` rides
+// along as the tiebreak so a whole issue published on one timestamp is ordered
+// inside the index rather than sorted afterwards.
+//
+// Non-fatal for the caller, like the search indexes: it is a planner
+// optimization, and the ordering is correct without it.
+func EnsureArticlesPublishedIndex(ctx context.Context, conn *sql.DB) error {
+	_, err := conn.ExecContext(ctx, `
+		ALTER TABLE articles
+		ADD INDEX IF NOT EXISTS idx_articles_pub_date (`+"`pub_date`, `id`"+`)
+	`)
+	return err
+}
+
 // EnsureArticlesSearchIndex adds the FULLTEXT indexes public search ranks on.
 //
 // Two indexes, not one: the combined index answers "does this article match at
