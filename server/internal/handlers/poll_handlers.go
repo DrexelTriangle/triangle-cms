@@ -442,12 +442,12 @@ func PostPollRecord(conn *sql.DB) http.Handler {
 
 		startsAt, _, err := parsePollTime(body.StartsAt)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid starts_at")
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid starts_at: %v", err))
 			return
 		}
 		endsAt, _, err := parsePollTime(body.EndsAt)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid ends_at")
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid ends_at: %v", err))
 			return
 		}
 		if startsAt != nil && endsAt != nil && endsAt.Before(*startsAt) {
@@ -530,12 +530,12 @@ func PatchPollRecord(conn *sql.DB) http.Handler {
 
 		startsAt, clearStarts, err := parsePollTime(body.StartsAt)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid starts_at")
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid starts_at: %v", err))
 			return
 		}
 		endsAt, clearEnds, err := parsePollTime(body.EndsAt)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid ends_at")
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid ends_at: %v", err))
 			return
 		}
 		// Only checkable when the same request supplies both; a PATCH that moves
@@ -837,6 +837,8 @@ func pollPageParams(r *http.Request) (int, int) {
 // unchanged; explicit null or "" (nil, true) means clear the column; a
 // timestamp (value, false) means set it. Collapsing null and absent would make
 // every PATCH silently wipe the dates it didn't mention.
+//
+// Timestamps must carry a UTC offset (RFC3339). See below for why.
 func parsePollTime(raw *string) (*time.Time, bool, error) {
 	if raw == nil {
 		return nil, false, nil
@@ -846,12 +848,17 @@ func parsePollTime(raw *string) (*time.Time, bool, error) {
 		return nil, true, nil
 	}
 
-	// datetime-local inputs submit "2006-01-02T15:04" with no zone, which is
-	// what the CMS poll form sends.
-	layouts := []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02"}
-	for _, layout := range layouts {
-		if parsed, err := time.Parse(layout, trimmed); err == nil {
-			return &parsed, false, nil
+	if parsed, err := time.Parse(time.RFC3339, trimmed); err == nil {
+		return &parsed, false, nil
+	}
+
+	// A zoneless timestamp -- what <input type="datetime-local"> hands you
+	// unhelped -- used to parse as UTC, so a poll scheduled for 9am in
+	// Philadelphia went live at 5am. There is no zone the server can supply
+	// that is better than a guess, so make the caller state one.
+	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02"} {
+		if _, err := time.Parse(layout, trimmed); err == nil {
+			return nil, false, fmt.Errorf("timestamp %q has no UTC offset; send RFC3339 (e.g. 2006-01-02T15:04:05-05:00)", trimmed)
 		}
 	}
 	return nil, false, fmt.Errorf("unrecognised timestamp: %q", trimmed)
