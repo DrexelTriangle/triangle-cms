@@ -36,32 +36,40 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 	return RefreshCategoryAliases(ctx, conn)
 }
 
-// defaultCategoryAliases are the slug -> category-title mismatches that existed
-// before aliases were editable data, seeded so upgrading an existing database
-// does not silently empty four sections.
+// defaultCategoryAliases are the categories a section has to answer to beyond
+// its own name, seeded so upgrading an existing database does not silently
+// empty a section.
 //
 // Only applied where category_aliases IS NULL, so "never set" stays
-// distinguishable from an empty array an editor deliberately saved.
-// The sports entries are a different case from the other four. Those four are
-// one section under two names; these are the sports that never became
-// subsections. WordPress category archives roll a parent up over its child
-// terms automatically, so /category/sports/ listed every article tagged "Men's
-// Lacrosse" without anyone configuring it. Matching here is flat -- a section
-// finds itself plus the subsections that have a row -- so a sport with no row
-// rolls up into nothing and its articles appear on no section page at all.
+// distinguishable from an empty array an editor deliberately saved. A row that
+// already holds aliases is therefore never topped up from here: adding an entry
+// for such a row also needs that row updated in the sections screen, or the
+// addition applies to new databases only.
 //
-// Most sports articles also carry a literal "Sports" tag and were never
-// affected, which is why this surfaced as a handful of arbitrary-looking gaps
-// rather than as a whole missing sport.
+// Two kinds of entry live here. The first four are one section under two names.
+// Everything after them is a category that never became a subsection: WordPress
+// category archives roll a parent up over its child terms automatically, so
+// /category/sports/ listed every article tagged "Men's Lacrosse" without anyone
+// configuring it. Matching here is flat -- a section finds itself plus the
+// subsections that have a row -- so a category with no row rolls up into
+// nothing and its articles appear on no section page at all. That stranded 469
+// published articles, 4.7% of the archive.
 //
-// Aliases rather than subsection rows: these need to rejoin Sports, not to
+// It stayed invisible because most articles also carry their section's literal
+// tag and were never affected, so the gaps looked arbitrary rather than
+// systematic. ReportOrphanedArticles now names the remainder out loud.
+//
+// Aliases rather than subsection rows: these need to rejoin a section, not to
 // acquire a nav entry and a page each. Adding a row is still the right move for
-// a sport the desk wants to feature.
+// a category the desk wants to feature.
 var defaultCategoryAliases = map[string][]string{
-	"entertainment":       {"Arts & Entertainment"},
-	"science-tech":        {"Science & Technology"},
 	"from-the-editor":     {"From the Editor's Desk"},
 	"happening-in-philly": {"What's Happening in Philly"},
+
+	// Most sports articles also carry a literal "Sports" tag and were never
+	// affected, which is why this surfaced as a handful of arbitrary-looking
+	// gaps rather than as a whole missing sport. This is the report that
+	// exposed the rest.
 	"sports": {
 		"Men's Lacrosse",
 		"Women's Lacrosse",
@@ -73,6 +81,45 @@ var defaultCategoryAliases = map[string][]string{
 		"Running",
 		"Athlete of the Week",
 	},
+
+	// The rest of the orphans, filed by what the articles actually are. The
+	// same WordPress hierarchy that carried the sports carried these, and
+	// losing it stranded 436 published articles on no section page at all.
+	//
+	// Style is the large one: 306 articles across the beat and its recurring
+	// features. It sits under Entertainment rather than Opinion's Lifestyle
+	// because it is culture coverage, not opinion writing.
+	"entertainment": {
+		"Arts & Entertainment",
+		"Style", "Street Style", "DIY", "Inside Her Bag", "Store Profile",
+		"Beauty Guide", "Style Guide", "Designer Profile", "Fashion Week",
+		"TV", "Exhibits", "Reel2Reel", "Features",
+		"Restaurant Reviews", "Beer Reviews", "Last Call",
+	},
+
+	// Editorials and letters are the section's own voice, so they belong to
+	// Opinion even though neither is filed under it.
+	"opinion": {"Editorial", "Letters to the Editor", "Commentary"},
+
+	// Columns is where recurring bylined series live, which is what the
+	// podcasts are -- "Mark and Jair Explain Sports" is a show, not a sports
+	// article. Anchored matching keeps it out of Sports despite the name.
+	"columns": {
+		"Podcasts",
+		"Mark and Jair Explain Sports",
+		"Ain't That Something With Brandon & Liz",
+		"You, Me, Buscemi",
+		"Polkadot Tea.Pot",
+		"Where's Mario",
+		"Student Snapshot",
+	},
+
+	"comics-puzzles": {"Word Search"},
+	"science-tech":   {"Science & Technology", "Technically Speaking"},
+
+	// Sponsored content, and the weakest of these calls: it is not news, but
+	// an advertiser paid for it to be visible and no section fits it better.
+	"news": {"Paid Post"},
 }
 
 func SeedDefaultCategoryAliases(ctx context.Context, conn *sql.DB) error {
