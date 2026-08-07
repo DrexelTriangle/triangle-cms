@@ -56,6 +56,8 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       status: articleStatus,
       published_date: articlePublishedDate,
       comment_status: "open",
+      featured_image: "https://example.com/a.jpg",
+      featured_image_alt: "",
       categories: [{ name: "News", slug: "news" }],
       authors: [{ id: 7, name: "Reporter" }],
     })
@@ -174,6 +176,19 @@ describe("EditArticleView autosave", () => {
     const patches = patchCalls()
     expect(patches).toHaveLength(1)
     expect(patches[0].body?.noindex).toBe(true)
+  })
+
+  // Same failure mode as the noindex toggle: the featured image's alt text sits
+  // outside the body editor, so it only autosaves if it is in the snapshot.
+  it("autosaves featured image alt text on its own", async () => {
+    const user = await renderEditor()
+
+    await user.type(screen.getByLabelText("Alt text"), "A protester holds a sign")
+    await waitOutAutosave()
+
+    const patches = patchCalls()
+    expect(patches).toHaveLength(1)
+    expect(patches[0].body?.photo_alt).toBe("A protester holds a sign")
   })
 
   // Regenerating rewrites the article's public URL, so it must wait for a

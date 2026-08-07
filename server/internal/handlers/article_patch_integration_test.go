@@ -79,7 +79,8 @@ func articlePatchTestDB(t *testing.T) *sql.DB {
 			last_pub_date DATETIME NULL,
 			archived_at DATETIME NULL,
 			canonical_url LONGTEXT,
-			noindex BOOL NOT NULL DEFAULT 0
+			noindex BOOL NOT NULL DEFAULT 0,
+			photo_alt LONGTEXT
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 	`); err != nil {
 		t.Fatalf("create articles table: %v", err)
@@ -295,6 +296,62 @@ func TestArticlePatchHTTP_CanonicalURLAndNoIndexRoundTrip(t *testing.T) {
 	}
 	if canonical.String != "https://example.com/original" {
 		t.Fatalf("canonical_url = %q, want the rejected patch to have changed nothing", canonical.String)
+	}
+}
+
+// The featured image's alt text is article-scoped, so it has to survive a PATCH
+// on its own -- an author fixing only the description must not have to touch
+// anything else to make it stick.
+func TestArticlePatchHTTP_PhotoAltRoundTrip(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories, photo_url, pub_date) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())",
+		"Photo story", "photo-story", "Body", "News", "https://example.com/a.jpg",
+	); err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	body := `{"photo_alt":"  A protester holds a hand-painted sign  "}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("photo-story", body))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var photoAlt sql.NullString
+	if err := conn.QueryRowContext(context.Background(),
+		"SELECT photo_alt FROM articles WHERE slug = ?", "photo-story",
+	).Scan(&photoAlt); err != nil {
+		t.Fatalf("read photo_alt: %v", err)
+	}
+	// Trimmed, because trailing whitespace in an alt attribute is invisible in
+	// the CMS and meaningless to a screen reader.
+	if photoAlt.String != "A protester holds a hand-painted sign" {
+		t.Fatalf("photo_alt = %q, want the trimmed description", photoAlt.String)
+	}
+
+	// Clearing it is a legitimate edit, not a no-op to be ignored: an alt that
+	// describes the wrong image is worse than none.
+	rec = httptest.NewRecorder()
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("photo-story", `{"photo_alt":""}`))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("clearing patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+	if err := conn.QueryRowContext(context.Background(),
+		"SELECT photo_alt FROM articles WHERE slug = ?", "photo-story",
+	).Scan(&photoAlt); err != nil {
+		t.Fatalf("re-read photo_alt: %v", err)
+	}
+	if photoAlt.String != "" {
+		t.Fatalf("photo_alt = %q, want it cleared", photoAlt.String)
+	}
+
+	// A non-string is a client bug; storing its Go rendering would put junk in an
+	// alt attribute the public site emits verbatim.
+	rec = httptest.NewRecorder()
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("photo-story", `{"photo_alt":42}`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("numeric photo_alt status = %d, want 400; body = %s", rec.Code, rec.Body.String())
 	}
 }
 

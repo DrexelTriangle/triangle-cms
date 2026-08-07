@@ -1177,7 +1177,7 @@ type ArticleParams struct {
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
 	q := r.URL.Query()
 	conditions, args := articleQueryFilters(r, params)
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date`, `scheduled_pub_date`, `canonical_url`, `noindex` FROM `articles`"
+	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date`, `scheduled_pub_date`, `canonical_url`, `noindex`, `photo_alt` FROM `articles`"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -1604,18 +1604,19 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 		}
 
 		resp := models.ArticleDetailResponse{
-			ID:            a.ID,
-			Title:         a.Title,
-			Slug:          a.Slug,
-			Content:       a.Content,
-			Excerpt:       a.Excerpt,
-			Categories:    categories,
-			CommentStatus: a.CommentStatus,
-			IsFeatured:    a.IsFeatured,
-			BreakingNews:  a.BreakingNews,
-			Status:        a.Status,
-			FeaturedImage: a.PhotoURL,
-			Authors:       authors,
+			ID:               a.ID,
+			Title:            a.Title,
+			Slug:             a.Slug,
+			Content:          a.Content,
+			Excerpt:          a.Excerpt,
+			Categories:       categories,
+			CommentStatus:    a.CommentStatus,
+			IsFeatured:       a.IsFeatured,
+			BreakingNews:     a.BreakingNews,
+			Status:           a.Status,
+			FeaturedImage:    a.PhotoURL,
+			FeaturedImageAlt: a.PhotoAlt,
+			Authors:          authors,
 			SEO: models.SEOResponse{
 				SEOTitle:        a.SEOTitle,
 				MetaDescription: a.MetaDescription,
@@ -2040,7 +2041,7 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 		}
 		fields := db.ArticleInputToDBFields(body)
 		result, err := db.Insert(r.Context(), conn, "articles",
-			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date", "canonical_url", "noindex"},
+			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date", "canonical_url", "noindex", "photo_alt"},
 			fields...,
 		)
 		if err != nil {
@@ -2115,7 +2116,7 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		fields := db.ArticleToDBFields(body)
 		fields = append(fields, slug)
 		result, err := db.Update(r.Context(), conn, "articles",
-			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "focus_keyword", "meta_description", "seo_title", "scheduled_pub_date", "canonical_url", "noindex"},
+			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "focus_keyword", "meta_description", "seo_title", "scheduled_pub_date", "canonical_url", "noindex", "photo_alt"},
 			"`slug` = ?",
 			fields...,
 		)
@@ -2214,6 +2215,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			"status":           "pub_date",
 			"comment_status":   "comment_status",
 			"photo_url":        "photo_url",
+			"photo_alt":        "photo_alt",
 			"focus_keyword":    "focus_keyword",
 			"meta_description": "meta_description",
 			"seo_title":        "seo_title",
@@ -2296,6 +2298,14 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				s, ok := v.(string)
 				if !ok {
 					writeError(w, http.StatusBadRequest, "comment_status must be a string")
+					return
+				}
+				setCols = append(setCols, column)
+				setArgs = append(setArgs, strings.TrimSpace(s))
+			case "photo_alt":
+				s, ok := v.(string)
+				if !ok {
+					writeError(w, http.StatusBadRequest, "photo_alt must be a string")
 					return
 				}
 				setCols = append(setCols, column)

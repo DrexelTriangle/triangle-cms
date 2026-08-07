@@ -25,6 +25,7 @@ type ApiArticleDetail = {
   published_date?: string
   comment_status?: string
   featured_image?: string
+  featured_image_alt?: string
   breaking_news?: boolean
   categories?: Array<{
     name?: string
@@ -60,6 +61,7 @@ type PatchPayload = {
   published_date?: string
   comment_status: string
   photo_url: string
+  photo_alt: string
   breaking_news: boolean
   categories: string[]
   tags: string[]
@@ -259,6 +261,7 @@ function EditArticleView() {
   const [publishedAt, setPublishedAt] = useState("")
   const [commentStatus, setCommentStatus] = useState("open")
   const [photoURL, setPhotoURL] = useState("")
+  const [photoAlt, setPhotoAlt] = useState("")
   const [breakingNews, setBreakingNews] = useState(false)
   const [selectedCategorySlugs, setSelectedCategorySlugs] = useState<string[]>([])
   const [sectionSearch, setSectionSearch] = useState("")
@@ -295,6 +298,7 @@ function EditArticleView() {
     content,
     commentStatus,
     photoURL,
+    photoAlt,
     breakingNews,
     selectedCategorySlugs,
     seoTags,
@@ -313,6 +317,7 @@ function EditArticleView() {
     content,
     commentStatus,
     photoURL,
+    photoAlt,
     breakingNews,
     selectedCategorySlugs,
     seoTags,
@@ -387,6 +392,7 @@ function EditArticleView() {
           savedPublishedAtRef.current = loadedTiming === "schedule" ? localPublishedAt : ""
           setCommentStatus(normalizeCommentStatus(payload.comment_status))
           setPhotoURL(payload.featured_image ?? "")
+          setPhotoAlt(payload.featured_image_alt ?? "")
           setBreakingNews(Boolean(payload.breaking_news))
           const legacyCategories: Record<string, string> = {}
           const categorySlugs = (payload.categories ?? [])
@@ -653,6 +659,7 @@ function EditArticleView() {
           ...(publishedDateISO ? { published_date: publishedDateISO } : {}),
           comment_status: commentStatus.trim() || "open",
           photo_url: photoURL.trim(),
+          photo_alt: photoAlt.trim(),
           breaking_news: breakingNews,
           categories,
           tags: seoTagsToSave,
@@ -697,6 +704,7 @@ function EditArticleView() {
         ...(publishedDateISO ? { published_date: publishedDateISO } : {}),
         comment_status: commentStatus.trim() || "open",
         photo_url: photoURL.trim(),
+        photo_alt: photoAlt.trim(),
         breaking_news: breakingNews,
         categories,
         tags: seoTagsToSave,
@@ -1093,24 +1101,56 @@ function EditArticleView() {
             <div className={labelClass}>
               <span className={labelTextClass}>Featured Image</span>
               {photoURL ? (
-                <div className="flex items-start gap-3 p-3 rounded-lg border border-border bg-muted/30">
-                  <img alt="Selected featured" className="w-24 h-16 object-cover rounded-md flex-shrink-0" src={photoURL} referrerPolicy="no-referrer" />
-                  <div className="flex flex-col gap-2">
-                    <button
-                      className="text-xs font-medium text-primary hover:underline text-left"
-                      onClick={() => setImagePickerOpen(true)}
-                      type="button"
+                <div className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-muted/30">
+                  <div className="flex items-start gap-3">
+                    <img alt={photoAlt || "Selected featured"} className="w-24 h-16 object-cover rounded-md flex-shrink-0" src={photoURL} referrerPolicy="no-referrer" />
+                    <div className="flex flex-col gap-2">
+                      <button
+                        className="text-xs font-medium text-primary hover:underline text-left"
+                        onClick={() => setImagePickerOpen(true)}
+                        type="button"
+                      >
+                        Change image
+                      </button>
+                      <button
+                        className="inline-flex items-center gap-1 text-xs font-medium text-destructive hover:underline"
+                        onClick={() => {
+                          setPhotoURL("")
+                          // The description belonged to the image being removed.
+                          setPhotoAlt("")
+                        }}
+                        type="button"
+                      >
+                        <X className="w-3 h-3" />
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                  {/* Editable here rather than only in the library, because this
+                      is the description that publishes and the one an author is
+                      thinking about while writing. It saves with the article. */}
+                  <div className="flex flex-col gap-1">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-medium text-muted-foreground">Alt text</span>
+                      <input
+                        aria-describedby="featured-image-alt-hint"
+                        className={inputClass}
+                        onChange={(e) => setPhotoAlt(e.target.value)}
+                        placeholder="Describe the image for readers who can't see it"
+                        type="text"
+                        value={photoAlt}
+                      />
+                    </label>
+                    {/* Outside the label on purpose: inside, it would be read as
+                        part of the field's name rather than as its description. */}
+                    <span
+                      className={`text-xs ${photoAlt.trim() ? "text-muted-foreground" : "text-destructive"}`}
+                      id="featured-image-alt-hint"
                     >
-                      Change image
-                    </button>
-                    <button
-                      className="inline-flex items-center gap-1 text-xs font-medium text-destructive hover:underline"
-                      onClick={() => setPhotoURL("")}
-                      type="button"
-                    >
-                      <X className="w-3 h-3" />
-                      Remove
-                    </button>
+                      {photoAlt.trim()
+                        ? "Describes this image on this article only."
+                        : "No alt text. Screen readers announce nothing for this image."}
+                    </span>
                   </div>
                 </div>
               ) : (
@@ -1559,6 +1599,13 @@ function EditArticleView() {
           initialUrl={photoURL}
           onClose={() => setImagePickerOpen(false)}
           onSelect={(item) => {
+            // Adopt the library's description, so an image described once
+            // arrives already described. Only on an actual change of image: the
+            // alt belongs to whichever photo is in the slot, so re-picking the
+            // same one must not overwrite a description written here.
+            if (item.url !== photoURL) {
+              setPhotoAlt(item.alt_text ?? "")
+            }
             setPhotoURL(item.url)
             setImagePickerOpen(false)
           }}
