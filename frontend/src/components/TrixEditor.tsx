@@ -6,8 +6,6 @@ import { apiBaseUrl } from "../auth/urls";
 import { copyText } from "../lib/clipboard";
 import MediaPicker, { type MediaPickerItem } from "./MediaPicker";
 import {
-  ALIGNMENTS,
-  TRIX_ALIGN_CLASS,
   articleHtmlToTrix,
   contentTypeForUrl,
   trixHtmlToArticle,
@@ -170,42 +168,69 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     };
   }, [onChange, rememberEmitted]);
 
-  // Reflect each attachment's stored alignment onto the live figure so our CSS
-  // can style it. Alignment round-trips as a data-trix-attributes value (Trix
-  // rebuilds attachment figures from that JSON and would discard a bare class),
-  // so the class has to be re-applied after every change.
+  // Let go of the attachment being edited as soon as focus leaves the editor.
+  //
+  // Trix decides an attachment is no longer being edited by watching the
+  // document's selection: on the first selectionchange whose range is not the
+  // attachment's own, it stops editing, tears the caption field down and
+  // re-renders -- and that render puts the selection, and with it the browser's
+  // focus, back inside the article. While an image sat in that state the check
+  // was still armed after the author had clicked away, and Firefox raises
+  // selectionchange on the document for typing in a plain <input> (Chrome
+  // raises it on the input), so the first letter typed into the author or
+  // section search box fired it: the letter landed, then the editor took the
+  // focus back and the rest of the word went into the story.
+  //
+  // What disarms it is dropping the stale selection, not the editing state:
+  // asking Trix to stop editing the attachment runs the same teardown and steals
+  // the focus just as thoroughly. A selection left inside a contenteditable
+  // nobody is focused on has nothing to draw and nothing to move, so clearing it
+  // costs the author nothing -- Trix remembers the caret separately and puts it
+  // back when the editor is focused again -- and it leaves Trix reading no range
+  // at all rather than a stale one, which is what makes the check fall through.
+  //
+  // focusout rather than trix-blur: while a caption is open the focus is on the
+  // caption field, not on the editor element, so the editor never blurs and
+  // trix-blur never comes -- and that is exactly the state this is here for.
+  // Where the focus went is read a tick later, since focusout fires before it
+  // has landed. Measured against the wrapper, not the editor, so that stepping
+  // into our own chrome (the alt-text dialog, the media picker) is not treated
+  // as leaving.
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor) return;
+    const wrapper = wrapperRef.current;
+    if (!editor || !wrapper) return;
 
-    const applyAlignment = () => {
-      for (const figure of Array.from(
-        editor.querySelectorAll("figure[data-trix-attributes]"),
-      )) {
-        let align: string | undefined;
-        try {
-          const parsed = JSON.parse(
-            figure.getAttribute("data-trix-attributes") ?? "{}",
-          ) as { align?: string };
-          align = parsed.align;
-        } catch {
-          continue;
-        }
-        for (const candidate of ALIGNMENTS) {
-          figure.classList.toggle(
-            TRIX_ALIGN_CLASS[candidate],
-            align === candidate,
-          );
-        }
-      }
+    let pending: number | undefined;
+    const handleFocusOut = () => {
+      window.clearTimeout(pending);
+      pending = window.setTimeout(() => {
+        const active = document.activeElement;
+        if (active && active !== document.body && wrapper.contains(active))
+          return;
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) return;
+        if (!editor.contains(selection.getRangeAt(0).startContainer)) return;
+        selection.removeAllRanges();
+      }, 0);
     };
 
-    applyAlignment();
-    editor.addEventListener("trix-change", applyAlignment);
+    editor.addEventListener("focusout", handleFocusOut);
     return () => {
-      editor.removeEventListener("trix-change", applyAlignment);
+      editor.removeEventListener("focusout", handleFocusOut);
+      window.clearTimeout(pending);
     };
   }, []);
+
+  // Alignment is *not* reflected onto the live figure from here. It round-trips
+  // as a data-trix-attributes value, and TrixEditor.css keys off that JSON
+  // directly, because writing a class onto the figure ourselves was a foreign
+  // mutation inside Trix's contenteditable: its MutationObserver re-parsed the
+  // document, re-rendered it, and restored its own selection with it. Doing
+  // that on every trix-change meant every keystroke in an image caption pulled
+  // the caret -- and the browser's focus -- back into the article, so clicking
+  // out to the author or section search box and typing put the first letter in
+  // the search box and the rest back in the story.
 
   // Handles every way an image enters the document. Trix fires
   // trix-attachment-add for all of them, and which branch runs depends on what
@@ -638,13 +663,16 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     // shows its caption field and its toolbar. Trix only enters it from a
     // mousedown of its own, which is no help either when that mousedown's
     // selection gets reset (see onUp) or after a move has replaced the element.
-    const editAttachmentForFigure = (figure: Element | null | undefined) => {
+    const attachmentForFigure = (figure: Element | null | undefined) => {
       const trixId = figure?.getAttribute("data-trix-id");
-      if (!trixId) return;
-      const attachment = editor.editor
+      if (!trixId) return undefined;
+      return editor.editor
         .getDocument()
         .getAttachments()
         .find((a) => String(a.id) === trixId);
+    };
+    const editAttachmentForFigure = (figure: Element | null | undefined) => {
+      const attachment = attachmentForFigure(figure);
       if (attachment) editor.editor.composition.editAttachment(attachment);
     };
 
@@ -956,6 +984,10 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     };
     const onDocumentPointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement;
+      // A click somewhere else inside the restore window below is the author
+      // leaving the caption they just opened. Drop the pending restore rather
+      // than pulling them back into it.
+      if (!isClosedCaption(target)) window.clearTimeout(restoreCaption);
       // Don't deselect when the click lands on another figure; that has its own
       // selection semantics.
       if (target.closest(".attachment--preview")) return;
@@ -1133,9 +1165,60 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       }
     };
 
+    // ── First click into a caption ─────────────────────────────────────────
+    // Trix opens an image's caption editor from the mousedown on the caption
+    // and focuses the field it builds a tick later. In between, the selection
+    // settles somewhere that is not the attachment's own location range, and
+    // Trix reads that as "the author has moved on": it stops editing the
+    // attachment, which tears the field back down before the deferred focus can
+    // land. The focus then goes to an element no longer in the document, so the
+    // click appeared to do nothing, the caption took a second click to enter,
+    // and the first click had quietly dropped focus out of the editor.
+    //
+    // So put it back, once, after the click has settled. Trix ignores a request
+    // to edit an attachment it is already editing, which is what makes this
+    // safe to fire unconditionally: in the case that did not break, it is a
+    // no-op, and in the case that did, it re-opens the caption and focuses it.
+    let restoreCaption: number | undefined;
+    // Only the static <figcaption>. A click on the textarea that replaces it
+    // while editing is the author placing the caret in a caption field that is
+    // already open, and nothing needs restoring.
+    const isClosedCaption = (target: HTMLElement): boolean =>
+      !!target.closest(".attachment--preview") &&
+      !target.closest(".attachment__caption-editor") &&
+      !!target.closest("figcaption, .attachment__caption");
+
+    const onCaptionPointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement;
+      const figure = target.closest(
+        ".attachment--preview",
+      ) as HTMLElement | null;
+      if (!figure || !isClosedCaption(target)) return;
+
+      window.clearTimeout(restoreCaption);
+      // Long enough to be after the teardown however it was triggered: Trix
+      // holds selection updates for up to 200ms after a mousedown in the editor
+      // (it resumes on the next pointer move or keypress), so the stop can land
+      // anywhere in that window.
+      restoreCaption = window.setTimeout(() => {
+        const live = liveFigure(figure);
+        if (!live?.isConnected) return;
+        // Somewhere else has taken focus in the meantime -- the sidebar, the
+        // toolbar, another image. The author has moved on for real.
+        const active = document.activeElement;
+        if (active && active !== document.body && !editor.contains(active)) return;
+        const attachment = attachmentForFigure(live);
+        if (!attachment) return;
+        editor.editor.composition.editAttachment(attachment, {
+          editCaption: true,
+        });
+      }, 250);
+    };
+
     document.addEventListener("dragstart", onDragStart, true);
     editor.addEventListener("trix-attachment-before-toolbar", onBeforeToolbar);
     editor.addEventListener("pointerdown", onEditorPointerDown, true);
+    editor.addEventListener("pointerdown", onCaptionPointerDown);
     document.addEventListener("pointerdown", onDocumentPointerDown);
 
     return () => {
@@ -1148,7 +1231,9 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         onBeforeToolbar,
       );
       editor.removeEventListener("pointerdown", onEditorPointerDown, true);
+      editor.removeEventListener("pointerdown", onCaptionPointerDown);
       document.removeEventListener("pointerdown", onDocumentPointerDown);
+      window.clearTimeout(restoreCaption);
       dropIndicator.remove();
     };
   }, []);

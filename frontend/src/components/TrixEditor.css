@@ -479,14 +479,22 @@ trix-editor.trix-content .attachment.attachment--preview.attachment--dragging {
 /* Per-image alignment. No longer settable from the editor -- the public site
    sizes article images at width:100%, which leaves nothing for a float to do --
    but alignment already present on migrated WordPress content is preserved
-   through a save, so it is still reflected here to match what will publish. */
-trix-editor.trix-content .attachment--preview.attachment--align-left {
+   through a save, so it is still reflected here to match what will publish.
+
+   Matched straight off Trix's own data-trix-attributes JSON rather than off a
+   class we add. Anything we write into the editor's DOM is a foreign mutation
+   as far as Trix's MutationObserver is concerned: it re-parses the document,
+   re-renders it and restores its own selection, which yanks the caret (and the
+   focus) back into the article from wherever the author had moved it. Doing
+   that on every trix-change -- i.e. on every keystroke -- made the editor
+   un-leavable while an image was selected. */
+trix-editor.trix-content .attachment--preview[data-trix-attributes*='"align":"left"'] {
   text-align: left;
 }
-trix-editor.trix-content .attachment--preview.attachment--align-center {
+trix-editor.trix-content .attachment--preview[data-trix-attributes*='"align":"center"'] {
   text-align: center;
 }
-trix-editor.trix-content .attachment--preview.attachment--align-right {
+trix-editor.trix-content .attachment--preview[data-trix-attributes*='"align":"right"'] {
   text-align: right;
 }
 
