@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { ArrowLeft, Save, Image, Search, X, Copy, Check, RefreshCw } from "lucide-react"
+import { ArrowLeft, Save, Image, Search, X, Copy, Check, RefreshCw, Plus } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { articleUrl } from "../auth/urls"
@@ -75,6 +75,13 @@ type PatchPayload = {
   noindex: boolean
 }
 
+// A tag the archive already uses, with how many articles carry it. Aggregated
+// server-side from the articles themselves; there is no tags table.
+type PopularTag = {
+  name: string
+  uses: number
+}
+
 type ApiAuthor = {
   id: number
   display_name: string
@@ -140,6 +147,42 @@ const parseSEOTags = (value: string): string[] => {
       seen.add(key)
       return true
     })
+}
+
+// How many suggestions sit under the tag box. The list is a shortcut for the
+// handful of tags a desk adds to nearly every article, so a longer row would
+// cost more to read than typing the tag.
+const SEO_TAG_SUGGESTION_LIMIT = 8
+
+// How long the tag box sits still before its contents are searched. Long enough
+// that typing a whole word is one request rather than six; short enough that the
+// results arrive while the editor is still looking at the box.
+const TAG_SEARCH_DEBOUNCE_MS = 200
+
+// The suggestions worth showing, out of whichever set the caller passes -- the
+// popular tags when the box is empty, the search results once it is not.
+//
+// The text filter is applied here as well as on the server, and that is the
+// point: it narrows the tags already on screen on the keystroke, without waiting
+// for the request, and it drops results belonging to an earlier query. The
+// server's ordering is preserved rather than re-ranked, so the row does not
+// reshuffle under a person reaching for it.
+const filterTagSuggestions = (
+  candidates: PopularTag[],
+  selected: string[],
+  draft: string,
+): string[] => {
+  const taken = new Set(selected.map((tag) => tag.toLowerCase()))
+  const query = draft.trim().toLowerCase()
+  const matches: string[] = []
+  for (const tag of candidates) {
+    const name = tag.name.toLowerCase()
+    if (taken.has(name)) continue
+    if (query && !name.includes(query)) continue
+    matches.push(tag.name)
+    if (matches.length === SEO_TAG_SUGGESTION_LIMIT) break
+  }
+  return matches
 }
 
 // Appends whatever tags are in `raw` (Enter commits one, a pasted list commits
@@ -278,6 +321,14 @@ function EditArticleView() {
   // Text sitting in the tag box that has not been committed to a chip yet. It is
   // still saved, so a half-typed tag is not silently dropped by an autosave.
   const [seoTagDraft, setSeoTagDraft] = useState("")
+  // Tag suggestions. A failed fetch leaves this empty and shows nothing: the
+  // suggestions are a shortcut, and an error message next to a working text box
+  // would be noise.
+  const [popularTags, setPopularTags] = useState<PopularTag[]>([])
+  // Matches for what is currently in the tag box, searched over every tag the
+  // archive has rather than only the popular ones -- a beat tag from 2019 is
+  // exactly what nobody remembers the spelling of.
+  const [tagSearchResults, setTagSearchResults] = useState<PopularTag[]>([])
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
   // Byline order is selection order: the list is sent as-is and rendered in that
@@ -577,6 +628,78 @@ function EditArticleView() {
     }
   }, [apiFetch])
 
+  // Tags the desk already uses, for the suggestions under the tag box. Fetched
+  // once per editor session: the server caches the ranking for minutes anyway,
+  // so re-fetching per keystroke would buy nothing.
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchPopularTags = async () => {
+      try {
+        const response = await apiFetch("/v1/tags")
+        if (!response.ok) {
+          throw new Error(`Popular tags request failed (${response.status})`)
+        }
+        const payload = (await response.json()) as PopularTag[]
+        if (!cancelled) {
+          setPopularTags(Array.isArray(payload) ? payload : [])
+        }
+      } catch {
+        // Silent by design -- see the popularTags declaration.
+        if (!cancelled) {
+          setPopularTags([])
+        }
+      }
+    }
+
+    void fetchPopularTags()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch])
+
+  // Search the archive for whatever is in the tag box. Debounced, and dropped
+  // if the box has moved on by the time the answer arrives: responses can land
+  // out of order, and stale matches for a prefix the editor has already typed
+  // past are worse than none.
+  useEffect(() => {
+    const query = seoTagDraft.trim()
+    if (!query) {
+      setTagSearchResults([])
+      return
+    }
+
+    let cancelled = false
+    const timer = setTimeout(() => {
+      const search = async () => {
+        try {
+          const response = await apiFetch(
+            `/v1/tags?limit=${SEO_TAG_SUGGESTION_LIMIT}&q=${encodeURIComponent(query)}`,
+          )
+          if (!response.ok) {
+            throw new Error(`Tag search failed (${response.status})`)
+          }
+          const payload = (await response.json()) as PopularTag[]
+          if (!cancelled) {
+            setTagSearchResults(Array.isArray(payload) ? payload : [])
+          }
+        } catch {
+          // Silent by design -- the popular tags and the text box both still
+          // work, so an error banner would be noise.
+          if (!cancelled) {
+            setTagSearchResults([])
+          }
+        }
+      }
+      void search()
+    }, TAG_SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [apiFetch, seoTagDraft])
+
   const saveArticle = async (nextTiming?: PublishTiming, options: { autosave?: boolean } = {}) => {
     const autosave = options.autosave === true
     const snapshotToSave = currentSnapshotRef.current
@@ -798,6 +921,27 @@ function EditArticleView() {
       return
     }
     setSeoTags((current) => addSEOTags(current, seoTagDraft))
+    setSeoTagDraft("")
+  }
+
+  // Search results lead, because they are ranked by how well they match and
+  // they cover the whole archive. The popular tags follow as the instant
+  // fallback: they are already in memory, so the row narrows on the keystroke
+  // instead of sitting empty until the search comes back.
+  const tagSuggestions = useMemo(() => {
+    const candidates = seoTagDraft.trim()
+      ? [...tagSearchResults, ...popularTags.filter(
+          (tag) => !tagSearchResults.some((match) => match.name.toLowerCase() === tag.name.toLowerCase()),
+        )]
+      : popularTags
+    return filterTagSuggestions(candidates, seoTags, seoTagDraft)
+  }, [popularTags, tagSearchResults, seoTags, seoTagDraft])
+
+  // Clicking a suggestion also clears the draft: the click is the editor
+  // finishing the word they had started, so leaving "dre" in the box would
+  // commit it as a second tag at the next blur.
+  const addSuggestedSeoTag = (tag: string) => {
+    setSeoTags((current) => addSEOTags(current, tag))
     setSeoTagDraft("")
   }
 
@@ -1513,6 +1657,39 @@ function EditArticleView() {
                   value={seoTagDraft}
                 />
               </div>
+              {tagSuggestions.length === 0 && seoTagDraft.trim() ? (
+                // Worth saying out loud: nothing in the archive matches, so
+                // this tag is a new one. That is allowed, but an editor who
+                // meant to reuse an existing tag wants to know now, not after
+                // they have coined a near-duplicate of it.
+                <p className="pt-1.5 text-[11px] text-muted-foreground">
+                  No existing tag matches. Press Enter to create it.
+                </p>
+              ) : null}
+              {tagSuggestions.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    {seoTagDraft.trim() ? "Matching tags" : "Frequently used"}
+                  </span>
+                  {tagSuggestions.map((tag) => (
+                    <button
+                      aria-label={`Add tag ${tag}`}
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border border-dashed border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary hover:bg-muted transition-colors cursor-pointer"
+                      key={tag.toLowerCase()}
+                      // Keep the caret in the tag box: without this the input's
+                      // blur fires first and commits the half-typed draft, so
+                      // clicking "drexel" after typing "dre" would add both.
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => addSuggestedSeoTag(tag)}
+                      title={`Add the tag "${tag}"`}
+                      type="button"
+                    >
+                      <Plus className="h-3 w-3" />
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </label>
 
             <label className={labelClass}>

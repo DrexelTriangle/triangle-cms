@@ -20,6 +20,11 @@ let articlePublishedDate: string | undefined
 // Slugs belonging to other articles, so a GET for them answers 200 the way the
 // API would rather than the 404 that means "free".
 let takenSlugs: Set<string>
+// SEO tags the article already carries, what /v1/tags offers unfiltered, and
+// what a search over the archive can turn up.
+let articleTags: string[]
+let popularTagsPayload: Array<{ name: string; uses: number }>
+let archiveTagsPayload: Array<{ name: string; uses: number }>
 
 const jsonResponse = (payload: unknown, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -60,7 +65,17 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       featured_image_alt: "",
       categories: [{ name: "News", slug: "news" }],
       authors: [{ id: 7, name: "Reporter" }],
+      seo: { tags: articleTags.map((name) => ({ name, slug: name })) },
     })
+  }
+  if (url.startsWith("/v1/tags")) {
+    const query = new URL(url, "http://cms.test").searchParams.get("q")?.trim().toLowerCase() ?? ""
+    if (!query) {
+      return jsonResponse(popularTagsPayload)
+    }
+    // Stands in for the server's search over the whole archive: the archive
+    // holds tags the popular list does not.
+    return jsonResponse(archiveTagsPayload.filter((tag) => tag.name.toLowerCase().includes(query)))
   }
   if (method === "GET" && url.startsWith("/v1/articles/")) {
     const candidate = decodeURIComponent(url.slice("/v1/articles/".length))
@@ -116,6 +131,9 @@ describe("EditArticleView autosave", () => {
     articleStatus = "draft"
     articlePublishedDate = undefined
     takenSlugs = new Set()
+    articleTags = []
+    popularTagsPayload = []
+    archiveTagsPayload = []
     apiFetchStub.mockClear()
     // shouldAdvanceTime keeps Testing Library's own waitFor polling alive while
     // the autosave debounce stays under our control.
@@ -246,5 +264,130 @@ describe("EditArticleView autosave", () => {
     // Once the transition is on file, later autosaves stop warning about it.
     await waitOutAutosave()
     expect(screen.queryByText(/Publish timing is not autosaved/)).not.toBeInTheDocument()
+  })
+})
+
+// The tag box used to be a bare text field, so the boilerplate tags a desk adds
+// to nearly every article were retyped by hand each time. These pin the
+// shortcut that replaced that.
+describe("EditArticleView SEO tag suggestions", () => {
+  beforeEach(() => {
+    apiCalls = []
+    articleStatus = "draft"
+    articlePublishedDate = undefined
+    takenSlugs = new Set()
+    articleTags = []
+    popularTagsPayload = [
+      { name: "triangle", uses: 900 },
+      { name: "drexel", uses: 800 },
+      { name: "drexel triangle", uses: 400 },
+      { name: "civil rights", uses: 20 },
+    ]
+    // The archive is everything, popular or not. "Men's Lacrosse" is the case
+    // that matters: nobody retypes that spelling correctly, and it is nowhere
+    // near the popular list.
+    archiveTagsPayload = [...popularTagsPayload, { name: "Men's Lacrosse", uses: 46 }]
+    apiFetchStub.mockClear()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const suggestion = (name: string) => screen.getByRole("button", { name: `Add tag ${name}` })
+
+  it("adds a frequently-used tag when its suggestion is clicked", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("triangle")).toBeInTheDocument())
+
+    await user.click(suggestion("triangle"))
+    await waitOutAutosave()
+
+    expect(screen.getByRole("button", { name: "Remove tag triangle" })).toBeInTheDocument()
+    expect(patchCalls()[0].body?.tags).toEqual(["triangle"])
+  })
+
+  // A suggestion for a tag the article already carries is a dead control, and
+  // clicking it would look broken -- the add is a no-op against the dedupe.
+  it("does not suggest a tag the article already carries", async () => {
+    articleTags = ["triangle"]
+    await renderEditor()
+    await waitFor(() => expect(suggestion("drexel")).toBeInTheDocument())
+
+    expect(screen.queryByRole("button", { name: "Add tag triangle" })).not.toBeInTheDocument()
+  })
+
+  it("narrows the suggestions to what the editor has typed", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("civil rights")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "drex")
+
+    expect(suggestion("drexel")).toBeInTheDocument()
+    expect(suggestion("drexel triangle")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Add tag civil rights" })).not.toBeInTheDocument()
+  })
+
+  // Clicking a suggestion blurs the tag input, and blur commits whatever is in
+  // it. Finishing a half-typed word by clicking must not leave the fragment
+  // behind as a second tag.
+  it("does not also commit the half-typed draft when a suggestion is clicked", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("drexel")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "drex")
+    await user.click(suggestion("drexel"))
+    await waitOutAutosave()
+
+    expect(screen.queryByRole("button", { name: "Remove tag drex" })).not.toBeInTheDocument()
+    expect(patchCalls()[0].body?.tags).toEqual(["drexel"])
+  })
+  // The reason the search exists: the tag is in the archive, but it is not
+  // popular enough to be offered, and retyping "Men's Lacrosse" from memory is
+  // how a near-duplicate of it gets coined.
+  it("finds a tag that is in the archive but not in the popular list", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("triangle")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "lacrosse")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    await waitFor(() => expect(suggestion("Men's Lacrosse")).toBeInTheDocument())
+    await user.click(suggestion("Men's Lacrosse"))
+    await waitOutAutosave()
+
+    expect(patchCalls()[0].body?.tags).toEqual(["Men's Lacrosse"])
+  })
+
+  // Typing a whole word must not be a request per keystroke.
+  it("searches once for a word typed in one go", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("triangle")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "lacrosse")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    const searches = apiCalls.filter((call) => call.url.includes("q="))
+    expect(searches).toHaveLength(1)
+    expect(searches[0].url).toContain("q=lacrosse")
+  })
+
+  // A tag nobody has used is still a tag worth adding -- but the editor should
+  // be told that is what they are doing.
+  it("says so when nothing in the archive matches", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("triangle")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "quidditch")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    expect(screen.getByText(/No existing tag matches/)).toBeInTheDocument()
   })
 })

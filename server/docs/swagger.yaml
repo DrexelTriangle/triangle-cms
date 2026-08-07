@@ -1,5 +1,12 @@
 basePath: /
 definitions:
+  database.PopularTag:
+    properties:
+      name:
+        type: string
+      uses:
+        type: integer
+    type: object
   handlers.articleEditLockResponse:
     properties:
       expires_at:
@@ -97,6 +104,8 @@ definitions:
         type: array
       breaking_news:
         type: boolean
+      canonical_url:
+        type: string
       categories:
         items:
           type: string
@@ -116,6 +125,17 @@ definitions:
       is_featured:
         type: boolean
       meta_description:
+        type: string
+      modified_date:
+        type: string
+      noindex:
+        type: boolean
+      photo_alt:
+        description: |-
+          PhotoAlt describes the featured image for screen readers. It is
+          article-scoped rather than a lookup into the media library: the same photo
+          can want a different description in a different story, and a featured image
+          set by URL has no library record to read one from.
         type: string
       photo_url:
         type: string
@@ -163,10 +183,24 @@ definitions:
         type: string
       featured_image:
         type: string
+      featured_image_alt:
+        description: |-
+          FeaturedImageAlt is the article's own description of its featured image.
+          Empty means the public site has nothing to render, which is a defect worth
+          surfacing rather than papering over with the headline: an alt that repeats
+          the adjacent headline tells a screen-reader user nothing new.
+        type: string
       id:
         type: integer
       is_featured:
         type: boolean
+      modified_date:
+        description: |-
+          ModifiedDate is the article's last-edited time (the `mod_date` column the
+          public sitemap already reports as <lastmod>). Exposed so the public site's
+          NewsArticle dateModified agrees with the sitemap instead of silently
+          falling back to the publish date.
+        type: string
       published_date:
         type: string
       related:
@@ -190,6 +224,8 @@ definitions:
         type: array
       breaking_news:
         type: boolean
+      canonical_url:
+        type: string
       categories:
         items:
           type: string
@@ -205,6 +241,10 @@ definitions:
       is_featured:
         type: boolean
       meta_description:
+        type: string
+      noindex:
+        type: boolean
+      photo_alt:
         type: string
       photo_url:
         type: string
@@ -267,6 +307,8 @@ definitions:
         type: array
       breaking_news:
         type: boolean
+      canonical_url:
+        type: string
       categories:
         items:
           type: string
@@ -282,6 +324,10 @@ definitions:
       is_featured:
         type: boolean
       meta_description:
+        type: string
+      noindex:
+        type: boolean
+      photo_alt:
         type: string
       photo_url:
         type: string
@@ -988,11 +1034,19 @@ definitions:
   models.SEOResponse:
     properties:
       canonical_url:
+        description: |-
+          CanonicalURL is the editor-supplied override for syndicated or reprinted
+          pieces that should credit another publisher. Empty means "no override":
+          the public site falls back to its own /article/<slug> URL.
         type: string
       focus_keyword:
         type: string
       meta_description:
         type: string
+      noindex:
+        description: NoIndex asks the public site to emit robots noindex for this
+          article.
+        type: boolean
       seo_title:
         type: string
       tags:
@@ -3560,6 +3614,39 @@ paths:
           schema:
             $ref: '#/definitions/models.ErrorResponse'
       summary: List articles by subsection
+      tags:
+      - articles
+  /v1/tags:
+    get:
+      parameters:
+      - description: Search text; omit for the most-used tags
+        in: query
+        name: q
+        type: string
+      - description: How many tags to return (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/database.PopularTag'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List or search the SEO tags already in use
       tags:
       - articles
   /v1/taxonomy:

@@ -127,6 +127,10 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/polls/{id}", handlers.GetPollByID(conn))
 	mux.Handle("GET /v1/developing-stories", handlers.GetDevelopingStories(conn))
 	mux.Handle("GET /v1/taxonomy", handlers.GetTaxonomy(conn))
+	// Tag suggestions and search for the article editor. Aggregated from the
+	// articles themselves -- there is no tags table -- so it is a read-only
+	// editing aid, not part of the taxonomy CRUD above.
+	mux.Handle("GET /v1/tags", authMW(handlers.GetTags(conn)))
 	mux.Handle("GET /v1/taxonomy/{type}/{slug}", handlers.GetTaxonomyItem(conn))
 	// Running the poll is part of editorial work, not site administration, so
 	// authoring and moderating questions is open to any signed-in editor.
