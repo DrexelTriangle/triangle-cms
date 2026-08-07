@@ -98,13 +98,12 @@ func defaultFooterColumns() []models.FooterColumn {
 // empty menu. The public footer is not something that should ever render empty
 // because of a bad write.
 func GetFooterSettings(ctx context.Context, conn *sql.DB) (models.FooterSettings, error) {
-	var raw string
-	err := conn.QueryRowContext(ctx, "SELECT value_text FROM cms_settings WHERE key_name = ? LIMIT 1", footerSettingKey).Scan(&raw)
-	if err == sql.ErrNoRows {
-		return models.FooterSettings{Columns: defaultFooterColumns()}, nil
-	}
+	raw, found, err := readSettingRaw(ctx, conn, footerSettingKey)
 	if err != nil {
 		return models.FooterSettings{}, err
+	}
+	if !found {
+		return models.FooterSettings{Columns: defaultFooterColumns()}, nil
 	}
 	if strings.TrimSpace(raw) == "" {
 		return models.FooterSettings{Columns: defaultFooterColumns()}, nil

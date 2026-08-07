@@ -89,11 +89,10 @@ func BackfillArticleSEOFromYoast(ctx context.Context, conn *sql.DB) error {
 		return err
 	}
 
-	_, err := conn.ExecContext(ctx, `
-		INSERT INTO cms_settings (key_name, value_text) VALUES ('articles_seo_backfilled', '1')
-		ON DUPLICATE KEY UPDATE value_text = '1'
-	`)
-	return err
+	// Through the cached writer so the flag cannot be read back stale; this runs
+	// once at startup, but leaving one inline INSERT behind is how the cache
+	// quietly diverges later.
+	return writeSettingRaw(ctx, conn, "articles_seo_backfilled", "1")
 }
 
 func EnsureAuthorsSchema(ctx context.Context, conn *sql.DB) error {
