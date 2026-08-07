@@ -4,10 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
 )
+
+// A section the seed has no defaults for, for the "keeps no aliases" case.
+// Which slugs are unseeded changes as orphaned categories get filed -- news
+// gained "Paid Post" -- so the choice is guarded by requireUnseeded rather than
+// assumed, or the assertion would quietly start testing nothing.
+const unseededSlug = "photo"
+
+func requireUnseeded(t *testing.T, slug string) {
+	t.Helper()
+	if _, seeded := defaultCategoryAliases[slug]; seeded {
+		t.Fatalf("%q now has seeded aliases; pick another slug for the no-defaults case", slug)
+	}
+}
 
 // These need a real MariaDB, because the whole point is the column, the seed
 // and the cache reload agreeing with each other. They skip unless CMS_TEST_DSN
@@ -65,33 +79,47 @@ func TestTaxonomyAliasSeedAndCacheRoundTrip(t *testing.T) {
 	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
 		t.Fatalf("ensure taxonomy table: %v", err)
 	}
+	requireUnseeded(t, unseededSlug)
 	insertTaxonomyRow(t, conn, 1, "section", "entertainment", "Entertainment")
-	insertTaxonomyRow(t, conn, 2, "section", "news", "News")
+	insertTaxonomyRow(t, conn, 2, "section", unseededSlug, "Photo")
 
 	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
 		t.Fatalf("second ensure: %v", err)
 	}
 
-	// entertainment must have picked up its seeded default...
+	// entertainment must have picked up its seeded defaults. Asserted against
+	// defaultCategoryAliases rather than a literal list: the map grows every
+	// time another orphaned category is filed, and a test that pins the
+	// contents fails on the filing rather than on anything being broken.
 	patterns := CategoryMatchPatterns("entertainment")
-	if !containsPattern(patterns, `%"arts & entertainment"%`) {
-		t.Errorf("entertainment patterns %v missing the seeded alias", patterns)
+	for _, alias := range defaultCategoryAliases["entertainment"] {
+		want := `%"` + strings.ToLower(alias) + `"%`
+		if !containsPattern(patterns, want) {
+			t.Errorf("entertainment patterns %v missing the seeded alias %s", patterns, want)
+		}
 	}
-	// ...and it must not be HTML-escaped in the column, or it would never
-	// match the articles it names.
+	// The aliases must not be HTML-escaped in the column, or one holding an
+	// ampersand would never match the articles it names.
 	var stored string
 	if err := conn.QueryRowContext(ctx,
 		"SELECT category_aliases FROM site_taxonomy WHERE slug = 'entertainment'",
 	).Scan(&stored); err != nil {
 		t.Fatalf("read stored aliases: %v", err)
 	}
-	if want := `["Arts & Entertainment"]`; stored != want {
+	want, err := MarshalCategoryJSON(defaultCategoryAliases["entertainment"])
+	if err != nil {
+		t.Fatalf("marshal expected aliases: %v", err)
+	}
+	if stored != want {
 		t.Errorf("stored aliases = %s, want %s", stored, want)
+	}
+	if strings.Contains(stored, "\\u0026") {
+		t.Errorf("stored aliases are HTML-escaped: %s", stored)
 	}
 
 	// A slug with no default keeps no aliases.
-	if got := CategoryMatchPatterns("news"); len(got) != 1 {
-		t.Errorf("news patterns = %v, want just its own", got)
+	if got := CategoryMatchPatterns(unseededSlug); len(got) != 1 {
+		t.Errorf("%s patterns = %v, want just its own", unseededSlug, got)
 	}
 }
 
