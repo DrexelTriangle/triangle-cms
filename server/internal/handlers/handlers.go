@@ -1233,7 +1233,7 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, o
 	}
 	sortBy := q.Get("sort_by")
 	if sortBy == "" {
-		query += " ORDER BY `id` DESC"
+		query += defaultArticleOrderBy(r)
 	}
 	if clause := articleOrderByClause(r, sortBy, q.Get("sort_direction")); clause != "" {
 		// Editor date sort is handled here; hand BuildOrderLimit an empty sort_by
@@ -1244,6 +1244,28 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, o
 	query = db.BuildOrderLimit(query, sortBy, q.Get("sort_direction"), db.ArticleSortByColumn, limit, offset)
 
 	return conn.QueryContext(r.Context(), query, args...)
+}
+
+// defaultArticleOrderBy is the ORDER BY for a listing that asked for no
+// particular sort, which is every public read: the homepage blocks, the section
+// pages and an unadorned /v1/articles.
+//
+// Public callers get newest-published-first. Ordering on `id` made placement
+// depend on insert order instead, so an article drafted before an ETL reseed --
+// which loads the legacy archive at ids far above anything the CMS has issued --
+// sorted below ten thousand archive rows and never reached the homepage despite
+// being published that morning. `id` stays on as the tiebreak, because a whole
+// issue is published on one timestamp and needs a stable order within it.
+//
+// Editors keep `id` DESC. Their listing includes drafts, whose `pub_date` is
+// NULL and would sort to the very end, burying a new draft on the last page of
+// a 10k-article list -- the same reason articleOrderByClause exists for their
+// explicit date sorts.
+func defaultArticleOrderBy(r *http.Request) string {
+	if _, isEditor := middleware.UserFromContext(r.Context()); isEditor {
+		return " ORDER BY `id` DESC"
+	}
+	return " ORDER BY `pub_date` DESC, `id` DESC"
 }
 
 // articleOrderByClause returns the editor-only ORDER BY for date sorts, or ""

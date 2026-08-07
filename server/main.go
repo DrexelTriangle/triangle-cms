@@ -124,6 +124,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Non-fatal: the public listing sorts correctly without this index, it just
+	// filesorts the corpus to do it.
+	if err := database.EnsureArticlesPublishedIndex(context.Background(), db); err != nil {
+		slog.Error("failed to build article pub_date index; public listings filesort", "error", err)
+	}
+
 	// Deliberately not fatal, and deliberately after the column migration: the
 	// first FULLTEXT index on `articles` rebuilds the table, which on the
 	// migrated corpus is slow enough that failing the boot over it would trade a
