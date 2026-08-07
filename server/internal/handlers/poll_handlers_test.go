@@ -67,3 +67,48 @@ func TestPollView_AlwaysCarriesState(t *testing.T) {
 		})
 	}
 }
+
+// A poll scheduled for 9am in Philadelphia once went live at 5am, because a
+// zoneless timestamp parsed as UTC. Silently guessing a zone is the bug, so
+// the parse has to fail instead.
+func TestParsePollTime(t *testing.T) {
+	ptr := func(s string) *string { return &s }
+
+	t.Run("absent leaves the column unchanged", func(t *testing.T) {
+		value, clear, err := parsePollTime(nil)
+		if value != nil || clear || err != nil {
+			t.Fatalf("got (%v, %v, %v), want (nil, false, nil)", value, clear, err)
+		}
+	})
+
+	t.Run("empty clears the column", func(t *testing.T) {
+		value, clear, err := parsePollTime(ptr("  "))
+		if value != nil || !clear || err != nil {
+			t.Fatalf("got (%v, %v, %v), want (nil, true, nil)", value, clear, err)
+		}
+	})
+
+	t.Run("offset is preserved as the instant it names", func(t *testing.T) {
+		value, clear, err := parsePollTime(ptr("2026-08-07T09:00:00-04:00"))
+		if err != nil || clear || value == nil {
+			t.Fatalf("got (%v, %v, %v), want a parsed time", value, clear, err)
+		}
+		if want := time.Date(2026, 8, 7, 13, 0, 0, 0, time.UTC); !value.Equal(want) {
+			t.Fatalf("parsed %s, want %s", value.UTC(), want)
+		}
+	})
+
+	for _, raw := range []string{"2026-08-07T09:00", "2026-08-07T09:00:00", "2026-08-07"} {
+		t.Run("zoneless "+raw+" is rejected", func(t *testing.T) {
+			if _, _, err := parsePollTime(ptr(raw)); err == nil {
+				t.Fatalf("parsePollTime(%q) succeeded; a zoneless timestamp must not be assumed UTC", raw)
+			}
+		})
+	}
+
+	t.Run("nonsense is rejected", func(t *testing.T) {
+		if _, _, err := parsePollTime(ptr("next tuesday")); err == nil {
+			t.Fatal("parsePollTime accepted a non-timestamp")
+		}
+	})
+}

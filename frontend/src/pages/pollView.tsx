@@ -74,6 +74,16 @@ function toLocalInput(value?: string): string {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16)
 }
 
+// The way back out. A zoneless "YYYY-MM-DDTHH:mm" reaching the API is read as
+// UTC, so a 9am start saved from Philadelphia comes back as 5am -- the browser
+// is the only side that knows which zone the editor typed in, so it has to say.
+function localInputToISO(value: string): string {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toISOString()
+}
+
 function formatRunDate(value?: string): string {
   if (!value) return ""
   const date = new Date(value)
@@ -279,8 +289,8 @@ export default function PollView() {
           // "Now" and "scheduled" are the same published status; the start date
           // is what decides when readers see it.
           status: newTiming === "draft" ? "draft" : "active",
-          starts_at: newTiming === "schedule" ? newStartsAt : null,
-          ends_at: newTiming === "draft" ? null : newEndsAt || null,
+          starts_at: newTiming === "schedule" ? localInputToISO(newStartsAt) : null,
+          ends_at: newTiming === "draft" ? null : localInputToISO(newEndsAt) || null,
         }),
       },
       "Failed to create poll",
@@ -307,8 +317,8 @@ export default function PollView() {
         body: JSON.stringify({
           question,
           // Explicit null clears the date; omitting it would leave it unchanged.
-          starts_at: editStartsAt || null,
-          ends_at: editEndsAt || null,
+          starts_at: localInputToISO(editStartsAt) || null,
+          ends_at: localInputToISO(editEndsAt) || null,
         }),
       },
       "Failed to update poll",

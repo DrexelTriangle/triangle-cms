@@ -450,6 +450,10 @@ type PollResponse struct {
 // PollRequest creates or updates a poll. Pointer fields distinguish "not
 // supplied" from "set to empty", which is how a PATCH clears an end date
 // (explicit null) without every other PATCH wiping it.
+//
+// StartsAt/EndsAt must be RFC3339 with a UTC offset. A zoneless timestamp is
+// rejected rather than assumed to be UTC, which used to move a scheduled poll
+// by the paper's offset.
 type PollRequest struct {
 	Question *string  `json:"question"`
 	Status   *string  `json:"status"`
