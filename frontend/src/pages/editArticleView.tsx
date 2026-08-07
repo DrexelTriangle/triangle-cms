@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { ArrowLeft, Save, Image, Search, X, Copy, Check } from "lucide-react"
+import { ArrowLeft, Save, Image, Search, X, Copy, Check, RefreshCw } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { articleUrl } from "../auth/urls"
@@ -51,6 +51,9 @@ type PatchPayload = {
   title: string
   excerpt: string
   content: string
+  // Only sent when the editor regenerated the slug, and never by an autosave:
+  // changing it moves the article's public URL.
+  slug?: string
   // Both are omitted by autosave: a publish transition only happens when the
   // editor presses the publish button.
   status?: EditableStatus
@@ -111,7 +114,10 @@ const isValidCanonicalUrl = (value: string): boolean => {
   return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.host !== ""
 }
 
-const slugifyCategory = (value: string): string =>
+// Mirrors db.CanonicalizeSlug on the server: lowercase, every run of
+// non-alphanumerics collapsed to a single dash, no leading or trailing dash.
+// Anything else is rejected as non-canonical by the API.
+const slugify = (value: string): string =>
   value
     .trim()
     .toLowerCase()
@@ -212,6 +218,11 @@ function EditArticleView() {
   const isNew = !rawSlug
 
   const [slugInput, setSlugInput] = useState("")
+  // A slug regenerated for an existing article, held until the next explicit
+  // save: the URL an article is already reachable at must not move under a
+  // background autosave. Null means "keep the slug on file".
+  const [pendingSlug, setPendingSlug] = useState<string | null>(null)
+  const [slugRegenerating, setSlugRegenerating] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isAutoSaving, setIsAutoSaving] = useState(false)
@@ -381,7 +392,7 @@ function EditArticleView() {
           const categorySlugs = (payload.categories ?? [])
             .map((category) => {
               const name = (category.name ?? "").trim()
-              const categorySlug = slugifyCategory(category.slug ?? name)
+              const categorySlug = slugify(category.slug ?? name)
               if (categorySlug && name) {
                 legacyCategories[categorySlug] = name
               }
@@ -670,10 +681,15 @@ function EditArticleView() {
 
       if (!slug) return
 
+      // Captured before the request so a regenerate landing mid-save cannot make
+      // the redirect below disagree with what was actually sent.
+      const slugToSave = !autosave && pendingSlug && pendingSlug !== slug ? pendingSlug : ""
+
       const payload: PatchPayload = {
         title: title.trim(),
         excerpt: excerpt.trim(),
         content: content.trim(),
+        ...(slugToSave ? { slug: slugToSave } : {}),
         // An autosave omits both fields entirely; the handler leaves pub_date and
         // scheduled_pub_date untouched when neither is present, so the article
         // stays exactly as published (or as draft) as the editor left it.
@@ -717,6 +733,12 @@ function EditArticleView() {
         setAutoSaveMessage("Autosaved.")
       } else {
         setSuccessMessage("Article saved.")
+      }
+      if (slugToSave) {
+        // The route still points at the old slug, which no longer resolves, so
+        // move the editor onto the new one before anything refetches.
+        setPendingSlug(null)
+        navigate(`/articles/${encodeURIComponent(slugToSave)}/edit`, { replace: true })
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save article."
@@ -925,6 +947,48 @@ function EditArticleView() {
   // On a new article the slug the server will assign is not known until it is
   // saved, so only offer the link once there is a real one.
   const effectiveSlug = isNew ? "" : slug
+  // Article slugs carry no uniqueness constraint, so handing two articles the
+  // same one would make the public URL ambiguous. Probe the API for the plain
+  // slug and fall back to -2, -3, ... the way WordPress did.
+  const findFreeSlug = async (base: string): Promise<string> => {
+    for (let suffix = 1; suffix <= 20; suffix += 1) {
+      const candidate = suffix === 1 ? base : `${base}-${suffix}`
+      if (candidate === slug) return candidate
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(candidate)}`)
+      if (response.status === 404) return candidate
+      if (!response.ok) {
+        throw new Error(`Slug check failed (${response.status})`)
+      }
+    }
+    throw new Error(`Every slug from "${base}" to "${base}-20" is already taken.`)
+  }
+
+  const regenerateSlug = async () => {
+    const base = slugify(title)
+    if (!base) {
+      setError("Add a title before regenerating the slug.")
+      return
+    }
+    setError(null)
+    setSuccessMessage(null)
+    setSlugRegenerating(true)
+    try {
+      const next = await findFreeSlug(base)
+      if (isNew) {
+        setSlugInput(next)
+      } else {
+        setPendingSlug(next === slug ? null : next)
+        if (next === slug) {
+          setSuccessMessage("The slug already matches the title.")
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to regenerate the slug.")
+    } finally {
+      setSlugRegenerating(false)
+    }
+  }
+
   const copyArticleLink = async () => {
     if (!effectiveSlug) return
     if (await copyText(articleUrl(effectiveSlug))) {
@@ -1083,39 +1147,73 @@ function EditArticleView() {
             <div className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
             <h2 className="text-base font-semibold text-foreground">Publish</h2>
 
-            <label className={labelClass}>
-              <span className={labelTextClass}>Slug</span>
-              {isNew ? (
-                <input
-                  className={inputClass}
-                  onChange={(e) => setSlugInput(e.target.value)}
-                  placeholder="Auto-generated from title if left blank"
-                  type="text"
-                  value={slugInput}
-                />
-              ) : (
-                <input className={`${inputClass} bg-muted/50 text-muted-foreground cursor-default`} readOnly type="text" value={slug} />
-              )}
-              {/* Available on drafts too: the newsletter and social posts are
-                  built ahead of publication and need the link before the article
-                  is live. A new article has no slug until it is saved, so the
-                  URL would be a guess -- offer it only once one exists. */}
-              {effectiveSlug ? (
+            {/* The buttons under the field sit outside the label: inside it they
+                would be read out as part of the field's own name. */}
+            <div className={labelClass}>
+              <label className={labelClass}>
+                <span className={labelTextClass}>Slug</span>
+                {isNew ? (
+                  <input
+                    className={inputClass}
+                    onChange={(e) => setSlugInput(e.target.value)}
+                    placeholder="Auto-generated from title if left blank"
+                    type="text"
+                    value={slugInput}
+                  />
+                ) : (
+                  <input
+                    className={`${inputClass} bg-muted/50 cursor-default ${pendingSlug ? "text-foreground" : "text-muted-foreground"}`}
+                    readOnly
+                    type="text"
+                    value={pendingSlug ?? slug}
+                  />
+                )}
+              </label>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <button
-                  className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-                  onClick={() => void copyArticleLink()}
-                  title={articleUrl(effectiveSlug)}
+                  className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                  disabled={slugRegenerating || !title.trim()}
+                  onClick={() => void regenerateSlug()}
+                  title="Rebuild the slug from the current title"
                   type="button"
                 >
-                  {linkCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  {linkCopied ? "Link copied" : "Copy article link"}
+                  <RefreshCw className={`h-3.5 w-3.5 ${slugRegenerating ? "animate-spin" : ""}`} />
+                  {slugRegenerating ? "Checking..." : "Regenerate from title"}
                 </button>
-              ) : (
+                {/* Available on drafts too: the newsletter and social posts are
+                    built ahead of publication and need the link before the article
+                    is live. A new article has no slug until it is saved, so the
+                    URL would be a guess -- offer it only once one exists. */}
+                {effectiveSlug ? (
+                  <button
+                    className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                    onClick={() => void copyArticleLink()}
+                    title={articleUrl(effectiveSlug)}
+                    type="button"
+                  >
+                    {linkCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    {linkCopied ? "Link copied" : "Copy article link"}
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">
+                    Save once to get a shareable link.
+                  </span>
+                )}
+              </div>
+              {pendingSlug ? (
                 <span className="text-[11px] text-muted-foreground">
-                  Save once to get a shareable link.
+                  Saving moves the article to this slug. Anything already linking to{" "}
+                  <span className="font-medium text-foreground">/article/{slug}</span> will 404.{" "}
+                  <button
+                    className="font-medium text-primary hover:underline"
+                    onClick={() => setPendingSlug(null)}
+                    type="button"
+                  >
+                    Keep the current slug
+                  </button>
                 </span>
-              )}
-            </label>
+              ) : null}
+            </div>
 
             <div className={labelClass}>
               <span className={labelTextClass}>Publish timing</span>
