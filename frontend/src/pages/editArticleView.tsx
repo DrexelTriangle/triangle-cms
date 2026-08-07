@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { ArrowLeft, Save, Image, Search, X, Copy, Check, RefreshCw } from "lucide-react"
+import { ArrowLeft, Save, Image, Search, X, Copy, Check, RefreshCw, Plus } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { articleUrl } from "../auth/urls"
@@ -75,6 +75,13 @@ type PatchPayload = {
   noindex: boolean
 }
 
+// A tag the archive already uses, with how many articles carry it. Aggregated
+// server-side from the articles themselves; there is no tags table.
+type PopularTag = {
+  name: string
+  uses: number
+}
+
 type ApiAuthor = {
   id: number
   display_name: string
@@ -140,6 +147,33 @@ const parseSEOTags = (value: string): string[] => {
       seen.add(key)
       return true
     })
+}
+
+// How many suggestions sit under the tag box. The list is a shortcut for the
+// handful of tags a desk adds to nearly every article, so a longer row would
+// cost more to read than typing the tag.
+const SEO_TAG_SUGGESTION_LIMIT = 8
+
+// The suggestions worth showing: tags not already on the article, narrowed to
+// what the editor has started typing. Popularity order is preserved rather than
+// re-ranked by how well the text matches, so the row a person learns the
+// position of does not reshuffle under them as they type.
+const filterTagSuggestions = (
+  popular: PopularTag[],
+  selected: string[],
+  draft: string,
+): string[] => {
+  const taken = new Set(selected.map((tag) => tag.toLowerCase()))
+  const query = draft.trim().toLowerCase()
+  const matches: string[] = []
+  for (const tag of popular) {
+    const name = tag.name.toLowerCase()
+    if (taken.has(name)) continue
+    if (query && !name.includes(query)) continue
+    matches.push(tag.name)
+    if (matches.length === SEO_TAG_SUGGESTION_LIMIT) break
+  }
+  return matches
 }
 
 // Appends whatever tags are in `raw` (Enter commits one, a pasted list commits
@@ -278,6 +312,10 @@ function EditArticleView() {
   // Text sitting in the tag box that has not been committed to a chip yet. It is
   // still saved, so a half-typed tag is not silently dropped by an autosave.
   const [seoTagDraft, setSeoTagDraft] = useState("")
+  // Tag suggestions. A failed fetch leaves this empty and shows nothing: the
+  // suggestions are a shortcut, and an error message next to a working text box
+  // would be noise.
+  const [popularTags, setPopularTags] = useState<PopularTag[]>([])
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
   // Byline order is selection order: the list is sent as-is and rendered in that
@@ -577,6 +615,36 @@ function EditArticleView() {
     }
   }, [apiFetch])
 
+  // Tags the desk already uses, for the suggestions under the tag box. Fetched
+  // once per editor session: the server caches the ranking for minutes anyway,
+  // so re-fetching per keystroke would buy nothing.
+  useEffect(() => {
+    let cancelled = false
+
+    const fetchPopularTags = async () => {
+      try {
+        const response = await apiFetch("/v1/tags/popular")
+        if (!response.ok) {
+          throw new Error(`Popular tags request failed (${response.status})`)
+        }
+        const payload = (await response.json()) as PopularTag[]
+        if (!cancelled) {
+          setPopularTags(Array.isArray(payload) ? payload : [])
+        }
+      } catch {
+        // Silent by design -- see the popularTags declaration.
+        if (!cancelled) {
+          setPopularTags([])
+        }
+      }
+    }
+
+    void fetchPopularTags()
+    return () => {
+      cancelled = true
+    }
+  }, [apiFetch])
+
   const saveArticle = async (nextTiming?: PublishTiming, options: { autosave?: boolean } = {}) => {
     const autosave = options.autosave === true
     const snapshotToSave = currentSnapshotRef.current
@@ -798,6 +866,19 @@ function EditArticleView() {
       return
     }
     setSeoTags((current) => addSEOTags(current, seoTagDraft))
+    setSeoTagDraft("")
+  }
+
+  const tagSuggestions = useMemo(
+    () => filterTagSuggestions(popularTags, seoTags, seoTagDraft),
+    [popularTags, seoTags, seoTagDraft],
+  )
+
+  // Clicking a suggestion also clears the draft: the click is the editor
+  // finishing the word they had started, so leaving "dre" in the box would
+  // commit it as a second tag at the next blur.
+  const addSuggestedSeoTag = (tag: string) => {
+    setSeoTags((current) => addSEOTags(current, tag))
     setSeoTagDraft("")
   }
 
@@ -1513,6 +1594,30 @@ function EditArticleView() {
                   value={seoTagDraft}
                 />
               </div>
+              {tagSuggestions.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    {seoTagDraft.trim() ? "Matching tags" : "Frequently used"}
+                  </span>
+                  {tagSuggestions.map((tag) => (
+                    <button
+                      aria-label={`Add tag ${tag}`}
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border border-dashed border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary hover:bg-muted transition-colors cursor-pointer"
+                      key={tag.toLowerCase()}
+                      // Keep the caret in the tag box: without this the input's
+                      // blur fires first and commits the half-typed draft, so
+                      // clicking "drexel" after typing "dre" would add both.
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => addSuggestedSeoTag(tag)}
+                      title={`Add the tag "${tag}"`}
+                      type="button"
+                    >
+                      <Plus className="h-3 w-3" />
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </label>
 
             <label className={labelClass}>

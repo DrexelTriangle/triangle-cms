@@ -3755,6 +3755,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/tags/popular": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "articles"
+                ],
+                "summary": "List the most-used SEO tags",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "How many tags to return (default 50, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/database.PopularTag"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/taxonomy": {
             "get": {
                 "produces": [
@@ -4207,6 +4254,17 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "database.PopularTag": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "uses": {
+                    "type": "integer"
+                }
+            }
+        },
         "handlers.articleEditLockResponse": {
             "type": "object",
             "properties": {
@@ -4355,6 +4413,9 @@ const docTemplate = `{
                 "breaking_news": {
                     "type": "boolean"
                 },
+                "canonical_url": {
+                    "type": "string"
+                },
                 "categories": {
                     "type": "array",
                     "items": {
@@ -4383,6 +4444,16 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "meta_description": {
+                    "type": "string"
+                },
+                "modified_date": {
+                    "type": "string"
+                },
+                "noindex": {
+                    "type": "boolean"
+                },
+                "photo_alt": {
+                    "description": "PhotoAlt describes the featured image for screen readers. It is\narticle-scoped rather than a lookup into the media library: the same photo\ncan want a different description in a different story, and a featured image\nset by URL has no library record to read one from.",
                     "type": "string"
                 },
                 "photo_url": {
@@ -4455,11 +4526,19 @@ const docTemplate = `{
                 "featured_image": {
                     "type": "string"
                 },
+                "featured_image_alt": {
+                    "description": "FeaturedImageAlt is the article's own description of its featured image.\nEmpty means the public site has nothing to render, which is a defect worth\nsurfacing rather than papering over with the headline: an alt that repeats\nthe adjacent headline tells a screen-reader user nothing new.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
                 "is_featured": {
                     "type": "boolean"
+                },
+                "modified_date": {
+                    "description": "ModifiedDate is the article's last-edited time (the ` + "`" + `mod_date` + "`" + ` column the\npublic sitemap already reports as \u003clastmod\u003e). Exposed so the public site's\nNewsArticle dateModified agrees with the sitemap instead of silently\nfalling back to the publish date.",
+                    "type": "string"
                 },
                 "published_date": {
                     "type": "string"
@@ -4496,6 +4575,9 @@ const docTemplate = `{
                 "breaking_news": {
                     "type": "boolean"
                 },
+                "canonical_url": {
+                    "type": "string"
+                },
                 "categories": {
                     "type": "array",
                     "items": {
@@ -4518,6 +4600,12 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "meta_description": {
+                    "type": "string"
+                },
+                "noindex": {
+                    "type": "boolean"
+                },
+                "photo_alt": {
                     "type": "string"
                 },
                 "photo_url": {
@@ -4609,6 +4697,9 @@ const docTemplate = `{
                 "breaking_news": {
                     "type": "boolean"
                 },
+                "canonical_url": {
+                    "type": "string"
+                },
                 "categories": {
                     "type": "array",
                     "items": {
@@ -4631,6 +4722,12 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "meta_description": {
+                    "type": "string"
+                },
+                "noindex": {
+                    "type": "boolean"
+                },
+                "photo_alt": {
                     "type": "string"
                 },
                 "photo_url": {
@@ -5712,6 +5809,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "canonical_url": {
+                    "description": "CanonicalURL is the editor-supplied override for syndicated or reprinted\npieces that should credit another publisher. Empty means \"no override\":\nthe public site falls back to its own /article/\u003cslug\u003e URL.",
                     "type": "string"
                 },
                 "focus_keyword": {
@@ -5719,6 +5817,10 @@ const docTemplate = `{
                 },
                 "meta_description": {
                     "type": "string"
+                },
+                "noindex": {
+                    "description": "NoIndex asks the public site to emit robots noindex for this article.",
+                    "type": "boolean"
                 },
                 "seo_title": {
                     "type": "string"

@@ -20,6 +20,9 @@ let articlePublishedDate: string | undefined
 // Slugs belonging to other articles, so a GET for them answers 200 the way the
 // API would rather than the 404 that means "free".
 let takenSlugs: Set<string>
+// SEO tags the article already carries, and what /v1/tags/popular offers.
+let articleTags: string[]
+let popularTagsPayload: Array<{ name: string; uses: number }>
 
 const jsonResponse = (payload: unknown, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -60,7 +63,11 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       featured_image_alt: "",
       categories: [{ name: "News", slug: "news" }],
       authors: [{ id: 7, name: "Reporter" }],
+      seo: { tags: articleTags.map((name) => ({ name, slug: name })) },
     })
+  }
+  if (url.startsWith("/v1/tags/popular")) {
+    return jsonResponse(popularTagsPayload)
   }
   if (method === "GET" && url.startsWith("/v1/articles/")) {
     const candidate = decodeURIComponent(url.slice("/v1/articles/".length))
@@ -116,6 +123,8 @@ describe("EditArticleView autosave", () => {
     articleStatus = "draft"
     articlePublishedDate = undefined
     takenSlugs = new Set()
+    articleTags = []
+    popularTagsPayload = []
     apiFetchStub.mockClear()
     // shouldAdvanceTime keeps Testing Library's own waitFor polling alive while
     // the autosave debounce stays under our control.
@@ -246,5 +255,79 @@ describe("EditArticleView autosave", () => {
     // Once the transition is on file, later autosaves stop warning about it.
     await waitOutAutosave()
     expect(screen.queryByText(/Publish timing is not autosaved/)).not.toBeInTheDocument()
+  })
+})
+
+// The tag box used to be a bare text field, so the boilerplate tags a desk adds
+// to nearly every article were retyped by hand each time. These pin the
+// shortcut that replaced that.
+describe("EditArticleView SEO tag suggestions", () => {
+  beforeEach(() => {
+    apiCalls = []
+    articleStatus = "draft"
+    articlePublishedDate = undefined
+    takenSlugs = new Set()
+    articleTags = []
+    popularTagsPayload = [
+      { name: "triangle", uses: 900 },
+      { name: "drexel", uses: 800 },
+      { name: "drexel triangle", uses: 400 },
+      { name: "civil rights", uses: 20 },
+    ]
+    apiFetchStub.mockClear()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const suggestion = (name: string) => screen.getByRole("button", { name: `Add tag ${name}` })
+
+  it("adds a frequently-used tag when its suggestion is clicked", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("triangle")).toBeInTheDocument())
+
+    await user.click(suggestion("triangle"))
+    await waitOutAutosave()
+
+    expect(screen.getByRole("button", { name: "Remove tag triangle" })).toBeInTheDocument()
+    expect(patchCalls()[0].body?.tags).toEqual(["triangle"])
+  })
+
+  // A suggestion for a tag the article already carries is a dead control, and
+  // clicking it would look broken -- the add is a no-op against the dedupe.
+  it("does not suggest a tag the article already carries", async () => {
+    articleTags = ["triangle"]
+    await renderEditor()
+    await waitFor(() => expect(suggestion("drexel")).toBeInTheDocument())
+
+    expect(screen.queryByRole("button", { name: "Add tag triangle" })).not.toBeInTheDocument()
+  })
+
+  it("narrows the suggestions to what the editor has typed", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("civil rights")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "drex")
+
+    expect(suggestion("drexel")).toBeInTheDocument()
+    expect(suggestion("drexel triangle")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Add tag civil rights" })).not.toBeInTheDocument()
+  })
+
+  // Clicking a suggestion blurs the tag input, and blur commits whatever is in
+  // it. Finishing a half-typed word by clicking must not leave the fragment
+  // behind as a second tag.
+  it("does not also commit the half-typed draft when a suggestion is clicked", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("drexel")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "drex")
+    await user.click(suggestion("drexel"))
+    await waitOutAutosave()
+
+    expect(screen.queryByRole("button", { name: "Remove tag drex" })).not.toBeInTheDocument()
+    expect(patchCalls()[0].body?.tags).toEqual(["drexel"])
   })
 })
