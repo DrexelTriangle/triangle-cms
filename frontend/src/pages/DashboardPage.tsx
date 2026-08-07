@@ -23,7 +23,7 @@ import {
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { articleStatusChipClass } from "../lib/articleStatus"
 
 interface RecentArticle {
   id: number
@@ -450,9 +450,9 @@ export default function DashboardPage() {
                           {article.categories[0]?.name ?? "—"}
                         </td>
                         <td className="px-3 py-2.5">
-                          <Badge variant={article.status === "published" ? "success" : "secondary"} className="text-[11px]">
+                          <span className={articleStatusChipClass(article.status)}>
                             {formatStatusLabel(article.status)}
-                          </Badge>
+                          </span>
                         </td>
                         <td className="px-5 py-2.5 text-xs text-muted-foreground text-right hidden lg:table-cell">
                           {timeAgo(article.published_date)}

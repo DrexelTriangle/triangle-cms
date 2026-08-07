@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom"
 import { articleUrl } from "../auth/urls"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { copyText } from "../lib/clipboard"
+import { articleStatusChipClass } from "../lib/articleStatus"
 
 type ArticleStatus = "Published" | "Scheduled" | "Draft" | "Archived"
 
@@ -730,15 +731,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{item.authors || "-"}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      item.status === "Published"
-                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                        : item.status === "Scheduled"
-                          ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-                          : item.status === "Draft"
-                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-                          : "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200"
-                    }`}>
+                    <span className={articleStatusChipClass(item.status)}>
                       {item.status}
                     </span>
                   </td>
