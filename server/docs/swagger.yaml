@@ -3616,9 +3616,13 @@ paths:
       summary: List articles by subsection
       tags:
       - articles
-  /v1/tags/popular:
+  /v1/tags:
     get:
       parameters:
+      - description: Search text; omit for the most-used tags
+        in: query
+        name: q
+        type: string
       - description: How many tags to return (default 50, max 200)
         in: query
         name: limit
@@ -3642,7 +3646,7 @@ paths:
             $ref: '#/definitions/models.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: List the most-used SEO tags
+      summary: List or search the SEO tags already in use
       tags:
       - articles
   /v1/taxonomy:

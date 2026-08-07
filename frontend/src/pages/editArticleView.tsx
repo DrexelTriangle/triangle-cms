@@ -154,19 +154,28 @@ const parseSEOTags = (value: string): string[] => {
 // cost more to read than typing the tag.
 const SEO_TAG_SUGGESTION_LIMIT = 8
 
-// The suggestions worth showing: tags not already on the article, narrowed to
-// what the editor has started typing. Popularity order is preserved rather than
-// re-ranked by how well the text matches, so the row a person learns the
-// position of does not reshuffle under them as they type.
+// How long the tag box sits still before its contents are searched. Long enough
+// that typing a whole word is one request rather than six; short enough that the
+// results arrive while the editor is still looking at the box.
+const TAG_SEARCH_DEBOUNCE_MS = 200
+
+// The suggestions worth showing, out of whichever set the caller passes -- the
+// popular tags when the box is empty, the search results once it is not.
+//
+// The text filter is applied here as well as on the server, and that is the
+// point: it narrows the tags already on screen on the keystroke, without waiting
+// for the request, and it drops results belonging to an earlier query. The
+// server's ordering is preserved rather than re-ranked, so the row does not
+// reshuffle under a person reaching for it.
 const filterTagSuggestions = (
-  popular: PopularTag[],
+  candidates: PopularTag[],
   selected: string[],
   draft: string,
 ): string[] => {
   const taken = new Set(selected.map((tag) => tag.toLowerCase()))
   const query = draft.trim().toLowerCase()
   const matches: string[] = []
-  for (const tag of popular) {
+  for (const tag of candidates) {
     const name = tag.name.toLowerCase()
     if (taken.has(name)) continue
     if (query && !name.includes(query)) continue
@@ -316,6 +325,10 @@ function EditArticleView() {
   // suggestions are a shortcut, and an error message next to a working text box
   // would be noise.
   const [popularTags, setPopularTags] = useState<PopularTag[]>([])
+  // Matches for what is currently in the tag box, searched over every tag the
+  // archive has rather than only the popular ones -- a beat tag from 2019 is
+  // exactly what nobody remembers the spelling of.
+  const [tagSearchResults, setTagSearchResults] = useState<PopularTag[]>([])
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
   // Byline order is selection order: the list is sent as-is and rendered in that
@@ -623,7 +636,7 @@ function EditArticleView() {
 
     const fetchPopularTags = async () => {
       try {
-        const response = await apiFetch("/v1/tags/popular")
+        const response = await apiFetch("/v1/tags")
         if (!response.ok) {
           throw new Error(`Popular tags request failed (${response.status})`)
         }
@@ -644,6 +657,48 @@ function EditArticleView() {
       cancelled = true
     }
   }, [apiFetch])
+
+  // Search the archive for whatever is in the tag box. Debounced, and dropped
+  // if the box has moved on by the time the answer arrives: responses can land
+  // out of order, and stale matches for a prefix the editor has already typed
+  // past are worse than none.
+  useEffect(() => {
+    const query = seoTagDraft.trim()
+    if (!query) {
+      setTagSearchResults([])
+      return
+    }
+
+    let cancelled = false
+    const timer = setTimeout(() => {
+      const search = async () => {
+        try {
+          const response = await apiFetch(
+            `/v1/tags?limit=${SEO_TAG_SUGGESTION_LIMIT}&q=${encodeURIComponent(query)}`,
+          )
+          if (!response.ok) {
+            throw new Error(`Tag search failed (${response.status})`)
+          }
+          const payload = (await response.json()) as PopularTag[]
+          if (!cancelled) {
+            setTagSearchResults(Array.isArray(payload) ? payload : [])
+          }
+        } catch {
+          // Silent by design -- the popular tags and the text box both still
+          // work, so an error banner would be noise.
+          if (!cancelled) {
+            setTagSearchResults([])
+          }
+        }
+      }
+      void search()
+    }, TAG_SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [apiFetch, seoTagDraft])
 
   const saveArticle = async (nextTiming?: PublishTiming, options: { autosave?: boolean } = {}) => {
     const autosave = options.autosave === true
@@ -869,10 +924,18 @@ function EditArticleView() {
     setSeoTagDraft("")
   }
 
-  const tagSuggestions = useMemo(
-    () => filterTagSuggestions(popularTags, seoTags, seoTagDraft),
-    [popularTags, seoTags, seoTagDraft],
-  )
+  // Search results lead, because they are ranked by how well they match and
+  // they cover the whole archive. The popular tags follow as the instant
+  // fallback: they are already in memory, so the row narrows on the keystroke
+  // instead of sitting empty until the search comes back.
+  const tagSuggestions = useMemo(() => {
+    const candidates = seoTagDraft.trim()
+      ? [...tagSearchResults, ...popularTags.filter(
+          (tag) => !tagSearchResults.some((match) => match.name.toLowerCase() === tag.name.toLowerCase()),
+        )]
+      : popularTags
+    return filterTagSuggestions(candidates, seoTags, seoTagDraft)
+  }, [popularTags, tagSearchResults, seoTags, seoTagDraft])
 
   // Clicking a suggestion also clears the draft: the click is the editor
   // finishing the word they had started, so leaving "dre" in the box would
@@ -1594,6 +1657,15 @@ function EditArticleView() {
                   value={seoTagDraft}
                 />
               </div>
+              {tagSuggestions.length === 0 && seoTagDraft.trim() ? (
+                // Worth saying out loud: nothing in the archive matches, so
+                // this tag is a new one. That is allowed, but an editor who
+                // meant to reuse an existing tag wants to know now, not after
+                // they have coined a near-duplicate of it.
+                <p className="pt-1.5 text-[11px] text-muted-foreground">
+                  No existing tag matches. Press Enter to create it.
+                </p>
+              ) : null}
               {tagSuggestions.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
                   <span className="text-[11px] text-muted-foreground">

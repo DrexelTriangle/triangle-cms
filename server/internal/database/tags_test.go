@@ -115,16 +115,44 @@ func TestRankTagValuesSkipsEmptyAndBlankEntries(t *testing.T) {
 	}
 }
 
-// The imported archive has a long tail of tags used exactly once; the ranking
-// is held in memory, so it is capped before it ever reaches a caller.
-func TestRankTagValuesCapsTheRanking(t *testing.T) {
-	values := make([]sql.NullString, 0, MaxPopularTagsLimit+50)
-	for i := 0; i < MaxPopularTagsLimit+50; i++ {
+// The ranking keeps every tag, because search reads it: a tag used twice in
+// 2019 has to stay findable, and it is nowhere near the popular slice. Only the
+// response is capped.
+func TestRankTagValuesKeepsTheWholeArchive(t *testing.T) {
+	values := make([]sql.NullString, 0, MaxTagsLimit+50)
+	for i := 0; i < MaxTagsLimit+50; i++ {
 		values = append(values, sql.NullString{String: fmt.Sprintf(`["tag-%03d"]`, i), Valid: true})
 	}
 
 	ranked := rankTagValues(values)
-	if len(ranked) != MaxPopularTagsLimit {
-		t.Fatalf("got %d tags, want the cap of %d", len(ranked), MaxPopularTagsLimit)
+	if len(ranked) != MaxTagsLimit+50 {
+		t.Fatalf("got %d tags, want all %d of them", len(ranked), MaxTagsLimit+50)
+	}
+	if capped := capTags(ranked, 0); len(capped) != DefaultTagsLimit {
+		t.Errorf("response was not capped: got %d tags, want %d", len(capped), DefaultTagsLimit)
+	}
+}
+
+// Somebody typing "lacrosse" means the tag "lacrosse". Ordering matches by
+// popularity alone buries it under a better-used "Men's Lacrosse", which makes
+// the exact tag they asked for the one they have to hunt for.
+func TestMatchRankPrefersTheCloserMatch(t *testing.T) {
+	ordered := []string{"lacrosse", "lacrosse team", "men's lacrosse", "collacrosse"}
+	for i := 1; i < len(ordered); i++ {
+		previous := matchRank(ordered[i-1], "lacrosse")
+		current := matchRank(ordered[i], "lacrosse")
+		if previous < 0 || current < 0 {
+			t.Fatalf("%q or %q did not match at all", ordered[i-1], ordered[i])
+		}
+		if previous >= current {
+			t.Errorf("%q ranked %d, %q ranked %d; the closer match must rank lower",
+				ordered[i-1], previous, ordered[i], current)
+		}
+	}
+}
+
+func TestMatchRankRejectsANonMatch(t *testing.T) {
+	if rank := matchRank("drexel", "lacrosse"); rank >= 0 {
+		t.Errorf("got rank %d, want -1 for a tag that does not contain the query", rank)
 	}
 }

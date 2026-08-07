@@ -15,32 +15,35 @@ type PopularTag struct {
 	Uses int64  `json:"uses"`
 }
 
-// DefaultPopularTagsLimit is how many suggestions the editor gets when it does
-// not ask for a specific number. The imported WordPress archive has a long tail
-// of tags used exactly once, so the point of the cap is to keep the list to the
-// ones a desk actually reaches for.
-const DefaultPopularTagsLimit = 50
+// DefaultTagsLimit is how many suggestions a caller gets when it does not ask
+// for a number. The imported WordPress archive has a long tail of tags used
+// exactly once, so the point of the cap is to keep the list to the ones a desk
+// actually reaches for.
+const DefaultTagsLimit = 50
 
-// MaxPopularTagsLimit bounds what a caller can ask for, since the whole result
-// is built in memory.
-const MaxPopularTagsLimit = 200
+// MaxTagsLimit bounds what a caller can ask for. It caps the response, not the
+// ranking: search reads every tag the archive has, and only the slice handed
+// back is trimmed.
+const MaxTagsLimit = 200
 
-// popularTagsTTL is how long a computed ranking is served before it is rebuilt.
+// tagRankingTTL is how long a computed ranking is served before it is rebuilt.
 // Counting means scanning every article's tags, and the ranking moves by one
 // article at a time, so a stale-by-minutes list is indistinguishable from a
 // fresh one to the person picking from it.
-const popularTagsTTL = 10 * time.Minute
+const tagRankingTTL = 10 * time.Minute
 
-// popularTagsCache holds the full ranking (MaxPopularTagsLimit entries), which
-// every limit is then sliced from, so varying the limit cannot cause a rebuild.
+// The cached ranking is every distinct tag in the archive, not just the popular
+// ones, because search has to be able to find a tag used twice in 2019.
+// That is ~20k entries against ~9k articles -- a couple of megabytes, and far
+// cheaper than a per-keystroke scan of the article table.
 //
 // The mutex is held across the refresh rather than only around the swap: it
 // serializes concurrent misses so a cold cache costs one scan instead of one
 // per in-flight request.
 var (
-	popularTagsMu      sync.Mutex
-	popularTagsCached  []PopularTag
-	popularTagsFetched time.Time
+	tagRankingMu      sync.Mutex
+	tagRankingCached  []PopularTag
+	tagRankingFetched time.Time
 )
 
 // PopularTags returns the SEO tags most used across the archive, ranked by
@@ -59,33 +62,111 @@ var (
 // is still a tag the desk is using, and suggestions are about what editors
 // type, not about what readers can see.
 func PopularTags(ctx context.Context, conn *sql.DB, limit int) ([]PopularTag, error) {
+	ranking, err := tagRanking(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	return capTags(ranking, limit), nil
+}
+
+// SearchTags finds the tags whose text contains the query, so an editor can
+// reach a tag the archive already has instead of retyping it -- and, more to
+// the point, instead of coining a near-duplicate of one.
+//
+// It searches every tag, not the popular slice PopularTags hands back: a beat
+// tag used twice in 2019 is exactly the kind of thing nobody remembers the
+// exact spelling of, and it is nowhere near the top 50.
+//
+// Matches are ordered by how they match before how popular they are. Somebody
+// typing "lacrosse" means the tag "lacrosse", and burying it under a
+// better-used "Men's Lacrosse" makes the exact tag they asked for the one they
+// have to hunt for.
+func SearchTags(ctx context.Context, conn *sql.DB, query string, limit int) ([]PopularTag, error) {
+	normalized := strings.ToLower(strings.TrimSpace(query))
+	if normalized == "" {
+		return PopularTags(ctx, conn, limit)
+	}
+
+	ranking, err := tagRanking(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+
+	type scored struct {
+		tag  PopularTag
+		rank int
+	}
+	matches := make([]scored, 0, 64)
+	for _, tag := range ranking {
+		if rank := matchRank(strings.ToLower(tag.Name), normalized); rank >= 0 {
+			matches = append(matches, scored{tag: tag, rank: rank})
+		}
+	}
+
+	// Stable within a rank: the ranking is already ordered by uses then name,
+	// so equally-good matches keep that order.
+	sort.SliceStable(matches, func(i, j int) bool { return matches[i].rank < matches[j].rank })
+
+	found := make([]PopularTag, 0, len(matches))
+	for _, match := range matches {
+		found = append(found, match.tag)
+	}
+	return capTags(found, limit), nil
+}
+
+// matchRank scores how a tag matches the query -- lower is better -- or returns
+// -1 for no match. The tiers are the ones a person typing would expect: the
+// tag they typed exactly, then tags starting with it, then tags with a word
+// starting with it, then anything containing it.
+func matchRank(name, query string) int {
+	switch {
+	case name == query:
+		return 0
+	case strings.HasPrefix(name, query):
+		return 1
+	case strings.Contains(name, " "+query):
+		// A word boundary, so "lacrosse" reaches "Men's Lacrosse" ahead of a
+		// tag that merely has the letters somewhere inside it.
+		return 2
+	case strings.Contains(name, query):
+		return 3
+	default:
+		return -1
+	}
+}
+
+// capTags trims a result set to the requested limit, copying so a caller that
+// sorts or truncates the slice cannot corrupt the cache for everyone else.
+func capTags(tags []PopularTag, limit int) []PopularTag {
 	if limit <= 0 {
-		limit = DefaultPopularTagsLimit
+		limit = DefaultTagsLimit
 	}
-	if limit > MaxPopularTagsLimit {
-		limit = MaxPopularTagsLimit
+	if limit > MaxTagsLimit {
+		limit = MaxTagsLimit
 	}
+	if limit > len(tags) {
+		limit = len(tags)
+	}
+	out := make([]PopularTag, limit)
+	copy(out, tags[:limit])
+	return out
+}
 
-	popularTagsMu.Lock()
-	defer popularTagsMu.Unlock()
+// tagRanking returns every tag in the archive, ranked by use, from the cache --
+// rebuilding it when it has expired.
+func tagRanking(ctx context.Context, conn *sql.DB) ([]PopularTag, error) {
+	tagRankingMu.Lock()
+	defer tagRankingMu.Unlock()
 
-	if popularTagsCached == nil || time.Since(popularTagsFetched) > popularTagsTTL {
+	if tagRankingCached == nil || time.Since(tagRankingFetched) > tagRankingTTL {
 		ranked, err := rankArticleTags(ctx, conn)
 		if err != nil {
 			return nil, err
 		}
-		popularTagsCached = ranked
-		popularTagsFetched = time.Now()
+		tagRankingCached = ranked
+		tagRankingFetched = time.Now()
 	}
-
-	if limit > len(popularTagsCached) {
-		limit = len(popularTagsCached)
-	}
-	// Copy, so a caller that sorts or truncates the slice cannot corrupt the
-	// cache for everyone else.
-	out := make([]PopularTag, limit)
-	copy(out, popularTagsCached[:limit])
-	return out, nil
+	return tagRankingCached, nil
 }
 
 // InvalidatePopularTags drops the cached ranking so the next read rebuilds it.
@@ -93,10 +174,10 @@ func PopularTags(ctx context.Context, conn *sql.DB, limit int) ([]PopularTag, er
 // takes a few minutes to enter the suggestion list is not a defect worth a
 // rescan per save.
 func InvalidatePopularTags() {
-	popularTagsMu.Lock()
-	popularTagsCached = nil
-	popularTagsFetched = time.Time{}
-	popularTagsMu.Unlock()
+	tagRankingMu.Lock()
+	tagRankingCached = nil
+	tagRankingFetched = time.Time{}
+	tagRankingMu.Unlock()
 }
 
 // rankArticleTags scans the tag column and builds the full ranking.
@@ -124,7 +205,9 @@ func rankArticleTags(ctx context.Context, conn *sql.DB) ([]PopularTag, error) {
 
 // rankTagValues is the ranking itself, split from the query so the counting
 // rules -- case folding, per-article de-duplication, the tie-break -- are
-// testable without a database.
+// testable without a database. Every tag is kept, not just the top slice:
+// search reads this list, so trimming it here would make older tags
+// unfindable rather than merely unpopular.
 func rankTagValues(values []sql.NullString) []PopularTag {
 	// Keyed by the lowercased tag: the archive carries "Drexel" and "drexel" as
 	// separate strings, and offering both as separate suggestions is exactly the
@@ -175,9 +258,6 @@ func rankTagValues(values []sql.NullString) []PopularTag {
 		return ranked[i].Name < ranked[j].Name
 	})
 
-	if len(ranked) > MaxPopularTagsLimit {
-		ranked = ranked[:MaxPopularTagsLimit]
-	}
 	return ranked
 }
 

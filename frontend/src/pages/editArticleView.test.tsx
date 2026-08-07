@@ -20,9 +20,11 @@ let articlePublishedDate: string | undefined
 // Slugs belonging to other articles, so a GET for them answers 200 the way the
 // API would rather than the 404 that means "free".
 let takenSlugs: Set<string>
-// SEO tags the article already carries, and what /v1/tags/popular offers.
+// SEO tags the article already carries, what /v1/tags offers unfiltered, and
+// what a search over the archive can turn up.
 let articleTags: string[]
 let popularTagsPayload: Array<{ name: string; uses: number }>
+let archiveTagsPayload: Array<{ name: string; uses: number }>
 
 const jsonResponse = (payload: unknown, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -66,8 +68,14 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       seo: { tags: articleTags.map((name) => ({ name, slug: name })) },
     })
   }
-  if (url.startsWith("/v1/tags/popular")) {
-    return jsonResponse(popularTagsPayload)
+  if (url.startsWith("/v1/tags")) {
+    const query = new URL(url, "http://cms.test").searchParams.get("q")?.trim().toLowerCase() ?? ""
+    if (!query) {
+      return jsonResponse(popularTagsPayload)
+    }
+    // Stands in for the server's search over the whole archive: the archive
+    // holds tags the popular list does not.
+    return jsonResponse(archiveTagsPayload.filter((tag) => tag.name.toLowerCase().includes(query)))
   }
   if (method === "GET" && url.startsWith("/v1/articles/")) {
     const candidate = decodeURIComponent(url.slice("/v1/articles/".length))
@@ -125,6 +133,7 @@ describe("EditArticleView autosave", () => {
     takenSlugs = new Set()
     articleTags = []
     popularTagsPayload = []
+    archiveTagsPayload = []
     apiFetchStub.mockClear()
     // shouldAdvanceTime keeps Testing Library's own waitFor polling alive while
     // the autosave debounce stays under our control.
@@ -274,6 +283,10 @@ describe("EditArticleView SEO tag suggestions", () => {
       { name: "drexel triangle", uses: 400 },
       { name: "civil rights", uses: 20 },
     ]
+    // The archive is everything, popular or not. "Men's Lacrosse" is the case
+    // that matters: nobody retypes that spelling correctly, and it is nowhere
+    // near the popular list.
+    archiveTagsPayload = [...popularTagsPayload, { name: "Men's Lacrosse", uses: 46 }]
     apiFetchStub.mockClear()
     vi.useFakeTimers({ shouldAdvanceTime: true })
   })
@@ -329,5 +342,52 @@ describe("EditArticleView SEO tag suggestions", () => {
 
     expect(screen.queryByRole("button", { name: "Remove tag drex" })).not.toBeInTheDocument()
     expect(patchCalls()[0].body?.tags).toEqual(["drexel"])
+  })
+  // The reason the search exists: the tag is in the archive, but it is not
+  // popular enough to be offered, and retyping "Men's Lacrosse" from memory is
+  // how a near-duplicate of it gets coined.
+  it("finds a tag that is in the archive but not in the popular list", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("triangle")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "lacrosse")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    await waitFor(() => expect(suggestion("Men's Lacrosse")).toBeInTheDocument())
+    await user.click(suggestion("Men's Lacrosse"))
+    await waitOutAutosave()
+
+    expect(patchCalls()[0].body?.tags).toEqual(["Men's Lacrosse"])
+  })
+
+  // Typing a whole word must not be a request per keystroke.
+  it("searches once for a word typed in one go", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("triangle")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "lacrosse")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    const searches = apiCalls.filter((call) => call.url.includes("q="))
+    expect(searches).toHaveLength(1)
+    expect(searches[0].url).toContain("q=lacrosse")
+  })
+
+  // A tag nobody has used is still a tag worth adding -- but the editor should
+  // be told that is what they are doing.
+  it("says so when nothing in the archive matches", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(suggestion("triangle")).toBeInTheDocument())
+
+    await user.type(screen.getByPlaceholderText(/Type a tag, press Enter/), "quidditch")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+
+    expect(screen.getByText(/No existing tag matches/)).toBeInTheDocument()
   })
 })
