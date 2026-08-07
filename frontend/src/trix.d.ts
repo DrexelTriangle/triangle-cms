@@ -73,6 +73,8 @@ declare global {
       options?: { editCaption?: boolean },
     ): void;
     stopEditingAttachment(): void;
+    // The attachment currently in that state, or null. Trix's own name for it.
+    editingAttachment: TrixAttachment | null;
     // Replaces the document in place. Unlike Editor#loadHTML / loadSnapshot,
     // this leaves the UndoManager alone, so a caller that has recorded its own
     // undo entry stays undoable.
