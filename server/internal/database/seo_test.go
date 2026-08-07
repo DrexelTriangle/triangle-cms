@@ -89,6 +89,44 @@ func TestAuditArticleFlagsMissingFeaturedImage(t *testing.T) {
 	}
 }
 
+func TestAuditArticleFallsBackToTitleForSEOTitle(t *testing.T) {
+	longEnoughDesc := strings.Repeat("a", 100)
+	photoURL := "https://example.com/a.jpg"
+
+	// The public site renders the article title when seo_title is blank, so a
+	// blank column with a usable title is not an issue worth reporting.
+	issues := auditArticle(1, "some-slug", "A short headline", "", longEnoughDesc, "keyword", photoURL, "An excerpt")
+	messages := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		messages = append(messages, issue.Issue)
+	}
+	if containsSubstring(messages, "Missing SEO title") {
+		t.Errorf("a blank seo_title with a title to fall back on should not be flagged, got %v", messages)
+	}
+
+	// The length check has to follow the fallback, because an over-long
+	// headline is what gets truncated in search results.
+	longTitle := strings.Repeat("a", seoTitleMaxLen+1)
+	issues = auditArticle(1, "some-slug", longTitle, "", longEnoughDesc, "keyword", photoURL, "An excerpt")
+	messages = messages[:0]
+	for _, issue := range issues {
+		messages = append(messages, issue.Issue)
+	}
+	if !containsSubstring(messages, "SEO title exceeds") {
+		t.Errorf("an over-long fallback title should be flagged, got %v", messages)
+	}
+
+	// With neither, the page has no title at all.
+	issues = auditArticle(1, "some-slug", "   ", "", longEnoughDesc, "keyword", photoURL, "An excerpt")
+	messages = messages[:0]
+	for _, issue := range issues {
+		messages = append(messages, issue.Issue)
+	}
+	if !containsSubstring(messages, "Missing SEO title") {
+		t.Errorf("expected a missing-SEO-title issue when there is no title either, got %v", messages)
+	}
+}
+
 func TestAuditArticleFlagsNoDescriptionAndNoExcerpt(t *testing.T) {
 	// The public site falls back to the excerpt when meta_description is blank,
 	// so only the combination leaves the page with no description at all.

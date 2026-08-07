@@ -17,6 +17,9 @@ type ApiCall = { url: string; method: string; body: Record<string, unknown> | nu
 let apiCalls: ApiCall[] = []
 let articleStatus: string
 let articlePublishedDate: string | undefined
+// Slugs belonging to other articles, so a GET for them answers 200 the way the
+// API would rather than the 404 that means "free".
+let takenSlugs: Set<string>
 
 const jsonResponse = (payload: unknown, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -58,6 +61,12 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       categories: [{ name: "News", slug: "news" }],
       authors: [{ id: 7, name: "Reporter" }],
     })
+  }
+  if (method === "GET" && url.startsWith("/v1/articles/")) {
+    const candidate = decodeURIComponent(url.slice("/v1/articles/".length))
+    if (takenSlugs.has(candidate)) {
+      return jsonResponse({ id: 2, title: "Someone else's story", slug: candidate, content: "" })
+    }
   }
   if (method === "PATCH") {
     return new Response(null, { status: 204 })
@@ -106,6 +115,7 @@ describe("EditArticleView autosave", () => {
     apiCalls = []
     articleStatus = "draft"
     articlePublishedDate = undefined
+    takenSlugs = new Set()
     apiFetchStub.mockClear()
     // shouldAdvanceTime keeps Testing Library's own waitFor polling alive while
     // the autosave debounce stays under our control.
@@ -179,6 +189,50 @@ describe("EditArticleView autosave", () => {
     const patches = patchCalls()
     expect(patches).toHaveLength(1)
     expect(patches[0].body?.photo_alt).toBe("A protester holds a sign")
+  })
+
+  // Regenerating rewrites the article's public URL, so it must wait for a
+  // deliberate save rather than riding along on the 2.5s autosave.
+  it("does not send a regenerated slug on autosave", async () => {
+    const user = await renderEditor()
+
+    await user.clear(screen.getByLabelText("Title"))
+    await user.type(screen.getByLabelText("Title"), "Brand new headline")
+    await user.click(screen.getByRole("button", { name: /Regenerate from title/ }))
+    await waitFor(() => expect(screen.getByLabelText("Slug")).toHaveValue("brand-new-headline"))
+    await waitOutAutosave()
+
+    const patches = patchCalls()
+    expect(patches.length).toBeGreaterThan(0)
+    for (const patch of patches) {
+      expect(patch.body).not.toHaveProperty("slug")
+    }
+  })
+
+  it("sends the regenerated slug on an explicit save", async () => {
+    const user = await renderEditor()
+
+    await user.clear(screen.getByLabelText("Title"))
+    await user.type(screen.getByLabelText("Title"), "Brand new headline")
+    await user.click(screen.getByRole("button", { name: /Regenerate from title/ }))
+    await waitFor(() => expect(screen.getByLabelText("Slug")).toHaveValue("brand-new-headline"))
+    await user.click(screen.getByRole("button", { name: "Save Draft" }))
+
+    await waitFor(() => expect(patchCalls().some((call) => call.body?.slug)).toBe(true))
+    expect(patchCalls().find((call) => call.body?.slug)?.body?.slug).toBe("brand-new-headline")
+  })
+
+  // Two articles on one slug would make the public URL ambiguous, and the schema
+  // has no unique index to stop it.
+  it("suffixes a regenerated slug that another article already holds", async () => {
+    takenSlugs.add("brand-new-headline")
+    const user = await renderEditor()
+
+    await user.clear(screen.getByLabelText("Title"))
+    await user.type(screen.getByLabelText("Title"), "Brand new headline")
+    await user.click(screen.getByRole("button", { name: /Regenerate from title/ }))
+
+    await waitFor(() => expect(screen.getByLabelText("Slug")).toHaveValue("brand-new-headline-2"))
   })
 
   it("publishes only when the publish button is pressed", async () => {

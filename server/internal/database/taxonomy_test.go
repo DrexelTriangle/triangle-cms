@@ -309,3 +309,59 @@ func TestDefaultCategoryAliasesCoverTheKnownMismatches(t *testing.T) {
 		}
 	}
 }
+
+func TestSportsAliasesRollUpSportsWithNoSubsectionRow(t *testing.T) {
+	// The reported bug: an article tagged only "Men's Lacrosse" carries no
+	// literal "Sports", and lacrosse has no subsection row to be matched
+	// through, so it appeared on no section page at all. WordPress rolled a
+	// parent category up over its child terms for free; flat matching does not.
+	withCategoryAliases(t, map[string][]string{"sports": defaultCategoryAliases["sports"]})
+
+	for _, categories := range []string{
+		`["Men's Lacrosse"]`,
+		`["TV","Men's Lacrosse"]`,
+		`["Women's Lacrosse"]`,
+		`["Tennis"]`,
+		`["Swimming & Diving"]`,
+		`["Athlete of the Week"]`,
+	} {
+		if !matchesCategories("sports", categories) {
+			t.Errorf("%s should roll up into sports", categories)
+		}
+	}
+}
+
+func TestSportsAliasesStayWholeCategoryMatches(t *testing.T) {
+	// Aliases go through the same anchored patterns as everything else, so
+	// adding them must not reintroduce the substring merging that put every
+	// comic in Puzzles. "Mark and Jair Explain Sports" is the live example:
+	// it ends in the section's own name and is not a sports article.
+	withCategoryAliases(t, map[string][]string{"sports": defaultCategoryAliases["sports"]})
+
+	for _, categories := range []string{
+		`["Mark and Jair Explain Sports"]`,
+		`["Table Tennis"]`,
+		`["Golfing"]`,
+	} {
+		if matchesCategories("sports", categories) {
+			t.Errorf("%s must not be pulled into sports", categories)
+		}
+	}
+}
+
+func TestDefaultSportsAliasesAreNotSubsectionSlugs(t *testing.T) {
+	// A sport that already has its own subsection row is matched through that
+	// row, so aliasing it onto the parent as well would only add a duplicate
+	// pattern to every sports query.
+	rows := map[string]struct{}{
+		"mens-basketball": {}, "womens-basketball": {}, "mens-soccer": {},
+		"womens-soccer": {}, "field-hockey": {}, "squash": {},
+		"philly-sports": {}, "big-5": {}, "nil": {},
+	}
+	for _, alias := range defaultCategoryAliases["sports"] {
+		slug := strings.ReplaceAll(strings.ReplaceAll(strings.ToLower(alias), "'", ""), " ", "-")
+		if _, clash := rows[slug]; clash {
+			t.Errorf("%q duplicates the existing subsection %q", alias, slug)
+		}
+	}
+}
