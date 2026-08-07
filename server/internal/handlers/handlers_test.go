@@ -521,3 +521,90 @@ func TestArticleOrderByClause(t *testing.T) {
 		t.Fatalf("anonymous sort must be unchanged, got %q", got)
 	}
 }
+
+func TestArticleListItems_LeadsWithTheSectionsOwnCategory(t *testing.T) {
+	// The reported bug: the Columns block labelled a column "MEN'S LACROSSE".
+	// The card shows one category and takes the first; this article is in
+	// Columns because of From the Playbook, but announced itself as a sport.
+	article := models.Article{
+		ID:         10075,
+		Title:      "Continuing the momentum with men's lacrosse",
+		Slug:       "continuing-the-momentum-with-mens-lacross",
+		Categories: []string{"Men's Lacrosse", "From the Playbook", "Sports"},
+	}
+
+	items := articleListItems([]models.Article{article}, 50, "columns", "from-the-playbook", "jack-of-all-takes")
+	if len(items) != 1 || len(items[0].Categories) == 0 {
+		t.Fatalf("got %+v, want one item with categories", items)
+	}
+	if got := items[0].Categories[0].Name; got != "From the Playbook" {
+		t.Errorf("Columns kicker = %q, want %q", got, "From the Playbook")
+	}
+
+	// The same mechanism in the Sports block. Field Hockey rather than a
+	// possessive subsection, because a possessive only resolves to its slug
+	// through the taxonomy cache, which a unit test has no way to load.
+	items = articleListItems([]models.Article{{
+		ID:         2,
+		Categories: []string{"From the Playbook", "Field Hockey", "Sports"},
+	}}, 50, "sports", "field-hockey")
+	if got := items[0].Categories[0].Name; got != "Field Hockey" {
+		t.Errorf("Sports kicker = %q, want %q", got, "Field Hockey")
+	}
+}
+
+func TestArticleListItems_KeepsOrderWithoutSectionContext(t *testing.T) {
+	// An author page or an unfiltered listing has no section to be relevant
+	// to, so the article's own order stands rather than being shuffled.
+	items := articleListItems([]models.Article{{
+		ID:         1,
+		Categories: []string{"Men's Lacrosse", "From the Playbook", "Sports"},
+	}}, 50)
+
+	want := []string{"Men's Lacrosse", "From the Playbook", "Sports"}
+	for i, expected := range want {
+		if got := items[0].Categories[i].Name; got != expected {
+			t.Errorf("category %d = %q, want %q", i, got, expected)
+		}
+	}
+}
+
+func TestOrderCategoriesForSectionIsStable(t *testing.T) {
+	// Two categories both in the section keep the article's own order between
+	// them, so the kicker does not change for unrelated reasons.
+	categories := []models.CategorySummary{
+		{Name: "Sports", Slug: "sports"},
+		{Name: "Men's Basketball", Slug: "mens-basketball"},
+		{Name: "Big 5", Slug: "big-5"},
+	}
+	orderCategoriesForSection(categories, []string{"sports", "mens-basketball", "big-5"})
+
+	for i, want := range []string{"Sports", "Men's Basketball", "Big 5"} {
+		if got := categories[i].Name; got != want {
+			t.Errorf("category %d = %q, want %q", i, got, want)
+		}
+	}
+}
+
+func TestCategoryPreferenceSlugsPrefersTheSubsection(t *testing.T) {
+	got := categoryPreferenceSlugs(ArticleParams{
+		Section:           "sports",
+		SectionMatchSlugs: []string{"sports", "mens-basketball"},
+		Subsection:        "mens-basketball",
+	})
+	if len(got) != 1 || got[0] != "mens-basketball" {
+		t.Errorf("got %v, want just the subsection", got)
+	}
+
+	got = categoryPreferenceSlugs(ArticleParams{
+		Section:           "sports",
+		SectionMatchSlugs: []string{"sports", "mens-basketball"},
+	})
+	if len(got) != 2 {
+		t.Errorf("got %v, want the section and its children", got)
+	}
+
+	if got = categoryPreferenceSlugs(ArticleParams{AuthorSlug: "janine-gin"}); len(got) != 0 {
+		t.Errorf("got %v, want nothing for a listing with no section", got)
+	}
+}
