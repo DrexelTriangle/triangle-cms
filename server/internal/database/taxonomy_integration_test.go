@@ -40,6 +40,7 @@ func taxonomyTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() {
 		categoryAliasMu.Lock()
 		categoryAliasBySlug = map[string][]string{}
+		categorySlugByTitle = map[string]string{}
 		categoryAliasMu.Unlock()
 	})
 	return conn
@@ -169,4 +170,47 @@ func containsPattern(patterns []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestRefreshLoadsCategoryTitlesAndPrefersARealPage(t *testing.T) {
+	conn := taxonomyTestDB(t)
+	ctx := context.Background()
+
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("ensure taxonomy table: %v", err)
+	}
+	insertTaxonomyRow(t, conn, 1, "section", "sports", "Sports")
+	insertTaxonomyRow(t, conn, 2, "subsection", "mens-basketball", "Men's Basketball")
+	if err := RefreshCategoryAliases(ctx, conn); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+
+	// A row with no alias at all still has to resolve, which is why the
+	// refresh reads every section and subsection rather than only the rows
+	// carrying aliases.
+	if got, want := CategoryLinkSlug("Men's Basketball"), "mens-basketball"; got != want {
+		t.Errorf("CategoryLinkSlug = %q, want %q", got, want)
+	}
+
+	// Now let Sports absorb the subsection's own category by alias. The
+	// subsection has a page of its own, so the alias must not take the link
+	// away from it -- a chip should reach the most specific page that lists
+	// the article.
+	if _, err := conn.ExecContext(ctx,
+		`UPDATE site_taxonomy SET category_aliases = ? WHERE slug = 'sports'`,
+		`["Men's Basketball","Men's Lacrosse"]`,
+	); err != nil {
+		t.Fatalf("write aliases: %v", err)
+	}
+	if err := RefreshCategoryAliases(ctx, conn); err != nil {
+		t.Fatalf("second refresh: %v", err)
+	}
+
+	if got, want := CategoryLinkSlug("Men's Basketball"), "mens-basketball"; got != want {
+		t.Errorf("an alias must not displace a real page: got %q, want %q", got, want)
+	}
+	// A category with no page of its own does reach the section that absorbed it.
+	if got, want := CategoryLinkSlug("Men's Lacrosse"), "sports"; got != want {
+		t.Errorf("aliased-only category = %q, want %q", got, want)
+	}
 }

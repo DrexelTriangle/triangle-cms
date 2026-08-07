@@ -365,3 +365,59 @@ func TestDefaultSportsAliasesAreNotSubsectionSlugs(t *testing.T) {
 		}
 	}
 }
+
+// withCategorySlugsByTitle installs the title -> slug cache for one test,
+// standing in for what RefreshCategoryAliases loads from site_taxonomy.
+func withCategorySlugsByTitle(t *testing.T, titles map[string]string) {
+	t.Helper()
+	categoryAliasMu.Lock()
+	previous := categorySlugByTitle
+	categorySlugByTitle = titles
+	categoryAliasMu.Unlock()
+	t.Cleanup(func() {
+		categoryAliasMu.Lock()
+		categorySlugByTitle = previous
+		categoryAliasMu.Unlock()
+	})
+}
+
+func TestCategoryLinkSlugUsesTheTaxonomySlug(t *testing.T) {
+	// The bug: the chip's link was derived from the category NAME, so
+	// "Men's Basketball" pointed at /men-s-basketball while the subsection
+	// page is /mens-basketball. All four apostrophe subsections 404'd.
+	withCategorySlugsByTitle(t, map[string]string{
+		"men's basketball": "mens-basketball",
+		"women's soccer":   "womens-soccer",
+	})
+
+	if got := CanonicalizeSlug("Men's Basketball"); got == "mens-basketball" {
+		t.Fatal("precondition: name-derived slug is supposed to differ from the taxonomy slug")
+	}
+	for name, want := range map[string]string{
+		"Men's Basketball": "mens-basketball",
+		"women's soccer":   "womens-soccer",
+	} {
+		if got := CategoryLinkSlug(name); got != want {
+			t.Errorf("CategoryLinkSlug(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestCategoryLinkSlugFallsBackToTheDerivedSlug(t *testing.T) {
+	// A category no section lists still needs a non-empty slug; it just has
+	// nowhere useful to point, exactly as before.
+	withCategorySlugsByTitle(t, map[string]string{})
+	if got, want := CategoryLinkSlug("Some Retired Column"), "some-retired-column"; got != want {
+		t.Errorf("CategoryLinkSlug = %q, want %q", got, want)
+	}
+	if got := CategoryLinkSlug("   "); got != "" {
+		t.Errorf("blank category = %q, want empty", got)
+	}
+}
+
+func TestTaxonomySlugForCategoryReportsNothingWhenUnknown(t *testing.T) {
+	withCategorySlugsByTitle(t, map[string]string{"sports": "sports"})
+	if got := TaxonomySlugForCategory("Men's Lacrosse"); got != "" {
+		t.Errorf("got %q, want empty for a category with no page", got)
+	}
+}

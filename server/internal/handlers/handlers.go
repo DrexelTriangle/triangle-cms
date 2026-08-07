@@ -400,7 +400,7 @@ func articleListItems(articles []models.Article, excerptWords int) []models.Arti
 			if name == "" {
 				continue
 			}
-			categories = append(categories, models.CategorySummary{Name: name, Slug: db.CanonicalizeSlug(name)})
+			categories = append(categories, models.CategorySummary{Name: name, Slug: db.CategoryLinkSlug(name)})
 		}
 
 		authors := make([]models.AuthorSummary, 0, len(article.Authors))
@@ -1451,7 +1451,7 @@ func GetSearch(conn *sql.DB, embedder QueryEmbedder) http.HandlerFunc {
 				if name == "" {
 					continue
 				}
-				categories = append(categories, models.CategorySummary{Name: name, Slug: db.CanonicalizeSlug(name)})
+				categories = append(categories, models.CategorySummary{Name: name, Slug: db.CategoryLinkSlug(name)})
 			}
 
 			authors := make([]models.AuthorSummary, 0, len(article.Authors))
@@ -1544,7 +1544,7 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 			if name == "" {
 				continue
 			}
-			categories = append(categories, models.CategorySummary{Name: name, Slug: db.CanonicalizeSlug(name)})
+			categories = append(categories, models.CategorySummary{Name: name, Slug: db.CategoryLinkSlug(name)})
 		}
 
 		seoTags := make([]models.CategorySummary, 0, len(a.Tags))
@@ -1578,7 +1578,7 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 				if name == "" {
 					continue
 				}
-				relatedCategories = append(relatedCategories, models.CategorySummary{Name: name, Slug: db.CanonicalizeSlug(name)})
+				relatedCategories = append(relatedCategories, models.CategorySummary{Name: name, Slug: db.CategoryLinkSlug(name)})
 			}
 
 			relatedAuthors := make([]models.AuthorSummary, 0, len(relatedArticle.Authors))

@@ -99,16 +99,24 @@ func SeedDefaultCategoryAliases(ctx context.Context, conn *sql.DB) error {
 var (
 	categoryAliasMu     sync.RWMutex
 	categoryAliasBySlug = map[string][]string{}
+
+	// categorySlugByTitle is the reverse direction: the category text an
+	// article carries -> the taxonomy slug whose page lists it. It backs
+	// TaxonomySlugForCategory and is loaded by the same refresh.
+	categorySlugByTitle = map[string]string{}
 )
 
 // RefreshCategoryAliases reloads the alias cache from site_taxonomy. Call it
 // after any write to the table, or matching will keep using the old aliases
 // until the process restarts.
 func RefreshCategoryAliases(ctx context.Context, conn *sql.DB) error {
+	// Every section and subsection, not just the rows carrying aliases: the
+	// title -> slug direction needs the rows that have no alias at all, which
+	// is most of them.
 	rows, err := conn.QueryContext(ctx, `
-		SELECT slug, category_aliases
+		SELECT slug, canonical_title, category_aliases
 		FROM site_taxonomy
-		WHERE category_aliases IS NOT NULL
+		WHERE kind IN ('section', 'subsection')
 	`)
 	if err != nil {
 		return err
@@ -116,11 +124,24 @@ func RefreshCategoryAliases(ctx context.Context, conn *sql.DB) error {
 	defer rows.Close()
 
 	loaded := make(map[string][]string)
+	titles := make(map[string]string)
+	aliasTitles := make(map[string]string)
 	for rows.Next() {
-		var slug string
+		var slug, canonicalTitle string
 		var raw sql.NullString
-		if err := rows.Scan(&slug, &raw); err != nil {
+		if err := rows.Scan(&slug, &canonicalTitle, &raw); err != nil {
 			return err
+		}
+		normalizedSlug := strings.ToLower(strings.TrimSpace(slug))
+		if normalizedSlug == "" {
+			continue
+		}
+		if title := strings.ToLower(strings.TrimSpace(canonicalTitle)); title != "" {
+			titles[title] = normalizedSlug
+		}
+
+		if !raw.Valid {
+			continue
 		}
 		aliases, err := ParseCategoryAliases(raw.String)
 		if err != nil {
@@ -129,18 +150,71 @@ func RefreshCategoryAliases(ctx context.Context, conn *sql.DB) error {
 			slog.Warn("ignoring malformed taxonomy category_aliases", "slug", slug, "error", err)
 			continue
 		}
-		if len(aliases) > 0 {
-			loaded[strings.ToLower(strings.TrimSpace(slug))] = aliases
+		if len(aliases) == 0 {
+			continue
+		}
+		loaded[normalizedSlug] = aliases
+		for _, alias := range aliases {
+			if normalized := strings.ToLower(strings.TrimSpace(alias)); normalized != "" {
+				// First writer wins, so a duplicated alias cannot make the
+				// resolved slug depend on row order.
+				if _, taken := aliasTitles[normalized]; !taken {
+					aliasTitles[normalized] = normalizedSlug
+				}
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 
+	// A row's own title outranks any alias: an alias is how a section absorbs
+	// somebody else's category, so it must never displace that category's own
+	// page when one exists.
+	for title, slug := range aliasTitles {
+		if _, exists := titles[title]; !exists {
+			titles[title] = slug
+		}
+	}
+
 	categoryAliasMu.Lock()
 	categoryAliasBySlug = loaded
+	categorySlugByTitle = titles
 	categoryAliasMu.Unlock()
 	return nil
+}
+
+// TaxonomySlugForCategory resolves the category text an article carries to the
+// slug of the page that lists it, or "" when nothing does.
+//
+// The category chip on an article card is a link, and its target used to be
+// derived from the category NAME alone. That silently produced URLs no page
+// answers: "Men's Basketball" canonicalizes to "men-s-basketball" while the
+// subsection lives at "mens-basketball", so every chip on both basketballs and
+// both soccers -- the four apostrophe subsections -- was a 404. The apostrophe
+// is the same thing possessiveVariant exists to absorb on the matching side;
+// this is that fix applied to the link.
+//
+// Resolving through the taxonomy also means a category that only reaches a
+// section by alias links to that section rather than to nothing.
+func TaxonomySlugForCategory(name string) string {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "" {
+		return ""
+	}
+	categoryAliasMu.RLock()
+	defer categoryAliasMu.RUnlock()
+	return categorySlugByTitle[normalized]
+}
+
+// CategoryLinkSlug is what an article's category chip should point at: the
+// taxonomy slug when a page exists, and the name-derived slug otherwise so the
+// value is never empty.
+func CategoryLinkSlug(name string) string {
+	if slug := TaxonomySlugForCategory(name); slug != "" {
+		return slug
+	}
+	return CanonicalizeSlug(name)
 }
 
 // ParseCategoryAliases decodes the stored JSON array, dropping blanks. An empty
