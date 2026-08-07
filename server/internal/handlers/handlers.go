@@ -1068,6 +1068,7 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 // @Param excerpt_words query int false "Max words in excerpt" default(50)
 // @Success 200 {object} models.SectionArticlesResponse
 // @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
 // @Failure 500 {object} models.ErrorResponse
 // @Router /v1/sections/{section_slug}/articles [get]
 func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
@@ -1078,7 +1079,7 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 			Subsection: r.URL.Query().Get("subsection_slug"),
 		})
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeError(w, articleParamsStatus(err, errSectionNotFound), err.Error())
 			return
 		}
 		page, limit, offset := listParams(r, 20)
@@ -1143,6 +1144,7 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 // @Param excerpt_words query int false "Max words in excerpt" default(50)
 // @Success 200 {object} models.SubsectionArticlesResponse
 // @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
 // @Failure 500 {object} models.ErrorResponse
 // @Router /v1/subsections/{subsection_slug}/articles [get]
 func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
@@ -1153,7 +1155,7 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 			Subsection: r.PathValue("subsection_slug"),
 		})
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeError(w, articleParamsStatus(err, errSubsectionNotFound), err.Error())
 			return
 		}
 		page, limit, offset := listParams(r, 20)

@@ -3,12 +3,34 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	db "server/internal/database"
 	"server/internal/models"
 )
+
+// A slug that is well formed but absent from site_taxonomy is a missing
+// resource, not a malformed request. Handlers that read the slug from the
+// request path answer 404 for these; the query-string forms on
+// GET /v1/articles keep answering 400, since there the slug is a filter the
+// caller chose rather than the resource being addressed.
+var (
+	errSectionNotFound    = errors.New("invalid section_slug")
+	errSubsectionNotFound = errors.New("invalid subsection_slug")
+)
+
+// articleParamsStatus picks the status code for a validation failure.
+// pathParamErr is the sentinel whose slug arrived in the request path, so only
+// that one degrades to 404.
+func articleParamsStatus(err, pathParamErr error) int {
+	if errors.Is(err, pathParamErr) {
+		return http.StatusNotFound
+	}
+	return http.StatusBadRequest
+}
 
 var allowedSubsectionsBySection = map[string]map[string]struct{}{
 	"news": {
@@ -83,7 +105,7 @@ func normalizeAndValidateArticleParams(ctx context.Context, conn *sql.DB, params
 			return ArticleParams{}, err
 		}
 		if !ok {
-			return ArticleParams{}, fmt.Errorf("invalid section_slug")
+			return ArticleParams{}, errSectionNotFound
 		}
 	}
 
@@ -101,7 +123,7 @@ func normalizeAndValidateArticleParams(ctx context.Context, conn *sql.DB, params
 			return ArticleParams{}, err
 		}
 		if !ok {
-			return ArticleParams{}, fmt.Errorf("invalid subsection_slug")
+			return ArticleParams{}, errSubsectionNotFound
 		}
 		if params.Section == "" {
 			params.Section = parentSection
