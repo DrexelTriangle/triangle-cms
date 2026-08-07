@@ -213,3 +213,45 @@ func TestDeriveExcerpt_KeepsTextAroundAnInlineFigure(t *testing.T) {
 		t.Errorf("deriveExcerpt = %q, want both paragraphs and no caption", got)
 	}
 }
+
+// A crossword post is a single [puzzleme ...] shortcode, which stripping tags
+// leaves untouched: the derived excerpt was the shortcode source, embed ids and
+// all, printed under the headline on the public site.
+func TestDeriveExcerpt_DropsShortcodes(t *testing.T) {
+	puzzleme := `<p>[puzzleme basepath='https://puzzleme.amuselabs.com/pmm/' ` +
+		`set='4d204c915da55d641d981a020851d8b3990a78c1' id='dc2b9486' ` +
+		`attribution='Made by Coco Li using the online <a href="https://amuselabs.com/games/crossword/" ` +
+		`target="_blank">cross word generator</a> from Amuse Labs' type='crossword']</p>`
+
+	cases := map[string]struct{ content, want string }{
+		"puzzleme only":       {puzzleme, ""},
+		"puzzleme with prose": {puzzleme + `<p>Solve it below.</p>`, "Solve it below."},
+		"paired shortcode": {
+			`<p>[gallery ids="1,2"]</p><p>Look at these.</p>`,
+			"Look at these.",
+		},
+		"unknown shortcode with attributes": {
+			`[somewidget size='3']<p>The story begins here.</p>`,
+			"The story begins here.",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := deriveExcerpt(tc.content); got != tc.want {
+				t.Errorf("deriveExcerpt = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The shortcode rule keys on attributes, not on brackets, so editorial
+// interjections survive -- they are part of the sentence.
+func TestDeriveExcerpt_KeepsEditorialBrackets(t *testing.T) {
+	content := `<p>He said the vote was "unanimious" [sic] and [Editor's note: it was not].</p>`
+	want := `He said the vote was "unanimious" [sic] and [Editor's note: it was not].`
+
+	if got := deriveExcerpt(content); got != want {
+		t.Errorf("deriveExcerpt = %q, want %q", got, want)
+	}
+}
