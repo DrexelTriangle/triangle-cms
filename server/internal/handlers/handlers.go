@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -391,7 +392,53 @@ func listParams(r *http.Request, defaultLimit int) (page, limit, offset int) {
 	return page, limit, offset
 }
 
-func articleListItems(articles []models.Article, excerptWords int) []models.ArticleListItem {
+// orderCategoriesForSection moves the categories belonging to the section being
+// rendered to the front, so the first one is the one that explains why this
+// article is in this list.
+//
+// The card shows a single category as its kicker and takes the first. Without
+// this it takes whichever the article happens to list first, which is how the
+// Columns block came to label a column "MEN'S LACROSSE": the article is
+// ["Men's Lacrosse", "From the Playbook", "Sports"], it is in Columns because
+// of From the Playbook, and it announced itself as a sport. Ordering here
+// rather than in the card fixes every surface at once, and it is the only place
+// that knows which section was asked for.
+//
+// A stable partition, so the article's own order still decides between two
+// categories that are both in the section.
+func orderCategoriesForSection(categories []models.CategorySummary, preferSlugs []string) {
+	if len(preferSlugs) == 0 || len(categories) < 2 {
+		return
+	}
+	preferred := make(map[string]struct{}, len(preferSlugs))
+	for _, slug := range preferSlugs {
+		if normalized := strings.ToLower(strings.TrimSpace(slug)); normalized != "" {
+			preferred[normalized] = struct{}{}
+		}
+	}
+	sort.SliceStable(categories, func(i, j int) bool {
+		_, iPreferred := preferred[strings.ToLower(categories[i].Slug)]
+		_, jPreferred := preferred[strings.ToLower(categories[j].Slug)]
+		return iPreferred && !jPreferred
+	})
+}
+
+// categoryPreferenceSlugs is which slugs explain a listing, for ordering each
+// article's categories. A subsection stands on its own: on a subsection page
+// the subsection is the reason the article is there, not the parent section it
+// also carries. Empty when the listing has no section context at all.
+func categoryPreferenceSlugs(params ArticleParams) []string {
+	if params.Subsection != "" {
+		return []string{params.Subsection}
+	}
+	return params.SectionMatchSlugs
+}
+
+// articleListItems converts articles for a listing. preferSlugs is the section
+// and subsections the listing was asked for, empty when there is no section
+// context -- an author page or an unfiltered listing -- where no category is
+// more relevant than another and the article's own order stands.
+func articleListItems(articles []models.Article, excerptWords int, preferSlugs ...string) []models.ArticleListItem {
 	items := make([]models.ArticleListItem, 0, len(articles))
 	for _, article := range articles {
 		categories := make([]models.CategorySummary, 0, len(article.Categories))
@@ -402,6 +449,7 @@ func articleListItems(articles []models.Article, excerptWords int) []models.Arti
 			}
 			categories = append(categories, models.CategorySummary{Name: name, Slug: db.CategoryLinkSlug(name)})
 		}
+		orderCategoriesForSection(categories, preferSlugs)
 
 		authors := make([]models.AuthorSummary, 0, len(article.Authors))
 		for _, author := range article.Authors {
@@ -1004,7 +1052,7 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, models.ArticlesResponse{
-			Articles:   articleListItems(articles, excerptWords),
+			Articles:   articleListItems(articles, excerptWords, categoryPreferenceSlugs(params)...),
 			Pagination: paginationResponse(page, limit, offset, hasMore, totalCount),
 		})
 	}
@@ -1078,7 +1126,7 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 				CanonicalTitle: sectionCanonicalTitle,
 			},
 			Subsections: subsections,
-			Articles:    articleListItems(articles, excerptWords),
+			Articles:    articleListItems(articles, excerptWords, categoryPreferenceSlugs(params)...),
 			Pagination:  paginationResponse(page, limit, offset, hasMore, totalCount),
 		})
 	}
@@ -1157,7 +1205,7 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 				Name:           subsectionCanonicalTitle,
 				CanonicalTitle: subsectionCanonicalTitle,
 			},
-			Articles:   articleListItems(articles, excerptWords),
+			Articles:   articleListItems(articles, excerptWords, categoryPreferenceSlugs(params)...),
 			Pagination: paginationResponse(page, limit, offset, hasMore, totalCount),
 		})
 	}
@@ -2592,17 +2640,17 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 				}
 				switch section.key {
 				case "news":
-					sectionArticles.News = articleListItems(articles, excerptWords)
+					sectionArticles.News = articleListItems(articles, excerptWords, matchSlugs...)
 				case "opinion":
-					sectionArticles.Opinion = articleListItems(articles, excerptWords)
+					sectionArticles.Opinion = articleListItems(articles, excerptWords, matchSlugs...)
 				case "sports":
-					sectionArticles.Sports = articleListItems(articles, excerptWords)
+					sectionArticles.Sports = articleListItems(articles, excerptWords, matchSlugs...)
 				case "entertainment":
-					sectionArticles.Entertainment = articleListItems(articles, excerptWords)
+					sectionArticles.Entertainment = articleListItems(articles, excerptWords, matchSlugs...)
 				case "candp":
-					sectionArticles.CAndP = articleListItems(articles, excerptWords)
+					sectionArticles.CAndP = articleListItems(articles, excerptWords, matchSlugs...)
 				case "columns":
-					sectionArticles.Columns = articleListItems(articles, excerptWords)
+					sectionArticles.Columns = articleListItems(articles, excerptWords, matchSlugs...)
 				}
 				return nil
 			}(section); err != nil {
