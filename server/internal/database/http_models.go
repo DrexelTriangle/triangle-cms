@@ -601,11 +601,27 @@ var captionMarkupPattern = regexp.MustCompile(
 		`|<figcaption\b[^>]*>.*?</figcaption\s*>` +
 		`|<[a-z][a-z0-9]*\b[^>]*wp-caption-text[^>]*>.*?</[a-z][a-z0-9]*\s*>`)
 
+// WordPress shortcodes are markup too, but bracketed rather than angled, so
+// tag-stripping leaves them intact: a crossword post whose body is a single
+// [puzzleme ...] shortcode derived an excerpt that was the whole shortcode --
+// attributes, embed ids and all -- and the public site printed it under the
+// headline. Two shapes are removed, both narrow enough to leave editorial
+// brackets ("[sic]", "[Editor's note]") alone: the shortcodes this corpus
+// actually carries, named explicitly; and any bracketed token that carries
+// attributes, which is what makes it a shortcode rather than prose. Applied
+// before tag-stripping because attribute values hold HTML of their own (the
+// puzzleme attribution is a link), which would otherwise be torn out from
+// inside the brackets first.
+var shortcodePattern = regexp.MustCompile(
+	`(?is)\[/?(?:puzzleme|caption|gallery|embed|playlist|audio|video)\b[^\]]*\]` +
+		`|\[[a-z][a-z0-9_-]*\s+[^\]]*=[^\]]*\]`)
+
 // deriveExcerpt builds a plain-text excerpt from HTML article content by
-// dropping image captions, stripping tags, collapsing whitespace, and
-// truncating to a word limit.
+// dropping image captions and shortcodes, stripping tags, collapsing
+// whitespace, and truncating to a word limit.
 func deriveExcerpt(content string) string {
 	text := captionMarkupPattern.ReplaceAllString(content, " ")
+	text = shortcodePattern.ReplaceAllString(text, " ")
 	text = htmlTagPattern.ReplaceAllString(text, " ")
 	text = html.UnescapeString(text)
 	words := strings.Fields(text)
