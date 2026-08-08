@@ -130,6 +130,15 @@ func main() {
 		slog.Error("failed to build article pub_date index; public listings filesort", "error", err)
 	}
 
+	// Non-fatal for the same reason as the pub_date index: the lookups are
+	// correct without it, only slower.
+	if err := database.EnsureArticlesSlugIndex(context.Background(), db); err != nil {
+		slog.Error("failed to index article slugs; article lookups scan the table", "error", err)
+	}
+	if err := database.EnsureArticleAuthorsIndex(context.Background(), db); err != nil {
+		slog.Error("failed to index article authors; byline lookups scan the join table", "error", err)
+	}
+
 	// Deliberately not fatal, and deliberately after the column migration: the
 	// first FULLTEXT index on `articles` rebuilds the table, which on the
 	// migrated corpus is slow enough that failing the boot over it would trade a
@@ -202,6 +211,27 @@ func main() {
 		slog.Error("failed to create classifieds table", "error", err)
 		os.Exit(1)
 	}
+
+	// Fatal, unlike the index migrations above, because this one is not an
+	// optimization the queries can do without: every section page, homepage
+	// block and taxonomy count now reads article_categories, and a CMS that
+	// booted without it would serve empty sections rather than slow ones.
+	//
+	// Rebuilt unconditionally, and deliberately not behind
+	// CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP. The table is derived from
+	// `articles`, which the WordPress ETL replaces wholesale and renumbers; a
+	// rebuild that an operator has to remember to ask for is one that will be
+	// forgotten on the reseed that needs it most. It costs a single scan of a
+	// ten-thousand-row table.
+	if err := database.EnsureArticleCategoriesTable(context.Background(), db); err != nil {
+		slog.Error("failed to create article categories index", "error", err)
+		os.Exit(1)
+	}
+	if err := database.RebuildArticleCategories(context.Background(), db); err != nil {
+		slog.Error("failed to rebuild article categories index", "error", err)
+		os.Exit(1)
+	}
+
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP")), "true") {
 		if err := database.RebuildTaxonomyArticleCounts(context.Background(), db); err != nil {
 			slog.Error("failed to rebuild taxonomy article counts", "error", err)
@@ -347,8 +377,10 @@ func newDefaultServer(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Lo
 			Addr: ":8080",
 			// Metrics is outermost: Chain applies in reverse, so it wraps
 			// Recovery and therefore records the 500 a panic turns into rather
-			// than losing the request entirely.
-			Handler:   middleware.Chain(mux, middleware.Metrics, middleware.Logging, middleware.Recovery),
+			// than losing the request entirely. Compression sits just inside
+			// Logging and just outside Recovery -- see middleware.Compression
+			// for why that position is the only correct one.
+			Handler:   middleware.Chain(mux, middleware.Metrics, middleware.Logging, middleware.Compression, middleware.Recovery),
 			TLSConfig: tlsConfig,
 			ErrorLog:  slog.NewLogLogger(logger.Handler(), slog.LevelError),
 		},
