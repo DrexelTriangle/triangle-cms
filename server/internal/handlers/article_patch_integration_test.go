@@ -107,6 +107,14 @@ func articlePatchTestDB(t *testing.T) *sql.DB {
 	if err := db.EnsureTaxonomyTable(ctx, conn); err != nil {
 		t.Fatalf("ensure taxonomy table: %v", err)
 	}
+	// The write handlers keep this index in step with `articles`.`categories`,
+	// so every save touches it.
+	if _, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS article_categories"); err != nil {
+		t.Fatalf("drop article_categories: %v", err)
+	}
+	if err := db.EnsureArticleCategoriesTable(ctx, conn); err != nil {
+		t.Fatalf("ensure article_categories: %v", err)
+	}
 
 	return conn
 }

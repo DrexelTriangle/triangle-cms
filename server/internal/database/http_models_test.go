@@ -255,3 +255,60 @@ func TestDeriveExcerpt_KeepsEditorialBrackets(t *testing.T) {
 		t.Errorf("deriveExcerpt = %q, want %q", got, want)
 	}
 }
+
+// The listing column set must be the full set minus exactly the body. If a new
+// column is added to articleColumnSet and quietly lands in summaryOmittedColumns
+// too, listings stop returning it and the public site renders a blank field.
+func TestArticleSummaryColumns_OmitOnlyTheBody(t *testing.T) {
+	full := map[string]bool{}
+	for _, name := range ArticleColumns {
+		full[name] = true
+	}
+	summary := map[string]bool{}
+	for _, name := range ArticleSummaryColumns {
+		summary[name] = true
+	}
+
+	for name := range full {
+		if name == "text" {
+			continue
+		}
+		if !summary[name] {
+			t.Errorf("column %q is missing from ArticleSummaryColumns", name)
+		}
+	}
+	if summary["text"] {
+		t.Error("ArticleSummaryColumns still selects `text`; listings do not read the body")
+	}
+	if len(ArticleSummaryColumns) != len(ArticleColumns)-1 {
+		t.Errorf("ArticleSummaryColumns has %d columns, want %d", len(ArticleSummaryColumns), len(ArticleColumns)-1)
+	}
+}
+
+// scanTargets is what makes the column list and the Scan positional agreement
+// one fact rather than two. If they can disagree, every value after the
+// mismatch lands in the wrong field.
+func TestArticleScanTargets_MatchColumnCounts(t *testing.T) {
+	var row articleRow
+	if got, want := len(row.scanTargets(true)), len(ArticleColumns); got != want {
+		t.Errorf("full scan targets = %d, want %d", got, want)
+	}
+	if got, want := len(row.scanTargets(false)), len(ArticleSummaryColumns); got != want {
+		t.Errorf("summary scan targets = %d, want %d", got, want)
+	}
+}
+
+func TestArticleSelectList_QualifiesForJoins(t *testing.T) {
+	if got := articleSelectList(false, "a"); !strings.HasPrefix(got, "a.`id`, a.`title`") {
+		t.Errorf("qualified select list = %q, want it to start with a.`id`, a.`title`", got)
+	}
+	if got := articleSelectList(false, ""); !strings.HasPrefix(got, "`id`, `title`") {
+		t.Errorf("unqualified select list = %q, want it to start with `id`, `title`", got)
+	}
+	if strings.Contains(articleSelectList(false, "a"), "`text`") {
+		t.Error("summary select list names `text`")
+	}
+	if !strings.Contains(articleSelectList(true, "a"), "`text`") {
+		t.Error("full select list is missing `text`")
+	}
+}
