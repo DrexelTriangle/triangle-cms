@@ -36,19 +36,135 @@ var ArticleSortByColumn = map[string]string{
 
 var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email", "login", "archived_at"}
 
-// ArticleColumns, articleSelectColumnsQualified, searchSelectColumns
-// (article_search.go) and the inline SELECT in handlers.ListArticles are all
-// consumed by the one positional ScanArticle below. Adding a column means adding
-// it to all four -- in the same place -- and to ScanArticle.
-var ArticleColumns = []string{
-	"id", "title", "slug", "description", "text", "excerpt", "tags", "categories",
-	"pub_date", "mod_date", "priority", "breaking_news",
-	"comment_status", "photo_url",
-	"focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date",
-	"canonical_url", "noindex", "photo_alt",
+// articleRow is the landing zone for a scanned article: every column at its
+// nullable database type, before toArticle turns it into the model.
+//
+// It exists so that the column list and the scan targets come from one place.
+// They used to be four hand-maintained lists that a positional Scan had to
+// agree with, which meant adding a column in the wrong position silently
+// shifted every value after it into the wrong field.
+type articleRow struct {
+	id              int64
+	title           string
+	slug            sql.NullString
+	description     sql.NullString
+	text            sql.NullString
+	excerpt         sql.NullString
+	tags            sql.NullString
+	categories      sql.NullString
+	pubDate         sql.NullTime
+	modDate         sql.NullTime
+	priority        sql.NullBool
+	breakingNews    sql.NullBool
+	commentStatus   sql.NullString
+	photoURL        sql.NullString
+	focusKeyword    sql.NullString
+	metaDescription sql.NullString
+	seoTitle        sql.NullString
+	creationDate    sql.NullTime
+	scheduledDate   sql.NullTime
+	canonicalURL    sql.NullString
+	noIndex         sql.NullBool
+	photoAlt        sql.NullString
 }
 
-const articleSelectColumnsQualified = "a.`id`, a.`title`, a.`slug`, a.`description`, a.`text`, a.`excerpt`, a.`tags`, a.`categories`, a.`pub_date`, a.`mod_date`, a.`priority`, a.`breaking_news`, a.`comment_status`, a.`photo_url`, a.`focus_keyword`, a.`meta_description`, a.`seo_title`, a.`creation_date`, a.`scheduled_pub_date`, a.`canonical_url`, a.`noindex`, a.`photo_alt`"
+// articleColumn pairs a column name with the field it scans into, so a query's
+// SELECT list and its Scan targets are generated from the same ordered slice and
+// cannot drift out of step.
+type articleColumn struct {
+	name   string
+	target func(*articleRow) any
+}
+
+// articleColumnSet is the full set, in the order every article query selects
+// them. Adding a column here is the only edit needed: the lists below and the
+// scanners all derive from it.
+var articleColumnSet = []articleColumn{
+	{"id", func(r *articleRow) any { return &r.id }},
+	{"title", func(r *articleRow) any { return &r.title }},
+	{"slug", func(r *articleRow) any { return &r.slug }},
+	{"description", func(r *articleRow) any { return &r.description }},
+	{"text", func(r *articleRow) any { return &r.text }},
+	{"excerpt", func(r *articleRow) any { return &r.excerpt }},
+	{"tags", func(r *articleRow) any { return &r.tags }},
+	{"categories", func(r *articleRow) any { return &r.categories }},
+	{"pub_date", func(r *articleRow) any { return &r.pubDate }},
+	{"mod_date", func(r *articleRow) any { return &r.modDate }},
+	{"priority", func(r *articleRow) any { return &r.priority }},
+	{"breaking_news", func(r *articleRow) any { return &r.breakingNews }},
+	{"comment_status", func(r *articleRow) any { return &r.commentStatus }},
+	{"photo_url", func(r *articleRow) any { return &r.photoURL }},
+	{"focus_keyword", func(r *articleRow) any { return &r.focusKeyword }},
+	{"meta_description", func(r *articleRow) any { return &r.metaDescription }},
+	{"seo_title", func(r *articleRow) any { return &r.seoTitle }},
+	{"creation_date", func(r *articleRow) any { return &r.creationDate }},
+	{"scheduled_pub_date", func(r *articleRow) any { return &r.scheduledDate }},
+	{"canonical_url", func(r *articleRow) any { return &r.canonicalURL }},
+	{"noindex", func(r *articleRow) any { return &r.noIndex }},
+	{"photo_alt", func(r *articleRow) any { return &r.photoAlt }},
+}
+
+// summaryOmittedColumns are the columns a listing does not read.
+//
+// `text` is the whole article body, averaging ~5KB across the migrated corpus.
+// A twenty-item listing was fetching around 95KB of it per request and using
+// none: list responses carry an excerpt, which comes from `excerpt` (falling
+// back to `description`), and is derived from the body only at write time. On
+// the homepage, which builds six section blocks, the same waste was paid six
+// times over.
+var summaryOmittedColumns = map[string]bool{"text": true}
+
+func articleColumnNames(full bool) []string {
+	names := make([]string, 0, len(articleColumnSet))
+	for _, col := range articleColumnSet {
+		if !full && summaryOmittedColumns[col.name] {
+			continue
+		}
+		names = append(names, col.name)
+	}
+	return names
+}
+
+// articleSelectList renders the SELECT list. qualifier prefixes each column for
+// queries that join (""=unqualified, "a"=`a`.`col`).
+func articleSelectList(full bool, qualifier string) string {
+	prefix := ""
+	if qualifier != "" {
+		prefix = qualifier + "."
+	}
+	var b strings.Builder
+	for i, name := range articleColumnNames(full) {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(prefix + "`" + name + "`")
+	}
+	return b.String()
+}
+
+func (r *articleRow) scanTargets(full bool) []any {
+	targets := make([]any, 0, len(articleColumnSet))
+	for _, col := range articleColumnSet {
+		if !full && summaryOmittedColumns[col.name] {
+			continue
+		}
+		targets = append(targets, col.target(r))
+	}
+	return targets
+}
+
+// ArticleColumns is the full column list, for the article detail endpoint --
+// the one read that actually renders the body.
+var ArticleColumns = articleColumnNames(true)
+
+// ArticleSummaryColumns is the listing column list. Everything that produces
+// models.ArticleListItem uses it.
+var ArticleSummaryColumns = articleColumnNames(false)
+
+// ArticleSummarySelectList is ArticleSummaryColumns rendered as a quoted SELECT
+// list, for the handlers that assemble their query as a string rather than
+// through Select.
+var ArticleSummarySelectList = articleSelectList(false, "")
 
 // Image/photo URLs are canonicalized upstream in the WordPress ETL (see
 // wordpress-etl Utils/MediaURL) so `photo_url` and inline body images are stored
@@ -133,104 +249,98 @@ func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 	return a, nil
 }
 
+// ScanArticle reads a row selected with ArticleColumns -- the full set,
+// including the article body.
 func ScanArticle(rows *sql.Rows) (models.Article, error) {
-	var (
-		a               models.Article
-		slug            sql.NullString
-		description     sql.NullString
-		text            sql.NullString
-		excerpt         sql.NullString
-		tags            sql.NullString
-		categories      sql.NullString
-		pubDate         sql.NullTime
-		priority        sql.NullBool
-		breakingNews    sql.NullBool
-		commentStatus   sql.NullString
-		photoURL        sql.NullString
-		modDate         sql.NullTime
-		focusKeyword    sql.NullString
-		metaDescription sql.NullString
-		seoTitle        sql.NullString
-		creationDate    sql.NullTime
-		scheduledDate   sql.NullTime
-		canonicalURL    sql.NullString
-		noIndex         sql.NullBool
-		photoAlt        sql.NullString
-	)
-	err := rows.Scan(
-		&a.ID, &a.Title, &slug, &description, &text, &excerpt, &tags, &categories,
-		&pubDate, &modDate, &priority, &breakingNews,
-		&commentStatus, &photoURL,
-		&focusKeyword, &metaDescription, &seoTitle, &creationDate, &scheduledDate,
-		&canonicalURL, &noIndex, &photoAlt,
-	)
-	if err != nil {
+	return scanArticleRow(rows, true)
+}
+
+// ScanArticleSummary reads a row selected with ArticleSummaryColumns. The
+// returned Article has an empty Content, which is correct for every caller that
+// renders a listing: none of them read the body.
+func ScanArticleSummary(rows *sql.Rows) (models.Article, error) {
+	return scanArticleRow(rows, false)
+}
+
+func scanArticleRow(rows *sql.Rows, full bool) (models.Article, error) {
+	var row articleRow
+	if err := rows.Scan(row.scanTargets(full)...); err != nil {
 		return models.Article{}, err
 	}
-	if modDate.Valid {
-		t := modDate.Time
+	return row.toArticle(), nil
+}
+
+// toArticle maps a scanned row onto the model. A column the query did not
+// select is simply invalid here and leaves its field at the zero value, which is
+// what makes a summary scan a strict subset of a full one rather than a
+// different shape.
+func (row articleRow) toArticle() models.Article {
+	a := models.Article{ID: row.id, Title: row.title}
+
+	if row.modDate.Valid {
+		t := row.modDate.Time
 		a.ModifiedAt = &t
 	}
-	if canonicalURL.Valid {
-		a.CanonicalURL = strings.TrimSpace(canonicalURL.String)
+	if row.canonicalURL.Valid {
+		a.CanonicalURL = strings.TrimSpace(row.canonicalURL.String)
 	}
-	if noIndex.Valid {
-		a.NoIndex = noIndex.Bool
+	if row.noIndex.Valid {
+		a.NoIndex = row.noIndex.Bool
 	}
-	if focusKeyword.Valid {
-		a.FocusKeyword = focusKeyword.String
+	if row.focusKeyword.Valid {
+		a.FocusKeyword = row.focusKeyword.String
 	}
-	if metaDescription.Valid {
-		a.MetaDescription = metaDescription.String
+	if row.metaDescription.Valid {
+		a.MetaDescription = row.metaDescription.String
 	}
-	if seoTitle.Valid {
-		a.SEOTitle = seoTitle.String
+	if row.seoTitle.Valid {
+		a.SEOTitle = row.seoTitle.String
 	}
-	if text.Valid {
-		a.Content = text.String
+	if row.text.Valid {
+		a.Content = row.text.String
 	}
-	if excerpt.Valid {
-		a.Excerpt = excerpt.String
-	} else if description.Valid {
-		a.Excerpt = description.String
+	if row.excerpt.Valid {
+		a.Excerpt = row.excerpt.String
+	} else if row.description.Valid {
+		a.Excerpt = row.description.String
 	}
-	if slug.Valid {
-		a.Slug = slug.String
+	if row.slug.Valid {
+		a.Slug = row.slug.String
 	}
-	a.Tags = parseStringListField(tags)
-	a.Categories = parseStringListField(categories)
-	if creationDate.Valid {
-		t := creationDate.Time
+	a.Tags = parseStringListField(row.tags)
+	a.Categories = parseStringListField(row.categories)
+	if row.creationDate.Valid {
+		t := row.creationDate.Time
 		a.CreatedAt = &t
 	}
-	if pubDate.Valid {
-		t := pubDate.Time
+	if row.pubDate.Valid {
+		t := row.pubDate.Time
 		a.PublishedAt = &t
 		a.Status = models.ArticleStatusPublished
-	} else if scheduledDate.Valid {
-		t := scheduledDate.Time
+	} else if row.scheduledDate.Valid {
+		t := row.scheduledDate.Time
 		a.PublishedAt = &t
 		a.ScheduledAt = &t
 		a.Status = models.ArticleStatusScheduled
 	} else {
 		a.Status = models.ArticleStatusDraft
 	}
-	if priority.Valid {
-		a.IsFeatured = priority.Bool
+	if row.priority.Valid {
+		a.IsFeatured = row.priority.Bool
 	}
-	if breakingNews.Valid {
-		a.BreakingNews = breakingNews.Bool
+	if row.breakingNews.Valid {
+		a.BreakingNews = row.breakingNews.Bool
 	}
-	if commentStatus.Valid {
-		a.CommentStatus = normalizeCommentStatus(commentStatus.String)
+	if row.commentStatus.Valid {
+		a.CommentStatus = normalizeCommentStatus(row.commentStatus.String)
 	}
-	if photoURL.Valid {
-		a.PhotoURL = photoURL.String
+	if row.photoURL.Valid {
+		a.PhotoURL = row.photoURL.String
 	}
-	if photoAlt.Valid {
-		a.PhotoAlt = photoAlt.String
+	if row.photoAlt.Valid {
+		a.PhotoAlt = row.photoAlt.String
 	}
-	return a, nil
+	return a
 }
 
 // NormalizeCanonicalURL trims a canonical-URL override and reports whether it is
@@ -268,10 +378,16 @@ func parseStringListField(value sql.NullString) []string {
 	return parsed
 }
 
+// CollectArticles drains rows selected with ArticleSummaryColumns.
+//
+// It is the listing path, and there is deliberately no full-column counterpart:
+// every caller that collects more than one article is building a list of
+// excerpts, and the single read that needs the body -- the article detail
+// endpoint -- scans its one row with ScanArticle directly.
 func CollectArticles(rows *sql.Rows) ([]models.Article, error) {
 	var articles []models.Article
 	for rows.Next() {
-		a, err := ScanArticle(rows)
+		a, err := ScanArticleSummary(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -379,7 +495,7 @@ func GetRelatedArticlesBySlug(ctx context.Context, conn *sql.DB, slug string, k 
 		return nil, fmt.Errorf("k must be greater than 0")
 	}
 
-	query := "SELECT " + articleSelectColumnsQualified + " " +
+	query := "SELECT " + articleSelectList(false, "a") + " " +
 		"FROM articles AS src " +
 		"JOIN article_embeddings AS src_vec ON src_vec.article_id = src.id " +
 		"JOIN article_embeddings AS cand_vec ON cand_vec.article_id <> src.id " +

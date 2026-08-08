@@ -1227,7 +1227,7 @@ type ArticleParams struct {
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
 	q := r.URL.Query()
 	conditions, args := articleQueryFilters(r, params)
-	query := "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date`, `scheduled_pub_date`, `canonical_url`, `noindex`, `photo_alt` FROM `articles`"
+	query := "SELECT " + db.ArticleSummarySelectList + " FROM `articles`"
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -1316,6 +1316,15 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	// A brand-new CMS draft looks exactly like one of those until an author or a
 	// category is attached, so editors keep unpublished rows regardless — without
 	// the exemption a draft is invisible in the CMS listing until it is filed.
+	//
+	// Kept as a predicate over the columns rather than over the derived
+	// article_categories / articles_authors indexes. Rewriting it as two EXISTS
+	// was measured: it saves 3.8ms on the paging COUNT and costs 0.1ms on the
+	// listing itself, and in exchange the definition of "filed" would move from
+	// the columns to two indexes that agree with them by data rather than by
+	// construction. Four milliseconds does not buy that -- the failure mode is
+	// articles silently vanishing from every listing while still resolving by
+	// direct link.
 	artifactFilter := "((TRIM(COALESCE(`authors`, '')) <> '' AND TRIM(`authors`) <> '[]') OR (TRIM(COALESCE(`categories`, '')) <> '' AND TRIM(`categories`) <> '[]'))"
 	if isEditor {
 		artifactFilter = "(" + artifactFilter + " OR `pub_date` IS NULL)"
@@ -2136,6 +2145,10 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if err := db.ReplaceArticleCategories(r.Context(), conn, articleID, body.Categories); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		if err := incrementTaxonomyArticleCounts(r.Context(), conn, body.Categories); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2225,6 +2238,15 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 				writeError(w, http.StatusNotFound, "article not found")
 				return
 			}
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// Keyed on the new slug, because the UPDATE above may have renamed it.
+		// Unconditional, unlike the taxonomy counts: the index describes where
+		// the article is filed, which is true of archived rows too -- they are
+		// excluded by the listing's own archived_at predicate, not by being
+		// missing from here.
+		if err := db.ReplaceArticleCategoriesBySlug(r.Context(), conn, body.Slug, body.Categories); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2494,6 +2516,13 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
+		}
+		// nextCategories is oldCategories unless this patch carried a categories
+		// field, so an unrelated patch rewrites the index to what it already
+		// held rather than clearing it.
+		if err := db.ReplaceArticleCategoriesBySlug(r.Context(), conn, targetSlug, nextCategories); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 		if isActiveArticle {
 			if err := reconcileTaxonomyArticleCounts(r.Context(), conn, oldCategories, nextCategories); err != nil {

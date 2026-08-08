@@ -18,7 +18,11 @@ import (
 // not soft-deleted. Archived rows were previously reachable here.
 const searchLiveArticlesClause = "`pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL"
 
-const searchSelectColumns = "SELECT `id`, `title`, `slug`, `description`, `text`, `excerpt`, `tags`, `categories`, `pub_date`, `mod_date`, `priority`, `breaking_news`, `comment_status`, `photo_url`, `focus_keyword`, `meta_description`, `seo_title`, `creation_date`, `scheduled_pub_date`, `canonical_url`, `noindex`, `photo_alt` FROM `articles` "
+// searchSelectColumns omits `text`, like every other listing read: search
+// results are rendered as excerpts. The body is still matched and ranked on --
+// it just appears in WHERE and ORDER BY rather than in the SELECT list, which
+// costs nothing to read.
+var searchSelectColumns = "SELECT " + articleSelectList(false, "") + " FROM `articles` "
 
 // fulltextMinTokenSize mirrors innodb_ft_min_token_size. InnoDB never indexes
 // tokens shorter than this, and a required term (`+ab`) that the index cannot
