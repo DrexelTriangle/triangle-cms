@@ -72,6 +72,16 @@ func taxonomyHTTPTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("create articles: %v", err)
 	}
 	t.Cleanup(func() { _, _ = conn.ExecContext(context.Background(), "DROP TABLE IF EXISTS articles") })
+
+	// Section matching reads this index rather than the categories column, so a
+	// harness without it answers every count with an error.
+	if _, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS article_categories"); err != nil {
+		t.Fatalf("drop article_categories: %v", err)
+	}
+	if err := db.EnsureArticleCategoriesTable(ctx, conn); err != nil {
+		t.Fatalf("ensure article_categories: %v", err)
+	}
+	t.Cleanup(func() { _, _ = conn.ExecContext(context.Background(), "DROP TABLE IF EXISTS article_categories") })
 	return conn
 }
 
@@ -146,8 +156,8 @@ func TestTaxonomyHTTPAliasFixesAnEmptySection(t *testing.T) {
 	}
 
 	// Nothing matches "Food" yet, because the articles say "Restaurant Reviews".
-	if got := db.CategoryMatchPatterns("food"); len(got) != 1 {
-		t.Fatalf("patterns = %v, want only the slug's own", got)
+	if got := db.CategoryMatchValues("food"); len(got) != 1 {
+		t.Fatalf("values = %v, want only the slug's own", got)
 	}
 
 	// The editor saves the real category name. This is the exact payload the
@@ -164,16 +174,16 @@ func TestTaxonomyHTTPAliasFixesAnEmptySection(t *testing.T) {
 
 	// The matcher must see it immediately -- no restart. This is what the
 	// cache refresh on write buys.
-	patterns := db.CategoryMatchPatterns("food")
-	for _, want := range []string{`%"restaurant reviews"%`, `%"beer reviews"%`} {
+	values := db.CategoryMatchValues("food")
+	for _, want := range []string{"restaurant reviews", "beer reviews"} {
 		found := false
-		for _, pattern := range patterns {
-			if pattern == want {
+		for _, value := range values {
+			if value == want {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("patterns %v missing %q right after the save", patterns, want)
+			t.Errorf("values %v missing %q right after the save", values, want)
 		}
 	}
 
@@ -243,8 +253,8 @@ func TestTaxonomyHTTPExplicitEmptyClearsAliases(t *testing.T) {
 	if len(item.CategoryAliases) != 0 {
 		t.Errorf("aliases = %v, want cleared", item.CategoryAliases)
 	}
-	if got := db.CategoryMatchPatterns("food"); len(got) != 1 {
-		t.Errorf("patterns = %v, want the alias gone from matching too", got)
+	if got := db.CategoryMatchValues("food"); len(got) != 1 {
+		t.Errorf("values = %v, want the alias gone from matching too", got)
 	}
 }
 
@@ -309,6 +319,7 @@ func TestTaxonomyHTTPDeleteRefusesWhenArticlesExist(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert article: %v", err)
 	}
+	indexArticleCategories(t, conn)
 
 	var storedCount int64
 	if err := conn.QueryRowContext(ctx,
@@ -372,6 +383,7 @@ func TestTaxonomyHTTPAliasSaveUpdatesTheDisplayedCount(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert articles: %v", err)
 	}
+	indexArticleCategories(t, conn)
 
 	if code := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
 		"type":            "section",
@@ -416,6 +428,7 @@ func TestTaxonomyHTTPSubsectionSaveRecountsItsParent(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert articles: %v", err)
 	}
+	indexArticleCategories(t, conn)
 
 	for _, body := range []map[string]any{
 		{"type": "section", "slug": "food", "canonical_title": "Food"},
@@ -468,6 +481,7 @@ func TestTaxonomyHTTPDeleteRecountsTheParent(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert article: %v", err)
 	}
+	indexArticleCategories(t, conn)
 	if _, err := conn.ExecContext(ctx,
 		"UPDATE site_taxonomy SET article_count = 99 WHERE slug = 'food'",
 	); err != nil {
@@ -480,5 +494,15 @@ func TestTaxonomyHTTPDeleteRecountsTheParent(t *testing.T) {
 
 	if got := findItem(t, getTaxonomyItems(t, conn), "food").ArticleCount; got != 1 {
 		t.Errorf("parent count after deleting a child = %d, want 1 -- the parent was not recounted", got)
+	}
+}
+
+// indexArticleCategories rebuilds the derived category index, standing in for
+// the startup rebuild. These tests seed `articles` with raw INSERTs rather than
+// through the write handlers, so nothing else would populate it.
+func indexArticleCategories(t *testing.T, conn *sql.DB) {
+	t.Helper()
+	if err := db.RebuildArticleCategories(context.Background(), conn); err != nil {
+		t.Fatalf("rebuild article categories: %v", err)
 	}
 }

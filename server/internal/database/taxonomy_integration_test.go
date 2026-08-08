@@ -91,11 +91,11 @@ func TestTaxonomyAliasSeedAndCacheRoundTrip(t *testing.T) {
 	// defaultCategoryAliases rather than a literal list: the map grows every
 	// time another orphaned category is filed, and a test that pins the
 	// contents fails on the filing rather than on anything being broken.
-	patterns := CategoryMatchPatterns("entertainment")
+	values := CategoryMatchValues("entertainment")
 	for _, alias := range defaultCategoryAliases["entertainment"] {
-		want := `%"` + strings.ToLower(alias) + `"%`
-		if !containsPattern(patterns, want) {
-			t.Errorf("entertainment patterns %v missing the seeded alias %s", patterns, want)
+		want := strings.ToLower(alias)
+		if !containsValue(values, want) {
+			t.Errorf("entertainment values %v missing the seeded alias %s", values, want)
 		}
 	}
 	// The aliases must not be HTML-escaped in the column, or one holding an
@@ -118,8 +118,8 @@ func TestTaxonomyAliasSeedAndCacheRoundTrip(t *testing.T) {
 	}
 
 	// A slug with no default keeps no aliases.
-	if got := CategoryMatchPatterns(unseededSlug); len(got) != 1 {
-		t.Errorf("%s patterns = %v, want just its own", unseededSlug, got)
+	if got := CategoryMatchValues(unseededSlug); len(got) != 1 {
+		t.Errorf("%s values = %v, want just its own", unseededSlug, got)
 	}
 }
 
@@ -169,8 +169,8 @@ func TestTaxonomyAliasRefreshPicksUpWrites(t *testing.T) {
 	if err := RefreshCategoryAliases(ctx, conn); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	if got := CategoryMatchPatterns("movies"); len(got) != 1 {
-		t.Fatalf("movies patterns = %v, want just its own", got)
+	if got := CategoryMatchValues("movies"); len(got) != 1 {
+		t.Fatalf("movies values = %v, want just its own", got)
 	}
 
 	if _, err := conn.ExecContext(ctx,
@@ -180,20 +180,20 @@ func TestTaxonomyAliasRefreshPicksUpWrites(t *testing.T) {
 	}
 	// Still stale until the cache is told, which is why every write path calls
 	// RefreshCategoryAliases.
-	if got := CategoryMatchPatterns("movies"); len(got) != 1 {
-		t.Errorf("patterns changed before a refresh: %v", got)
+	if got := CategoryMatchValues("movies"); len(got) != 1 {
+		t.Errorf("values changed before a refresh: %v", got)
 	}
 	if err := RefreshCategoryAliases(ctx, conn); err != nil {
 		t.Fatalf("refresh after write: %v", err)
 	}
-	if got := CategoryMatchPatterns("movies"); !containsPattern(got, `%"movies i've seen"%`) {
-		t.Errorf("movies patterns %v missing the written alias", got)
+	if got := CategoryMatchValues("movies"); !containsValue(got, "movies i've seen") {
+		t.Errorf("movies values %v missing the written alias", got)
 	}
 }
 
-func containsPattern(patterns []string, want string) bool {
-	for _, pattern := range patterns {
-		if pattern == want {
+func containsValue(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
 			return true
 		}
 	}

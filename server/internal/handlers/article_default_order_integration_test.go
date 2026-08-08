@@ -33,9 +33,13 @@ func seedDefaultOrderArticles(t *testing.T, conn *sql.DB) {
 		{10020, "an-archive-story", "2011-04-08 15:04:51"},
 	}
 	for _, row := range rows {
+		// `categories` is a JSON array, which is what both producers write --
+		// the ETL json.dumps its list, and the CMS goes through FormatTags. The
+		// bare string this fixture used before matched no shape in the corpus
+		// and quietly exempted itself from the category index.
 		if _, err := conn.ExecContext(ctx,
 			"INSERT INTO articles (id, title, slug, `text`, authors, categories, pub_date, creation_date) VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())",
-			row.id, row.slug, row.slug, "Body", `["Rui Zhao"]`, "News", row.pub,
+			row.id, row.slug, row.slug, "Body", `["Rui Zhao"]`, `["News"]`, row.pub,
 		); err != nil {
 			t.Fatalf("seed %s: %v", row.slug, err)
 		}

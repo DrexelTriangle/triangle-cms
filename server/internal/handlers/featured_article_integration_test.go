@@ -147,6 +147,10 @@ func TestFeaturedArticleHTTP_HomepageLeadsWithTheFeaturedArticle(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed articles: %v", err)
 	}
+	// The homepage blocks are section-filtered, which reads the derived
+	// category index; these rows were inserted straight into `articles`, so
+	// nothing has indexed them yet.
+	indexArticleCategories(t, conn)
 
 	homepageNewsSlugs := func() []string {
 		rec := httptest.NewRecorder()

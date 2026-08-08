@@ -290,19 +290,9 @@ func categoryAliasesFor(slug string) []string {
 	return categoryAliasBySlug[slug]
 }
 
-// CategoryColumnExpr is the SQL expression every category match runs against.
-//
-// `articles`.`categories` is a JSON array of category titles, but it is written
-// by two producers that escape it differently: the ETL emits a plain "&", while
-// Go's encoding/json HTML-escapes it to a backslash-u escape (see FormatTags),
-// so an article edited in the CMS stops matching the very section it is filed
-// under. Folding that escape away here means callers only ever reason about one
-// spelling. FormatTags no longer produces it, but rows written before that fix
-// still carry it.
-const CategoryColumnExpr = "REPLACE(LOWER(`categories`), '\\\\u0026', '&')"
-
-// CategoryMatchPatterns returns the CategoryColumnExpr LIKE patterns that
-// identify articles filed under a taxonomy slug.
+// CategoryMatchValues returns the category titles that identify articles filed
+// under a taxonomy slug, normalized the same way article_categories stores
+// them: lowercased and trimmed.
 //
 // WordPress category text does not match our slugs literally, so a slug stands
 // in for several spellings: "comics-puzzles" has to find "Comics & Puzzles".
@@ -310,35 +300,40 @@ const CategoryColumnExpr = "REPLACE(LOWER(`categories`), '\\\\u0026', '&')"
 // article listing and the count rebuild call it, because when they disagreed a
 // section could list 2545 articles while reporting 8.
 //
-// Every pattern is anchored on the JSON quotes around a member, so a slug
-// matches a WHOLE category and never a fragment of a longer one. Unanchored
-// patterns silently merged sibling taxonomies: `%puzzles%` matched the parent
+// Every value is a WHOLE category title, compared for equality, so a slug never
+// matches a fragment of a longer one. This used to be a LIKE pattern anchored on
+// the JSON quotes around an array member, for the same reason: unanchored
+// patterns silently merged sibling taxonomies -- `%puzzles%` matched the parent
 // title "Comics & Puzzles" and so pulled all 219 comics into the Puzzles
 // subsection, and `%men's basketball%` is a substring of "Women's Basketball",
 // which folded the women's team into the men's. Both read as plausible-but-wrong
-// pages rather than as errors, so anchoring is load-bearing, not cosmetic.
+// pages rather than as errors, so exactness is load-bearing, not cosmetic. An
+// equality join gives it for free, and can use an index besides.
 //
 // Because the match is exact, a slug that is not the canonicalized category
 // string resolves to nothing on its own -- it needs an alias row. Those come
 // from the cache, so callers must have run RefreshCategoryAliases first;
 // EnsureTaxonomyTable does it at startup.
-func CategoryMatchPatterns(slug string) []string {
+//
+// Ampersand escaping used to be folded in SQL here too: the ETL emits a plain
+// "&" while Go's encoding/json HTML-escapes it to & (see FormatTags), so an
+// article edited in the CMS stopped matching its own section. That fold is now
+// implicit -- article_categories is built by JSON-decoding the column, which
+// resolves the escape to the character it stands for.
+func CategoryMatchValues(slug string) []string {
 	normalized := strings.ToLower(strings.TrimSpace(slug))
 	if normalized == "" {
 		return nil
 	}
 
-	patterns := make([]string, 0, 4)
+	values := make([]string, 0, 4)
 	add := func(value string) {
-		// The JSON quotes are what make the match exact; without them a
-		// pattern matches any category containing the phrase.
-		pattern := `%"` + value + `"%`
-		for _, existing := range patterns {
-			if existing == pattern {
+		for _, existing := range values {
+			if existing == value {
 				return
 			}
 		}
-		patterns = append(patterns, pattern)
+		values = append(values, value)
 	}
 
 	add(normalized)
@@ -353,7 +348,7 @@ func CategoryMatchPatterns(slug string) []string {
 	for _, alias := range categoryAliasesFor(normalized) {
 		add(strings.ToLower(strings.TrimSpace(alias)))
 	}
-	return patterns
+	return values
 }
 
 // possessiveStems are the words a slug can only have lost an apostrophe from.
@@ -438,19 +433,46 @@ func taxonomyMatchSlugs(ctx context.Context, conn *sql.DB) (map[string][]string,
 
 // TaxonomyCountCondition builds the WHERE fragment matching articles in any of
 // the given slugs, along with its arguments.
+//
+// It reads the article_categories index rather than the `categories` column.
+// The predicate it replaced was a chain of `LOWER(categories) LIKE '%"news"%'`
+// -- a leading wildcard, so no index could ever serve it, and every section page
+// scanned the whole table to answer it (twice, since the listing pages with a
+// COUNT(*) alongside).
+//
+// EXISTS rather than IN: callers negate this fragment (see
+// ReportOrphanedArticles), and NOT IN against a subquery that can yield NULL
+// evaluates to UNKNOWN and quietly returns nothing. NOT EXISTS has no such
+// edge.
+//
+// The correlation name is the bare `articles` table, which every caller selects
+// from unaliased.
 func TaxonomyCountCondition(slugs []string) (string, []any) {
-	var clauses []string
-	var args []any
+	var values []string
+	seen := make(map[string]bool)
 	for _, slug := range slugs {
-		for _, pattern := range CategoryMatchPatterns(slug) {
-			clauses = append(clauses, CategoryColumnExpr+" LIKE ?")
-			args = append(args, pattern)
+		for _, value := range CategoryMatchValues(slug) {
+			if seen[value] {
+				continue
+			}
+			seen[value] = true
+			values = append(values, value)
 		}
 	}
-	if len(clauses) == 0 {
+	if len(values) == 0 {
 		return "", nil
 	}
-	return "(" + strings.Join(clauses, " OR ") + ")", args
+
+	placeholders := make([]string, len(values))
+	args := make([]any, len(values))
+	for i, value := range values {
+		placeholders[i] = "?"
+		args[i] = value
+	}
+
+	condition := "EXISTS (SELECT 1 FROM `article_categories` `ac` WHERE `ac`.`article_id` = `articles`.`id` " +
+		"AND `ac`.`category` IN (" + strings.Join(placeholders, ", ") + "))"
+	return condition, args
 }
 
 // countArticlesForSlugs counts the articles a taxonomy row matches, over the

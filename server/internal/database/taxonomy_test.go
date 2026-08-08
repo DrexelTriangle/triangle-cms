@@ -7,49 +7,49 @@ import (
 
 func assertPatterns(t *testing.T, slug string, want []string) {
 	t.Helper()
-	got := CategoryMatchPatterns(slug)
+	got := CategoryMatchValues(slug)
 	if len(got) != len(want) {
-		t.Fatalf("%s: got %d patterns %v, want %d %v", slug, len(got), got, len(want), want)
+		t.Fatalf("%s: got %d values %v, want %d %v", slug, len(got), got, len(want), want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("%s: pattern %d = %q, want %q", slug, i, got[i], want[i])
+			t.Errorf("%s: value %d = %q, want %q", slug, i, got[i], want[i])
 		}
 	}
 }
 
-func TestCategoryMatchPatternsExpandsDashedSlugs(t *testing.T) {
+func TestCategoryMatchValuesExpandsDashedSlugs(t *testing.T) {
 	// A dashed slug has to find the WordPress spelling, which uses spaces and
 	// often an ampersand: "comics-puzzles" must match "Comics & Puzzles".
 	assertPatterns(t, "comics-puzzles", []string{
-		`%"comics-puzzles"%`, `%"comics puzzles"%`, `%"comics & puzzles"%`,
+		"comics-puzzles", "comics puzzles", "comics & puzzles",
 	})
 }
 
-func TestCategoryMatchPatternsRestoresPossessiveApostrophe(t *testing.T) {
+func TestCategoryMatchValuesRestoresPossessiveApostrophe(t *testing.T) {
 	// The category text is "Men's Basketball"; no slug can carry the
 	// apostrophe, so without this pattern the subsection matched nothing.
 	assertPatterns(t, "mens-basketball", []string{
-		`%"mens-basketball"%`, `%"mens basketball"%`, `%"mens & basketball"%`, `%"men's basketball"%`,
+		"mens-basketball", "mens basketball", "mens & basketball", "men's basketball",
 	})
 }
 
-func TestCategoryMatchPatternsLeavesPluralsAlone(t *testing.T) {
+func TestCategoryMatchValuesLeavesPluralsAlone(t *testing.T) {
 	// "philly-sports" is a plural, not a possessive: guessing "philly sport's"
 	// would add a pattern that matches nothing.
-	for _, pattern := range CategoryMatchPatterns("philly-sports") {
-		if strings.Contains(pattern, "'") {
-			t.Fatalf("unexpected possessive pattern %q", pattern)
+	for _, value := range CategoryMatchValues("philly-sports") {
+		if strings.Contains(value, "'") {
+			t.Fatalf("unexpected possessive value %q", value)
 		}
 	}
 }
 
-func TestCategoryMatchPatternsSingleWordSlug(t *testing.T) {
-	assertPatterns(t, "comics", []string{`%"comics"%`})
+func TestCategoryMatchValuesSingleWordSlug(t *testing.T) {
+	assertPatterns(t, "comics", []string{"comics"})
 }
 
-func TestCategoryMatchPatternsEmpty(t *testing.T) {
-	if got := CategoryMatchPatterns("   "); got != nil {
+func TestCategoryMatchValuesEmpty(t *testing.T) {
+	if got := CategoryMatchValues("   "); got != nil {
 		t.Fatalf("got %v, want nil for a blank slug", got)
 	}
 }
@@ -75,14 +75,17 @@ func withCategoryAliases(t *testing.T, aliases map[string][]string) {
 // editor or a copy-paste, which would make the tests below silently vacuous.
 var escapedAmp = `\` + "u0026"
 
-// matchesCategories reports whether any pattern for slug would match a
-// `categories` JSON array, mirroring what CategoryColumnExpr + LIKE does in
-// SQL: lowercase the column, unescape the ampersand, then substring-match.
+// matchesCategories reports whether slug matches a `categories` JSON array. It
+// composes the two halves of the real lookup -- the rows RebuildArticleCategories
+// would index for the article, and the values TaxonomyCountCondition would ask
+// for -- so these assertions describe what the database will actually answer.
 func matchesCategories(slug, categoriesJSON string) bool {
-	column := strings.ReplaceAll(strings.ToLower(categoriesJSON), escapedAmp, "&")
-	for _, pattern := range CategoryMatchPatterns(slug) {
-		if strings.Contains(column, strings.Trim(pattern, "%")) {
-			return true
+	indexed := normalizeCategoryValues(categoriesJSON)
+	for _, want := range CategoryMatchValues(slug) {
+		for _, have := range indexed {
+			if have == want {
+				return true
+			}
 		}
 	}
 	return false
@@ -165,24 +168,22 @@ func TestCategoryMatchToleratesEscapedAmpersand(t *testing.T) {
 	}
 }
 
-func TestTaxonomyCountConditionORsEverySlug(t *testing.T) {
+func TestTaxonomyCountConditionMatchesEverySlug(t *testing.T) {
 	// A section matches its own slug OR any child's, so a container section
 	// with no category of its own still resolves to its subsections' articles.
+	// Every spelling lands in one IN list, which is that OR.
 	condition, args := TaxonomyCountCondition([]string{"special-editions", "welcome-week"})
 	if condition == "" {
 		t.Fatal("expected a condition")
 	}
-	if strings.Contains(condition, " AND ") {
-		t.Errorf("condition must OR its slugs, not AND them: %s", condition)
-	}
-	// 3 patterns per dashed slug, two slugs.
-	if got := strings.Count(condition, "LIKE ?"); got != 6 {
+	// 3 spellings per dashed slug, two slugs.
+	if got := strings.Count(condition, "?"); got != 6 {
 		t.Errorf("got %d placeholders, want 6: %s", got, condition)
 	}
 	if len(args) != 6 {
 		t.Errorf("got %d args, want 6: %v", len(args), args)
 	}
-	for _, want := range []string{`%"welcome week"%`, `%"special editions"%`} {
+	for _, want := range []string{"welcome week", "special editions"} {
 		found := false
 		for _, arg := range args {
 			if arg == want {
@@ -190,16 +191,31 @@ func TestTaxonomyCountConditionORsEverySlug(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("missing pattern %q in %v", want, args)
+			t.Errorf("missing category %q in %v", want, args)
 		}
 	}
 }
 
-func TestTaxonomyCountConditionMatchesOnTheNormalizedColumn(t *testing.T) {
-	// The escape-folding has to be in the SQL, not just in the patterns.
+// The predicate has to be correlated on the outer articles row, and it has to
+// be EXISTS: callers negate it, and NOT IN over a subquery that can produce
+// NULL evaluates to UNKNOWN and silently matches nothing.
+func TestTaxonomyCountConditionIsCorrelatedExists(t *testing.T) {
 	condition, _ := TaxonomyCountCondition([]string{"comics"})
-	if !strings.Contains(condition, CategoryColumnExpr) {
-		t.Errorf("condition must match on %s, got %s", CategoryColumnExpr, condition)
+	if !strings.HasPrefix(condition, "EXISTS (") {
+		t.Errorf("condition must be an EXISTS, got %s", condition)
+	}
+	if !strings.Contains(condition, "`ac`.`article_id` = `articles`.`id`") {
+		t.Errorf("condition must correlate on the outer articles row, got %s", condition)
+	}
+}
+
+// Slugs resolving to the same spelling must not each contribute a placeholder;
+// a section and its identically-named subsection would otherwise double the
+// argument list on every section page.
+func TestTaxonomyCountConditionDeduplicatesValues(t *testing.T) {
+	_, args := TaxonomyCountCondition([]string{"comics", "comics"})
+	if len(args) != 1 {
+		t.Errorf("got %d args, want 1: %v", len(args), args)
 	}
 }
 
@@ -281,11 +297,11 @@ func TestCategoryAliasesAreCaseInsensitiveOnTheSlug(t *testing.T) {
 	}
 }
 
-func TestCategoryMatchPatternsDeduplicatesAliases(t *testing.T) {
+func TestCategoryMatchValuesDeduplicatesAliases(t *testing.T) {
 	// An alias that merely restates a derived pattern must not double the
 	// placeholders in every query that uses the slug.
 	withCategoryAliases(t, map[string][]string{"comics": {"Comics"}})
-	assertPatterns(t, "comics", []string{`%"comics"%`})
+	assertPatterns(t, "comics", []string{"comics"})
 }
 
 func TestDefaultCategoryAliasesCoverTheKnownMismatches(t *testing.T) {
