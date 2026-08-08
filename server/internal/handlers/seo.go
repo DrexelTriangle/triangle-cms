@@ -23,6 +23,7 @@ func GetSEOSettings(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to fetch SEO settings")
 			return
 		}
+		setAlwaysPublicCache(w)
 		writeJSON(w, http.StatusOK, settings)
 	})
 }
