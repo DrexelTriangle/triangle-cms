@@ -69,6 +69,52 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, models.ErrorResponse{Error: msg})
 }
 
+// publicReadCacheControl bounds how stale a public read may be.
+//
+// Without a Cache-Control header every intermediary picks its own heuristic,
+// and Scalene's fetch cache has no expiry to respect at all -- an edit could
+// take an unbounded time to appear on the site. 60s is short enough that an
+// editor who fixes a headline sees it on the next reload rather than wondering
+// whether the save worked, and long enough that a page is not re-rendered per
+// visitor. stale-while-revalidate keeps that bound cheap: a traffic spike is
+// still served from cache while one request refreshes it behind the scenes.
+const publicReadCacheControl = "public, max-age=60, stale-while-revalidate=300"
+
+// uncacheableCacheControl is what an editor's copy of a public read gets.
+const uncacheableCacheControl = "private, no-store"
+
+// setPublicReadCache marks a GET cacheable, and is the only correct way to do
+// it on a route behind OptionalAuth.
+//
+// Those routes answer two different audiences at one URL: anonymously they are
+// the published, non-archived view, and to a signed-in editor they also carry
+// drafts and soft-deleted rows. Marking an editor's copy `public` would let a
+// shared cache hand unpublished headlines to a reader, so a request that
+// carries credentials is marked uncacheable instead.
+//
+// Vary names what distinguishes the two, since auth arrives either as the
+// `sid` cookie or as a bearer token. It is added rather than set so the
+// compression middleware's own Vary: Accept-Encoding survives. Note that
+// Cloudflare honours Vary only for Accept-Encoding, so the Vary here protects
+// standards-compliant caches and Scalene's fetch cache; a CDN rule that caches
+// this API must bypass on cookie rather than rely on it.
+func setPublicReadCache(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Vary", "Cookie")
+	w.Header().Add("Vary", "Authorization")
+	if _, isEditor := middleware.UserFromContext(r.Context()); isEditor {
+		w.Header().Set("Cache-Control", uncacheableCacheControl)
+		return
+	}
+	w.Header().Set("Cache-Control", publicReadCacheControl)
+}
+
+// setAlwaysPublicCache is setPublicReadCache for the reads that have no
+// authenticated form at all -- no auth middleware is registered on them, so
+// every caller gets the same bytes and there is nothing to Vary on.
+func setAlwaysPublicCache(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", publicReadCacheControl)
+}
+
 func requireArticleWriteRole(w http.ResponseWriter, r *http.Request) bool {
 	user, ok := middleware.UserFromContext(r.Context())
 	if !ok || (user.Role != models.RoleAdmin && user.Role != models.RoleEditor) {
@@ -979,6 +1025,7 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 			articles = articles[:limit]
 		}
 
+		setPublicReadCache(w, r)
 		writeJSON(w, http.StatusOK, models.AuthorArticlesResponse{
 			Author: models.AuthorArticlesAuthor{
 				ID:          author.ID,
@@ -1051,6 +1098,7 @@ func GetArticles(conn *sql.DB) http.HandlerFunc {
 			articles = articles[:limit]
 		}
 
+		setPublicReadCache(w, r)
 		writeJSON(w, http.StatusOK, models.ArticlesResponse{
 			Articles:   articleListItems(articles, excerptWords, categoryPreferenceSlugs(params)...),
 			Pagination: paginationResponse(page, limit, offset, hasMore, totalCount),
@@ -1120,6 +1168,7 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		setPublicReadCache(w, r)
 		writeJSON(w, http.StatusOK, models.SectionArticlesResponse{
 			Section: models.TaxonomySummary{
 				Slug:           params.Section,
@@ -1196,6 +1245,7 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		setPublicReadCache(w, r)
 		writeJSON(w, http.StatusOK, models.SubsectionArticlesResponse{
 			Section: models.TaxonomySummary{
 				Slug:           params.Section,
@@ -1711,6 +1761,7 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 		resp.PublishedDate = a.PublishedAt
 		resp.ModifiedDate = a.ModifiedAt
 
+		setPublicReadCache(w, r)
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
@@ -1764,6 +1815,9 @@ func GetArticleComments(conn *sql.DB) http.HandlerFunc {
 			})
 		}
 
+		// No auth middleware on this route: the thread is the approved comments
+		// and nothing else, whoever is asking.
+		setAlwaysPublicCache(w)
 		writeJSON(w, http.StatusOK, models.ArticleCommentsResponse{
 			ArticleSlug: slug,
 			Comments:    resp,
@@ -2633,12 +2687,6 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// homepageCacheControl bounds how long a featured-article change can take to
-// reach readers. 60s is short enough that an editor swapping the lead sees it
-// on the next reload rather than wondering whether the save worked, and long
-// enough that the homepage is not re-rendered per visitor.
-const homepageCacheControl = "public, max-age=60, stale-while-revalidate=300"
-
 // leadWithFeaturedArticle moves the featured article to the front of the
 // homepage news block. It is a no-op when nothing is featured, so the default
 // homepage stays newest-first.
@@ -2819,13 +2867,11 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 		}
 
 		// The homepage carries the editor's live decisions -- the featured lead,
-		// the breaking-news banner, the carousel -- so it needs a short, stated
-		// freshness bound. Without a Cache-Control header every intermediary
-		// picks its own heuristic, and Scalene's fetch cache has no expiry to
-		// respect at all, so "featured" could take an unbounded time to appear.
-		// stale-while-revalidate keeps that bound cheap: a spike is still served
-		// from cache while one request refreshes it behind the scenes.
-		w.Header().Set("Cache-Control", homepageCacheControl)
+		// the breaking-news banner, the carousel -- so it needs the shortest
+		// freshness bound of anything here, which is why publicReadCacheControl
+		// is set to one that suits it. The rest of the public reads inherited
+		// the same bound rather than each picking one.
+		setAlwaysPublicCache(w)
 		writeJSON(w, http.StatusOK, sectionArticles)
 	}
 }

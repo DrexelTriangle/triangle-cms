@@ -160,8 +160,8 @@ func TestFeaturedArticleHTTP_HomepageLeadsWithTheFeaturedArticle(t *testing.T) {
 		}
 		// Without a stated freshness bound, a featured-article change reaches
 		// readers whenever some intermediary's heuristic decides it should.
-		if got := rec.Header().Get("Cache-Control"); got != homepageCacheControl {
-			t.Errorf("homepage Cache-Control = %q, want %q", got, homepageCacheControl)
+		if got := rec.Header().Get("Cache-Control"); got != publicReadCacheControl {
+			t.Errorf("homepage Cache-Control = %q, want %q", got, publicReadCacheControl)
 		}
 		var body struct {
 			News []struct {

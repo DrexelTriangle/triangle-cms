@@ -27,6 +27,7 @@ func GetSiteSettings(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to fetch site settings")
 			return
 		}
+		setAlwaysPublicCache(w)
 		writeJSON(w, http.StatusOK, models.SiteSettingsResponse{SiteTitle: siteTitle})
 	})
 }
@@ -77,6 +78,7 @@ func GetBreakingNews(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to fetch breaking-news settings")
 			return
 		}
+		setAlwaysPublicCache(w)
 		writeJSON(w, http.StatusOK, settings)
 	})
 }
@@ -131,6 +133,7 @@ func GetHomepageCarousel(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to fetch homepage carousel settings")
 			return
 		}
+		setAlwaysPublicCache(w)
 		writeJSON(w, http.StatusOK, models.HomepageCarouselSettingsResponse{Slides: slides})
 	})
 }
@@ -181,6 +184,7 @@ func GetFooterSettings(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to fetch footer settings")
 			return
 		}
+		setAlwaysPublicCache(w)
 		writeJSON(w, http.StatusOK, settings)
 	})
 }

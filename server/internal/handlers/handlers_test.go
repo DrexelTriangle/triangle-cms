@@ -608,3 +608,75 @@ func TestCategoryPreferenceSlugsPrefersTheSubsection(t *testing.T) {
 		t.Errorf("got %v, want nothing for a listing with no section", got)
 	}
 }
+
+// The OptionalAuth routes answer two audiences at one URL. An editor's copy
+// carries drafts and soft-deleted rows, so marking it `public` would let a
+// shared cache hand unpublished headlines to a reader.
+func TestSetPublicReadCache_AnonymousIsCacheable(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles", nil)
+	rec := httptest.NewRecorder()
+
+	setPublicReadCache(rec, req)
+
+	if got := rec.Header().Get("Cache-Control"); got != publicReadCacheControl {
+		t.Errorf("Cache-Control = %q, want %q", got, publicReadCacheControl)
+	}
+}
+
+func TestSetPublicReadCache_EditorIsNotCacheable(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Role: models.RoleAdmin}))
+	rec := httptest.NewRecorder()
+
+	setPublicReadCache(rec, req)
+
+	if got := rec.Header().Get("Cache-Control"); got != uncacheableCacheControl {
+		t.Fatalf("Cache-Control = %q, want %q -- an editor's drafts must never be publicly cached", got, uncacheableCacheControl)
+	}
+	if strings.Contains(rec.Header().Get("Cache-Control"), "public") {
+		t.Error("an editor's response must not be marked public")
+	}
+}
+
+// Auth arrives either as the `sid` cookie or as a bearer token, so both name
+// the difference between the two audiences.
+func TestSetPublicReadCache_VariesOnCredentials(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles", nil)
+	rec := httptest.NewRecorder()
+
+	setPublicReadCache(rec, req)
+
+	vary := rec.Header().Values("Vary")
+	for _, want := range []string{"Cookie", "Authorization"} {
+		found := false
+		for _, got := range vary {
+			if got == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Vary %v is missing %q", vary, want)
+		}
+	}
+}
+
+// Added, not set: the compression middleware puts Vary: Accept-Encoding on
+// every response, and overwriting it would let a cache serve a gzipped body to
+// a client that cannot read it.
+func TestSetPublicReadCache_KeepsExistingVary(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/articles", nil)
+	rec := httptest.NewRecorder()
+	rec.Header().Add("Vary", "Accept-Encoding")
+
+	setPublicReadCache(rec, req)
+
+	found := false
+	for _, got := range rec.Header().Values("Vary") {
+		if got == "Accept-Encoding" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Vary %v dropped Accept-Encoding", rec.Header().Values("Vary"))
+	}
+}

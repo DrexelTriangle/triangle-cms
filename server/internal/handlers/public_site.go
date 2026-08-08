@@ -83,6 +83,7 @@ func GetSitemapSlugs(conn *sql.DB) http.Handler {
 			return
 		}
 
+		setAlwaysPublicCache(w)
 		writeJSON(w, http.StatusOK, slugs)
 	})
 }
