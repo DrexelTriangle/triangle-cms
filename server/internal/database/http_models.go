@@ -634,6 +634,21 @@ func ReplaceArticleAuthorsBySlug(ctx context.Context, conn *sql.DB, slug string,
 	return ReplaceArticleAuthors(ctx, conn, articleID, authorIDs)
 }
 
+// GetArticleContentBySlug reads just the body, for a patch that has to derive
+// an excerpt from a body it did not carry. A missing article is "" and no
+// error: the UPDATE that follows reports the 404 on its own row count.
+func GetArticleContentBySlug(ctx context.Context, conn *sql.DB, slug string) (string, error) {
+	var text sql.NullString
+	err := conn.QueryRowContext(ctx, "SELECT `text` FROM `articles` WHERE `slug` = ?", strings.TrimSpace(slug)).Scan(&text)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return text.String, nil
+}
+
 func ParsePublishedAt(value string) *time.Time {
 	if strings.TrimSpace(value) == "" {
 		return nil
@@ -751,6 +766,19 @@ func deriveExcerpt(content string) string {
 	return strings.Join(words, " ")
 }
 
+// ExcerptOrDerived is what every write that sets the `excerpt` column stores.
+// An excerpt is optional in the editor, so a blank one means "derive it from
+// the body", never "store nothing": listings render `excerpt` and nothing else
+// -- the body is not selected for them -- so a stored empty string is an
+// article that appears on every section page and the homepage with no summary
+// under it.
+func ExcerptOrDerived(excerpt, content string) string {
+	if trimmed := strings.TrimSpace(excerpt); trimmed != "" {
+		return trimmed
+	}
+	return deriveExcerpt(content)
+}
+
 func normalizeSlug(value string) string {
 	s := strings.ToLower(strings.TrimSpace(value))
 	if s == "" {
@@ -792,10 +820,7 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 		slug = normalizeSlug(body.Title)
 	}
 
-	excerpt := strings.TrimSpace(body.Excerpt)
-	if excerpt == "" {
-		excerpt = deriveExcerpt(body.Content)
-	}
+	excerpt := ExcerptOrDerived(body.Excerpt, body.Content)
 
 	tags := FormatTags(body.Tags)
 	if tags == "" {
@@ -858,7 +883,7 @@ func ArticleToDBFields(body models.Article) []any {
 	return []any{
 		body.Title,
 		normalizeSlug(body.Slug),
-		body.Excerpt,
+		ExcerptOrDerived(body.Excerpt, body.Content),
 		body.Content,
 		FormatTags(body.Categories),
 		publishedAt,

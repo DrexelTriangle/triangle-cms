@@ -13,8 +13,22 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+// clientFoundRows makes an UPDATE report the rows it matched rather than the
+// rows whose values it changed.
+//
+// Every handler that reads RowsAffected treats zero as "no such row" and
+// answers 404 -- author update, patch, archive and restore, and both article
+// write paths. Without this flag a save that sets every column to what it
+// already holds matches its row, changes nothing, reports zero, and is answered
+// as though the article had been deleted mid-edit. The editor sends the whole
+// form on every save and autosaves on a timer, so two saves inside the same
+// second -- a double-clicked Save, or an autosave landing on an untouched form
+// after mod_date has already been stamped to the current second -- are enough.
+//
+// No call site uses RowsAffected to ask whether anything changed, so matched
+// rows is what all six of them already mean.
 func buildDSN(dbName, user, password, host string, port int) string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true", user, password, host, port, dbName)
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&clientFoundRows=true", user, password, host, port, dbName)
 }
 
 // defaultMaxOpenConns is the size of the connection pool.

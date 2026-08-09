@@ -2474,6 +2474,30 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				}
 				setCols = append(setCols, column)
 				setArgs = append(setArgs, strings.TrimSpace(s))
+			case "excerpt":
+				s, ok := v.(string)
+				if !ok {
+					writeError(w, http.StatusBadRequest, "excerpt must be a string")
+					return
+				}
+				// The editor sends the excerpt field on every save, blank or not,
+				// so a patch that clears it is the ordinary case of an author who
+				// never filled it in -- not a request for an article with no
+				// summary anywhere it is listed. Derive one from the body, the
+				// same fallback POST applies. The patch's own content wins if it
+				// carries one; the map is iterated in random order, so read it
+				// from the body rather than from whatever the loop has processed.
+				content, _ := body["content"].(string)
+				if strings.TrimSpace(content) == "" {
+					stored, err := db.GetArticleContentBySlug(r.Context(), conn, slug)
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, err.Error())
+						return
+					}
+					content = stored
+				}
+				setCols = append(setCols, column)
+				setArgs = append(setArgs, db.ExcerptOrDerived(s, content))
 			case "canonical_url":
 				s, ok := v.(string)
 				if !ok {
