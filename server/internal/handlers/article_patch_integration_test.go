@@ -25,6 +25,18 @@ func articlePatchTestDB(t *testing.T) *sql.DB {
 	if dsn == "" {
 		t.Skip("CMS_TEST_DSN not set; skipping article patch integration test")
 	}
+	// The server connects with clientFoundRows, and the handlers' 404-on-zero-rows
+	// checks only behave correctly under it. A test DSN without the flag would
+	// exercise semantics production never runs with, so add it rather than asking
+	// whoever sets the variable to remember.
+	if !strings.Contains(dsn, "clientFoundRows") {
+		separator := "?"
+		if strings.Contains(dsn, "?") {
+			separator = "&"
+		}
+		dsn += separator + "clientFoundRows=true"
+	}
+
 	conn, err := sql.Open("mysql", dsn)
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
@@ -435,6 +447,40 @@ func TestArticlePatchHTTP_BlankExcerptIsDerivedFromBody(t *testing.T) {
 	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("phillies-reinforce-team", `{"excerpt":42}`))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("numeric excerpt status = %d, want 400; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A save that changes nothing still matched its row, so it is a success. It used
+// to be answered 404 -- the UPDATE changed no values, MySQL reported zero rows
+// affected, and the handler reads zero as "no such article". The editor sends the
+// whole form on every save and autosaves on a timer, so two saves inside the same
+// second are enough to hit it: mod_date is stamped to the second, so the second
+// save rewrites every column to what it already holds. To an author, an article
+// they are editing reports that it does not exist.
+func TestArticlePatchHTTP_NoOpSaveIsNotAMissingArticle(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, excerpt, categories, pub_date) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())",
+		"Unchanged story", "unchanged-story", "<p>Body.</p>", "A summary.", "News",
+	); err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	body := `{"title":"Unchanged story","excerpt":"A summary.","content":"<p>Body.</p>","comment_status":"open"}`
+	for attempt := 1; attempt <= 2; attempt++ {
+		rec := httptest.NewRecorder()
+		PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("unchanged-story", body))
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("save %d status = %d, want 204; body = %s", attempt, rec.Code, rec.Body.String())
+		}
+	}
+
+	// A slug that genuinely is not there must still be a 404 -- the fix must not
+	// turn "no such article" into a silent success.
+	rec := httptest.NewRecorder()
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("no-such-story", body))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing-article status = %d, want 404; body = %s", rec.Code, rec.Body.String())
 	}
 }
 
