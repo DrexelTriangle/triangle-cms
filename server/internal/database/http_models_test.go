@@ -182,6 +182,44 @@ func TestArticleToDBFields_StampsModifiedDate(t *testing.T) {
 	}
 }
 
+// The excerpt field is optional in the editor, and a PUT sends it blank when the
+// author never filled it in. Storing that blank left the article with no summary
+// on the section pages and the homepage, which render `excerpt` and never the
+// body -- POST had derived one from the body all along, and a full replacement
+// has the same body to derive from.
+func TestArticleToDBFields_DerivesExcerptFromBodyWhenBlank(t *testing.T) {
+	fields := ArticleToDBFields(models.Article{
+		Title:   "Phillies reinforce team at the trade deadline",
+		Slug:    "phillies-reinforce-team-at-the-trade-deadline",
+		Excerpt: "   ",
+		Content: "<p>The Phillies added two arms before Thursday's deadline.</p>",
+	})
+
+	// Column order is title, slug, excerpt, text.
+	const excerptFieldIndex = 2
+	got, ok := fields[excerptFieldIndex].(string)
+	if !ok {
+		t.Fatalf("excerpt field has type %T, want string", fields[excerptFieldIndex])
+	}
+	if got != "The Phillies added two arms before Thursday's deadline." {
+		t.Errorf("excerpt = %q, want it derived from the body", got)
+	}
+}
+
+func TestArticleToDBFields_KeepsSuppliedExcerpt(t *testing.T) {
+	fields := ArticleToDBFields(models.Article{
+		Title:   "Phillies reinforce team at the trade deadline",
+		Slug:    "phillies-reinforce-team-at-the-trade-deadline",
+		Excerpt: "  An editor's own summary.  ",
+		Content: "<p>The Phillies added two arms before Thursday's deadline.</p>",
+	})
+
+	const excerptFieldIndex = 2
+	if got := fields[excerptFieldIndex]; got != "An editor's own summary." {
+		t.Errorf("excerpt = %q, want the supplied text", got)
+	}
+}
+
 // An article normally opens with its featured image, so an excerpt derived by
 // stripping tags used to start with the photo credit in the caption instead of
 // the story.

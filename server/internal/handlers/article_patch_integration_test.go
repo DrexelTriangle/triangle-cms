@@ -25,7 +25,6 @@ func articlePatchTestDB(t *testing.T) *sql.DB {
 	if dsn == "" {
 		t.Skip("CMS_TEST_DSN not set; skipping article patch integration test")
 	}
-
 	conn, err := sql.Open("mysql", dsn)
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
@@ -360,6 +359,82 @@ func TestArticlePatchHTTP_PhotoAltRoundTrip(t *testing.T) {
 	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("photo-story", `{"photo_alt":42}`))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("numeric photo_alt status = %d, want 400; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The excerpt box is optional, and the editor sends it on every save whether the
+// author filled it in or not. Storing the blank verbatim published articles with
+// no summary anywhere they are listed -- listings render `excerpt` and never the
+// body -- so a blank means "derive one", the same fallback a POST applies.
+func TestArticlePatchHTTP_BlankExcerptIsDerivedFromBody(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, excerpt, categories, pub_date) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())",
+		"Phillies reinforce team", "phillies-reinforce-team",
+		"<p>The Phillies added two arms before the deadline.</p>", "An older summary.", "Sports",
+	); err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	// A second article, so the excerpt-only case below patches a row this test
+	// has not already written: an UPDATE that sets every column to what it
+	// already holds affects no rows, which the handler reports as a 404.
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, excerpt, categories, pub_date) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())",
+		"FIFA experiences financial fiascos", "fifa-financial-fiascos",
+		"<p>FIFA closed the year short of its own projections.</p>", "A stale summary.", "Sports",
+	); err != nil {
+		t.Fatalf("seed second article: %v", err)
+	}
+
+	readExcerpt := func(slug string) string {
+		t.Helper()
+		var excerpt sql.NullString
+		if err := conn.QueryRowContext(context.Background(),
+			"SELECT excerpt FROM articles WHERE slug = ?", slug,
+		).Scan(&excerpt); err != nil {
+			t.Fatalf("read excerpt: %v", err)
+		}
+		return excerpt.String
+	}
+
+	// A save that carries a new body derives from that body, not the stored one.
+	rec := httptest.NewRecorder()
+	body := `{"title":"Phillies reinforce team","excerpt":"","content":"<p>The Phillies added two arms and a bat.</p>"}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("phillies-reinforce-team", body))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+	if got := readExcerpt("phillies-reinforce-team"); got != "The Phillies added two arms and a bat." {
+		t.Fatalf("excerpt = %q, want it derived from the patched body", got)
+	}
+
+	// An excerpt-only patch has no body of its own, so it derives from the stored
+	// one rather than falling back to empty.
+	rec = httptest.NewRecorder()
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("fifa-financial-fiascos", `{"excerpt":"   "}`))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("excerpt-only patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+	if got := readExcerpt("fifa-financial-fiascos"); got != "FIFA closed the year short of its own projections." {
+		t.Fatalf("excerpt = %q, want it derived from the stored body", got)
+	}
+
+	// A supplied excerpt still wins over anything derivable.
+	rec = httptest.NewRecorder()
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("phillies-reinforce-team", `{"excerpt":"  An editor's own summary.  "}`))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("supplied-excerpt patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+	if got := readExcerpt("phillies-reinforce-team"); got != "An editor's own summary." {
+		t.Fatalf("excerpt = %q, want the supplied text", got)
+	}
+
+	// A non-string is a client bug, not an excerpt.
+	rec = httptest.NewRecorder()
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("phillies-reinforce-team", `{"excerpt":42}`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("numeric excerpt status = %d, want 400; body = %s", rec.Code, rec.Body.String())
 	}
 }
 
