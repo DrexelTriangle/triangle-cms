@@ -21,7 +21,17 @@ type SectionRow = {
   childCount: number
   isChild: boolean
   isLast: boolean
+  // How far from a section this row sits: 0 for a section, 1 for a subsection,
+  // 2 for a subsection of a subsection. The tree is three levels deep now (A&E
+  // > Food > Beer Reviews), so indentation cannot be a boolean any more.
+  depth: number
 }
+
+// How deep the tree may go, counting the section. Mirrors MaxTaxonomyDepth on
+// the server, which is the side that enforces it -- this copy only decides which
+// rows the parent picker offers, so that the editor does not present a choice
+// the save would reject.
+const MAX_DEPTH = 3
 
 type FormState = {
   type: TaxonomyKind
@@ -146,57 +156,126 @@ export default function SectionsView() {
       })
   }, [items])
 
-  const rows = useMemo(() => {
-    const children = items
-      .filter((item) => item.type === "subsection")
-      .sort((left, right) => left.canonical_title.localeCompare(right.canonical_title))
-
-    const childrenByParent = new Map<string, TaxonomyItem[]>()
-    for (const child of children) {
+  const childrenByParent = useMemo(() => {
+    const grouped = new Map<string, TaxonomyItem[]>()
+    for (const child of items.filter((item) => item.type === "subsection")) {
       const parentSlug = child.parent_slug ?? ""
-      if (!childrenByParent.has(parentSlug)) {
-        childrenByParent.set(parentSlug, [])
+      if (!grouped.has(parentSlug)) {
+        grouped.set(parentSlug, [])
       }
-      childrenByParent.get(parentSlug)?.push(child)
+      grouped.get(parentSlug)?.push(child)
     }
+    for (const group of grouped.values()) {
+      group.sort((left, right) => left.canonical_title.localeCompare(right.canonical_title))
+    }
+    return grouped
+  }, [items])
 
+  const rows = useMemo(() => {
     const nextRows: SectionRow[] = []
-    const renderedChildren = new Set<number>()
+    const rendered = new Set<number>()
 
-    for (const parent of parentSections) {
-      const parentChildren = childrenByParent.get(parent.slug) ?? []
+    // Recursive, because the tree is three levels: a section, its subsections,
+    // and theirs. The rendered set doubles as the cycle guard -- this walks
+    // server data, and a row that somehow parented an ancestor would otherwise
+    // loop forever and hang the screen rather than showing a broken tree.
+    const pushSubtree = (item: TaxonomyItem, parentTitle: string | null, depth: number, isLast: boolean) => {
+      if (rendered.has(item.id)) return
+      rendered.add(item.id)
+      const children = childrenByParent.get(item.slug) ?? []
       nextRows.push({
-        item: parent,
-        parentTitle: null,
-        childCount: parentChildren.length,
-        isChild: false,
-        isLast: false,
+        item,
+        parentTitle,
+        childCount: children.length,
+        isChild: depth > 0,
+        isLast,
+        depth,
       })
-      parentChildren.forEach((child, index) => {
-        renderedChildren.add(child.id)
-        nextRows.push({
-          item: child,
-          parentTitle: parent.canonical_title,
-          childCount: 0,
-          isChild: true,
-          isLast: index === parentChildren.length - 1,
-        })
+      children.forEach((child, index) => {
+        pushSubtree(child, item.canonical_title, depth + 1, index === children.length - 1)
       })
     }
 
-    for (const child of children) {
-      if (renderedChildren.has(child.id)) continue
+    for (const section of parentSections) {
+      pushSubtree(section, null, 0, false)
+    }
+
+    // Anything the walk did not reach hangs under a parent that no longer
+    // exists. Still listed, and named as orphaned, because an invisible row is
+    // one nobody can fix.
+    for (const item of items) {
+      if (item.type !== "subsection" || rendered.has(item.id)) continue
       nextRows.push({
-        item: child,
-        parentTitle: child.parent_slug ? `Unknown parent: ${child.parent_slug}` : "No parent",
-        childCount: 0,
+        item,
+        parentTitle: item.parent_slug ? `Unknown parent: ${item.parent_slug}` : "No parent",
+        childCount: (childrenByParent.get(item.slug) ?? []).length,
         isChild: true,
         isLast: true,
+        depth: 1,
       })
     }
 
     return nextRows
-  }, [items, parentSections])
+  }, [items, parentSections, childrenByParent])
+
+  // Depth of the chain ABOVE a slug, so the parent picker can drop anything that
+  // has no room left beneath it.
+  const depthOf = useCallback((slug: string) => {
+    const bySlug = new Map(items.map((item) => [item.slug, item]))
+    let depth = 1
+    let current = bySlug.get(slug)
+    const seen = new Set<string>()
+    while (current && current.type === "subsection" && current.parent_slug) {
+      if (seen.has(current.slug)) break
+      seen.add(current.slug)
+      depth += 1
+      current = bySlug.get(current.parent_slug)
+    }
+    return depth
+  }, [items])
+
+  // Everything a subsection may hang under: the sections, plus the subsections
+  // still shallow enough to take a child. Editing a row excludes itself and its
+  // own descendants, since neither can be its parent.
+  const parentChoices = useMemo(() => {
+    const editingSlug = editor?.mode === "edit" ? editor.item.slug : null
+
+    const forbidden = new Set<string>()
+    if (editingSlug) {
+      const queue = [editingSlug]
+      while (queue.length > 0) {
+        const slug = queue.shift() as string
+        if (forbidden.has(slug)) continue
+        forbidden.add(slug)
+        for (const child of childrenByParent.get(slug) ?? []) {
+          queue.push(child.slug)
+        }
+      }
+    }
+
+    // The moved row brings its own subtree along, so the room it needs is its
+    // own height, not one level.
+    const movedHeight = editingSlug
+      ? (() => {
+          const heightOf = (slug: string): number => {
+            const children = childrenByParent.get(slug) ?? []
+            return children.length === 0 ? 0 : 1 + Math.max(...children.map((child) => heightOf(child.slug)))
+          }
+          return heightOf(editingSlug)
+        })()
+      : 0
+
+    return items
+      .filter((item) => item.type === "section" || item.type === "subsection")
+      .filter((item) => !forbidden.has(item.slug))
+      .filter((item) => depthOf(item.slug) + 1 + movedHeight <= MAX_DEPTH)
+      .sort((left, right) => {
+        const leftDepth = depthOf(left.slug)
+        const rightDepth = depthOf(right.slug)
+        if (leftDepth !== rightDepth) return leftDepth - rightDepth
+        return left.canonical_title.localeCompare(right.canonical_title)
+      })
+  }, [items, childrenByParent, depthOf, editor])
 
   const filtered = useMemo(() => {
     const query = search.toLowerCase().trim()
@@ -220,7 +299,9 @@ export default function SectionsView() {
   )
 
   const openCreate = (type: TaxonomyKind, parentSlug = "") => {
-    const parentExists = parentSlug && parentSections.some((section) => section.slug === parentSlug)
+    // Any row that can still take a child, not just a section: "Add subsection"
+    // from Food has to preselect Food.
+    const parentExists = parentSlug && parentChoices.some((choice) => choice.slug === parentSlug)
     const nextParent = type === "subsection"
       ? (parentExists ? parentSlug : parentSections.some((section) => section.slug === "columns") ? "columns" : parentSections[0]?.slug ?? "")
       : ""
@@ -479,14 +560,14 @@ export default function SectionsView() {
                 <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>No sections found.</td>
               </tr>
             ) : (
-              filtered.map(({ item, parentTitle, childCount, isChild, isLast }) => {
+              filtered.map(({ item, parentTitle, childCount, isChild, isLast, depth }) => {
                 const articleCount = item.article_count ?? 0
                 const isVisible = item.is_visible !== false
                 const canDelete = articleCount === 0 && childCount === 0
                 const deleteTitle = articleCount > 0
                   ? "Cannot delete while articles use this item."
                   : childCount > 0
-                    ? "Cannot delete while subsections use this section."
+                    ? "Cannot delete while subsections use this item."
                     : `Delete ${item.canonical_title}`
 
                 return (
@@ -494,6 +575,12 @@ export default function SectionsView() {
                     <td className="px-4 py-3 font-medium text-foreground">
                       {isChild ? (
                         <span className="flex items-start gap-1.5">
+                          {/* One blank rail per level above the elbow, so a
+                              grandchild reads as sitting under its subsection
+                              rather than beside it. */}
+                          {Array.from({ length: depth - 1 }, (_, level) => (
+                            <span key={level} className="w-4 shrink-0" aria-hidden="true" />
+                          ))}
                           <span className="flex flex-col items-center w-4 shrink-0 mt-0.5">
                             <span className="w-px h-2 bg-border" />
                             <span className="w-3 h-px bg-border" />
@@ -501,6 +588,7 @@ export default function SectionsView() {
                           </span>
                           <span>
                             <span className="text-muted-foreground">{item.canonical_title}</span>
+                            {childCount > 0 ? <span className="ml-2 text-xs text-muted-foreground">({childCount})</span> : null}
                             {parentTitle ? <span className="block text-xs text-muted-foreground/70">{parentTitle}</span> : null}
                           </span>
                         </span>
@@ -623,19 +711,27 @@ export default function SectionsView() {
 
               {form.type === "subsection" ? (
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Parent Section</span>
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Parent</span>
                   <select
                     className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                     value={form.parentSlug}
                     onChange={(event) => setForm((current) => ({ ...current, parentSlug: event.target.value }))}
                   >
-                    <option value="">Choose a section</option>
-                    {parentSections.map((section) => (
-                      <option key={section.slug} value={section.slug}>
-                        {section.canonical_title}
+                    <option value="">Choose a parent</option>
+                    {parentChoices.map((choice) => (
+                      <option key={`${choice.type}-${choice.slug}`} value={choice.slug}>
+                        {/* Indented with figure spaces so a subsection reads as
+                            sitting under its section in a plain <select>, which
+                            cannot nest beyond one optgroup level. */}
+                        {"  ".repeat(depthOf(choice.slug) - 1)}{choice.canonical_title}
                       </option>
                     ))}
                   </select>
+                  <span className="text-xs text-muted-foreground">
+                    A subsection can sit under a section or under another subsection &mdash;
+                    Beer Reviews sits under Food, which sits under Arts &amp; Entertainment.
+                    Anything already {MAX_DEPTH} levels deep is left out, since nothing can hang below it.
+                  </span>
                 </label>
               ) : null}
 

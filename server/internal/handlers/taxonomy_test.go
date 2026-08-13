@@ -8,7 +8,7 @@ import (
 )
 
 func TestValidateTaxonomyParent_RequiresParentForSubsection(t *testing.T) {
-	if _, err := validateTaxonomyParent(context.Background(), nil, string(models.TaxonomyTypeSubsection), nil); err == nil {
+	if _, err := validateTaxonomyParent(context.Background(), nil, string(models.TaxonomyTypeSubsection), "politics", nil); err == nil {
 		t.Fatal("expected missing parent_slug to be rejected")
 	}
 }
@@ -16,7 +16,7 @@ func TestValidateTaxonomyParent_RequiresParentForSubsection(t *testing.T) {
 func TestValidateTaxonomyParent_RejectsParentForSection(t *testing.T) {
 	parent := "news"
 
-	if _, err := validateTaxonomyParent(context.Background(), nil, string(models.TaxonomyTypeSection), &parent); err == nil {
+	if _, err := validateTaxonomyParent(context.Background(), nil, string(models.TaxonomyTypeSection), "opinion", &parent); err == nil {
 		t.Fatal("expected section parent_slug to be rejected")
 	}
 }
@@ -24,7 +24,7 @@ func TestValidateTaxonomyParent_RejectsParentForSection(t *testing.T) {
 func TestValidateTaxonomyParent_NormalizesSubsectionParent(t *testing.T) {
 	parent := "columns"
 
-	got, err := validateTaxonomyParent(context.Background(), nil, string(models.TaxonomyTypeSubsection), &parent)
+	got, err := validateTaxonomyParent(context.Background(), nil, string(models.TaxonomyTypeSubsection), "the-green-angle", &parent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

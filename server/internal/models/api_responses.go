@@ -91,10 +91,14 @@ type SectionArticlesResponse struct {
 }
 
 type SubsectionArticlesResponse struct {
-	Section    TaxonomySummary   `json:"section"`
-	Subsection TaxonomySummary   `json:"subsection"`
-	Articles   []ArticleListItem `json:"articles"`
-	Pagination Pagination        `json:"pagination"`
+	Section    TaxonomySummary `json:"section"`
+	Subsection TaxonomySummary `json:"subsection"`
+	// Subsections are this subsection's OWN visible children, so a middle row
+	// like Food gets the same link strip a section page has. Empty for a leaf,
+	// which is most of them.
+	Subsections []TaxonomySummary `json:"subsections"`
+	Articles    []ArticleListItem `json:"articles"`
+	Pagination  Pagination        `json:"pagination"`
 }
 
 type SEOResponse struct {
