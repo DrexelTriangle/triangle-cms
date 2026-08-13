@@ -242,3 +242,99 @@ func TestRefreshLoadsCategoryTitlesAndPrefersARealPage(t *testing.T) {
 		t.Errorf("aliased-only category = %q, want %q", got, want)
 	}
 }
+
+// TestLegacySubsectionSeedRunsOnceAndStaysHidden covers the three properties
+// the WordPress sub-category seed has to have.
+//
+// Hidden, because 48 more links across seven section pages is not navigation.
+// Once, because these rows are editable and a deploy must not undo an editor's
+// deletion. And skipping a row whose slug is taken, because an existing row is
+// somebody's, not the seed's.
+func TestLegacySubsectionSeedRunsOnceAndStaysHidden(t *testing.T) {
+	conn := taxonomyTestDB(t)
+	ctx := context.Background()
+
+	if err := EnsureSettingsTable(ctx, conn); err != nil {
+		t.Fatalf("ensure settings table: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		"DELETE FROM cms_settings WHERE key_name = 'legacy_subsections_seeded'",
+	); err != nil {
+		t.Fatalf("clear the seed flag: %v", err)
+	}
+
+	// An empty taxonomy means the sections have not been imported yet, not that
+	// there is nothing to do. Seeding here would burn the one run and file 48
+	// rows under parents that do not exist.
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("ensure taxonomy table: %v", err)
+	}
+	if count := countRows(t, conn, "SELECT COUNT(*) FROM site_taxonomy"); count != 0 {
+		t.Fatalf("seeded %d rows into an empty taxonomy, want none until the sections exist", count)
+	}
+
+	insertTaxonomyRow(t, conn, 1, "section", "sports", "Sports")
+	insertTaxonomyRow(t, conn, 2, "section", "entertainment", "Entertainment")
+	// An existing row the seed also knows about, deliberately visible, to prove
+	// the seed leaves it alone rather than hiding or rewriting it.
+	insertTaxonomyRow(t, conn, 3, "subsection", "tennis", "Tennis")
+	if _, err := conn.ExecContext(ctx,
+		"UPDATE site_taxonomy SET parent_slug = 'sports' WHERE slug = 'tennis'",
+	); err != nil {
+		t.Fatalf("parent the existing row: %v", err)
+	}
+
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+
+	// Everything under the two sections that exist, and nothing under the ones
+	// that do not.
+	seeded := countRows(t, conn, "SELECT COUNT(*) FROM site_taxonomy WHERE kind = 'subsection'")
+	var want int
+	for _, item := range legacySubsections {
+		if (item.Parent == "sports" || item.Parent == "entertainment") && item.Slug != "tennis" {
+			want++
+		}
+	}
+	if seeded != int64(want+1) { // +1 for the pre-existing tennis row
+		t.Fatalf("seeded %d subsections, want %d", seeded, want+1)
+	}
+	if visible := countRows(t, conn,
+		"SELECT COUNT(*) FROM site_taxonomy WHERE kind = 'subsection' AND is_visible = 1",
+	); visible != 1 {
+		t.Errorf("%d visible subsections, want only the pre-existing one -- the seed must arrive hidden", visible)
+	}
+
+	// Each seeded row carries its exact category title, so matching does not
+	// depend on the slug happening to derive it.
+	if got := CategoryMatchValues("street-style"); !containsValue(got, "street style") {
+		t.Errorf("values = %v, want the seeded category title", got)
+	}
+	// A slug that does not derive its own category is exactly why the seed
+	// writes the title as an alias -- but only for rows it actually created,
+	// and this one's parent section is absent here.
+	if got := CategoryMatchValues("aint-that-something-with-brandon-liz"); containsValue(got, "ain't that something with brandon & liz") {
+		t.Errorf("values = %v, want no alias -- that row was skipped for a missing parent", got)
+	}
+
+	// The run-once guard: a deleted row stays deleted across a restart.
+	if _, err := conn.ExecContext(ctx, "DELETE FROM site_taxonomy WHERE slug = 'crew'"); err != nil {
+		t.Fatalf("delete a seeded row: %v", err)
+	}
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("third ensure: %v", err)
+	}
+	if count := countRows(t, conn, "SELECT COUNT(*) FROM site_taxonomy WHERE slug = 'crew'"); count != 0 {
+		t.Error("a deleted seed row came back on the next start")
+	}
+}
+
+func countRows(t *testing.T, conn *sql.DB, query string) int64 {
+	t.Helper()
+	var count int64
+	if err := conn.QueryRowContext(context.Background(), query).Scan(&count); err != nil {
+		t.Fatalf("count (%s): %v", query, err)
+	}
+	return count
+}

@@ -27,13 +27,13 @@ func isValidTaxonomyType(taxType string) bool {
 // taxonomySelectColumns is the column list every taxonomy read shares, kept in
 // one place so a new column cannot be added to some queries and missed by
 // others -- scanTaxonomyRow depends on this exact order.
-const taxonomySelectColumns = "id, kind, slug, canonical_title, parent_slug, article_count, category_aliases"
+const taxonomySelectColumns = "id, kind, slug, canonical_title, parent_slug, article_count, category_aliases, is_visible"
 
 func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, error) {
 	var item models.TaxonomyItem
 	var parentSlug sql.NullString
 	var aliases sql.NullString
-	if err := row.Scan(&item.ID, &item.Type, &item.Slug, &item.CanonicalTitle, &parentSlug, &item.ArticleCount, &aliases); err != nil {
+	if err := row.Scan(&item.ID, &item.Type, &item.Slug, &item.CanonicalTitle, &parentSlug, &item.ArticleCount, &aliases, &item.IsVisible); err != nil {
 		return models.TaxonomyItem{}, err
 	}
 	if parentSlug.Valid && parentSlug.String != "" {
@@ -338,9 +338,14 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		isVisible := true
+		if body.IsVisible != nil {
+			isVisible = *body.IsVisible
+		}
+
 		_, err = db.Insert(r.Context(), conn, "site_taxonomy",
-			[]string{"id", "kind", "slug", "canonical_title", "parent_slug", "article_count", "category_aliases"},
-			nextID, taxType, slug, title, parentSlug, 0, aliases,
+			[]string{"id", "kind", "slug", "canonical_title", "parent_slug", "article_count", "category_aliases", "is_visible"},
+			nextID, taxType, slug, title, parentSlug, 0, aliases, isVisible,
 		)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -403,7 +408,55 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			}
 		}
 
-		parentSlug, err := validateTaxonomyParent(r.Context(), conn, taxType, body.ParentSlug)
+		// An omitted type leaves the kind alone, so a client that predates
+		// conversion cannot cause one by echoing back a row it did not change.
+		newType := taxType
+		if strings.TrimSpace(body.Type) != "" {
+			newType = strings.TrimSpace(body.Type)
+			if !isValidTaxonomyType(newType) {
+				writeError(w, http.StatusBadRequest, "type must be one of: section, subsection, tag")
+				return
+			}
+		}
+		if newType != taxType {
+			// Tags are a different vocabulary, not a level of the section tree:
+			// they have no parent, no page of their own, and nothing that a
+			// section's rules would mean anything for. Only the two levels of
+			// the tree convert into each other.
+			if taxType == string(models.TaxonomyTypeTag) || newType == string(models.TaxonomyTypeTag) {
+				writeError(w, http.StatusBadRequest, "only sections and subsections can be converted into each other")
+				return
+			}
+			if conn != nil {
+				// A subsection cannot parent another subsection, so a section
+				// with children has to be emptied before it can become one.
+				if taxType == string(models.TaxonomyTypeSection) {
+					hasChildren, err := taxonomySectionHasChildren(r.Context(), conn, slug)
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, err.Error())
+						return
+					}
+					if hasChildren {
+						writeError(w, http.StatusBadRequest, "section cannot become a subsection while subsections use it")
+						return
+					}
+				}
+				// (kind, slug) is unique, so the conversion can collide with a
+				// row that already holds the destination. Say which, rather
+				// than surfacing a driver-level duplicate-key error as a 500.
+				taken, err := taxonomyItemExists(r.Context(), conn, newType, newSlug)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				if taken {
+					writeError(w, http.StatusBadRequest, fmt.Sprintf("a %s with the slug %q already exists", newType, newSlug))
+					return
+				}
+			}
+		}
+
+		parentSlug, err := validateTaxonomyParent(r.Context(), conn, newType, body.ParentSlug)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -438,8 +491,12 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 		// Omitting category_aliases leaves the stored value alone; sending []
 		// clears it. Without that distinction, every edit made from a client
 		// that does not know about aliases would silently wipe them.
-		columns := []string{"slug", "canonical_title", "parent_slug"}
-		values := []any{newSlug, title, parentSlug}
+		columns := []string{"kind", "slug", "canonical_title", "parent_slug"}
+		values := []any{newType, newSlug, title, parentSlug}
+		if body.IsVisible != nil {
+			columns = append(columns, "is_visible")
+			values = append(values, *body.IsVisible)
+		}
 		if body.CategoryAliases != nil {
 			aliases, err := normalizeCategoryAliases(*body.CategoryAliases)
 			if err != nil {

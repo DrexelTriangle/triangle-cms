@@ -30,10 +30,38 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 		return err
 	}
 
+	// Defaults to visible, so every row that predates the column keeps its link
+	// in the subsection strip. That is the freeze: the strip on each section
+	// page stays exactly what it is today, and everything seeded below arrives
+	// hidden.
+	if _, err = conn.ExecContext(ctx, `
+		ALTER TABLE site_taxonomy
+		ADD COLUMN IF NOT EXISTS is_visible TINYINT(1) NOT NULL DEFAULT 1
+	`); err != nil {
+		return err
+	}
+
 	if err = SeedDefaultCategoryAliases(ctx, conn); err != nil {
 		return err
 	}
-	return RefreshCategoryAliases(ctx, conn)
+	seeded, err := SeedLegacySubsections(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if err = RefreshCategoryAliases(ctx, conn); err != nil {
+		return err
+	}
+
+	if len(seeded) > 0 {
+		// After the refresh, because counting reads the alias cache the seed
+		// just added to. Not fatal: this runs before the article_categories
+		// index is built on a fresh database, and a wrong count is a number on
+		// a screen, recoverable by the next rebuild or by any edit to the row.
+		if err := RebuildTaxonomyArticleCountsFor(ctx, conn, seeded...); err != nil {
+			slog.Warn("failed to count articles for the newly seeded subsections; they will read 0 until the next rebuild", "error", err)
+		}
+	}
+	return nil
 }
 
 // defaultCategoryAliases are the categories a section has to answer to beyond
@@ -120,6 +148,223 @@ var defaultCategoryAliases = map[string][]string{
 	// Sponsored content, and the weakest of these calls: it is not news, but
 	// an advertiser paid for it to be visible and no section fits it better.
 	"news": {"Paid Post"},
+}
+
+// legacySubsection is a WordPress sub-category that never got a row of its own.
+type legacySubsection struct {
+	Slug   string
+	Title  string
+	Parent string
+}
+
+// legacySubsections are the WordPress categories that become real subsections,
+// hidden: they get a slug, a page, and a place in the tree, but no link in the
+// subsection strip on their section page.
+//
+// Two populations, both of which the taxonomy handled badly.
+//
+// The first is everything defaultCategoryAliases absorbs above. An alias makes a
+// section's page list the articles, which is most of what is needed, but it
+// leaves the category itself with no identity: "Men's Lacrosse" had no page, and
+// the category chip on those articles pointed at a URL nothing answered. A row
+// gives each one a page and makes the chip land somewhere.
+//
+// The second is the categories that matched nothing at all -- wrestling (103
+// published articles), Triangle Talks (73), Theater (28) and the rest. Those
+// articles appeared on no section page in the CMS or on the site. Filing each
+// under a section is what puts them back, since a section matches its own slug
+// or any of its children's.
+//
+// Every row carries its exact category title as an alias rather than trusting
+// the slug to derive it. Some do derive ("swimming-diving" expands to
+// "swimming & diving"), but "aint-that-something-with-brandon-liz" does not, and
+// a seed that silently half-works is the failure mode this whole file is about.
+//
+// The parent sections' aliases are deliberately left in place. They are what
+// keeps a section's page complete if one of these rows is ever deleted, and
+// duplicate match values cost nothing -- TaxonomyCountCondition de-duplicates.
+var legacySubsections = []legacySubsection{
+	// Sports. WordPress rolled a parent category over its children, so
+	// /category/sports/ listed these without anyone configuring it; flat
+	// matching here does not, which is what stranded them.
+	{"tennis", "Tennis", "sports"},
+	{"crew", "Crew", "sports"},
+	{"mens-lacrosse", "Men's Lacrosse", "sports"},
+	{"womens-lacrosse", "Women's Lacrosse", "sports"},
+	{"golf", "Golf", "sports"},
+	{"softball", "Softball", "sports"},
+	{"swimming-diving", "Swimming & Diving", "sports"},
+	{"running", "Running", "sports"},
+	{"athlete-of-the-week", "Athlete of the Week", "sports"},
+	{"wrestling", "Wrestling", "sports"},
+
+	// Entertainment. Style is the large one -- the beat plus its recurring
+	// features -- and sits here rather than under Opinion's Lifestyle because
+	// it is culture coverage, not opinion writing.
+	{"features", "Features", "entertainment"},
+	{"style", "Style", "entertainment"},
+	{"tv", "TV", "entertainment"},
+	{"theater", "Theater", "entertainment"},
+	{"beer-reviews", "Beer Reviews", "entertainment"},
+	{"wine-reviews", "Wine Reviews", "entertainment"},
+	{"restaurant-reviews", "Restaurant Reviews", "entertainment"},
+	{"last-call", "Last Call", "entertainment"},
+	{"exhibits", "Exhibits", "entertainment"},
+	{"reel2reel", "Reel2Reel", "entertainment"},
+	{"street-style", "Street Style", "entertainment"},
+	{"style-guide", "Style Guide", "entertainment"},
+	{"beauty-guide", "Beauty Guide", "entertainment"},
+	{"designer-profile", "Designer Profile", "entertainment"},
+	{"store-profile", "Store Profile", "entertainment"},
+	{"inside-her-bag", "Inside Her Bag", "entertainment"},
+	{"fashion-week", "Fashion Week", "entertainment"},
+	{"diy", "DIY", "entertainment"},
+
+	// Opinion's own voice: neither editorials nor letters are filed under it.
+	{"editorial", "Editorial", "opinion"},
+	{"letters-to-the-editor", "Letters to the Editor", "opinion"},
+	{"commentary", "Commentary", "opinion"},
+
+	// Columns is where recurring bylined series live, which is what the
+	// podcasts are -- "Mark and Jair Explain Sports" is a show, not a sports
+	// article, and a row keeps it out of Sports despite the name.
+	{"podcasts", "Podcasts", "columns"},
+	{"mark-and-jair-explain-sports", "Mark and Jair Explain Sports", "columns"},
+	{"aint-that-something-with-brandon-liz", "Ain't That Something With Brandon & Liz", "columns"},
+	{"you-me-buscemi", "You, Me, Buscemi", "columns"},
+	{"polkadot-tea-pot", "Polkadot Tea.Pot", "columns"},
+	{"wheres-mario", "Where's Mario", "columns"},
+	{"student-snapshot", "Student Snapshot", "columns"},
+	{"triangle-talks", "Triangle Talks", "columns"},
+	{"triangle-sports-talk", "Triangle Sports Talk", "columns"},
+	{"sadie-says", "Sadie Says", "columns"},
+	{"tech-tuesday", "Tech Tuesday", "columns"},
+	{"dear-granny-and-eloise", "Dear Granny and Eloise", "columns"},
+	{"movies-ive-seen", "Movies I've Seen", "columns"},
+	{"humans-of-drexel", "Humans of Drexel", "columns"},
+
+	{"word-search", "Word Search", "comics-puzzles"},
+
+	{"administration", "Administration", "news"},
+	{"sjn-grant", "SJN Grant", "news"},
+}
+
+// SeedLegacySubsections inserts legacySubsections as hidden subsections, once,
+// and returns the slugs it created.
+//
+// Once, and recorded in cms_settings, because these rows are editable: an editor
+// who deletes "Reel2Reel" or renames it must not find it back after the next
+// deploy. The flag is set even when nothing was inserted, since "already has
+// every row" and "already ran" want the same outcome.
+//
+// A row whose slug is taken is skipped rather than updated, for the same reason:
+// an existing row is somebody's, not ours. A row whose parent section is missing
+// is skipped too -- parent_slug has to reference a real section, and a
+// subsection orphaned under a name nothing answers is worse than one more
+// uncategorized category.
+//
+// An empty table is not "nothing to skip", it is "the sections have not been
+// imported yet", so it returns without recording the flag and tries again next
+// boot. Otherwise a server that starts before its seed import would burn the
+// one run it gets and skip all 48 rows.
+func SeedLegacySubsections(ctx context.Context, conn *sql.DB) ([]string, error) {
+	if conn == nil {
+		return nil, nil
+	}
+
+	// The run-once flag lives in cms_settings, so without that table there is no
+	// way to seed exactly once -- and seeding repeatedly would resurrect rows an
+	// editor deleted. Production creates it well before this runs; a database
+	// without it is a test fixture or a half-built schema, and skipping is the
+	// safe answer for both.
+	var settingsTableExists int
+	if err := conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'cms_settings'",
+	).Scan(&settingsTableExists); err != nil {
+		return nil, err
+	}
+	if settingsTableExists == 0 {
+		return nil, nil
+	}
+
+	var done string
+	switch err := conn.QueryRowContext(ctx,
+		"SELECT value_text FROM cms_settings WHERE key_name = 'legacy_subsections_seeded' LIMIT 1",
+	).Scan(&done); err {
+	case nil:
+		if strings.TrimSpace(done) == "1" {
+			return nil, nil
+		}
+	case sql.ErrNoRows:
+		// Not yet seeded.
+	default:
+		return nil, err
+	}
+
+	sections, err := existingSlugsByKind(ctx, conn, "section")
+	if err != nil {
+		return nil, err
+	}
+	if len(sections) == 0 {
+		return nil, nil
+	}
+	subsections, err := existingSlugsByKind(ctx, conn, "subsection")
+	if err != nil {
+		return nil, err
+	}
+
+	var nextID int64
+	if err := conn.QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) FROM site_taxonomy").Scan(&nextID); err != nil {
+		return nil, err
+	}
+
+	inserted := make([]string, 0, len(legacySubsections))
+	for _, item := range legacySubsections {
+		if _, taken := subsections[item.Slug]; taken {
+			continue
+		}
+		if _, ok := sections[item.Parent]; !ok {
+			slog.Warn("skipping legacy subsection whose parent section is missing",
+				"slug", item.Slug, "parent_slug", item.Parent)
+			continue
+		}
+		aliases, err := MarshalCategoryJSON([]string{item.Title})
+		if err != nil {
+			return nil, err
+		}
+		nextID++
+		if _, err := conn.ExecContext(ctx, `
+			INSERT INTO site_taxonomy
+				(id, kind, slug, canonical_title, parent_slug, article_count, category_aliases, is_visible)
+			VALUES (?, 'subsection', ?, ?, ?, 0, ?, 0)
+		`, nextID, item.Slug, item.Title, item.Parent, aliases); err != nil {
+			return nil, err
+		}
+		inserted = append(inserted, item.Slug)
+	}
+
+	if len(inserted) > 0 {
+		slog.Info("seeded legacy WordPress sub-categories as hidden subsections", "count", len(inserted))
+	}
+	return inserted, writeSettingRaw(ctx, conn, "legacy_subsections_seeded", "1")
+}
+
+func existingSlugsByKind(ctx context.Context, conn *sql.DB, kind string) (map[string]struct{}, error) {
+	rows, err := conn.QueryContext(ctx, "SELECT slug FROM site_taxonomy WHERE kind = ?", kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	slugs := make(map[string]struct{})
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		slugs[strings.TrimSpace(slug)] = struct{}{}
+	}
+	return slugs, rows.Err()
 }
 
 func SeedDefaultCategoryAliases(ctx context.Context, conn *sql.DB) error {
