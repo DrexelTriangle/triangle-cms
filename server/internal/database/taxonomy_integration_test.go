@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
+
+	"server/internal/models"
 )
 
 // A section the seed has no defaults for, for the "keeps no aliases" case.
@@ -505,5 +507,110 @@ func TestEntertainmentVisibilitySeedRunsOnce(t *testing.T) {
 	}
 	if got := visibilityOf("books"); got != 1 {
 		t.Errorf("books is_visible = %d after a restart, want 1 -- the seed re-ran over an editor's change", got)
+	}
+}
+
+// TestFooterDefaultFollowsTheTaxonomy is the point of generating the footer:
+// the desk curates the section strip, and the footer follows without anyone
+// editing a second list.
+//
+// It covers the three things that make it "one layer of depth": a section's
+// direct children are listed, a hidden one is not, and a grandchild is not
+// either -- the tree is three levels now, and a footer that recursed would
+// print the archive.
+func TestFooterDefaultFollowsTheTaxonomy(t *testing.T) {
+	conn := taxonomyTestDB(t)
+	ctx := context.Background()
+
+	if err := EnsureSettingsTable(ctx, conn); err != nil {
+		t.Fatalf("ensure settings table: %v", err)
+	}
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("ensure taxonomy table: %v", err)
+	}
+	t.Cleanup(InvalidateGeneratedFooter)
+
+	insertTaxonomyRow(t, conn, 1, "section", "entertainment", "Entertainment")
+	// Movies is linked, Books is hidden, and Beer Reviews is a grandchild under
+	// the visible Food row.
+	for _, row := range []struct {
+		id      int64
+		slug    string
+		title   string
+		parent  string
+		visible int
+	}{
+		{2, "movies", "Movies", "entertainment", 1},
+		{3, "books", "Books", "entertainment", 0},
+		{4, "food", "Food", "entertainment", 1},
+		{5, "beer-reviews", "Beer Reviews", "food", 1},
+	} {
+		insertTaxonomyRow(t, conn, row.id, "subsection", row.slug, row.title)
+		if _, err := conn.ExecContext(ctx,
+			"UPDATE site_taxonomy SET parent_slug = ?, is_visible = ? WHERE slug = ?",
+			row.parent, row.visible, row.slug,
+		); err != nil {
+			t.Fatalf("place %s: %v", row.slug, err)
+		}
+	}
+
+	labels := func() []string {
+		t.Helper()
+		settings, err := GetFooterSettings(ctx, conn)
+		if err != nil {
+			t.Fatalf("get footer settings: %v", err)
+		}
+		var found []string
+		for _, column := range settings.Columns {
+			for _, entry := range column.Entries {
+				found = append(found, entry.Label)
+			}
+		}
+		return found
+	}
+
+	got := labels()
+	has := func(label string) bool {
+		for _, entry := range got {
+			if entry == label {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !has("Movies") || !has("Food") {
+		t.Errorf("footer = %v, want the visible subsections listed", got)
+	}
+	if has("Books") {
+		t.Error("a hidden subsection reached the footer; the strip toggle has to drive both")
+	}
+	if has("Beer Reviews") {
+		t.Error("a grandchild reached the footer; the footer is one layer deep")
+	}
+	// The literal blocks survive alongside the generated ones.
+	if !has("The Rectangle") || !has("Contact Us") {
+		t.Errorf("footer = %v, want the non-taxonomy links kept", got)
+	}
+
+	// Hiding Movies removes it, once the cached columns are dropped the way a
+	// taxonomy write does.
+	if _, err := conn.ExecContext(ctx, "UPDATE site_taxonomy SET is_visible = 0 WHERE slug = 'movies'"); err != nil {
+		t.Fatalf("hide movies: %v", err)
+	}
+	InvalidateGeneratedFooter()
+	if got = labels(); has("Movies") {
+		t.Errorf("footer = %v, want Movies gone after it was hidden", got)
+	}
+
+	// A stored menu still wins: generating is the DEFAULT, not an override of
+	// whatever an editor saved in the settings screen.
+	if err := SetFooterSettings(ctx, conn, models.FooterSettings{Columns: []models.FooterColumn{
+		{Entries: []models.FooterEntry{{Kind: models.FooterEntryLink, Label: "Only This", Href: "/only"}}},
+	}}); err != nil {
+		t.Fatalf("store a custom footer: %v", err)
+	}
+	if got = labels(); len(got) != 1 || got[0] != "Only This" {
+		t.Errorf("footer = %v, want the stored menu to win over the generated default", got)
 	}
 }
