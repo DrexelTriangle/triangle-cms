@@ -56,6 +56,13 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 		return err
 	}
 	seeded = append(seeded, moved...)
+	// After the Food move as well as the legacy seeding: TV is unhidden here
+	// and the legacy seeding is what creates it, while Listicles and Books are
+	// left where the move put them. The two seeds touch disjoint rows, so the
+	// order between them is about legibility rather than correctness.
+	if err = SeedEntertainmentVisibility(ctx, conn); err != nil {
+		return err
+	}
 	if err = RefreshCategoryAliases(ctx, conn); err != nil {
 		return err
 	}
@@ -492,6 +499,105 @@ func SeedFoodSubsection(ctx context.Context, conn *sql.DB) ([]string, error) {
 		slog.Info("seeded the Food subsection under A&E", "slugs", touched)
 	}
 	return touched, writeSettingRaw(ctx, conn, "food_subsection_seeded", "1")
+}
+
+// entertainmentVisibility is which A&E subsections earn a link in the section's
+// strip, as decided by the desk: Listicles and Books come out, TV goes in.
+//
+// TV is the substantial one. It arrived hidden with the rest of the legacy
+// WordPress sub-categories -- that seeding deliberately gave 48 categories a
+// home without adding 48 nav links -- but it carries 135 published articles,
+// more than most of the rows that do have a link. Listicles and Books have nine
+// each.
+//
+// Visibility only. Every one of these keeps its page, its URL and its articles;
+// a hidden row still feeds its section. The strip is a curation decision, which
+// is exactly the kind of thing that belongs to an editor and not to a deploy --
+// see the run-once note on SeedEntertainmentVisibility.
+var entertainmentVisibility = map[string]bool{
+	"listicles": false,
+	"books":     false,
+	"tv":        true,
+}
+
+// SeedEntertainmentVisibility applies those decisions once.
+//
+// Once, and recorded in cms_settings, for the reason the other seeds are: the
+// strip is editable from the sections screen, and an editor who puts Books back
+// must not find it hidden again after the next deploy. The flag is set even when
+// nothing changed, since "already in that state" and "already ran" want the same
+// outcome.
+//
+// Each update is guarded on the CURRENT value, so a row somebody already set by
+// hand is left alone rather than rewritten, and the log reports only what this
+// actually moved.
+//
+// An empty table means the sections have not been imported yet, so it returns
+// without recording the flag and tries again next boot -- otherwise a server
+// that starts before its seed import would burn the one run it gets.
+func SeedEntertainmentVisibility(ctx context.Context, conn *sql.DB) error {
+	if conn == nil {
+		return nil
+	}
+
+	var settingsTableExists int
+	if err := conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'cms_settings'",
+	).Scan(&settingsTableExists); err != nil {
+		return err
+	}
+	if settingsTableExists == 0 {
+		return nil
+	}
+
+	var done string
+	switch err := conn.QueryRowContext(ctx,
+		"SELECT value_text FROM cms_settings WHERE key_name = 'entertainment_visibility_seeded' LIMIT 1",
+	).Scan(&done); err {
+	case nil:
+		if strings.TrimSpace(done) == "1" {
+			return nil
+		}
+	case sql.ErrNoRows:
+		// Not yet seeded.
+	default:
+		return err
+	}
+
+	subsections, err := existingSlugsByKind(ctx, conn, "subsection")
+	if err != nil {
+		return err
+	}
+	if len(subsections) == 0 {
+		return nil
+	}
+
+	changed := make([]string, 0, len(entertainmentVisibility))
+	for slug, visible := range entertainmentVisibility {
+		if _, exists := subsections[slug]; !exists {
+			slog.Warn("skipping a visibility change for a subsection that does not exist", "slug", slug)
+			continue
+		}
+		result, err := conn.ExecContext(ctx, `
+			UPDATE site_taxonomy
+			SET is_visible = ?
+			WHERE kind = 'subsection' AND slug = ? AND is_visible = ?
+		`, visible, slug, !visible)
+		if err != nil {
+			return err
+		}
+		// RowsAffected is not proof of anything through MaxScale, which can
+		// report 0 for a write that landed. It is only used to keep the log
+		// honest about what moved, so a wrong answer costs a log line.
+		if affected, err := result.RowsAffected(); err == nil && affected > 0 {
+			changed = append(changed, slug)
+		}
+	}
+
+	if len(changed) > 0 {
+		slog.Info("applied the A&E subsection strip changes", "slugs", changed)
+	}
+	return writeSettingRaw(ctx, conn, "entertainment_visibility_seeded", "1")
 }
 
 func existingSlugsByKind(ctx context.Context, conn *sql.DB, kind string) (map[string]struct{}, error) {
