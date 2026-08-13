@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>The Triangle — temporarily unavailable</title>
+<!--
+  Served by Nginx when the frontend upstream is unreachable. It is served from
+  the host filesystem, so it MUST be entirely self-contained: no stylesheet, no
+  font, no image, no script from anywhere else. Every upstream that could serve
+  such an asset is, by definition, down when this page renders.
+
+  Keep it small enough to fit in a single response. Do not add a meta refresh --
+  a page that reloads itself turns one outage into a thundering herd against a
+  backend that is already struggling to come back up.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #16161a;
+    --muted: #5c5c66;
+    --rule: #e2e2e8;
+    --accent: #0a3161;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101014;
+      --fg: #f2f2f5;
+      --muted: #a0a0ad;
+      --rule: #2a2a33;
+      --accent: #7fa8dd;
+    }
+  }
+  html { background: var(--bg); }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1.5rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 32rem; }
+  .mark {
+    font: 600 0.75rem/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    margin: 1.25rem 0 0;
+    font-size: clamp(1.5rem, 4vw, 2rem);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+  p { margin: 1rem 0 0; color: var(--muted); }
+  hr { margin: 2rem 0 0; border: 0; border-top: 1px solid var(--rule); }
+  .status { margin-top: 1.25rem; font-size: 0.9375rem; }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a:hover { text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark">The Triangle</div>
+  <h1>We&rsquo;re temporarily unavailable.</h1>
+  <p>
+    The site is down for maintenance or is having trouble reaching its backend.
+    Nothing is lost &mdash; please try again in a few minutes.
+  </p>
+  <hr>
+  <p class="status">
+    Live updates: <a href="https://status.thetriangle.org/">status.thetriangle.org</a>
+  </p>
+</main>
+</body>
+</html>

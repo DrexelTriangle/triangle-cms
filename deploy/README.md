@@ -329,6 +329,7 @@ two files over first (from a workstation, at the repo root):
 ```bash
 scp deploy/nginx/triangle-cms.conf \
     deploy/nginx/triangle-cms-active-upstreams.conf.example \
+    deploy/nginx/down.html \
     <user>@<delta>:/tmp/
 ```
 
@@ -343,6 +344,12 @@ sudo install -o triangle-runner -g triangle-runner -m 0644 \
   /tmp/triangle-cms-active-upstreams.conf.example \
   /etc/nginx/triangle-cms/active-upstreams.conf
 
+# Maintenance page. Root-owned and world-readable: Nginx reads it as the worker
+# user, and nothing at runtime should be able to rewrite what the site falls
+# back to.
+sudo install -d -o root -g root -m 0755 /var/www/triangle-cms-down
+sudo install -o root -g root -m 0644 /tmp/down.html /var/www/triangle-cms-down/down.html
+
 # The stock default site also matches `server_name _` and can win the vhost pick.
 sudo rm -f /etc/nginx/sites-enabled/default
 
@@ -352,6 +359,31 @@ sudo nginx -t && sudo systemctl reload nginx
 Nginx will not start without `active-upstreams.conf`, since the site `include`s
 it unconditionally. A passing `nginx -t` *before* the site is enabled only
 validates the stock config and proves nothing.
+
+### The maintenance page
+
+When Nginx cannot reach the active frontend slot -- connection refused, or a
+read timeout -- `location /` serves `/var/www/triangle-cms-down/down.html` as a
+**503**, via an internal rewrite. Things worth knowing before changing it:
+
+- It is a rewrite, not a redirect. Uptime checks follow redirects, so a 302 to a
+  down page would make every monitor report the site healthy for the whole
+  outage. Better Stack and UptimeRobot both see 503 on the requested URL, which
+  is what you want.
+- The page is `internal;`, so `/_down.html` is not fetchable on its own and
+  cannot be cached or indexed as a 200.
+- It sends `Cache-Control: no-store`. Do not remove this. Cloudflare caching the
+  down page would keep the site dark after the backend recovered.
+- It is entirely self-contained -- no external CSS, fonts, images, or scripts.
+  Anything that could serve those assets is down when this page renders. Keep it
+  that way when editing.
+- It covers `location /` only. `/v1/` is untouched, so API clients keep getting
+  real transport errors rather than an HTML body, and `/healthz` and
+  `/v1/health/db` still report the truth for monitoring.
+- `proxy_intercept_errors` stays off, so error responses the frontend generates
+  deliberately are passed through instead of being replaced by this page.
+
+Re-copy `down.html` whenever it changes; nothing in `deploy.sh` installs it.
 
 The site sets `client_max_body_size 91m` on `/v1/` to sit just above the
 backend's `MEDIA_MAX_UPLOAD_BYTES` (90 MiB default). Nginx's stock limit is 1m,
