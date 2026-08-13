@@ -425,3 +425,85 @@ func TestFoodSubsectionSeedMovesTheReviewCategories(t *testing.T) {
 		t.Errorf("wine-reviews parent = %q, want entertainment -- the seed re-ran over an editor's change", got)
 	}
 }
+
+// TestEntertainmentVisibilitySeedRunsOnce covers the strip changes the desk
+// asked for: Listicles and Books lose their link, TV gains one.
+//
+// The run-once half is the point. The strip is curated from the sections
+// screen, so an editor who puts Books back must not find it hidden again on the
+// next deploy.
+func TestEntertainmentVisibilitySeedRunsOnce(t *testing.T) {
+	conn := taxonomyTestDB(t)
+	ctx := context.Background()
+
+	if err := EnsureSettingsTable(ctx, conn); err != nil {
+		t.Fatalf("ensure settings table: %v", err)
+	}
+	for _, key := range []string{"legacy_subsections_seeded", "entertainment_visibility_seeded"} {
+		if _, err := conn.ExecContext(ctx, "DELETE FROM cms_settings WHERE key_name = ?", key); err != nil {
+			t.Fatalf("clear %s: %v", key, err)
+		}
+	}
+
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("ensure taxonomy table: %v", err)
+	}
+	insertTaxonomyRow(t, conn, 1, "section", "entertainment", "Entertainment")
+	// Listicles and Books are current, visible subsections; TV arrives hidden
+	// from the legacy seeding, which runs in the same boot.
+	for id, slug := range map[int64]string{2: "listicles", 3: "books"} {
+		insertTaxonomyRow(t, conn, id, "subsection", slug, strings.ToUpper(slug[:1])+slug[1:])
+		if _, err := conn.ExecContext(ctx,
+			"UPDATE site_taxonomy SET parent_slug = 'entertainment', is_visible = 1 WHERE slug = ?", slug,
+		); err != nil {
+			t.Fatalf("parent %s: %v", slug, err)
+		}
+	}
+
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+
+	visibilityOf := func(slug string) int {
+		t.Helper()
+		var visible int
+		if err := conn.QueryRowContext(ctx,
+			"SELECT is_visible FROM site_taxonomy WHERE slug = ?", slug,
+		).Scan(&visible); err != nil {
+			t.Fatalf("read visibility of %s: %v", slug, err)
+		}
+		return visible
+	}
+
+	for slug, want := range entertainmentVisibility {
+		got := visibilityOf(slug)
+		if (got == 1) != want {
+			t.Errorf("%s is_visible = %d, want %v", slug, got, want)
+		}
+	}
+
+	// Hiding is only ever about the link: TV keeps its articles either way, and
+	// Books keeps its page. Prove the seed touched nothing else.
+	if parent := func() string {
+		var p sql.NullString
+		if err := conn.QueryRowContext(ctx, "SELECT parent_slug FROM site_taxonomy WHERE slug = 'books'").Scan(&p); err != nil {
+			t.Fatalf("read books parent: %v", err)
+		}
+		return p.String
+	}(); parent != "entertainment" {
+		t.Errorf("books parent = %q, want entertainment -- hiding must not re-file a row", parent)
+	}
+
+	// An editor puts Books back, and a restart leaves it visible.
+	if _, err := conn.ExecContext(ctx,
+		"UPDATE site_taxonomy SET is_visible = 1 WHERE slug = 'books'",
+	); err != nil {
+		t.Fatalf("unhide books: %v", err)
+	}
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("third ensure: %v", err)
+	}
+	if got := visibilityOf("books"); got != 1 {
+		t.Errorf("books is_visible = %d after a restart, want 1 -- the seed re-ran over an editor's change", got)
+	}
+}
