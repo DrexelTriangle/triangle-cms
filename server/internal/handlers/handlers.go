@@ -204,6 +204,15 @@ func canonicalTitleForTaxonomy(ctx context.Context, conn *sql.DB, kind, slug str
 	return title, nil
 }
 
+// subsectionsForSection is the subsection strip on a section page: the links a
+// reader gets offered, not every subsection that exists.
+//
+// Hidden rows are left out on purpose. Most of the WordPress sub-categories are
+// subsections in every structural sense -- their articles roll up to the
+// section, and /v1/subsections/{slug}/articles answers for them -- but a strip
+// of 30 links is not navigation. The desk decides which ones are worth a link
+// on the sections screen; everything else stays reachable by URL and by the
+// category chip on an article.
 func subsectionsForSection(ctx context.Context, conn *sql.DB, sectionSlug string) ([]models.TaxonomySummary, error) {
 	trimmedSection := strings.TrimSpace(sectionSlug)
 	if trimmedSection == "" {
@@ -212,7 +221,7 @@ func subsectionsForSection(ctx context.Context, conn *sql.DB, sectionSlug string
 
 	rows, err := conn.QueryContext(
 		ctx,
-		"SELECT slug, canonical_title FROM site_taxonomy WHERE kind = 'subsection' AND parent_slug = ? ORDER BY id ASC",
+		"SELECT slug, canonical_title FROM site_taxonomy WHERE kind = 'subsection' AND parent_slug = ? AND is_visible = 1 ORDER BY id ASC",
 		trimmedSection,
 	)
 	if err != nil {

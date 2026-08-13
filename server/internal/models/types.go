@@ -288,6 +288,10 @@ type TaxonomyItem struct {
 	// section is filed under "Arts & Entertainment"). Article matching is
 	// exact, so a slug that is not the category string needs one of these.
 	CategoryAliases []string `json:"category_aliases"`
+	// IsVisible is whether the item earns a link in the subsection strip on its
+	// section page. A hidden subsection is still browsable at its own URL and
+	// its articles still count towards its section; it simply has no nav entry.
+	IsVisible bool `json:"is_visible"`
 }
 
 type TaxonomyInput struct {
@@ -296,12 +300,20 @@ type TaxonomyInput struct {
 	CanonicalTitle  string   `json:"canonical_title"`
 	ParentSlug      *string  `json:"parent_slug,omitempty"`
 	CategoryAliases []string `json:"category_aliases,omitempty"`
+	// Pointer so an omitted field means "visible", which is what a client that
+	// predates visibility expects of anything it creates.
+	IsVisible *bool `json:"is_visible,omitempty"`
 }
 
 type TaxonomyPut struct {
+	// Type converts a section to a subsection or back. Omitted leaves the kind
+	// alone, so a client that does not know about conversion cannot cause one.
+	Type           string  `json:"type,omitempty"`
 	Slug           string  `json:"slug,omitempty"`
 	CanonicalTitle string  `json:"canonical_title"`
 	ParentSlug     *string `json:"parent_slug,omitempty"`
+	// Pointer so an omitted field leaves the stored visibility alone.
+	IsVisible *bool `json:"is_visible,omitempty"`
 	// Pointer so an omitted field leaves the stored aliases alone, while an
 	// explicit [] clears them.
 	CategoryAliases *[]string `json:"category_aliases,omitempty"`

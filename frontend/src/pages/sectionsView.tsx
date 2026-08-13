@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, Columns3, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react"
+import { AlertTriangle, Columns3, Eye, EyeOff, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 
 type TaxonomyKind = "section" | "subsection"
@@ -12,6 +12,7 @@ type TaxonomyItem = {
   parent_slug?: string | null
   article_count: number
   category_aliases?: string[] | null
+  is_visible?: boolean
 }
 
 type SectionRow = {
@@ -31,6 +32,7 @@ type FormState = {
   // category name, so this is how a section whose slug differs from its
   // category ("entertainment" vs "Arts & Entertainment") finds its articles.
   categoryAliases: string
+  isVisible: boolean
 }
 
 type EditorState =
@@ -53,7 +55,13 @@ const emptyForm: FormState = {
   slug: "",
   parentSlug: "",
   categoryAliases: "",
+  isVisible: true,
 }
+
+// What hiding actually does, said in full, because two thirds of it is what it
+// does NOT do: a hidden item keeps its page and keeps feeding its section.
+const visibilityHint =
+  "Hidden items keep their own page and their articles still appear on the parent section, they just lose their link in the section's subsection list."
 
 // Article matching is exact, so a slug that is not the category name resolves
 // to nothing and the section page renders empty -- which reads as "no articles
@@ -94,6 +102,8 @@ export default function SectionsView() {
   const [deleteTarget, setDeleteTarget] = useState<TaxonomyItem | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [slugTouched, setSlugTouched] = useState(false)
+  const [togglingId, setTogglingId] = useState<number | null>(null)
+  const [showHidden, setShowHidden] = useState(true)
 
   const loadSections = useCallback(async () => {
     setIsLoading(true)
@@ -190,14 +200,24 @@ export default function SectionsView() {
 
   const filtered = useMemo(() => {
     const query = search.toLowerCase().trim()
-    if (!query) return rows
-    return rows.filter(({ item, parentTitle }) =>
+    // A hidden parent still has to show when its children are on screen, or the
+    // tree loses its root and the indented rows dangle.
+    const visibleRows = showHidden
+      ? rows
+      : rows.filter(({ item, childCount }) => item.is_visible !== false || childCount > 0)
+    if (!query) return visibleRows
+    return visibleRows.filter(({ item, parentTitle }) =>
       item.canonical_title.toLowerCase().includes(query)
       || item.slug.toLowerCase().includes(query)
       || typeLabel(item).toLowerCase().includes(query)
       || (parentTitle ?? "").toLowerCase().includes(query),
     )
-  }, [rows, search])
+  }, [rows, search, showHidden])
+
+  const hiddenCount = useMemo(
+    () => items.filter((item) => item.is_visible === false).length,
+    [items],
+  )
 
   const openCreate = (type: TaxonomyKind, parentSlug = "") => {
     const parentExists = parentSlug && parentSections.some((section) => section.slug === parentSlug)
@@ -218,6 +238,7 @@ export default function SectionsView() {
       slug: item.slug,
       parentSlug: item.parent_slug ?? "",
       categoryAliases: (item.category_aliases ?? []).join("\n"),
+      isVisible: item.is_visible !== false,
     })
     setSlugTouched(true)
     setError(null)
@@ -281,6 +302,7 @@ export default function SectionsView() {
         canonical_title: canonicalTitle,
         parent_slug: form.type === "subsection" ? parentSlug : null,
         category_aliases: categoryAliases,
+        is_visible: form.isVisible,
       }
 
       const response = editor.mode === "create"
@@ -289,15 +311,13 @@ export default function SectionsView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         })
+        // The PUT is addressed by the item's CURRENT type and slug, while the
+        // body carries what it should become -- that is how a section is
+        // converted into a subsection.
         : await apiFetch(`/v1/taxonomy/${encodeURIComponent(editor.item.type)}/${encodeURIComponent(editor.item.slug)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            slug,
-            canonical_title: canonicalTitle,
-            parent_slug: form.type === "subsection" ? parentSlug : null,
-            category_aliases: categoryAliases,
-          }),
+          body: JSON.stringify(body),
         })
 
       if (!response.ok) {
@@ -311,6 +331,42 @@ export default function SectionsView() {
       setError(err instanceof Error ? err.message : "Unable to save taxonomy item")
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  // Visibility is the one field worth changing without opening the editor: it
+  // is how the desk curates the subsection strip, which is a lot of small
+  // yes/no decisions across 90-odd rows.
+  //
+  // category_aliases is deliberately absent from the body -- omitting it leaves
+  // the stored value alone, and a toggle must not be able to wipe the matching
+  // rules that keep a section's page full.
+  const toggleVisibility = async (item: TaxonomyItem) => {
+    const nextVisible = item.is_visible === false
+    setTogglingId(item.id)
+    setError(null)
+    try {
+      const response = await apiFetch(`/v1/taxonomy/${encodeURIComponent(item.type)}/${encodeURIComponent(item.slug)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: item.type,
+          slug: item.slug,
+          canonical_title: item.canonical_title,
+          parent_slug: item.parent_slug ?? null,
+          is_visible: nextVisible,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response))
+      }
+      setItems((current) => current.map((row) => (
+        row.id === item.id ? { ...row, is_visible: nextVisible } : row
+      )))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to change visibility")
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -341,10 +397,21 @@ export default function SectionsView() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Sections</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isLoading ? "Loading..." : `${parentSections.length} sections, ${items.filter((item) => item.type === "subsection").length} subsections`}
+            {isLoading
+              ? "Loading..."
+              : `${parentSections.length} sections, ${items.filter((item) => item.type === "subsection").length} subsections${hiddenCount > 0 ? `, ${hiddenCount} hidden` : ""}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted/40 transition-colors"
+            type="button"
+            title={showHidden ? "Show only the items linked on section pages" : "Show every item, including hidden ones"}
+            onClick={() => setShowHidden((current) => !current)}
+          >
+            {showHidden ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {showHidden ? "Hide hidden" : "Show hidden"}
+          </button>
           <button
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted/40 transition-colors"
             type="button"
@@ -398,21 +465,23 @@ export default function SectionsView() {
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Type</th>
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Slug</th>
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Articles</th>
+              <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Linked</th>
               <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>Loading sections...</td>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>Loading sections...</td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>No sections found.</td>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>No sections found.</td>
               </tr>
             ) : (
               filtered.map(({ item, parentTitle, childCount, isChild, isLast }) => {
                 const articleCount = item.article_count ?? 0
+                const isVisible = item.is_visible !== false
                 const canDelete = articleCount === 0 && childCount === 0
                 const deleteTitle = articleCount > 0
                   ? "Cannot delete while articles use this item."
@@ -458,6 +527,22 @@ export default function SectionsView() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
+                      <button
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium transition-colors disabled:opacity-50 ${
+                          isVisible
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-500 hover:bg-emerald-500/20"
+                            : "bg-muted text-muted-foreground hover:bg-muted/70"
+                        }`}
+                        type="button"
+                        disabled={togglingId === item.id}
+                        title={`${isVisible ? "Hide" : "Show"} ${item.canonical_title}. ${visibilityHint}`}
+                        onClick={() => void toggleVisibility(item)}
+                      >
+                        {isVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        {isVisible ? "Linked" : "Hidden"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -496,19 +581,24 @@ export default function SectionsView() {
               </button>
             </div>
             <div className="flex flex-col gap-4 px-5 py-4">
-              {editor.mode === "create" ? (
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Type</span>
-                  <select
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    value={form.type}
-                    onChange={(event) => updateType(event.target.value as TaxonomyKind)}
-                  >
-                    <option value="section">Section</option>
-                    <option value="subsection">Subsection / Column</option>
-                  </select>
-                </label>
-              ) : null}
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Type</span>
+                <select
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  value={form.type}
+                  onChange={(event) => updateType(event.target.value as TaxonomyKind)}
+                >
+                  <option value="section">Section</option>
+                  <option value="subsection">Subsection / Column</option>
+                </select>
+                {editor.mode === "edit" && form.type !== editor.item.type ? (
+                  <span className="text-xs text-amber-600 dark:text-amber-500">
+                    Changing the type moves this item&rsquo;s page between /sections and
+                    /subsections, so existing links to it will break. A section has to have
+                    no subsections of its own before it can become one.
+                  </span>
+                ) : null}
+              </label>
 
               <label className="flex flex-col gap-1.5">
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Name</span>
@@ -563,6 +653,19 @@ export default function SectionsView() {
                   here whenever the name on the articles differs from the name above &mdash;
                   the Entertainment section holds articles filed under &ldquo;Arts &amp; Entertainment&rdquo;.
                   Leave empty when they match.
+                </span>
+              </label>
+
+              <label className="flex items-start gap-2.5">
+                <input
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                  type="checkbox"
+                  checked={form.isVisible}
+                  onChange={(event) => setForm((current) => ({ ...current, isVisible: event.target.checked }))}
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-sm text-foreground">Link this item on its section page</span>
+                  <span className="text-xs text-muted-foreground">{visibilityHint}</span>
                 </span>
               </label>
             </div>

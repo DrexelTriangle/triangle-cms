@@ -5967,6 +5967,10 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "is_visible": {
+                    "description": "Pointer so an omitted field means \"visible\", which is what a client that\npredates visibility expects of anything it creates.",
+                    "type": "boolean"
+                },
                 "parent_slug": {
                     "type": "string"
                 },
@@ -5997,6 +6001,10 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "is_visible": {
+                    "description": "IsVisible is whether the item earns a link in the subsection strip on its\nsection page. A hidden subsection is still browsable at its own URL and\nits articles still count towards its section; it simply has no nav entry.",
+                    "type": "boolean"
+                },
                 "parent_slug": {
                     "type": "string"
                 },
@@ -6021,10 +6029,18 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "is_visible": {
+                    "description": "Pointer so an omitted field leaves the stored visibility alone.",
+                    "type": "boolean"
+                },
                 "parent_slug": {
                     "type": "string"
                 },
                 "slug": {
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Type converts a section to a subsection or back. Omitted leaves the kind\nalone, so a client that does not know about conversion cannot cause one.",
                     "type": "string"
                 }
             }
