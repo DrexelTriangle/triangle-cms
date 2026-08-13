@@ -536,7 +536,7 @@ func TestTaxonomyHTTPHiddenSubsectionKeepsEverythingButItsLink(t *testing.T) {
 	indexArticleCategories(t, conn)
 
 	// The strip: the visible one only.
-	subsections, err := subsectionsForSection(ctx, conn, "sports")
+	subsections, err := visibleSubsectionsOf(ctx, conn, "sports")
 	if err != nil {
 		t.Fatalf("subsections for section: %v", err)
 	}
@@ -554,7 +554,7 @@ func TestTaxonomyHTTPHiddenSubsectionKeepsEverythingButItsLink(t *testing.T) {
 	}
 
 	// Its own page still resolves.
-	parent, ok, err := parentSectionForSubsection(ctx, conn, "crew")
+	parent, ok, err := rootSectionForSubsection(ctx, conn, "crew")
 	if err != nil {
 		t.Fatalf("parent for subsection: %v", err)
 	}
@@ -633,8 +633,15 @@ func TestTaxonomyHTTPConvertsBetweenSectionAndSubsection(t *testing.T) {
 		}
 	}
 
-	// A section with children cannot become one: a subsection cannot parent a
-	// subsection.
+	// A section with children used to be refused outright, because a subsection
+	// could not parent one. Now the only question is whether the subtree still
+	// fits: esports > sports > squash is exactly the three levels allowed, so
+	// this conversion is refused only once it would need a fourth.
+	if code := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
+		"type": "subsection", "slug": "squash-doubles", "canonical_title": "Squash Doubles", "parent_slug": "squash",
+	}).Code; code != http.StatusCreated {
+		t.Fatalf("POST a grandchild = %d", code)
+	}
 	refused := taxonomyRequest(t, PutTaxonomyItem(conn), http.MethodPut, "/v1/taxonomy/section/sports", map[string]any{
 		"type":            "subsection",
 		"slug":            "sports",
@@ -642,7 +649,30 @@ func TestTaxonomyHTTPConvertsBetweenSectionAndSubsection(t *testing.T) {
 		"parent_slug":     "esports",
 	})
 	if refused.Code != http.StatusBadRequest {
-		t.Fatalf("converting a section with children = %d, want 400: %s", refused.Code, refused.Body.String())
+		t.Fatalf("converting a section two levels deep = %d, want 400: %s", refused.Code, refused.Body.String())
+	}
+
+	// Remove the bottom row and the same conversion fits, which is what proves
+	// the refusal was the depth rule and not a blanket ban on moving a parent.
+	if code := taxonomyRequest(t, DeleteTaxonomyItem(conn), http.MethodDelete, "/v1/taxonomy/subsection/squash-doubles", nil).Code; code != http.StatusNoContent {
+		t.Fatalf("DELETE the grandchild = %d", code)
+	}
+	if code := taxonomyRequest(t, PutTaxonomyItem(conn), http.MethodPut, "/v1/taxonomy/section/sports", map[string]any{
+		"type":            "subsection",
+		"slug":            "sports",
+		"canonical_title": "Sports",
+		"parent_slug":     "esports",
+	}).Code; code != http.StatusNoContent {
+		t.Fatalf("converting a section with one level under it = %d, want 204", code)
+	}
+	// Put it back, so the rest of the test runs against the shape it expects.
+	if code := taxonomyRequest(t, PutTaxonomyItem(conn), http.MethodPut, "/v1/taxonomy/subsection/sports", map[string]any{
+		"type":            "section",
+		"slug":            "sports",
+		"canonical_title": "Sports",
+		"parent_slug":     nil,
+	}).Code; code != http.StatusNoContent {
+		t.Fatalf("converting back to a section = %d", code)
 	}
 
 	// A childless one can.
@@ -672,4 +702,164 @@ func TestTaxonomyHTTPConvertsBetweenSectionAndSubsection(t *testing.T) {
 	if promoted.Type != "section" || promoted.ParentSlug != nil {
 		t.Fatalf("promoted item = %+v, want a parentless section", promoted)
 	}
+}
+
+// TestTaxonomyHTTPThreeLevelNesting is the arrangement A&E asked for, end to
+// end: Food under Arts & Entertainment, and the review categories under Food.
+//
+// The interesting assertion is the rollup. Beer Reviews is two hops from the
+// section now, and the one-hop rollup this replaced would have counted its
+// articles for Food while dropping them from A&E -- a section quietly shorter
+// than the sum of its parts, which is the failure mode nothing on the screen
+// would have shown.
+func TestTaxonomyHTTPThreeLevelNesting(t *testing.T) {
+	conn := taxonomyHTTPTestDB(t)
+	ctx := context.Background()
+
+	create := func(kind, slug, title string, parent any) {
+		t.Helper()
+		recorder := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
+			"type":            kind,
+			"slug":            slug,
+			"canonical_title": title,
+			"parent_slug":     parent,
+		})
+		if recorder.Code != http.StatusCreated {
+			t.Fatalf("POST %s = %d: %s", slug, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	create("section", "entertainment", "Arts & Entertainment", nil)
+	create("subsection", "food", "Food", "entertainment")
+	create("subsection", "beer-reviews", "Beer Reviews", "food")
+
+	// A fourth level is refused, and by the depth rule rather than by accident:
+	// the parent exists and is otherwise valid.
+	tooDeep := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
+		"type":            "subsection",
+		"slug":            "ipa-reviews",
+		"canonical_title": "IPA Reviews",
+		"parent_slug":     "beer-reviews",
+	})
+	if tooDeep.Code != http.StatusBadRequest {
+		t.Errorf("POST a fourth level = %d, want 400: %s", tooDeep.Code, tooDeep.Body.String())
+	}
+
+	// One article, filed under the grandchild's category only.
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO articles (id, categories, pub_date) VALUES (1, '["Beer Reviews"]', UTC_TIMESTAMP())`,
+	); err != nil {
+		t.Fatalf("insert article: %v", err)
+	}
+	indexArticleCategories(t, conn)
+	if err := db.RebuildTaxonomyArticleCounts(ctx, conn); err != nil {
+		t.Fatalf("rebuild counts: %v", err)
+	}
+
+	items := getTaxonomyItems(t, conn)
+	for _, want := range []struct {
+		slug   string
+		count  int64
+		reason string
+	}{
+		{"beer-reviews", 1, "the article's own category"},
+		{"food", 1, "its child's article rolls up"},
+		{"entertainment", 1, "a grandchild's article still reaches the section"},
+	} {
+		if got := findItem(t, items, want.slug).ArticleCount; got != want.count {
+			t.Errorf("%s count = %d, want %d -- %s", want.slug, got, want.count, want.reason)
+		}
+	}
+
+	// The middle row is a container: its page has to list what is under it, or
+	// /food renders empty while its three categories have articles.
+	params, err := normalizeAndValidateArticleParams(ctx, conn, ArticleParams{Subsection: "food"})
+	if err != nil {
+		t.Fatalf("validate subsection params: %v", err)
+	}
+	if !containsSlug(params.SubsectionMatchSlugs, "beer-reviews") {
+		t.Errorf("match slugs = %v, want the child included", params.SubsectionMatchSlugs)
+	}
+	// And it resolves to the SECTION above it, not to its immediate parent,
+	// since that is what ?section_slug= is checked against.
+	if params.Section != "entertainment" {
+		t.Errorf("section = %q, want entertainment", params.Section)
+	}
+
+	deep, err := normalizeAndValidateArticleParams(ctx, conn, ArticleParams{Subsection: "beer-reviews"})
+	if err != nil {
+		t.Fatalf("validate grandchild params: %v", err)
+	}
+	if deep.Section != "entertainment" {
+		t.Errorf("grandchild section = %q, want entertainment -- the root, not %q", deep.Section, "food")
+	}
+
+	// The strip shows direct children only, at both levels. That is the point
+	// of the nesting: A&E links Food, and Food links the reviews.
+	sectionStrip, err := visibleSubsectionsOf(ctx, conn, "entertainment")
+	if err != nil {
+		t.Fatalf("section strip: %v", err)
+	}
+	if len(sectionStrip) != 1 || sectionStrip[0].Slug != "food" {
+		t.Errorf("section strip = %v, want only Food", sectionStrip)
+	}
+	foodStrip, err := visibleSubsectionsOf(ctx, conn, "food")
+	if err != nil {
+		t.Fatalf("food strip: %v", err)
+	}
+	if len(foodStrip) != 1 || foodStrip[0].Slug != "beer-reviews" {
+		t.Errorf("food strip = %v, want Beer Reviews", foodStrip)
+	}
+
+	// Food holds a child, so deleting it would strand Beer Reviews under a
+	// parent that no longer exists. That guard used to apply to sections only.
+	deleted := taxonomyRequest(t, DeleteTaxonomyItem(conn), http.MethodDelete, "/v1/taxonomy/subsection/food", nil)
+	if deleted.Code != http.StatusBadRequest {
+		t.Errorf("DELETE a subsection with children = %d, want 400: %s", deleted.Code, deleted.Body.String())
+	}
+}
+
+// TestTaxonomyHTTPRejectsCircularParent covers the other way a walk could fail
+// to terminate: making an ancestor into a descendant.
+func TestTaxonomyHTTPRejectsCircularParent(t *testing.T) {
+	conn := taxonomyHTTPTestDB(t)
+
+	for _, item := range []struct {
+		kind, slug, title string
+		parent            any
+	}{
+		{"section", "entertainment", "Arts & Entertainment", nil},
+		{"subsection", "food", "Food", "entertainment"},
+	} {
+		recorder := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
+			"type":            item.kind,
+			"slug":            item.slug,
+			"canonical_title": item.title,
+			"parent_slug":     item.parent,
+		})
+		if recorder.Code != http.StatusCreated {
+			t.Fatalf("POST %s = %d: %s", item.slug, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	// Food's parent is a section, so this asks a row to hang under its own
+	// descendant only once entertainment is a subsection -- test the direct
+	// case instead: a row cannot parent itself.
+	itself := taxonomyRequest(t, PutTaxonomyItem(conn), http.MethodPut, "/v1/taxonomy/subsection/food", map[string]any{
+		"slug":            "food",
+		"canonical_title": "Food",
+		"parent_slug":     "food",
+	})
+	if itself.Code != http.StatusBadRequest {
+		t.Errorf("PUT self-parent = %d, want 400: %s", itself.Code, itself.Body.String())
+	}
+}
+
+func containsSlug(slugs []string, want string) bool {
+	for _, slug := range slugs {
+		if slug == want {
+			return true
+		}
+	}
+	return false
 }

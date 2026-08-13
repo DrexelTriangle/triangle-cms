@@ -338,3 +338,90 @@ func countRows(t *testing.T, conn *sql.DB, query string) int64 {
 	}
 	return count
 }
+
+// TestFoodSubsectionSeedMovesTheReviewCategories covers the migration that the
+// third level exists for: Food appears under A&E, and the three review
+// categories move from beside it to under it.
+//
+// The run-once half matters as much as the move. These rows are editable, so an
+// editor who pulls Restaurant Reviews back out to the section must not find it
+// under Food again after the next deploy.
+func TestFoodSubsectionSeedMovesTheReviewCategories(t *testing.T) {
+	conn := taxonomyTestDB(t)
+	ctx := context.Background()
+
+	if err := EnsureSettingsTable(ctx, conn); err != nil {
+		t.Fatalf("ensure settings table: %v", err)
+	}
+	for _, key := range []string{"legacy_subsections_seeded", "food_subsection_seeded"} {
+		if _, err := conn.ExecContext(ctx, "DELETE FROM cms_settings WHERE key_name = ?", key); err != nil {
+			t.Fatalf("clear %s: %v", key, err)
+		}
+	}
+
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("ensure taxonomy table: %v", err)
+	}
+	insertTaxonomyRow(t, conn, 1, "section", "entertainment", "Entertainment")
+	// Cooking is a current, visible subsection rather than a legacy WordPress
+	// category, so nothing else in this boot would create it. It is here for
+	// the same reason production has it: the seed has to move a live row, not
+	// just the ones it seeded a moment earlier.
+	insertTaxonomyRow(t, conn, 2, "subsection", "cooking", "Cooking")
+	if _, err := conn.ExecContext(ctx,
+		"UPDATE site_taxonomy SET parent_slug = 'entertainment', is_visible = 1 WHERE slug = 'cooking'",
+	); err != nil {
+		t.Fatalf("parent the cooking row: %v", err)
+	}
+
+	// One boot does both: the legacy seeding creates the review subsections,
+	// and the Food seed moves them. Order is what makes that work.
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("second ensure: %v", err)
+	}
+
+	parentOf := func(slug string) string {
+		t.Helper()
+		var parent sql.NullString
+		if err := conn.QueryRowContext(ctx,
+			"SELECT parent_slug FROM site_taxonomy WHERE slug = ?", slug,
+		).Scan(&parent); err != nil {
+			t.Fatalf("read parent of %s: %v", slug, err)
+		}
+		return parent.String
+	}
+
+	if got := parentOf("food"); got != "entertainment" {
+		t.Errorf("food parent = %q, want entertainment", got)
+	}
+	for _, child := range foodSubsectionChildren {
+		if got := parentOf(child); got != "food" {
+			t.Errorf("%s parent = %q, want food", child, got)
+		}
+	}
+
+	// Food is a heading the desk asked for, so unlike the legacy rows it
+	// arrives with a link.
+	var visible int
+	if err := conn.QueryRowContext(ctx,
+		"SELECT is_visible FROM site_taxonomy WHERE slug = 'food'",
+	).Scan(&visible); err != nil {
+		t.Fatalf("read food visibility: %v", err)
+	}
+	if visible != 1 {
+		t.Error("food seeded hidden, want visible -- it is the entry A&E's strip is meant to gain")
+	}
+
+	// An editor moves one back, and a restart leaves it where they put it.
+	if _, err := conn.ExecContext(ctx,
+		"UPDATE site_taxonomy SET parent_slug = 'entertainment' WHERE slug = 'wine-reviews'",
+	); err != nil {
+		t.Fatalf("move a row back: %v", err)
+	}
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("third ensure: %v", err)
+	}
+	if got := parentOf("wine-reviews"); got != "entertainment" {
+		t.Errorf("wine-reviews parent = %q, want entertainment -- the seed re-ran over an editor's change", got)
+	}
+}

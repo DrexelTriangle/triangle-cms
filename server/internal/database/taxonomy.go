@@ -48,6 +48,14 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	// After the legacy seeding, which is what creates the review subsections
+	// this moves. On a fresh database both run in the same boot, and the order
+	// is the difference between re-parenting three rows and finding none.
+	moved, err := SeedFoodSubsection(ctx, conn)
+	if err != nil {
+		return err
+	}
+	seeded = append(seeded, moved...)
 	if err = RefreshCategoryAliases(ctx, conn); err != nil {
 		return err
 	}
@@ -349,6 +357,143 @@ func SeedLegacySubsections(ctx context.Context, conn *sql.DB) ([]string, error) 
 	return inserted, writeSettingRaw(ctx, conn, "legacy_subsections_seeded", "1")
 }
 
+// foodSubsection is the A&E "Food" row and the review categories that move
+// under it, which is what the third level of nesting was added for.
+//
+// Beer Reviews, Wine Reviews, Restaurant Reviews and Cooking were already
+// subsections of Entertainment, sitting beside the movies-and-music coverage
+// rather than under a heading of their own. The desk wanted them kept as real
+// categories -- their pages and their chips stay where they are -- but gathered
+// under one Food entry in A&E's strip.
+//
+// Cooking differs from the other three in one way worth knowing: it is a
+// current, visible subsection rather than a legacy WordPress category, so moving
+// it takes its link OUT of A&E's strip and puts it in Food's. That is the
+// intent, not a side effect.
+var (
+	foodSubsectionSlug   = "food"
+	foodSubsectionTitle  = "Food"
+	foodSubsectionParent = "entertainment"
+	// No aliases: "food" already matches the category "Food" through
+	// CategoryMatchValues, and everything else Food should list arrives through
+	// its children. Inventing spellings here would be guessing at categories
+	// that may mean something else to the desk.
+	foodSubsectionAliases  = []string{"Food"}
+	foodSubsectionChildren = []string{"beer-reviews", "wine-reviews", "restaurant-reviews", "cooking"}
+)
+
+// SeedFoodSubsection creates Food under A&E and re-parents the review
+// categories beneath it, once.
+//
+// Once, and recorded in cms_settings, for the reason SeedLegacySubsections is:
+// these rows are editable. An editor who moves Restaurant Reviews back out, or
+// deletes Food, must not find the arrangement restored on the next deploy.
+//
+// It cannot ride on legacy_subsections_seeded -- that flag is already set in
+// production and those three rows already exist, so this needs its own.
+//
+// Food arrives VISIBLE, unlike the legacy seeding: it is a heading the desk
+// asked for in A&E's strip, not a URL being handed to an orphaned category. Its
+// children keep whatever visibility they already have; they are simply reparented.
+func SeedFoodSubsection(ctx context.Context, conn *sql.DB) ([]string, error) {
+	if conn == nil {
+		return nil, nil
+	}
+
+	var settingsTableExists int
+	if err := conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'cms_settings'",
+	).Scan(&settingsTableExists); err != nil {
+		return nil, err
+	}
+	if settingsTableExists == 0 {
+		return nil, nil
+	}
+
+	var done string
+	switch err := conn.QueryRowContext(ctx,
+		"SELECT value_text FROM cms_settings WHERE key_name = 'food_subsection_seeded' LIMIT 1",
+	).Scan(&done); err {
+	case nil:
+		if strings.TrimSpace(done) == "1" {
+			return nil, nil
+		}
+	case sql.ErrNoRows:
+		// Not yet seeded.
+	default:
+		return nil, err
+	}
+
+	sections, err := existingSlugsByKind(ctx, conn, "section")
+	if err != nil {
+		return nil, err
+	}
+	if len(sections) == 0 {
+		// The taxonomy has not been imported yet. Returning without recording
+		// the flag leaves the one run intact for a later boot; see
+		// SeedLegacySubsections.
+		return nil, nil
+	}
+	if _, ok := sections[foodSubsectionParent]; !ok {
+		slog.Warn("skipping the Food subsection seed: its parent section is missing",
+			"parent_slug", foodSubsectionParent)
+		return nil, writeSettingRaw(ctx, conn, "food_subsection_seeded", "1")
+	}
+
+	subsections, err := existingSlugsByKind(ctx, conn, "subsection")
+	if err != nil {
+		return nil, err
+	}
+
+	touched := make([]string, 0, len(foodSubsectionChildren)+1)
+	if _, taken := subsections[foodSubsectionSlug]; !taken {
+		aliases, err := MarshalCategoryJSON(foodSubsectionAliases)
+		if err != nil {
+			return nil, err
+		}
+		var nextID int64
+		if err := conn.QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) + 1 FROM site_taxonomy").Scan(&nextID); err != nil {
+			return nil, err
+		}
+		if _, err := conn.ExecContext(ctx, `
+			INSERT INTO site_taxonomy
+				(id, kind, slug, canonical_title, parent_slug, article_count, category_aliases, is_visible)
+			VALUES (?, 'subsection', ?, ?, ?, 0, ?, 1)
+		`, nextID, foodSubsectionSlug, foodSubsectionTitle, foodSubsectionParent, aliases); err != nil {
+			return nil, err
+		}
+		touched = append(touched, foodSubsectionSlug)
+	}
+
+	for _, child := range foodSubsectionChildren {
+		if _, exists := subsections[child]; !exists {
+			continue
+		}
+		// Guarded on the CURRENT parent, so a row an editor has already moved
+		// somewhere deliberate is left where they put it.
+		result, err := conn.ExecContext(ctx, `
+			UPDATE site_taxonomy
+			SET parent_slug = ?
+			WHERE kind = 'subsection' AND slug = ? AND parent_slug = ?
+		`, foodSubsectionSlug, child, foodSubsectionParent)
+		if err != nil {
+			return nil, err
+		}
+		// RowsAffected is not trusted as proof here -- through MaxScale it can
+		// report 0 for a write that landed -- so the slug is reported as touched
+		// either way and the recount that follows settles the numbers.
+		if _, err := result.RowsAffected(); err != nil {
+			return nil, err
+		}
+		touched = append(touched, child)
+	}
+
+	if len(touched) > 0 {
+		slog.Info("seeded the Food subsection under A&E", "slugs", touched)
+	}
+	return touched, writeSettingRaw(ctx, conn, "food_subsection_seeded", "1")
+}
+
 func existingSlugsByKind(ctx context.Context, conn *sql.DB, kind string) (map[string]struct{}, error) {
 	rows, err := conn.QueryContext(ctx, "SELECT slug FROM site_taxonomy WHERE kind = ?", kind)
 	if err != nil {
@@ -629,14 +774,129 @@ func possessiveVariant(phrase string) string {
 	return strings.Join(words, " ")
 }
 
-// taxonomyMatchSlugs maps every section/subsection slug to the slugs whose
-// articles belong to it: a subsection matches only itself, a section matches
-// itself plus all of its children.
+// MaxTaxonomyDepth is how many levels the section tree may hold, counting the
+// section itself: section -> subsection -> subsection. A&E needed the third for
+// Food, which holds Beer Reviews, Wine Reviews and Restaurant Reviews.
 //
-// The children matter because a section can be a pure container. Nothing is
-// filed under the category "Special Editions" -- its articles live under
-// "Welcome Week" and "100 Year Anniversary" -- so matching the section slug
-// alone reports zero for a section that visibly has content.
+// Bounded because the walks below are recursive and the tree is editor-editable.
+// The bound is also what makes a cycle survivable rather than a hang, though
+// validateTaxonomyParent refuses to create one in the first place.
+const MaxTaxonomyDepth = 3
+
+// TaxonomyChildren returns the slugs filed directly under a slug.
+func TaxonomyChildren(ctx context.Context, conn *sql.DB, slug string) ([]string, error) {
+	if conn == nil || strings.TrimSpace(slug) == "" {
+		return nil, nil
+	}
+	rows, err := conn.QueryContext(ctx,
+		"SELECT slug FROM site_taxonomy WHERE kind = 'subsection' AND parent_slug = ?",
+		strings.TrimSpace(slug),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var children []string
+	for rows.Next() {
+		var child string
+		if err := rows.Scan(&child); err != nil {
+			return nil, err
+		}
+		if trimmed := strings.TrimSpace(child); trimmed != "" {
+			children = append(children, trimmed)
+		}
+	}
+	return children, rows.Err()
+}
+
+// TaxonomyDescendants returns a slug plus every slug below it, at any depth,
+// with the slug itself first. That set is what "articles filed under this" means
+// once the tree has three levels.
+func TaxonomyDescendants(ctx context.Context, conn *sql.DB, slug string) ([]string, error) {
+	trimmed := strings.TrimSpace(slug)
+	if conn == nil || trimmed == "" {
+		return nil, nil
+	}
+	rows, err := conn.QueryContext(ctx, `
+		SELECT slug, COALESCE(parent_slug, '')
+		FROM site_taxonomy
+		WHERE kind = 'subsection' AND parent_slug IS NOT NULL AND parent_slug <> ''
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	children := make(map[string][]string)
+	for rows.Next() {
+		var child, parent string
+		if err := rows.Scan(&child, &parent); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(child) == "" {
+			continue
+		}
+		children[strings.TrimSpace(parent)] = append(children[strings.TrimSpace(parent)], strings.TrimSpace(child))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return append([]string{trimmed}, descendantsOf(children, trimmed)...), nil
+}
+
+// TaxonomyAncestors returns a slug's parent chain, nearest first, stopping at
+// the root section.
+//
+// It stops after MaxTaxonomyDepth hops regardless: this walks editor-owned data
+// that a bad write could have made circular, and a traversal that cannot
+// terminate would take the request thread with it.
+func TaxonomyAncestors(ctx context.Context, conn *sql.DB, slug string) ([]string, error) {
+	if conn == nil {
+		return nil, nil
+	}
+	parents, err := taxonomyParentsBySlug(ctx, conn)
+	if err != nil {
+		return nil, err
+	}
+	return ancestorChain(parents, slug), nil
+}
+
+// ancestorChain walks a parent map upward, nearest ancestor first. Bounded by
+// MaxTaxonomyDepth and by a seen set, so a cycle yields a truncated chain rather
+// than an infinite loop.
+func ancestorChain(parents map[string]string, slug string) []string {
+	var chain []string
+	seen := map[string]struct{}{}
+	current := strings.TrimSpace(slug)
+	for range MaxTaxonomyDepth {
+		parent := strings.TrimSpace(parents[current])
+		if parent == "" {
+			break
+		}
+		if _, looped := seen[parent]; looped {
+			break
+		}
+		seen[parent] = struct{}{}
+		chain = append(chain, parent)
+		current = parent
+	}
+	return chain
+}
+
+// taxonomyMatchSlugs maps every section/subsection slug to the slugs whose
+// articles belong to it: itself plus every descendant, to any depth.
+//
+// The descendants matter because a row can be a pure container. Nothing is filed
+// under the category "Special Editions" -- its articles live under "Welcome
+// Week" and "100 Year Anniversary" -- so matching the section slug alone reports
+// zero for a section that visibly has content.
+//
+// Transitive rather than one hop, because the tree is three levels now. Under
+// A&E, Beer Reviews hangs off Food rather than off the section, and a single hop
+// would have counted those articles for Food while dropping them from
+// Entertainment -- a section quietly shorter than the sum of its subsections,
+// which is the same silent-omission failure the alias seeding exists to fix.
 func taxonomyMatchSlugs(ctx context.Context, conn *sql.DB) (map[string][]string, error) {
 	rows, err := conn.QueryContext(ctx, `
 		SELECT slug, kind, COALESCE(parent_slug, '')
@@ -667,13 +927,30 @@ func taxonomyMatchSlugs(ctx context.Context, conn *sql.DB) (map[string][]string,
 		return nil, err
 	}
 
-	for parent, kids := range children {
-		if _, ok := matches[parent]; !ok {
-			continue
-		}
-		matches[parent] = append(matches[parent], kids...)
+	for slug := range matches {
+		matches[slug] = append(matches[slug], descendantsOf(children, slug)...)
 	}
 	return matches, nil
+}
+
+// descendantsOf collects every slug below one, breadth-first. The seen set is
+// what makes it safe on data it does not control: a cycle visits each member
+// once and stops.
+func descendantsOf(children map[string][]string, slug string) []string {
+	var found []string
+	seen := map[string]struct{}{slug: {}}
+	queue := append([]string(nil), children[slug]...)
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if _, visited := seen[current]; visited {
+			continue
+		}
+		seen[current] = struct{}{}
+		found = append(found, current)
+		queue = append(queue, children[current]...)
+	}
+	return found
 }
 
 // TaxonomyCountCondition builds the WHERE fragment matching articles in any of
@@ -870,10 +1147,16 @@ func RebuildTaxonomyArticleCounts(ctx context.Context, conn *sql.DB) error {
 //
 // A full rebuild runs one scan of the articles table per taxonomy row -- fine as
 // startup or maintenance work, far too slow to sit inside a save. The blast
-// radius of one edit is small: the row itself, plus its parent section, because
-// a section matches its own slug OR any of its children's. Nothing else moves.
+// radius of one edit is small: the row itself, plus every ancestor above it,
+// because a row matches its own slug OR any of its descendants'. Nothing else
+// moves.
 //
-// Callers pass the slugs they touched; parents are resolved here.
+// Every ancestor rather than just the parent: with three levels, editing Beer
+// Reviews moves the count of Food AND of Entertainment above it, and stopping at
+// the parent would leave the section showing a stale number that nothing short
+// of a full rebuild would correct.
+//
+// Callers pass the slugs they touched; ancestors are resolved here.
 func RebuildTaxonomyArticleCountsFor(ctx context.Context, conn *sql.DB, slugs ...string) error {
 	matchSlugs, err := taxonomyMatchSlugs(ctx, conn)
 	if err != nil {
@@ -885,15 +1168,15 @@ func RebuildTaxonomyArticleCountsFor(ctx context.Context, conn *sql.DB, slugs ..
 		return err
 	}
 
-	affected := make(map[string]struct{}, len(slugs)*2)
+	affected := make(map[string]struct{}, len(slugs)*MaxTaxonomyDepth)
 	for _, slug := range slugs {
 		normalized := strings.TrimSpace(slug)
 		if normalized == "" {
 			continue
 		}
 		affected[normalized] = struct{}{}
-		if parent := parents[normalized]; parent != "" {
-			affected[parent] = struct{}{}
+		for _, ancestor := range ancestorChain(parents, normalized) {
+			affected[ancestor] = struct{}{}
 		}
 	}
 	if len(affected) == 0 {

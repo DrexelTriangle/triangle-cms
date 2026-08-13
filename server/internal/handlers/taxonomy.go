@@ -155,11 +155,14 @@ func taxonomyItemExists(ctx context.Context, conn *sql.DB, taxType, slug string)
 	return err == nil, err
 }
 
-func taxonomySectionHasChildren(ctx context.Context, conn *sql.DB, sectionSlug string) (bool, error) {
+// taxonomyHasChildren reports whether anything is filed under a slug. It asks
+// about parent_slug rather than about kind, so it answers for a subsection that
+// parents other subsections as well as for a section.
+func taxonomyHasChildren(ctx context.Context, conn *sql.DB, slug string) (bool, error) {
 	var exists int
 	err := conn.QueryRowContext(ctx,
 		"SELECT 1 FROM site_taxonomy WHERE kind = ? AND parent_slug = ? LIMIT 1",
-		string(models.TaxonomyTypeSubsection), sectionSlug,
+		string(models.TaxonomyTypeSubsection), slug,
 	).Scan(&exists)
 	if err == sql.ErrNoRows {
 		return false, nil
@@ -167,7 +170,21 @@ func taxonomySectionHasChildren(ctx context.Context, conn *sql.DB, sectionSlug s
 	return err == nil, err
 }
 
-func validateTaxonomyParent(ctx context.Context, conn *sql.DB, taxType string, parentSlug *string) (any, error) {
+// validateTaxonomyParent checks that a row's parent_slug names something that
+// can hold it, and returns the value to store (nil for a section).
+//
+// A subsection may hang under a section or under another subsection: A&E wanted
+// a Food subsection with Beer Reviews, Wine Reviews and Restaurant Reviews under
+// THAT rather than beside it. Both levels are kind='subsection' -- depth is a
+// property of the parent chain, not a third kind, which keeps every consumer
+// that switches on kind (the public site's slug router, the article filters, the
+// sections screen) working unchanged.
+//
+// db.MaxTaxonomyDepth caps the chain. The limit is not arbitrary: the rollup,
+// the recount and the root-section lookup all walk this chain, and an unbounded
+// tree turns each of them into a page whose cost the desk cannot see. Three
+// levels is what was asked for and one more than the site renders.
+func validateTaxonomyParent(ctx context.Context, conn *sql.DB, taxType, slug string, parentSlug *string) (any, error) {
 	if parentSlug == nil || strings.TrimSpace(*parentSlug) == "" {
 		if taxType == string(models.TaxonomyTypeSubsection) {
 			return nil, fmt.Errorf("parent_slug is required for subsections")
@@ -182,18 +199,67 @@ func validateTaxonomyParent(ctx context.Context, conn *sql.DB, taxType string, p
 	if taxType != string(models.TaxonomyTypeSubsection) {
 		return nil, fmt.Errorf("parent_slug is only allowed for subsections")
 	}
+	if parent == strings.TrimSpace(slug) {
+		return nil, fmt.Errorf("parent_slug cannot be the item itself")
+	}
 	if conn == nil {
 		return parent, nil
 	}
 
-	exists, err := taxonomyItemExists(ctx, conn, string(models.TaxonomyTypeSection), parent)
+	isSection, err := taxonomyItemExists(ctx, conn, string(models.TaxonomyTypeSection), parent)
 	if err != nil {
 		return nil, err
 	}
-	if !exists {
-		return nil, fmt.Errorf("parent_slug must reference an existing section")
+	if isSection {
+		return parent, nil
+	}
+
+	isSubsection, err := taxonomyItemExists(ctx, conn, string(models.TaxonomyTypeSubsection), parent)
+	if err != nil {
+		return nil, err
+	}
+	if !isSubsection {
+		return nil, fmt.Errorf("parent_slug must reference an existing section or subsection")
+	}
+
+	// The parent's own ancestors decide whether it has room for a child. This
+	// also catches a cycle: an ancestor walk that comes back to the row being
+	// saved is a loop, and a loop would hang every traversal that follows it.
+	ancestors, err := db.TaxonomyAncestors(ctx, conn, parent)
+	if err != nil {
+		return nil, err
+	}
+	for _, ancestor := range ancestors {
+		if ancestor == strings.TrimSpace(slug) {
+			return nil, fmt.Errorf("parent_slug would make the tree circular")
+		}
+	}
+	// depth counts the row being saved: the parent, its ancestors, and it.
+	if depth := len(ancestors) + 2; depth > db.MaxTaxonomyDepth {
+		return nil, fmt.Errorf("a subsection cannot nest more than %d levels deep", db.MaxTaxonomyDepth)
 	}
 	return parent, nil
+}
+
+// taxonomyChildDepth is how many levels hang BELOW a slug: 0 for a leaf. Saving
+// a row has to look down as well as up, since re-parenting a row that has
+// children of its own pushes those children down with it.
+func taxonomyChildDepth(ctx context.Context, conn *sql.DB, slug string) (int, error) {
+	children, err := db.TaxonomyChildren(ctx, conn, slug)
+	if err != nil {
+		return 0, err
+	}
+	deepest := 0
+	for _, child := range children {
+		depth, err := taxonomyChildDepth(ctx, conn, child)
+		if err != nil {
+			return 0, err
+		}
+		if depth+1 > deepest {
+			deepest = depth + 1
+		}
+	}
+	return deepest, nil
 }
 
 // @Summary List taxonomy items
@@ -320,7 +386,7 @@ func PostTaxonomy(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "canonical_title is required")
 			return
 		}
-		parentSlug, err := validateTaxonomyParent(r.Context(), conn, taxType, body.ParentSlug)
+		parentSlug, err := validateTaxonomyParent(r.Context(), conn, taxType, slug, body.ParentSlug)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -428,19 +494,12 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 				return
 			}
 			if conn != nil {
-				// A subsection cannot parent another subsection, so a section
-				// with children has to be emptied before it can become one.
-				if taxType == string(models.TaxonomyTypeSection) {
-					hasChildren, err := taxonomySectionHasChildren(r.Context(), conn, slug)
-					if err != nil {
-						writeError(w, http.StatusInternalServerError, err.Error())
-						return
-					}
-					if hasChildren {
-						writeError(w, http.StatusBadRequest, "section cannot become a subsection while subsections use it")
-						return
-					}
-				}
+				// A section with children used to be blocked from becoming a
+				// subsection outright, because a subsection could not parent one.
+				// It can now, so the question is only whether the subtree still
+				// fits under the new parent -- checked below, once the parent is
+				// known, since that is what decides it.
+				//
 				// (kind, slug) is unique, so the conversion can collide with a
 				// row that already holds the destination. Say which, rather
 				// than surfacing a driver-level duplicate-key error as a 500.
@@ -456,10 +515,31 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			}
 		}
 
-		parentSlug, err := validateTaxonomyParent(r.Context(), conn, newType, body.ParentSlug)
+		parentSlug, err := validateTaxonomyParent(r.Context(), conn, newType, slug, body.ParentSlug)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
+		}
+		// validateTaxonomyParent only looks upward, which is the whole answer
+		// when creating a leaf. Moving an EXISTING row carries its own subtree
+		// with it, so the depth that matters is the chain above the new parent
+		// plus everything already hanging below this row.
+		if parent := parentSlugForRecount(parentSlug); parent != "" && conn != nil {
+			ancestors, err := db.TaxonomyAncestors(r.Context(), conn, parent)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			childDepth, err := taxonomyChildDepth(r.Context(), conn, slug)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if len(ancestors)+2+childDepth > db.MaxTaxonomyDepth {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf(
+					"moving this item and everything under it would nest more than %d levels deep", db.MaxTaxonomyDepth))
+				return
+			}
 		}
 		if newSlug != slug && conn != nil {
 			count, err := taxonomyItemArticleCount(r.Context(), conn, taxType, slug)
@@ -475,16 +555,17 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 				writeError(w, http.StatusBadRequest, "slug cannot be changed while articles use this taxonomy item")
 				return
 			}
-			if taxType == string(models.TaxonomyTypeSection) {
-				hasChildren, err := taxonomySectionHasChildren(r.Context(), conn, slug)
-				if err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-				if hasChildren {
-					writeError(w, http.StatusBadRequest, "section slug cannot be changed while subsections use it")
-					return
-				}
+			// Children point at their parent by slug, so renaming any row that
+			// has them would orphan the lot. That is no longer a section-only
+			// hazard now that a subsection can hold children too.
+			hasChildren, err := taxonomyHasChildren(r.Context(), conn, slug)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if hasChildren {
+				writeError(w, http.StatusBadRequest, "slug cannot be changed while subsections use it")
+				return
 			}
 		}
 
@@ -585,16 +666,19 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 			// Children first: it is an indexed lookup on one small table, and
 			// it is the more specific reason to refuse, so it should not be
 			// preempted by a scan of every article.
-			if taxType == string(models.TaxonomyTypeSection) {
-				hasChildren, err := taxonomySectionHasChildren(r.Context(), conn, slug)
-				if err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-				if hasChildren {
-					writeError(w, http.StatusBadRequest, "section cannot be deleted while subsections use it")
-					return
-				}
+			//
+			// Asked of subsections too, not just sections: deleting Food while
+			// Beer Reviews hangs under it would strand three rows pointing at a
+			// parent that no longer exists, and their articles would stop
+			// rolling up to A&E without anything saying so.
+			hasChildren, err := taxonomyHasChildren(r.Context(), conn, slug)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if hasChildren {
+				writeError(w, http.StatusBadRequest, "this item cannot be deleted while subsections use it")
+				return
 			}
 			// Deletion is irreversible and editors can do it, so ask the
 			// articles table rather than a number that may predate the last

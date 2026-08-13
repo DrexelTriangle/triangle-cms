@@ -499,3 +499,78 @@ func TestNoCategoryIsAliasedToTwoSections(t *testing.T) {
 		}
 	}
 }
+
+// The tree walks below are pure functions of a parent/child map, so they are
+// tested without a database. What they have to survive is not just the happy
+// three-level shape but the shapes a bad write could leave behind, since they
+// run on editor-owned rows.
+
+func TestDescendantsOfWalksEveryLevel(t *testing.T) {
+	// A&E > Food > the three review categories.
+	children := map[string][]string{
+		"entertainment": {"food", "movies"},
+		"food":          {"beer-reviews", "wine-reviews", "restaurant-reviews"},
+	}
+
+	got := descendantsOf(children, "entertainment")
+	for _, want := range []string{"food", "movies", "beer-reviews", "wine-reviews", "restaurant-reviews"} {
+		if !containsValue(got, want) {
+			t.Errorf("descendants = %v, want %q included -- a grandchild's articles roll up to the section", got, want)
+		}
+	}
+	if len(got) != 5 {
+		t.Errorf("descendants = %v, want exactly the five below A&E", got)
+	}
+
+	// A middle row sees only what is under IT, not its siblings.
+	if got := descendantsOf(children, "food"); len(got) != 3 || containsValue(got, "movies") {
+		t.Errorf("descendants of food = %v, want only its own three children", got)
+	}
+	if got := descendantsOf(children, "beer-reviews"); len(got) != 0 {
+		t.Errorf("descendants of a leaf = %v, want none", got)
+	}
+}
+
+func TestDescendantsOfTerminatesOnACycle(t *testing.T) {
+	// validateTaxonomyParent refuses to create this, but the walk runs on rows
+	// that a direct database edit could have made circular, and a rollup that
+	// hangs takes the request thread with it.
+	children := map[string][]string{
+		"food":         {"beer-reviews"},
+		"beer-reviews": {"food"},
+	}
+
+	got := descendantsOf(children, "food")
+	if len(got) != 1 || got[0] != "beer-reviews" {
+		t.Errorf("descendants = %v, want the cycle visited once", got)
+	}
+}
+
+func TestAncestorChainReturnsNearestFirst(t *testing.T) {
+	parents := map[string]string{
+		"beer-reviews": "food",
+		"food":         "entertainment",
+	}
+
+	got := ancestorChain(parents, "beer-reviews")
+	if len(got) != 2 || got[0] != "food" || got[1] != "entertainment" {
+		t.Fatalf("chain = %v, want [food entertainment]", got)
+	}
+	// The last entry is the root section, which is what
+	// rootSectionForSubsection reads to answer "which section is this under".
+	if got[len(got)-1] != "entertainment" {
+		t.Errorf("root = %q, want entertainment", got[len(got)-1])
+	}
+	if got := ancestorChain(parents, "entertainment"); len(got) != 0 {
+		t.Errorf("chain of a section = %v, want empty", got)
+	}
+}
+
+func TestAncestorChainStopsOnACycle(t *testing.T) {
+	parents := map[string]string{"food": "beer-reviews", "beer-reviews": "food"}
+
+	got := ancestorChain(parents, "food")
+	if len(got) > MaxTaxonomyDepth {
+		t.Fatalf("chain = %v, want the walk bounded rather than looping", got)
+	}
+}

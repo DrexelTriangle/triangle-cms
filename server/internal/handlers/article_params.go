@@ -118,7 +118,7 @@ func normalizeAndValidateArticleParams(ctx context.Context, conn *sql.DB, params
 	}
 
 	if params.Subsection != "" {
-		parentSection, ok, err := parentSectionForSubsection(ctx, conn, params.Subsection)
+		parentSection, ok, err := rootSectionForSubsection(ctx, conn, params.Subsection)
 		if err != nil {
 			return ArticleParams{}, err
 		}
@@ -130,6 +130,17 @@ func normalizeAndValidateArticleParams(ctx context.Context, conn *sql.DB, params
 		} else if params.Section != parentSection {
 			return ArticleParams{}, fmt.Errorf("subsection_slug does not belong to section_slug")
 		}
+
+		// A subsection can be a container too now, so its page needs its own
+		// descendants for the same reason a section's does.
+		matchSlugs, err := db.TaxonomyDescendants(ctx, conn, params.Subsection)
+		if err != nil {
+			return ArticleParams{}, err
+		}
+		if len(matchSlugs) == 0 {
+			matchSlugs = []string{params.Subsection}
+		}
+		params.SubsectionMatchSlugs = matchSlugs
 	}
 
 	return params, nil
@@ -156,10 +167,14 @@ func taxonomySectionExists(ctx context.Context, conn *sql.DB, section string) (b
 	return err == nil, err
 }
 
-// sectionMatchSlugs returns the section plus every subsection filed under it,
-// which together define what "articles in this section" means. Falls back to
-// the section alone when there is no database handle, matching the behaviour of
-// the other taxonomy lookups here.
+// sectionMatchSlugs returns the section plus every subsection below it, at any
+// depth, which together define what "articles in this section" means. Falls back
+// to the section alone when there is no database handle, matching the behaviour
+// of the other taxonomy lookups here.
+//
+// Transitive because the tree is three levels: A&E holds Food, and Food holds
+// Beer Reviews. One hop would have listed Food's own articles under A&E while
+// dropping everything filed under the three review categories beneath it.
 func sectionMatchSlugs(ctx context.Context, conn *sql.DB, section string) ([]string, error) {
 	trimmed := strings.TrimSpace(section)
 	if trimmed == "" {
@@ -172,30 +187,17 @@ func sectionMatchSlugs(ctx context.Context, conn *sql.DB, section string) ([]str
 		}
 		return slugs, nil
 	}
-
-	rows, err := conn.QueryContext(ctx,
-		"SELECT slug FROM site_taxonomy WHERE kind = ? AND parent_slug = ?",
-		string(models.TaxonomyTypeSubsection), trimmed,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	slugs := []string{trimmed}
-	for rows.Next() {
-		var slug string
-		if err := rows.Scan(&slug); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(slug) != "" {
-			slugs = append(slugs, slug)
-		}
-	}
-	return slugs, rows.Err()
+	return db.TaxonomyDescendants(ctx, conn, trimmed)
 }
 
-func parentSectionForSubsection(ctx context.Context, conn *sql.DB, subsection string) (string, bool, error) {
+// rootSectionForSubsection resolves the SECTION a subsection ultimately belongs
+// to, walking up however many levels sit between them.
+//
+// The root rather than the immediate parent, because this backs the check that
+// ?subsection_slug= agrees with ?section_slug=, and the caller names a section.
+// Returning "food" for beer-reviews would fail that check against the only
+// section a reader could have arrived from.
+func rootSectionForSubsection(ctx context.Context, conn *sql.DB, subsection string) (string, bool, error) {
 	if conn != nil {
 		var parent sql.NullString
 		err := conn.QueryRowContext(ctx,
@@ -208,7 +210,18 @@ func parentSectionForSubsection(ctx context.Context, conn *sql.DB, subsection st
 		if err != nil {
 			return "", false, err
 		}
-		return parent.String, parent.Valid && parent.String != "", nil
+		if !parent.Valid || strings.TrimSpace(parent.String) == "" {
+			return "", false, nil
+		}
+		ancestors, err := db.TaxonomyAncestors(ctx, conn, subsection)
+		if err != nil {
+			return "", false, err
+		}
+		if len(ancestors) == 0 {
+			return "", false, nil
+		}
+		// Nearest first, so the last entry is the top of the chain.
+		return ancestors[len(ancestors)-1], true, nil
 	}
 
 	for section, subsections := range allowedSubsectionsBySection {

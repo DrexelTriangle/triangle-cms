@@ -213,8 +213,15 @@ func canonicalTitleForTaxonomy(ctx context.Context, conn *sql.DB, kind, slug str
 // of 30 links is not navigation. The desk decides which ones are worth a link
 // on the sections screen; everything else stays reachable by URL and by the
 // category chip on an article.
-func subsectionsForSection(ctx context.Context, conn *sql.DB, sectionSlug string) ([]models.TaxonomySummary, error) {
-	trimmedSection := strings.TrimSpace(sectionSlug)
+// visibleSubsectionsOf returns the link strip for a page: the DIRECT children of
+// a slug that the desk has left visible.
+//
+// Direct children only, at every level. On A&E that now means Food rather than
+// the three review categories folded underneath it -- which is the point of the
+// nesting, since the strip existed to stay short. Food's own page gets its own
+// strip from the same call.
+func visibleSubsectionsOf(ctx context.Context, conn *sql.DB, parentSlug string) ([]models.TaxonomySummary, error) {
+	trimmedSection := strings.TrimSpace(parentSlug)
 	if trimmedSection == "" {
 		return []models.TaxonomySummary{}, nil
 	}
@@ -484,7 +491,7 @@ func orderCategoriesForSection(categories []models.CategorySummary, preferSlugs 
 // also carries. Empty when the listing has no section context at all.
 func categoryPreferenceSlugs(params ArticleParams) []string {
 	if params.Subsection != "" {
-		return []string{params.Subsection}
+		return params.subsectionMatch()
 	}
 	return params.SectionMatchSlugs
 }
@@ -1171,7 +1178,7 @@ func GetSectionArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		subsections, err := subsectionsForSection(r.Context(), conn, params.Section)
+		subsections, err := visibleSubsectionsOf(r.Context(), conn, params.Section)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1253,6 +1260,11 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		children, err := visibleSubsectionsOf(r.Context(), conn, params.Subsection)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 
 		setPublicReadCache(w, r)
 		writeJSON(w, http.StatusOK, models.SubsectionArticlesResponse{
@@ -1266,8 +1278,9 @@ func GetSubsectionArticles(conn *sql.DB) http.HandlerFunc {
 				Name:           subsectionCanonicalTitle,
 				CanonicalTitle: subsectionCanonicalTitle,
 			},
-			Articles:   articleListItems(articles, excerptWords, categoryPreferenceSlugs(params)...),
-			Pagination: paginationResponse(page, limit, offset, hasMore, totalCount),
+			Subsections: children,
+			Articles:    articleListItems(articles, excerptWords, categoryPreferenceSlugs(params)...),
+			Pagination:  paginationResponse(page, limit, offset, hasMore, totalCount),
 		})
 	}
 }
@@ -1277,10 +1290,34 @@ type ArticleParams struct {
 	AuthorSearch string
 	Section      string
 	Subsection   string
-	// SectionMatchSlugs is the section plus its subsections, resolved during
-	// validation because the filter builder has no database handle. A section
-	// with no matching category of its own is still populated by its children.
+	// SectionMatchSlugs is the section plus every subsection below it, resolved
+	// during validation because the filter builder has no database handle. A
+	// section with no matching category of its own is still populated by its
+	// children.
 	SectionMatchSlugs []string
+	// SubsectionMatchSlugs is the same for a subsection that has children of its
+	// own. Food is a container in exactly the way a section can be: its articles
+	// are filed under Beer Reviews and Restaurant Reviews, so matching "food"
+	// alone renders its page empty. Holds just the subsection itself for a leaf.
+	SubsectionMatchSlugs []string
+}
+
+// subsectionMatch is the slug set a subsection listing filters on, falling back
+// to the subsection itself when nothing resolved it.
+//
+// The fallback is not cosmetic. An empty slug list makes
+// appendCategorySlugCondition add no condition at all, so a filter that failed
+// to resolve would not narrow the listing -- it would return every article on
+// the site under a subsection's name. Callers that build ArticleParams without
+// going through normalizeAndValidateArticleParams reach exactly that state.
+func (p ArticleParams) subsectionMatch() []string {
+	if len(p.SubsectionMatchSlugs) > 0 {
+		return p.SubsectionMatchSlugs
+	}
+	if strings.TrimSpace(p.Subsection) == "" {
+		return nil
+	}
+	return []string{p.Subsection}
 }
 
 func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, offset int) (*sql.Rows, error) {
@@ -1426,7 +1463,7 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	// real category. That is how /special-editions/welcome-week served 0
 	// articles while 30 were filed under "Welcome Week".
 	if params.Subsection != "" {
-		appendCategorySlugCondition(&conditions, &args, params.Subsection)
+		appendCategorySlugCondition(&conditions, &args, params.subsectionMatch()...)
 	} else if params.Section != "" {
 		appendCategorySlugCondition(&conditions, &args, params.SectionMatchSlugs...)
 	}
