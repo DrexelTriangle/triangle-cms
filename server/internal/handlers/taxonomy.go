@@ -102,6 +102,10 @@ func refreshTaxonomyDerivedState(r *http.Request, conn *sql.DB, slugs ...string)
 	if err := db.RebuildTaxonomyArticleCountsFor(r.Context(), conn, slugs...); err != nil {
 		slog.Error("failed to recount taxonomy articles after a write", "slugs", slugs, "error", err)
 	}
+	// The public footer's default is built from this same tree, so a renamed
+	// section or a toggled subsection has to drop those cached columns too --
+	// otherwise the sections screen and the footer disagree for up to a TTL.
+	db.InvalidateGeneratedFooter()
 }
 
 // parentSlugForRecount narrows validateTaxonomyParent's any-typed result to the
