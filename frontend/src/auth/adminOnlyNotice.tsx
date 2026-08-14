@@ -53,8 +53,7 @@ export function AdminOnlyNoticeProvider({ children }: { children: React.ReactNod
                   Admin only
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  This change needs an admin account, so it was not saved. Ask a web admin to make it
-                  for you.
+                  This action requires an admin account. Nothing was saved.
                 </p>
               </div>
             </div>

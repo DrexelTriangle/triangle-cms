@@ -100,7 +100,7 @@ function MediaView() {
       if (galleryOnly) params.set("in_gallery", "true")
 
       const response = await apiFetch(`/v1/media?${params.toString()}`, { signal })
-      if (!response.ok) throw new Error(await errorMessage(response, `Request failed (${response.status})`))
+      if (!response.ok) throw new Error(await errorMessage(response, `Could not load media (${response.status})`))
       return (await response.json()) as MediaResponse
     },
     [apiFetch, search, galleryOnly],
@@ -303,7 +303,7 @@ function MediaView() {
             aria-label="Search media"
             className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search by file name, alt text, or caption..."
+            placeholder="Search file name, alt text, or caption"
             type="search"
             value={searchInput}
           />
@@ -351,7 +351,7 @@ function MediaView() {
             {search
               ? `No results for "${search}"`
               : galleryOnly
-                ? "Nothing is on the public photo gallery yet. Open an image and tick “Show on the photo gallery”."
+                ? "No images are on the public photo gallery yet. Open an image and select \"Show on the photo gallery\"."
                 : "No media items yet."}
           </p>
           {/* Reindex lives in Settings, which is admin-only, so only admins are

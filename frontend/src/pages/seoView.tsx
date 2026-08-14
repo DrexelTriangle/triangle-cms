@@ -36,6 +36,15 @@ const EMPTY_SETTINGS: SeoSettings = {
   robots_url: "",
 }
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const body = await res.json() as { error?: string }
+    return body.error?.trim() || fallback
+  } catch {
+    return fallback
+  }
+}
+
 export default function SeoView() {
   const apiFetch = useApiFetch()
   const navigate = useNavigate()
@@ -56,10 +65,10 @@ export default function SeoView() {
     setAuditError(null)
     try {
       const res = await apiFetch("/v1/seo/audit")
-      if (!res.ok) throw new Error(`Failed to load SEO audit (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load SEO audit (${res.status})`))
       setAudit((await res.json()) as SeoAudit)
     } catch (err) {
-      setAuditError(err instanceof Error ? err.message : "Failed to load SEO audit")
+      setAuditError(err instanceof Error ? err.message : "Could not load SEO audit.")
     } finally {
       setAuditLoading(false)
     }
@@ -75,7 +84,7 @@ export default function SeoView() {
           apiFetch("/v1/seo/audit"),
           apiFetch("/v1/settings/seo"),
         ])
-        if (!auditRes.ok) throw new Error(`Failed to load SEO audit (${auditRes.status})`)
+        if (!auditRes.ok) throw new Error(await readErrorMessage(auditRes, `Could not load SEO audit (${auditRes.status})`))
         const auditBody = (await auditRes.json()) as SeoAudit
         if (settingsRes.ok) {
           const settingsBody = (await settingsRes.json()) as SeoSettings
@@ -86,7 +95,7 @@ export default function SeoView() {
         }
         if (!cancelled) setAudit(auditBody)
       } catch (err) {
-        if (!cancelled) setAuditError(err instanceof Error ? err.message : "Failed to load SEO audit")
+        if (!cancelled) setAuditError(err instanceof Error ? err.message : "Could not load SEO audit.")
       } finally {
         if (!cancelled) setAuditLoading(false)
       }
@@ -106,13 +115,13 @@ export default function SeoView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settingsDraft),
       })
-      if (!res.ok) throw new Error(`Failed to save SEO settings (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not save SEO settings (${res.status})`))
       const saved = (await res.json()) as SeoSettings
       setSettings(saved)
       setSettingsDraft(saved)
       setSettingsMessage("Saved")
     } catch (err) {
-      setSettingsMessage(err instanceof Error ? err.message : "Failed to save SEO settings")
+      setSettingsMessage(err instanceof Error ? err.message : "Could not save SEO settings.")
     } finally {
       setSettingsSaving(false)
     }
@@ -130,7 +139,7 @@ export default function SeoView() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">SEO</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Search engine optimization overview</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Metadata issues on recent published articles</p>
         </div>
         <button
           type="button"
@@ -146,13 +155,13 @@ export default function SeoView() {
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-4">
         <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Issues Found</p>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Issues</p>
           <p className={`text-2xl font-bold mt-1 ${totalIssues > 0 ? "text-destructive" : "text-foreground"}`}>
             {auditLoading ? "—" : totalIssues.toLocaleString()}
           </p>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Articles Audited</p>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Articles Checked</p>
           <p className="text-2xl font-bold text-foreground mt-1">
             {auditLoading ? "—" : publishedCount.toLocaleString()}
           </p>
@@ -237,11 +246,11 @@ export default function SeoView() {
       <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-4">
         <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
           <Globe className="w-4 h-4" />
-          Default Social / Open Graph Settings
+          Social Defaults
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Default OG Title</label>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Open Graph Title</label>
             <input
               className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition disabled:opacity-60"
               value={settingsDraft.og_title}
@@ -250,7 +259,7 @@ export default function SeoView() {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Default OG Description</label>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Open Graph Description</label>
             <input
               className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition disabled:opacity-60"
               value={settingsDraft.og_description}
@@ -308,7 +317,7 @@ export default function SeoView() {
               disabled={settingsSaving || !settingsDirty}
               className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
             >
-              Save Changes
+              Save changes
             </button>
           </div>
         )}

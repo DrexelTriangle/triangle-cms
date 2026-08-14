@@ -350,7 +350,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
 
         const response = await apiFetch(`/v1/articles?${params.toString()}`)
         if (!response.ok) {
-          throw new Error(`Request failed (${response.status})`)
+          throw new Error(`Could not load articles (${response.status})`)
         }
 
         const payload = (await response.json()) as ApiArticleResponse
@@ -532,7 +532,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           type="button"
         >
           <Plus className="w-4 h-4" aria-hidden="true" />
-          Add New
+          New article
         </button>
       </div>
 
@@ -543,7 +543,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           aria-label={`Search ${listLabel}`}
           className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
           onChange={(e) => onSearch(e.target.value)}
-          placeholder={`Search ${listLabel}...`}
+          placeholder={`Search ${listLabel}`}
           type="search"
           value={searchQuery}
         />
@@ -678,7 +678,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
             ) : error ? (
               <tr>
                 <td className="px-4 py-8 text-center text-destructive" colSpan={6}>
-                  Failed to load articles: {error}
+                  Could not load articles: {error}
                 </td>
               </tr>
             ) : articles.length === 0 ? (
@@ -746,7 +746,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                           target="_blank"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
-                          View Live
+                          View live
                         </a>
                       )}
                       {/* Unlike View Live this is offered at any status: the

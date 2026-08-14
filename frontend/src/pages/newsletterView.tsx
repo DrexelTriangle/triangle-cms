@@ -92,7 +92,7 @@ export default function NewsletterView() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
         <input
           className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-          placeholder={tab === "campaigns" ? "Search campaigns..." : "Search subscribers..."}
+          placeholder={tab === "campaigns" ? "Search campaigns" : "Search subscribers"}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />

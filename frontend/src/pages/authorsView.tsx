@@ -85,8 +85,8 @@ function AuthorsView() {
     const archivedParam = activeTab === "trash" ? "&archived=1" : ""
     const { sortBy, sortDirection } = SORT_PARAMS[sortMode]
     return apiFetch(`/v1/authors?limit=${pageSize}&offset=${page * pageSize}&sort_by=${sortBy}&sort_direction=${sortDirection}${searchParam}${archivedParam}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Request failed (${r.status})`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await errorMessageFromResponse(r, `Could not load authors (${r.status})`))
         return r.json() as Promise<Author[] | AuthorsResponse>
       })
       .then((data) => {
@@ -97,14 +97,14 @@ function AuthorsView() {
         const fallbackTotalCount = (page * pageSize) + items.length + (hasMore ? 1 : 0)
         setTotalAuthorCount(typeof apiTotalCount === "number" ? apiTotalCount : fallbackTotalCount)
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load authors"))
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load authors."))
       .finally(() => setIsLoading(false))
   }, [activeTab, apiFetch, page, pageSize, debouncedSearch, sortMode])
 
   const loadTrashCount = useCallback(() => {
     return apiFetch("/v1/authors?limit=1&archived=1")
-      .then((r) => {
-        if (!r.ok) throw new Error(`Request failed (${r.status})`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await errorMessageFromResponse(r, `Could not load trash count (${r.status})`))
         return r.json() as Promise<Author[] | AuthorsResponse>
       })
       .then((data) => {
@@ -217,7 +217,7 @@ function AuthorsView() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Authors</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isLoading ? "Loading…" : `${effectiveTotalCount} authors total`}
+            {isLoading ? "Loading..." : `${effectiveTotalCount} authors total`}
           </p>
         </div>
         {activeTab !== "trash" && (
@@ -227,7 +227,7 @@ function AuthorsView() {
             onClick={() => setIsCreateOpen(true)}
           >
             <Plus className="w-4 h-4" />
-            Add New
+            New author
           </button>
         )}
       </div>
@@ -248,7 +248,7 @@ function AuthorsView() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
         <input
           className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-          placeholder="Search authors..."
+          placeholder="Search authors"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value)
@@ -308,7 +308,7 @@ function AuthorsView() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>Loading authors…</td>
+                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>Loading authors...</td>
               </tr>
             ) : error ? (
               <tr>
@@ -484,11 +484,11 @@ function CreateAuthorModal({ onClose, onCreated }: { onClose: () => void; onCrea
         }),
       })
       if (!res.ok) {
-        throw new Error(await errorMessageFromResponse(res, `Failed to create author (${res.status})`))
+        throw new Error(await errorMessageFromResponse(res, `Could not create author (${res.status})`))
       }
       onCreated()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create author")
+      setError(err instanceof Error ? err.message : "Could not create author.")
     } finally {
       setIsSaving(false)
     }
@@ -498,7 +498,7 @@ function CreateAuthorModal({ onClose, onCreated }: { onClose: () => void; onCrea
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="text-lg font-semibold text-foreground">New Author</h2>
+          <h2 className="text-lg font-semibold text-foreground">New author</h2>
           <button className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" type="button" onClick={onClose} title="Close">
             <X className="w-4 h-4" />
           </button>
@@ -566,7 +566,7 @@ function CreateAuthorModal({ onClose, onCreated }: { onClose: () => void; onCrea
               type="submit"
               disabled={isSaving}
             >
-              {isSaving ? "Creating…" : "Create author"}
+              {isSaving ? "Creating..." : "Create author"}
             </button>
           </div>
         </form>
@@ -596,7 +596,7 @@ function EditAuthorModal({ author, onClose, onUpdated }: { author: Author; onClo
     apiFetch(`/v1/authors/${encodeURIComponent(author.slug)}`)
       .then(async (res) => {
         if (!res.ok) {
-          throw new Error(await errorMessageFromResponse(res, `Failed to load author (${res.status})`))
+          throw new Error(await errorMessageFromResponse(res, `Could not load author (${res.status})`))
         }
         return res.json() as Promise<Author>
       })
@@ -609,7 +609,7 @@ function EditAuthorModal({ author, onClose, onUpdated }: { author: Author; onClo
         setSlug(data.slug)
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load author")
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load author.")
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
@@ -645,11 +645,11 @@ function EditAuthorModal({ author, onClose, onUpdated }: { author: Author; onClo
         }),
       })
       if (!res.ok) {
-        throw new Error(await errorMessageFromResponse(res, `Failed to update author (${res.status})`))
+        throw new Error(await errorMessageFromResponse(res, `Could not update author (${res.status})`))
       }
       onUpdated()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update author")
+      setError(err instanceof Error ? err.message : "Could not update author.")
     } finally {
       setIsSaving(false)
     }
@@ -659,7 +659,7 @@ function EditAuthorModal({ author, onClose, onUpdated }: { author: Author; onClo
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="text-lg font-semibold text-foreground">Edit Author</h2>
+          <h2 className="text-lg font-semibold text-foreground">Edit author</h2>
           <button className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" type="button" onClick={onClose} title="Close">
             <X className="w-4 h-4" />
           </button>
@@ -715,7 +715,7 @@ function EditAuthorModal({ author, onClose, onUpdated }: { author: Author; onClo
             />
           </label>
 
-          {isLoading && <p className="text-sm text-muted-foreground">Loading author details…</p>}
+          {isLoading && <p className="text-sm text-muted-foreground">Loading author details...</p>}
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <div className="flex items-center justify-end gap-2 pt-1">
@@ -732,7 +732,7 @@ function EditAuthorModal({ author, onClose, onUpdated }: { author: Author; onClo
               type="submit"
               disabled={isLoading || isSaving}
             >
-              {isSaving ? "Saving…" : "Save changes"}
+              {isSaving ? "Saving..." : "Save changes"}
             </button>
           </div>
         </form>

@@ -10,16 +10,16 @@ function LoginPage() {
     const error = new URLSearchParams(location.search).get("error")
     if (!error) return null
     const friendly: Record<string, string> = {
-      missing_state: "Login failed: missing state cookie.",
-      state_mismatch: "Login failed: state validation mismatch.",
-      missing_code: "Login failed: missing authorization code.",
-      token_exchange_failed: "Login failed: token exchange failed.",
-      invalid_token: "Login failed: invalid identity token.",
-      invalid_claims: "Login failed: invalid token claims.",
-      user_error: "Login failed while loading user profile.",
-      session_error: "Login failed while creating session.",
+      missing_state: "Sign-in expired. Start again.",
+      state_mismatch: "Sign-in expired. Start again.",
+      missing_code: "The identity provider did not return a sign-in code.",
+      token_exchange_failed: "Could not complete sign-in with the identity provider.",
+      invalid_token: "The identity provider returned an invalid token.",
+      invalid_claims: "Your account is missing required profile information.",
+      user_error: "Could not load your CMS profile.",
+      session_error: "Could not create your CMS session.",
     }
-    return friendly[error] ?? `Login failed: ${error}`
+    return friendly[error] ?? "Sign-in failed. Try again or contact a web admin."
   }, [location.search])
 
   return (
@@ -36,12 +36,12 @@ function LoginPage() {
 
         {/* Content */}
         <div className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full py-16">
-          <p className="text-xs font-bold text-primary uppercase tracking-[0.18em] mb-3">Welcome back</p>
+          <p className="text-xs font-bold text-primary uppercase tracking-[0.18em] mb-3">Triangle CMS</p>
           <h1 className="text-3xl font-bold text-foreground leading-tight mb-2">
-            Sign in to your account.
+            Sign in
           </h1>
           <p className="text-sm text-muted-foreground mb-10">
-            The Triangle's editorial platform. Publish, manage, and grow.
+            Use your newsroom account to edit and publish stories.
           </p>
 
           <button

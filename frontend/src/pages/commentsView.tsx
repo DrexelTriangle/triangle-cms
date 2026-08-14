@@ -174,7 +174,7 @@ export default function CommentsView() {
     try {
       const response = await apiFetch(`/v1/comments?${params.toString()}`)
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response, `Request failed (${response.status})`))
+        throw new Error(await readErrorMessage(response, `Could not load comments (${response.status})`))
       }
       const body = await response.json() as CommentsResponse
       const nextComments = body.comments ?? []
@@ -345,7 +345,7 @@ export default function CommentsView() {
           <input
             aria-label="Search comments"
             className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-            placeholder="Search comments, authors, emails, or articles..."
+            placeholder="Search comments, authors, emails, or articles"
             type="search"
             value={search}
             onChange={(e) => {

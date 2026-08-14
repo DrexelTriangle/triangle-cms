@@ -89,9 +89,9 @@ const slugify = (value: string) =>
 async function readErrorMessage(response: Response) {
   try {
     const body = await response.json() as { error?: string }
-    return body.error ?? `Request failed (${response.status})`
+    return body.error?.trim() || `Could not complete request (${response.status})`
   } catch {
-    return `Request failed (${response.status})`
+    return `Could not complete request (${response.status})`
   }
 }
 
@@ -131,7 +131,7 @@ export default function SectionsView() {
       )
     } catch (err) {
       setItems([])
-      setError(err instanceof Error ? err.message : "Failed to load sections")
+      setError(err instanceof Error ? err.message : "Could not load sections.")
     } finally {
       setIsLoading(false)
     }
@@ -409,7 +409,7 @@ export default function SectionsView() {
       setSlugTouched(false)
       await loadSections()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save taxonomy item")
+      setError(err instanceof Error ? err.message : "Could not save section.")
     } finally {
       setIsSaving(false)
     }
@@ -445,7 +445,7 @@ export default function SectionsView() {
         row.id === item.id ? { ...row, is_visible: nextVisible } : row
       )))
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to change visibility")
+      setError(err instanceof Error ? err.message : "Could not change visibility.")
     } finally {
       setTogglingId(null)
     }
@@ -465,7 +465,7 @@ export default function SectionsView() {
       setDeleteTarget(null)
       await loadSections()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete taxonomy item")
+      setError(err instanceof Error ? err.message : "Could not delete section.")
     } finally {
       setIsSaving(false)
     }
@@ -526,7 +526,7 @@ export default function SectionsView() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
         <input
           className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-          placeholder="Search sections, columns, or slugs..."
+          placeholder="Search sections, columns, or slugs"
           type="search"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
@@ -728,7 +728,7 @@ export default function SectionsView() {
                     ))}
                   </select>
                   <span className="text-xs text-muted-foreground">
-                    A subsection can sit under a section or under another subsection &mdash;
+                    A subsection can sit under a section or under another subsection:
                     Beer Reviews sits under Food, which sits under Arts &amp; Entertainment.
                     Anything already {MAX_DEPTH} levels deep is left out, since nothing can hang below it.
                   </span>
@@ -746,8 +746,8 @@ export default function SectionsView() {
                 />
                 <span className="text-xs text-muted-foreground">
                   One per line. Articles are matched on the exact category name, so add one
-                  here whenever the name on the articles differs from the name above &mdash;
-                  the Entertainment section holds articles filed under &ldquo;Arts &amp; Entertainment&rdquo;.
+                  here whenever the name on the articles differs from the name above. The
+                  Entertainment section holds articles filed under "Arts &amp; Entertainment".
                   Leave empty when they match.
                 </span>
               </label>

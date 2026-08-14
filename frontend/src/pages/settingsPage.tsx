@@ -45,6 +45,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const body = await res.json() as { error?: string }
+    return body.error?.trim() || fallback
+  } catch {
+    return fallback
+  }
+}
+
 export default function SettingsPage() {
   const { user, logout } = useSessionAuth()
   const { isAdmin } = useCurrentUserRole()
@@ -82,7 +91,7 @@ export default function SettingsPage() {
     async function loadSiteSettings() {
       try {
         const res = await apiFetch("/v1/settings/site")
-        if (!res.ok) throw new Error(`Failed to load site settings (${res.status})`)
+        if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load site settings (${res.status})`))
         const body = (await res.json()) as { site_title?: string }
         const title = String(body.site_title ?? "").trim()
         if (!cancelled) {
@@ -91,7 +100,7 @@ export default function SettingsPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setSiteTitleMessage(err instanceof Error ? err.message : "Failed to load site settings")
+          setSiteTitleMessage(err instanceof Error ? err.message : "Could not load site settings.")
         }
       }
     }
@@ -106,7 +115,7 @@ export default function SettingsPage() {
     async function loadBreakingNews() {
       try {
         const res = await apiFetch("/v1/settings/breaking-news")
-        if (!res.ok) throw new Error(`Failed to load breaking-news settings (${res.status})`)
+        if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load breaking news settings (${res.status})`))
         const body = (await res.json()) as { enabled?: boolean; text?: string }
         const enabled = Boolean(body.enabled)
         const text = String(body.text ?? "")
@@ -117,7 +126,7 @@ export default function SettingsPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setBreakingMessage(err instanceof Error ? err.message : "Failed to load breaking-news settings")
+          setBreakingMessage(err instanceof Error ? err.message : "Could not load breaking news settings.")
         }
       }
     }
@@ -132,7 +141,7 @@ export default function SettingsPage() {
     async function loadHomepageCarousel() {
       try {
         const res = await apiFetch("/v1/settings/homepage-carousel")
-        if (!res.ok) throw new Error(`Failed to load homepage carousel settings (${res.status})`)
+        if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load homepage carousel settings (${res.status})`))
         const body = (await res.json()) as { slides?: CarouselSlide[] }
         const slides = Array.isArray(body.slides) ? body.slides : []
         if (!cancelled) {
@@ -141,7 +150,7 @@ export default function SettingsPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          setCarouselMessage(err instanceof Error ? err.message : "Failed to load homepage carousel settings")
+          setCarouselMessage(err instanceof Error ? err.message : "Could not load homepage carousel settings.")
         }
       }
     }
@@ -166,7 +175,7 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: breakingEnabled, text }),
       })
-      if (!res.ok) throw new Error(`Failed to save breaking-news settings (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not save breaking news settings (${res.status})`))
       const body = (await res.json()) as { enabled?: boolean; text?: string }
       const savedEnabled = Boolean(body.enabled)
       const savedText = String(body.text ?? "")
@@ -175,7 +184,7 @@ export default function SettingsPage() {
       setBreakingSaved({ enabled: savedEnabled, text: savedText })
       setBreakingMessage("Saved")
     } catch (err) {
-      setBreakingMessage(err instanceof Error ? err.message : "Failed to save breaking-news settings")
+      setBreakingMessage(err instanceof Error ? err.message : "Could not save breaking news settings.")
     } finally {
       setBreakingSaving(false)
     }
@@ -196,12 +205,12 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ site_title: nextTitle }),
       })
-      if (!res.ok) throw new Error(`Failed to save site settings (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not save site settings (${res.status})`))
       setSiteTitle(nextTitle)
       setSiteTitleDraft(nextTitle)
       setSiteTitleMessage("Saved")
     } catch (err) {
-      setSiteTitleMessage(err instanceof Error ? err.message : "Failed to save site settings")
+      setSiteTitleMessage(err instanceof Error ? err.message : "Could not save site settings.")
     } finally {
       setSiteTitleSaving(false)
     }
@@ -254,14 +263,14 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slides }),
       })
-      if (!res.ok) throw new Error(`Failed to save homepage carousel settings (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not save homepage carousel settings (${res.status})`))
       const body = (await res.json()) as { slides?: CarouselSlide[] }
       const savedSlides = Array.isArray(body.slides) ? body.slides : []
       setCarouselSlides(savedSlides)
       setCarouselSaved(savedSlides)
       setCarouselMessage("Saved")
     } catch (err) {
-      setCarouselMessage(err instanceof Error ? err.message : "Failed to save homepage carousel settings")
+      setCarouselMessage(err instanceof Error ? err.message : "Could not save homepage carousel settings.")
     } finally {
       setCarouselSaving(false)
     }
@@ -274,10 +283,10 @@ export default function SettingsPage() {
       const res = await apiFetch("/v1/settings/taxonomy/rebuild", {
         method: "POST",
       })
-      if (!res.ok) throw new Error(`Failed to rebuild taxonomy counts (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not rebuild taxonomy counts (${res.status})`))
       setTaxonomyRebuildMessage("Taxonomy article counts rebuilt.")
     } catch (err) {
-      setTaxonomyRebuildMessage(err instanceof Error ? err.message : "Failed to rebuild taxonomy counts")
+      setTaxonomyRebuildMessage(err instanceof Error ? err.message : "Could not rebuild taxonomy counts.")
     } finally {
       setTaxonomyRebuildRunning(false)
     }
@@ -294,7 +303,7 @@ export default function SettingsPage() {
     try {
       for (;;) {
         const res = await apiFetch("/v1/media/index")
-        if (!res.ok) throw new Error(`Failed to read index status (${res.status})`)
+        if (!res.ok) throw new Error(await readErrorMessage(res, `Could not read index status (${res.status})`))
         const status = (await res.json()) as IndexStatus
         const p = status.progress
 
@@ -313,7 +322,7 @@ export default function SettingsPage() {
         await new Promise((resolve) => setTimeout(resolve, 2000))
       }
     } catch (err) {
-      setMediaIndexMessage(err instanceof Error ? err.message : "Failed to read index status")
+      setMediaIndexMessage(err instanceof Error ? err.message : "Could not read index status.")
     } finally {
       mediaPollActive.current = false
       setMediaIndexRunning(false)
@@ -347,11 +356,11 @@ export default function SettingsPage() {
       const res = await apiFetch("/v1/media/index", { method: "POST" })
       // 409 means one is already running — join its progress rather than error.
       if (!res.ok && res.status !== 409) {
-        throw new Error(`Failed to start reindex (${res.status})`)
+        throw new Error(await readErrorMessage(res, `Could not start media reindex (${res.status})`))
       }
       await followMediaIndex()
     } catch (err) {
-      setMediaIndexMessage(err instanceof Error ? err.message : "Failed to start reindex")
+      setMediaIndexMessage(err instanceof Error ? err.message : "Could not start media reindex.")
     }
   }
 
@@ -364,7 +373,7 @@ export default function SettingsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Your account information</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Account and site controls</p>
         </div>
         <button
           type="button"
@@ -431,7 +440,7 @@ export default function SettingsPage() {
             disabled={siteTitleSaving || siteTitleDraft.trim() === "" || siteTitleDraft.trim() === siteTitle}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
           >
-            Save Site Title
+            Save site title
           </button>
           {siteTitleMessage && <span className="text-sm text-muted-foreground">{siteTitleMessage}</span>}
         </div>
@@ -442,7 +451,7 @@ export default function SettingsPage() {
         storageKey="carousel"
         dirty={carouselDirty}
         summary={`${carouselSlides.length} slide${carouselSlides.length === 1 ? "" : "s"}`}
-        description="Slides shown in Scalene's Splide carousel on the public homepage."
+        description="Slides shown in the public homepage carousel."
       >
         <div className="flex justify-end">
           <button
@@ -451,7 +460,7 @@ export default function SettingsPage() {
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-muted/40"
           >
             <Plus className="w-4 h-4" />
-            Add Slide
+            Add slide
           </button>
         </div>
 
@@ -609,14 +618,14 @@ export default function SettingsPage() {
             disabled={carouselSaving || !carouselDirty}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
           >
-            Save Carousel
+            Save carousel
           </button>
           {carouselMessage && <span className="text-sm text-muted-foreground">{carouselMessage}</span>}
         </div>
       </SettingsSection>
 
       <SettingsSection
-        title="Breaking News Banner"
+        title="Breaking News"
         storageKey="breaking-news"
         dirty={breakingDirty}
         summary={breakingEnabled ? "Enabled" : "Off"}
@@ -651,7 +660,7 @@ export default function SettingsPage() {
             }
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
           >
-            Save Banner
+            Save banner
           </button>
           {breakingMessage && <span className="text-sm text-muted-foreground">{breakingMessage}</span>}
         </div>
@@ -672,7 +681,7 @@ export default function SettingsPage() {
             disabled={taxonomyRebuildRunning}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
           >
-            Rebuild Taxonomy Counts
+            Rebuild counts
           </button>
           {taxonomyRebuildMessage && <span className="text-sm text-muted-foreground">{taxonomyRebuildMessage}</span>}
         </div>
@@ -682,8 +691,8 @@ export default function SettingsPage() {
         <SettingsSection
           title="Media Library"
           storageKey="media-library"
-          summary={mediaIndexRunning ? "Reindexing…" : undefined}
-          description="Scan the media filesystem for files missing from the library. This walks every asset on the media server and takes several minutes; existing entries are left untouched."
+          summary={mediaIndexRunning ? "Reindexing..." : undefined}
+          description="Scan the media server for files missing from the library. This can take several minutes; existing entries are left untouched."
         >
           <div className="flex items-center gap-3">
             <button
@@ -693,7 +702,7 @@ export default function SettingsPage() {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
             >
               <RefreshCw className={`w-4 h-4 ${mediaIndexRunning ? "animate-spin" : ""}`} aria-hidden="true" />
-              {mediaIndexRunning ? "Reindexing…" : "Reindex Media"}
+              {mediaIndexRunning ? "Reindexing..." : "Reindex media"}
             </button>
             {mediaIndexMessage && <span className="text-sm text-muted-foreground">{mediaIndexMessage}</span>}
           </div>

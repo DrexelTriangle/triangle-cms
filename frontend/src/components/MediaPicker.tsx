@@ -107,7 +107,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
         const response = await apiFetch(`/v1/media/gallery?${params.toString()}`, {
           signal: controller.signal,
         })
-        if (!response.ok) throw new Error(await errorMessage(response, `Request failed (${response.status})`))
+        if (!response.ok) throw new Error(await errorMessage(response, `Could not load media (${response.status})`))
         const payload = (await response.json()) as GalleryResponse
         if (controller.signal.aborted) return
         const page = payload.media ?? []
@@ -228,7 +228,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
               autoFocus
               className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search by file name, alt text, or caption..."
+              placeholder="Search file name, alt text, or caption"
               type="search"
               value={searchInput}
             />
@@ -316,7 +316,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
               aria-label="Image URL"
               className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               onChange={(e) => setUrlInput(e.target.value)}
-              placeholder="Or paste image URL"
+              placeholder="Paste image URL"
               type="url"
               value={urlInput}
             />

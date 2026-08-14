@@ -39,6 +39,15 @@ const inputClass =
   "w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
 const iconButtonClass = "p-1 rounded-md hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent"
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const body = await res.json() as { error?: string }
+    return body.error?.trim() || fallback
+  } catch {
+    return fallback
+  }
+}
+
 function normalizeEntry(raw: unknown): FooterEntry {
   const entry = (raw ?? {}) as Partial<FooterEntry>
   const kind: FooterEntryKind =
@@ -82,7 +91,7 @@ export default function FooterMenuEditor() {
     async function loadFooter() {
       try {
         const res = await apiFetch("/v1/settings/footer")
-        if (!res.ok) throw new Error(`Failed to load footer settings (${res.status})`)
+        if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load footer settings (${res.status})`))
         const body = (await res.json()) as { columns?: unknown }
         const loaded = normalizeColumns(body.columns)
         if (!cancelled) {
@@ -90,7 +99,7 @@ export default function FooterMenuEditor() {
           setSaved(JSON.stringify(loaded))
         }
       } catch (err) {
-        if (!cancelled) setMessage(err instanceof Error ? err.message : "Failed to load footer settings")
+        if (!cancelled) setMessage(err instanceof Error ? err.message : "Could not load footer settings.")
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -145,7 +154,7 @@ export default function FooterMenuEditor() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ columns }),
       })
-      if (!res.ok) throw new Error(`Failed to save footer settings (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not save footer settings (${res.status})`))
       // The server drops unlabelled entries and empty columns, so render what
       // it stored rather than the draft.
       const body = (await res.json()) as { columns?: unknown }
@@ -154,7 +163,7 @@ export default function FooterMenuEditor() {
       setSaved(JSON.stringify(stored))
       setMessage("Saved")
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Failed to save footer settings")
+      setMessage(err instanceof Error ? err.message : "Could not save footer settings.")
     } finally {
       setSaving(false)
     }
@@ -164,23 +173,22 @@ export default function FooterMenuEditor() {
 
   return (
     <SettingsSection
-      title="Footer Menu"
+      title="Footer"
       storageKey="footer"
       dirty={dirty}
       summary={
         loading
-          ? "Loading…"
+          ? "Loading..."
           : `${columns.length} column${columns.length === 1 ? "" : "s"}`
       }
-      description="Link columns shown in the public site footer, laid out left to right as they appear on the site. Headings are the bold entries; a spacer starts a new group inside the same column. Saving an empty menu restores the built-in default."
+      description="Links shown in the public site footer. Columns appear left to right; headings are bold entries; spacers split groups inside a column."
     >
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       ) : columns.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 flex flex-col items-center gap-3 text-center">
           <p className="text-sm text-muted-foreground max-w-sm">
-            The footer menu is empty. Add a column to build it, or save as-is to restore the built-in
-            default footer.
+            The footer menu is empty. Add a column, or save to restore the default footer.
           </p>
           <button
             type="button"
@@ -335,7 +343,7 @@ export default function FooterMenuEditor() {
                           aria-label="Link target"
                           value={entry.href}
                           onChange={(e) => updateEntry(columnIndex, entryIndex, { href: e.target.value })}
-                          placeholder="/section or https://…"
+                          placeholder="/section or https://..."
                           className={`${inputClass} text-muted-foreground`}
                         />
                       </>
@@ -378,7 +386,7 @@ export default function FooterMenuEditor() {
           disabled={saving || loading || !dirty}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
         >
-          Save Footer
+          Save footer
         </button>
         {dirty && !saving && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
         {message && <span className="text-sm text-muted-foreground">{message}</span>}
