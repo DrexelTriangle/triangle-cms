@@ -12,6 +12,15 @@ import { DateTimeField } from "../components/ui/datetime-field"
 // Lazy-loaded so the heavy yoastseo bundle only loads when editing an article.
 const SeoAnalysis = lazy(() => import("../components/SeoAnalysis"))
 
+async function readErrorMessage(response: Response, fallback: string) {
+  try {
+    const body = await response.json() as { error?: string }
+    return body.error?.trim() || fallback
+  } catch {
+    return fallback
+  }
+}
+
 type EditableStatus = "draft" | "published"
 type PublishTiming = "draft" | "now" | "schedule"
 
@@ -416,7 +425,7 @@ function EditArticleView() {
       try {
         const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`)
         if (!response.ok) {
-          throw new Error(`Request failed (${response.status})`)
+          throw new Error(await readErrorMessage(response, `Could not load article (${response.status})`))
         }
         const payload = (await response.json()) as ApiArticleDetail
         if (!cancelled) {

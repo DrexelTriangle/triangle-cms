@@ -284,12 +284,10 @@ export default function DashboardPage() {
       {/* Page header */}
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-1">
-            COMMAND CENTER
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-1">Dashboard</p>
           <h1 className="text-3xl font-extrabold tracking-tight">{getHour()}, {displayName}.</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Here's what's happening at The Triangle today.
+            Recent CMS activity and quick drafting tools.
           </p>
         </div>
         <div className="flex gap-2.5 shrink-0">
@@ -313,7 +311,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
         {[
           {
-            label: "Total Articles",
+            label: "Articles",
             value: stats.totalArticles != null ? stats.totalArticles.toLocaleString() : "—",
             icon: FileText,
             color: "text-primary",
@@ -366,7 +364,7 @@ export default function DashboardPage() {
           },
           {
             label: "API Status",
-            value: apiHealth === "checking" ? "…" : apiHealth === "ok" ? "Healthy" : "Error",
+            value: apiHealth === "checking" ? "..." : apiHealth === "ok" ? "Healthy" : "Error",
             icon: Server,
             color: apiHealth === "ok" ? "text-success" : apiHealth === "error" ? "text-destructive" : "text-muted-foreground",
             bg: apiHealth === "ok" ? "bg-success/10" : apiHealth === "error" ? "bg-destructive/10" : "bg-muted",
@@ -414,10 +412,10 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-bold flex items-center gap-2">
                   <FileText className="w-4 h-4 text-primary" />
-                  All Recent Articles
+                  Recent Articles
                 </CardTitle>
                 <Button variant="ghost" size="sm" className="text-primary text-xs h-7 px-2" onClick={() => navigate("/articles")}>
-                  Manage →
+                  Manage
                 </Button>
               </div>
             </CardHeader>
@@ -488,7 +486,7 @@ export default function DashboardPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1 block">What's on your mind?</label>
+                <label className="text-xs font-semibold text-muted-foreground mb-1 block">Notes</label>
                 <textarea
                   placeholder="Start writing..."
                   value={draftContent}
@@ -504,7 +502,7 @@ export default function DashboardPage() {
                 onClick={() => void createQuickDraft()}
               >
                 <Send className="w-3.5 h-3.5" />
-                {isSavingDraft ? "Saving..." : "Save Draft"}
+                {isSavingDraft ? "Saving..." : "Save draft"}
               </Button>
               {draftError ? (
                 <p className="text-xs text-destructive">{draftError}</p>
@@ -522,7 +520,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="px-3 pb-3 space-y-1">
               {[
-                { label: "Write new article", icon: PenLine, path: "/articles/new", badge: null },
+                { label: "New article", icon: PenLine, path: "/articles/new", badge: null },
                 { label: "Manage authors", icon: Users, path: "/authors", badge: null },
                 { label: "Developing stories", icon: TrendingUp, path: "/developing-stories", badge: "Live" },
                 { label: "Upload media", icon: FileText, path: "/media", badge: null },

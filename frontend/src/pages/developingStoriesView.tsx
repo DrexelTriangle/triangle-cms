@@ -11,6 +11,15 @@ async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T
 }
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const body = await readJson<{ error?: string }>(res)
+    return body.error?.trim() || fallback
+  } catch {
+    return fallback
+  }
+}
+
 function DevelopingStoriesView() {
   const apiFetch = useApiFetch()
   const [stories, setStories] = useState<string[]>([])
@@ -25,11 +34,11 @@ function DevelopingStoriesView() {
     setError(null)
     try {
       const res = await apiFetch("/v1/developing-stories")
-      if (!res.ok) throw new Error(`Failed loading developing stories (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load developing stories (${res.status})`))
       const body = await readJson<DevelopingStoriesResponse>(res)
       setStories(body.stories ?? [])
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load developing stories")
+      setError(err instanceof Error ? err.message : "Could not load developing stories.")
     } finally {
       setIsLoading(false)
     }
@@ -55,11 +64,11 @@ function DevelopingStoriesView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
       })
-      if (!res.ok) throw new Error(`Failed to add developing story (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not add developing story (${res.status})`))
       setNewStoryTitle("")
       await loadStories()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add developing story")
+      setError(err instanceof Error ? err.message : "Could not add developing story.")
     } finally {
       setIsSaving(false)
     }
@@ -76,10 +85,10 @@ function DevelopingStoriesView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
       })
-      if (!res.ok) throw new Error(`Failed to delete developing story (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not delete developing story (${res.status})`))
       await loadStories()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete developing story")
+      setError(err instanceof Error ? err.message : "Could not delete developing story.")
     } finally {
       setIsSaving(false)
     }
@@ -134,7 +143,7 @@ function DevelopingStoriesView() {
           aria-label="Search developing stories"
           className="w-full max-w-xl px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search developing stories..."
+          placeholder="Search developing stories"
           type="search"
           value={searchQuery}
         />

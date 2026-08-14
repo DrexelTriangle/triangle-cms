@@ -81,6 +81,15 @@ function formatDate(value: string) {
   return date.toLocaleString()
 }
 
+async function readErrorMessage(response: Response, fallback: string) {
+  try {
+    const body = await response.json() as { error?: string }
+    return body.error?.trim() || fallback
+  } catch {
+    return fallback
+  }
+}
+
 export default function ActivityView() {
   const apiFetch = useApiFetch()
   const [search, setSearch] = useState("")
@@ -91,15 +100,15 @@ export default function ActivityView() {
 
   useEffect(() => {
     apiFetch("/v1/activity?limit=200")
-      .then((r) => {
-        if (!r.ok) throw new Error(`Request failed (${r.status})`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(await readErrorMessage(r, `Could not load activity (${r.status})`))
         return r.json() as Promise<ActivityResponse>
       })
       .then((data) => {
         setEvents(data.events ?? [])
         setTotalCount(data.total_count ?? data.events?.length ?? 0)
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load activity"))
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load activity."))
       .finally(() => setIsLoading(false))
   }, [apiFetch])
 
@@ -153,9 +162,9 @@ export default function ActivityView() {
     <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Activity Log</h1>
+          <h1 className="text-2xl font-bold text-foreground">Activity</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isLoading ? "Loading…" : `${totalCount} recent events`}
+            {isLoading ? "Loading..." : `${totalCount} recent events`}
           </p>
         </div>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -167,7 +176,7 @@ export default function ActivityView() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <input
               className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-              placeholder="Search activity..."
+              placeholder="Search activity"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -176,7 +185,7 @@ export default function ActivityView() {
           <div className="flex flex-col gap-2">
             {isLoading ? (
               <div className="rounded-xl border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
-                Loading activity…
+                Loading activity...
               </div>
             ) : filtered.length === 0 ? (
               <div className="rounded-xl border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
@@ -212,7 +221,7 @@ export default function ActivityView() {
 
         <div className="flex flex-col gap-4">
           <div className="rounded-xl border border-border bg-card p-4">
-            <h3 className="text-sm font-semibold text-foreground mb-3">Top Contributors</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Most Active Users</h3>
             <div className="flex flex-col gap-2">
               {topContributors.length === 0 ? (
                 <span className="text-xs text-muted-foreground">No contributors yet.</span>
@@ -231,7 +240,7 @@ export default function ActivityView() {
           </div>
 
           <div className="rounded-xl border border-border bg-card p-4">
-            <h3 className="text-sm font-semibold text-foreground mb-3">Actions Breakdown</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-3">Action Counts</h3>
             <div className="flex flex-col gap-1.5">
               {actionEntries.length === 0 ? (
                 <span className="text-xs text-muted-foreground">No actions recorded.</span>
