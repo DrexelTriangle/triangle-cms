@@ -8,6 +8,11 @@ Compose validation, and the deployment script test suite
 selection, the transactional Nginx switch and its restore-on-failure paths, and
 the preflight checks.
 
+`ci.yml`'s `swagger-docs` job regenerates `server/docs` with the pinned `swag`
+version from `server/Dockerfile` and fails on any diff. The image build already
+regenerates the spec, so the binary is always current; this guards the
+*committed* copy, which is what `pages.yml` publishes.
+
 `publish.yml` runs only from a successful `CI` workflow run on `main` that was
 triggered by a trusted push. It validates
 `github.event.workflow_run.head_sha` as a 40-character hexadecimal SHA and

@@ -1120,6 +1120,14 @@ definitions:
         $ref: '#/definitions/models.TaxonomySummary'
       subsection:
         $ref: '#/definitions/models.TaxonomySummary'
+      subsections:
+        description: |-
+          Subsections are this subsection's OWN visible children, so a middle row
+          like Food gets the same link strip a section page has. Empty for a leaf,
+          which is most of them.
+        items:
+          $ref: '#/definitions/models.TaxonomySummary'
+        type: array
     type: object
   models.TaxonomyInput:
     properties:

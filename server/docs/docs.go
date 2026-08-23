@@ -5952,6 +5952,13 @@ const docTemplate = `{
                 },
                 "subsection": {
                     "$ref": "#/definitions/models.TaxonomySummary"
+                },
+                "subsections": {
+                    "description": "Subsections are this subsection's OWN visible children, so a middle row\nlike Food gets the same link strip a section page has. Empty for a leaf,\nwhich is most of them.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.TaxonomySummary"
+                    }
                 }
             }
         },
