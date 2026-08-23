@@ -27,3 +27,10 @@ deployment. `slot: auto` targets whichever slot is currently inactive; `blue` or
 `green` names one explicitly. To recover an *older* image SHA instead, run
 `deploy.yml` manually with that SHA — rollback only moves traffic between the two
 slots that are already up.
+
+`pages.yml` publishes the committed Swagger spec as a static Swagger UI site on
+GitHub Pages (<https://drexeltriangle.github.io/triangle-cms/>). It is independent of
+the CI -> Publish -> Deploy chain: it holds no `packages` permission, touches no
+slot, and never runs on the self-hosted runner. Swagger UI's assets are vendored
+into the artifact at build time from a pinned `swagger-ui-dist`, so the published
+page loads nothing from a third-party CDN at runtime.

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Triangle CMS API</title>
+    <!-- Assets are vendored next to this file by .github/workflows/pages.yml,
+         so the published page loads nothing from a third-party CDN. -->
+    <link rel="stylesheet" href="./swagger-ui.css" />
+    <style>
+      body { margin: 0; background: #fafafa; }
+      /* The spec's `host` is the local dev server, so "Try it out" would fire
+         requests at the reader's own machine. Hide it: this page is reference
+         documentation, not a live client. */
+      .swagger-ui .try-out { display: none; }
+      /* Nothing is submittable, so the Authorize dialog has no effect. The
+         per-operation padlocks stay, so readers still see what needs a token. */
+      .swagger-ui .auth-wrapper { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="./swagger-ui-bundle.js" crossorigin="anonymous"></script>
+    <script src="./swagger-ui-standalone-preset.js" crossorigin="anonymous"></script>
+    <script>
+      window.onload = function () {
+        window.ui = SwaggerUIBundle({
+          url: './swagger.json',
+          dom_id: '#swagger-ui',
+          deepLinking: true,
+          supportedSubmitMethods: [],
+          docExpansion: 'none',
+          defaultModelsExpandDepth: 0,
+          presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+          plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+          layout: 'BaseLayout',
+        });
+      };
+    </script>
+  </body>
+</html>

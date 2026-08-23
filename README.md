@@ -248,7 +248,14 @@ Generated files:
 
 ## API Docs (Swagger)
 
-Swagger UI is available at `https://localhost:8080/swagger/index.html` when the server is running.
+A read-only copy of the API reference is published to GitHub Pages at
+<https://drexeltriangle.github.io/triangle-cms/> — no server, no VPN. It renders the
+`server/docs/swagger.json` committed on `main`, so it is only as current as the last
+`swag init` that was committed, and "Try it out" is disabled (the spec's host is the
+local dev server).
+
+The live, interactive Swagger UI is available at `https://localhost:8080/swagger/index.html`
+when the server is running.
 
 The docs are generated automatically during the Docker build — no manual step needed.
 
