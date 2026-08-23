@@ -58,16 +58,15 @@ def main() -> int:
         print("Resetting compose services and volumes...")
         run_command([*compose_cmd, "down", "-v", "--remove-orphans"], cwd=root_dir)
 
-    print("Starting mariadb, cms, loki, and promtail...")
+    print("Starting mariadb, cms, and prometheus...")
     run_command([*compose_cmd, "up", "-d", "--build", "--remove-orphans"], cwd=root_dir)
 
     printable = " ".join(compose_cmd)
     print("\nStack is up. Useful commands:")
     print(f"  {printable} ps")
     print(f"  {printable} logs -f cms")
-    print(f"  {printable} logs -f promtail")
     print(f"  {printable} down")
-    print(f"  {printable} down -v   # remove volumes (DB/Loki data)")
+    print(f"  {printable} down -v   # remove volumes (DB/Prometheus data)")
 
     return 0
 

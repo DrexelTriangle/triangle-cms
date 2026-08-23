@@ -20,215 +20,42 @@ deployment Compose project. The backend connects to the external database/proxy
 endpoint supplied by `DB_HOST` and `DB_PORT` in the host-only `cms.env`.
 
 Loki and Promtail do run on Delta, but in the separate `triangle-observability`
-Compose project (`compose.observability.yml`). Nothing in CI/CD starts it: the
-deploy scripts pin `COMPOSE_FILE` to `compose.cms.yml` so that a CMS deploy can
-never tear the log stack down. It is brought up by hand, once, and `restart:
-unless-stopped` keeps it up across deploys.
+Compose project, which now lives in [`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure).
+Nothing in this repo starts or stops it: the deploy scripts pin `COMPOSE_FILE`
+to `compose.cms.yml` so that a CMS deploy can never tear the log stack down, and
+`restart: unless-stopped` keeps it up across deploys.
 
-## Exposing Loki to the Triangle Grafana
+## Observability
 
-The Triangle Grafana queries Delta's Loki as a datasource. Loki has no
-authentication of its own in any configuration, so it is published only to
-`127.0.0.1:13100` and fronted by the `nginx/triangle-loki.conf` site on port
-3100, which adds basic auth, blocks the write path, and 404s everything that is
-not a query.
+Prometheus, Loki, Promtail, Alertmanager, blackbox and the two read-only nginx
+endpoints the central Grafana queries **moved to
+[`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure)** and are applied with
+`ansible-playbook playbooks/observability.yml`. They are no longer deployed by
+this repo's workflow.
 
-1. **The stack deploys itself.** `deploy/scripts/deploy-observability.sh` runs
-   as a step of the Deploy Delta workflow, immediately after the CMS deploy, so
-   an observability change reaches Delta the same way application code does —
-   merge to main and wait. Nothing here needs starting by hand.
+Two things about it still constrain the CMS, so they are recorded here rather
+than only there:
 
-   It syncs `observability/` and `compose.observability.yml` from the runner's
-   checkout into `~triangle-runner/triangle-observability` and runs Compose from
-   there. **It copies rather than running in place on purpose:** the checkout is
-   the only tree on Delta that contains `observability/`, but `actions/checkout`
-   resets it on every deploy, which would yank the bind-mount sources out from
-   under a long-lived stack. The destination is owned by the runner and sits
-   outside `_work/`, so Actions never touches it. Override with the
-   `DELTA_OBSERVABILITY_DIR` repository variable if the host is laid out
-   differently.
+- **Prometheus joins this project's Compose network**, declared `external` on
+  its side. The CMS stack must be up before the observability stack will start,
+  and **renaming a service in `compose.cms.yml` breaks scraping in a different
+  repository.** `observability/prometheus/prometheus.delta.yml` over there
+  scrapes both slots by container name.
+- **The backend exposes unauthenticated Prometheus metrics on `GET /metrics`.**
+  That is safe only because the host nginx proxies just `/v1` and `/swagger`, so
+  nothing routes it in from outside and Prometheus reaches it on the slot's
+  loopback port. If a vhost ever forwards `/metrics`, put it behind auth first:
+  it exposes route names, traffic volumes and error rates.
 
-   It **cannot** disturb the CMS: this is a separate Compose project, so
-   `up -d` cannot recreate or stop the slots. The one real coupling is that
-   Prometheus joins the CMS network, declared `external`, which is why the step
-   runs after the CMS deploy rather than beside it — and why a from-scratch
-   bring-up needs the CMS stack up first.
+`up{job="cms"}` returns **two** series, one per slot, labelled `slot="blue"` /
+`slot="green"`. The idle slot being up is normal and says nothing about which
+one serves traffic.
 
-   Two behaviours worth knowing before changing anything here:
+The local development stack in the repo-root `docker-compose.yml` keeps its own
+Prometheus (`observability/prometheus/prometheus.dev.yml`). Its Loki, Promtail
+and Grafana services were removed when their shared config files moved, so
+`docker compose logs` is the local log story now.
 
-   - **A config-only change does not restart anything by itself.** `up -d` sees
-     an identical Compose spec and reports `Running` even though a mounted file's
-     contents changed, so the new config never takes effect. The script
-     fingerprints the synced tree and issues an explicit `restart` when it
-     differs — and skips it entirely when it does not, so an ordinary CMS deploy
-     costs nothing.
-   - **The sync is `--inplace`.** Ordinary `rsync` writes a temp file and
-     renames, giving every file a new inode, while a running container's bind
-     mount still holds the old one. That combination serves stale config that
-     looks correctly deployed.
-
-   The step fails the job if Prometheus comes up with zero alerting rules or no
-   attached Alertmanager, because a stack that is running but silently not
-   alerting is worse than one that is plainly down.
-
-   To run it by hand (from a repo checkout on Delta):
-
-   ```
-   deploy/scripts/deploy-observability.sh
-   ```
-
-2. **The Nginx sites deploy automatically too**, in the same step. They are
-   installed into `/etc/nginx/triangle-observability/`, a directory the runner
-   OWNS, which a root-owned `/etc/nginx/conf.d/triangle-observability.conf`
-   pulls in with a wildcard `include`.
-
-   That indirection is deliberate: it keeps the runner's sudo rights at exactly
-   the two commands the CMS deploy already needs — `nginx -t` and
-   `nginx -s reload` — rather than granting write access to `/etc/nginx` or a
-   general "install this file as root" rule. It is the same shape as
-   `/etc/nginx/triangle-cms/`, which the runner already owns for blue/green.
-
-   The install is transactional, because this Nginx also serves the CMS: the
-   live files are snapshotted, the new ones installed, and `nginx -t` run
-   **before** any reload. A config that fails validation is reverted and the step
-   fails — Nginx keeps serving the old config throughout, and no broken file is
-   left on disk for the *next* reload (which could be the CMS deploy's) to trip
-   over.
-
-   `nginx/triangle-cms.conf` is deliberately NOT deployed this way: it is the
-   live site's own server block, a materially larger blast radius than two
-   loopback-proxying endpoints, and it changes about never.
-
-   The **one-time root bootstrap**, already done on Delta. Note the sites no
-   longer live in `sites-available`/`sites-enabled` — a copy in both places
-   would collide on the same `listen` ports:
-
-   ```
-   sudo install -d -o triangle-runner -g triangle-runner -m 0750 \
-     /etc/nginx/triangle-observability
-   printf 'include /etc/nginx/triangle-observability/*.conf;\n' \
-     | sudo tee /etc/nginx/conf.d/triangle-observability.conf >/dev/null
-   sudo nginx -t && sudo nginx -s reload
-   ```
-
-3. Create the datasource credentials (still a manual, one-time step — it is a
-   secret, not config):
-
-   ```
-   sudo htpasswd -B -c /etc/nginx/triangle-observability.htpasswd triangle-grafana
-   sudo chown root:www-data /etc/nginx/triangle-observability.htpasswd
-   sudo chmod 0640 /etc/nginx/triangle-observability.htpasswd
-   sudo nginx -t && sudo nginx -s reload
-   ```
-
-   Both endpoints share one htpasswd file, so the Triangle Grafana uses the same
-   credentials for its Loki and Prometheus datasources. The plaintext is kept at
-   `/etc/triangle-observability/loki-datasource-password` (0600 root) — Nginx
-   stores only a bcrypt hash, so losing that file means resetting the password
-   rather than looking it up.
-
-   Note that `htpasswd` is not installed on Delta by default; it ships in
-   `apache2-utils` on Debian/Ubuntu and `httpd-tools` on RHEL-family hosts.
-
-4. Verify from Delta before handing the details over. Expect `401` then `200`:
-
-   ```
-   curl -s -o /dev/null -w '%{http_code}\n' localhost:3100/loki/api/v1/labels
-   curl -s -o /dev/null -w '%{http_code}\n' -u triangle-grafana \
-     localhost:3100/loki/api/v1/labels
-   ```
-
-   `curl -s localhost:3100/ready` reports `Pattern Ingester not ready: waiting
-   for 15s after being ready` indefinitely, and that is expected rather than a
-   fault: `loki-config.yml` enables `pattern_ingester`, whose readiness never
-   latches in a single-binary deployment. Loki serves queries normally. Use the
-   authenticated `/loki/api/v1/labels` call above as the real health signal.
-
-   Then confirm logs are actually arriving, which is the check that catches a
-   log-driver mismatch. This must return a non-empty list of container names:
-
-   ```
-   curl -s -u triangle-grafana \
-     'localhost:3100/loki/api/v1/label/container/values'
-   ```
-
-5. In the Triangle Grafana, add two datasources, both with Basic auth enabled
-   and the same credentials. No path prefix or extra headers are needed:
-
-   | Type | URL |
-   | --- | --- |
-   | Loki | `http://<delta-vpn-ip>:3100` |
-   | Prometheus | `http://<delta-vpn-ip>:9090` |
-
-   **Name them so they end in `-delta`** — in practice `prometheus-delta` and
-   `loki-delta`. The UIDs no longer matter: the CMS dashboard resolves its
-   datasources through two template variables (`prometheus_ds`, `loki_ds`)
-   whose `regex` is `/-delta$/`, so the dropdowns match only these two and bind
-   to them on import. Name one of them something else and it drops out of the
-   dropdown, and the panels go blank again.
-
-   This replaced hardcoded UIDs, which could not work here: the central Grafana
-   already had its own Prometheus and Loki holding the UIDs `prometheus` and
-   `loki`, and Grafana assigns a random UID to anything created through the UI.
-   Panels kept querying the *central* pair and rendered empty — the display name
-   was never what the dashboard looked at. The failure is silent: the dashboard
-   imports cleanly and every panel just shows no data.
-
-   The dashboard needs both datasources: 16 panel references query Prometheus
-   and only 3 query Loki, so a Loki-only setup renders a mostly empty dashboard.
-
-6. Import `observability/grafana/dashboards/gisbxcj.json`.
-
-**Delta no longer runs its own Grafana** (removed 2026-08-05). Every dashboard
-lives in the central Triangle Grafana, which reaches this stack through the two
-Nginx endpoints above, so a second local Grafana only duplicated it. Nothing was
-lost with it — the one dashboard it held was byte-identical to the repo copy.
-
-Removing it costs no alerting: the database-tier alerts live in Prometheus and
-Alertmanager, not Grafana, precisely so they survive this (see
-`deploy/mariadb/README.md`). Basic auth on these endpoints travels in cleartext;
-fold them into TLS when TLS lands on Delta.
-
-### Metrics and the CMS dashboard
-
-The backend exposes Prometheus metrics on `GET /metrics`, and the stack runs a
-Prometheus that scrapes both slots by container name
-(`observability/prometheus/prometheus.delta.yml`). To do that it attaches to the
-CMS project's network, declared `external` so this stack never owns it. The
-consequence is an ordering dependency: the CMS stack must be up first, or
-Compose refuses to start this one with a missing-network error.
-
-Scraping via the host gateway does not work, and it is worth knowing why before
-"simplifying" it back: the slots publish to `127.0.0.1:8081/8082`, loopback
-only, so a container dialling `172.17.0.1` gets connection refused.
-
-The "CMS Dashboard" JSON lives at `observability/grafana/dashboards/gisbxcj.json`
-and is imported into the central Grafana by hand — there is no local Grafana to
-provision it into any more.
-
-`/metrics` is unauthenticated. That is safe only because Nginx proxies just
-`/v1` and `/swagger`, so nothing routes it in from outside and Prometheus
-reaches it on the slot's loopback port. If a vhost ever forwards `/metrics`, put
-it behind auth first: it exposes route names, traffic volumes, and error rates.
-
-`up{job="cms"}` returns **two** series, one per slot, each labelled
-`slot="blue"` / `slot="green"`. The idle slot being up is normal and says
-nothing about which one serves traffic.
-
-Dashboards can be edited in the Grafana UI, and those edits live only in that
-Grafana's database until pulled back into the repo. Point the script at whichever
-Grafana holds them — now the central one, not Delta:
-
-**Check the diff before committing a pull.** Grafana serializes the *resolved*
-datasource of each panel, so a round-trip through the UI can write concrete UIDs
-back over the `${prometheus_ds}` / `${loki_ds}` references and re-create exactly
-the breakage the template variables exist to prevent. If `git diff` after a pull
-shows `"uid"` values that are not `${...}`, restore them before committing.
-
-```
-GF_URL=https://<central-grafana> \
-  GRAFANA_ADMIN_USER=... GRAFANA_ADMIN_PASSWORD=... scripts/pull-dashboards.sh
-```
 
 ### Reading blue/green logs in Grafana
 
@@ -270,12 +97,10 @@ behind Nginx.
 
 - `compose.cms.yml` - Delta-only blue/green frontend/backend slots.
 - `cms.env.example` - sanitized variable-name-only production env template.
-- `nginx/triangle-cms.conf` - host Nginx site template.
+- `nginx/triangle-cms.conf` - **moved** to [`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure)
+  (`roles/delta_cms_host/`). Install it with `playbooks/delta-host.yml`.
 - `nginx/triangle-cms-active-upstreams.conf.example` - generated include seed.
-- `nginx/triangle-loki.conf` - read-only Loki endpoint for the Triangle Grafana.
 - `scripts/deploy.sh` - deploy exact SHA to inactive slot, switch, smoke test.
-- `scripts/deploy-observability.sh` - sync and apply the observability stack and
-  its Nginx sites; runs as a Deploy Delta step after `deploy.sh`.
 - `scripts/rollback.sh` - explicit rollback to the other slot or named slot.
 
 ## One-Time Server Bootstrap
@@ -292,7 +117,8 @@ a manual server task:
    `/usr/sbin/nginx -s reload`.
 5. Place the host-only production env file at the path configured by
    `DELTA_CMS_ENV_FILE`. Do not put it in git.
-6. Install `nginx/triangle-cms.conf` as an enabled Nginx site.
+6. Install the host Nginx site with `triangle-infrastructure`'s
+   `playbooks/delta-host.yml` (see "Installing the Nginx site" below).
 7. Create the narrow runtime-state directory and seed the active upstream
    include:
 
@@ -323,29 +149,30 @@ such as `/etc/nginx/sites-available/triangle-cms.conf` remains root-owned.
 
 ### Installing the Nginx site
 
-Steps 6-8 above, concretely. The repo is not checked out on Delta, so copy the
-two files over first (from a workstation, at the repo root):
+**This is Ansible's job now.** The site and the runner-owned state directory are
+`roles/delta_cms_host` in [`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure):
 
 ```bash
-scp deploy/nginx/triangle-cms.conf \
-    deploy/nginx/triangle-cms-active-upstreams.conf.example \
-    <user>@<delta>:/tmp/
+ansible-playbook playbooks/delta-host.yml --limit thetriangle-delta --check --diff
+ansible-playbook playbooks/delta-host.yml --limit thetriangle-delta
 ```
 
-Then on Delta:
+The role creates `/etc/nginx/triangle-cms` (`0750`,
+`triangle-runner:triangle-runner`) and **deliberately does not manage
+`active-upstreams.conf` inside it** — that file is written by `deploy.sh` on
+every release and read back to determine the live slot, so anything that
+templates it silently reverts production to the other slot.
+
+Seed the include once, by hand, from this repo's
+`nginx/triangle-cms-active-upstreams.conf.example`:
 
 ```bash
-sudo cp /tmp/triangle-cms.conf /etc/nginx/sites-available/triangle-cms.conf
-sudo ln -sf /etc/nginx/sites-available/triangle-cms.conf /etc/nginx/sites-enabled/
-
-sudo install -d -o triangle-runner -g triangle-runner -m 0750 /etc/nginx/triangle-cms
 sudo install -o triangle-runner -g triangle-runner -m 0644 \
-  /tmp/triangle-cms-active-upstreams.conf.example \
+  triangle-cms-active-upstreams.conf.example \
   /etc/nginx/triangle-cms/active-upstreams.conf
 
 # The stock default site also matches `server_name _` and can win the vhost pick.
 sudo rm -f /etc/nginx/sites-enabled/default
-
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
