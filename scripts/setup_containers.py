@@ -58,7 +58,7 @@ def main() -> int:
         print("Resetting compose services and volumes...")
         run_command([*compose_cmd, "down", "-v", "--remove-orphans"], cwd=root_dir)
 
-    print("Starting mariadb, cms, and prometheus...")
+    print("Starting mariadb and cms...")
     run_command([*compose_cmd, "up", "-d", "--build", "--remove-orphans"], cwd=root_dir)
 
     printable = " ".join(compose_cmd)
@@ -66,7 +66,7 @@ def main() -> int:
     print(f"  {printable} ps")
     print(f"  {printable} logs -f cms")
     print(f"  {printable} down")
-    print(f"  {printable} down -v   # remove volumes (DB/Prometheus data)")
+    print(f"  {printable} down -v   # remove volumes (DB data)")
 
     return 0
 

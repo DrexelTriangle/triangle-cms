@@ -93,25 +93,9 @@ services:
     networks:
       - triangle_net
 
-  prometheus:
-    image: prom/prometheus:v3.6.0
-    restart: unless-stopped
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-    volumes:
-      # Dev scrapes the single TLS `cms` service; Delta scrapes two plain-HTTP
-      # slots. Different files rather than one conditional config.
-      - ./observability/prometheus/prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro,z
-      - prometheus_data:/prometheus
-    ports:
-      - "127.0.0.1:9090:9090"
-    networks:
-      - triangle_net
 
 volumes:
   mariadb_data:
-  prometheus_data:
 
 networks:
   triangle_net:

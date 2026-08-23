@@ -3,9 +3,10 @@
 Headless CMS replacement for The Triangle, with:
 - `server/` Go API
 - `frontend/` React frontend
-- `observability/` Prometheus config for the local dev stack. Delta's
-  observability stack — Prometheus, Loki, Promtail, Alertmanager, blackbox and
-  the Grafana dashboards — lives in [`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure)
+- The observability stack — Prometheus, Loki, Promtail, Alertmanager, blackbox
+  and the Grafana dashboards — lives in
+  [`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure).
+  The backend still exposes `GET /metrics`; scrape it directly in local dev.
 - `scripts/` local setup helpers
 
 API docs and data models: https://github.com/DrexelTriangle/triangle-cms/wiki
@@ -92,13 +93,13 @@ python ./scripts/generate_wordpress_sql.py
 
 3. Start services (Path A is recommended):
 
-Path A (recommended): full Docker stack (CMS + Prometheus):
+Path A (recommended): full Docker stack (CMS + MariaDB):
 
 ```bash
 python ./scripts/setup_containers.py
 ```
 
-This stack uses a shared Docker bridge network scoped to the Compose project, so services can resolve each other by container/service name (for example `mariadb`, `prometheus`).
+This stack uses a shared Docker bridge network scoped to the Compose project, so services can resolve each other by container/service name (for example `mariadb`).
 
 The dev stack no longer runs Loki, Promtail or Grafana: their config files were
 shared with Delta's stack and moved to `triangle-infrastructure` so there is one
