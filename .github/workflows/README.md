@@ -8,6 +8,11 @@ Compose validation, and the deployment script test suite
 selection, the transactional Nginx switch and its restore-on-failure paths, and
 the preflight checks.
 
+`ci.yml`'s `swagger-docs` job regenerates `server/docs` with the pinned `swag`
+version from `server/Dockerfile` and fails on any diff. The image build already
+regenerates the spec, so the binary is always current; this guards the
+*committed* copy, which is what `pages.yml` publishes.
+
 `publish.yml` runs only from a successful `CI` workflow run on `main` that was
 triggered by a trusted push. It validates
 `github.event.workflow_run.head_sha` as a 40-character hexadecimal SHA and
@@ -27,3 +32,10 @@ deployment. `slot: auto` targets whichever slot is currently inactive; `blue` or
 `green` names one explicitly. To recover an *older* image SHA instead, run
 `deploy.yml` manually with that SHA — rollback only moves traffic between the two
 slots that are already up.
+
+`pages.yml` publishes the committed Swagger spec as a static Swagger UI site on
+GitHub Pages (<https://drexeltriangle.github.io/triangle-cms/>). It is independent of
+the CI -> Publish -> Deploy chain: it holds no `packages` permission, touches no
+slot, and never runs on the self-hosted runner. Swagger UI's assets are vendored
+into the artifact at build time from a pinned `swagger-ui-dist`, so the published
+page loads nothing from a third-party CDN at runtime.

@@ -1,0 +1,66 @@
+name: Publish API Docs
+
+# Publishes the committed Swagger spec (server/docs/swagger.json) as a static
+# Swagger UI site on GitHub Pages, so the API reference is readable without
+# running the server or reaching the VPN-only deployment. It publishes the spec
+# that is checked in — the same one the binary embeds and serves at /swagger/ —
+# rather than regenerating it, so the page always matches the deployed API
+# surface. Refresh it by running `swag init` and committing the result.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - server/docs/swagger.json
+      - docs/api/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+# Pages deployments are not slot-switched like the app: one site, last write
+# wins. Serialise them, but let a newer commit supersede a queued older one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble site
+        env:
+          # Pinned: an unpinned CDN or range would let the docs page change
+          # under us without a commit.
+          SWAGGER_UI_VERSION: 5.32.14
+        run: |
+          set -euo pipefail
+          mkdir -p site
+          cp docs/api/index.html site/
+          cp server/docs/swagger.json site/
+          npm pack "swagger-ui-dist@${SWAGGER_UI_VERSION}"
+          tar -xzf "swagger-ui-dist-${SWAGGER_UI_VERSION}.tgz"
+          for asset in swagger-ui.css swagger-ui-bundle.js swagger-ui-standalone-preset.js; do
+            cp "package/${asset}" site/
+          done
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

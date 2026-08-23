@@ -62,6 +62,15 @@ function isExpired(value: string) {
   return !Number.isNaN(parsed.getTime()) && parsed.getTime() < Date.now()
 }
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const body = await res.json() as { error?: string }
+    return body.error?.trim() || fallback
+  } catch {
+    return fallback
+  }
+}
+
 export default function ClassifiedsView() {
   const apiFetch = useApiFetch()
   const { isAdmin } = useCurrentUserRole()
@@ -80,13 +89,13 @@ export default function ClassifiedsView() {
     setError(null)
     try {
       const res = await apiFetch(`/v1/classifieds/manage?status=${filter}&limit=100`)
-      if (!res.ok) throw new Error(`Failed to load classifieds (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load classifieds (${res.status})`))
       const body = (await res.json()) as ManageResponse
       setItems(body.classifieds ?? [])
       setCounts(body.counts ?? {})
       setSlackConfigured(body.slack_configured !== false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load classifieds")
+      setError(err instanceof Error ? err.message : "Could not load classifieds.")
     } finally {
       setLoading(false)
     }
@@ -105,10 +114,10 @@ export default function ClassifiedsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       })
-      if (!res.ok) throw new Error(`Failed to update classified (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not update classified (${res.status})`))
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update classified")
+      setError(err instanceof Error ? err.message : "Could not update classified.")
     } finally {
       setBusyId(null)
     }
@@ -120,10 +129,10 @@ export default function ClassifiedsView() {
     setError(null)
     try {
       const res = await apiFetch(`/v1/classifieds/${id}`, { method: "DELETE" })
-      if (!res.ok) throw new Error(`Failed to delete classified (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not delete classified (${res.status})`))
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete classified")
+      setError(err instanceof Error ? err.message : "Could not delete classified.")
     } finally {
       setBusyId(null)
     }
@@ -135,17 +144,16 @@ export default function ClassifiedsView() {
         <h1 className="text-2xl font-bold text-foreground">Classifieds</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           {slackConfigured
-            ? "Reader submissions awaiting review. Approving here and clicking Approve on the Slack notification do the same thing."
+            ? "Reader submissions awaiting review. Approving here matches the Slack Approve action."
             : "Reader submissions awaiting review."}
         </p>
       </div>
 
       {!slackConfigured && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
-          Slack approvals are unavailable — the server is missing{" "}
+          Slack approvals are unavailable. The server is missing{" "}
           <code>SLACK_WEBHOOK_URL</code>, <code>SLACK_SIGNING_SECRET</code>, or both, so submissions
-          are either never posted to Slack or the Approve/Reject buttons are refused. Moderate here
-          instead; nothing is lost either way.
+          may not post to Slack or Slack buttons may be refused. Moderate here instead.
         </div>
       )}
 
@@ -176,7 +184,7 @@ export default function ClassifiedsView() {
       )}
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nothing here.</p>
       ) : (

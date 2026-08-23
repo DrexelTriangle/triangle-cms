@@ -56,6 +56,36 @@ jobs:
       - name: Build
         run: npm run build
 
+  # The Docker build regenerates the Swagger docs from the handler annotations,
+  # so the binary always serves a current spec -- but server/docs is also
+  # committed, and the Pages site publishes that committed copy. Nothing forced
+  # the two to agree, so annotations could change without a follow-up
+  # `swag init` and the published reference would drift from the real API with
+  # no signal. Regenerate here and fail on any diff.
+  swagger-docs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      # Pinned to the same version server/Dockerfile installs. A different
+      # version would report drift the real build never produces.
+      - name: Install swag
+        run: go install github.com/swaggo/swag/cmd/swag@v1.16.6
+      - name: Regenerate docs
+        run: swag init --parseDependency --parseInternal
+      - name: Committed docs are current
+        run: |
+          if ! git diff --exit-code -- docs; then
+            echo "::error file=server/docs/swagger.json::server/docs is stale. Run 'swag init --parseDependency --parseInternal' in server/ and commit the result."
+            exit 1
+          fi
+
   docker-builds:
     runs-on: ubuntu-latest
     steps:

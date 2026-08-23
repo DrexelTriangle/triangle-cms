@@ -37,7 +37,7 @@ const AUTH_ROUTES = ["/login"]
 function RouteFallback() {
   return (
     <div className="flex items-center justify-center h-full">
-      <p className="text-sm text-muted-foreground">Loading…</p>
+      <p className="text-sm text-muted-foreground">Loading...</p>
     </div>
   )
 }
@@ -57,9 +57,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
 function ComingSoon({ page }: { page: string }) {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-      <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center text-2xl">🚧</div>
       <p className="font-semibold text-foreground">{page}</p>
-      <p className="text-sm">This page is coming soon.</p>
+      <p className="text-sm">This screen is not available yet.</p>
     </div>
   )
 }
@@ -70,7 +69,7 @@ function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
     )
   }
@@ -90,7 +89,7 @@ export default function App() {
   if (auth.isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
     )
   }
@@ -108,7 +107,7 @@ export default function App() {
     if (auth.hasPendingAuthFlow) {
       return (
         <div className="min-h-screen flex items-center justify-center">
-          <p className="text-sm text-muted-foreground">Finalizing sign-in…</p>
+          <p className="text-sm text-muted-foreground">Finalizing sign-in...</p>
         </div>
       )
     }
@@ -125,7 +124,7 @@ export default function App() {
           <Route path="/developing-stories" element={<DevelopingStoriesView />} />
           <Route path="/developing-stories/:slug/edit" element={<EditArticleView />} />
           <Route path="/articles/new" element={<EditArticleView />} />
-          <Route path="/developing-stories/new" element={<ComingSoon page="New Developing Story" />} />
+          <Route path="/developing-stories/new" element={<ComingSoon page="New developing story" />} />
           <Route path="/newsletter" element={<NewsletterView />} />
           <Route path="/media" element={<MediaView />} />
           <Route path="/poll" element={<PollView />} />

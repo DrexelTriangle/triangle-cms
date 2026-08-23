@@ -27,6 +27,15 @@ function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
 }
 
+async function readErrorMessage(response: Response, fallback: string) {
+  try {
+    const body = await response.json() as { error?: string }
+    return body.error?.trim() || fallback
+  } catch {
+    return fallback
+  }
+}
+
 const AVATAR_COLORS = [
   "bg-blue-500", "bg-violet-500", "bg-green-500", "bg-orange-500",
   "bg-rose-500", "bg-teal-500", "bg-indigo-500", "bg-amber-500",
@@ -46,13 +55,13 @@ export default function UsersView() {
     setIsLoading(true)
     apiFetch("/v1/users")
       .then((r) => {
-        if (!r.ok) throw new Error(`Request failed (${r.status})`)
+        if (!r.ok) throw new Error(`Could not load users (${r.status})`)
         return r.json() as Promise<CmsUser[]>
       })
       .then((data) => {
         setUsers(data)
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load users"))
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load users."))
       .finally(() => setIsLoading(false))
   }, [apiFetch])
 
@@ -70,10 +79,10 @@ export default function UsersView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role }),
       })
-      if (!res.ok) throw new Error(`Request failed (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not update role (${res.status})`))
       setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update role")
+      setError(err instanceof Error ? err.message : "Could not update role.")
     } finally {
       setSavingUserId(null)
     }
@@ -85,7 +94,7 @@ export default function UsersView() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Users</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {isLoading ? "Loading…" : `${users.length} users total`}
+            {isLoading ? "Loading..." : `${users.length} users total`}
           </p>
         </div>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -96,7 +105,7 @@ export default function UsersView() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <input
             className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-            placeholder="Search users..."
+            placeholder="Search users"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />

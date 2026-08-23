@@ -41,6 +41,15 @@ type PollListResponse = {
   polls?: Poll[]
 }
 
+async function readErrorMessage(res: Response, fallback: string) {
+  try {
+    const body = await res.json() as { error?: string }
+    return body.error?.trim() || fallback
+  } catch {
+    return fallback
+  }
+}
+
 type StateMeta = { label: string; className: string }
 
 const UNKNOWN_STATE_META: StateMeta = {
@@ -131,22 +140,22 @@ function scheduleSummary(poll: Poll): string {
   switch (poll.state) {
     case "live":
       return poll.ends_at
-        ? `On the site now — closes ${relativeDate(poll.ends_at)}, ${formatRunDate(poll.ends_at)}`
-        : "On the site now — runs until you replace or close it"
+        ? `On the site now. Closes ${relativeDate(poll.ends_at)}, ${formatRunDate(poll.ends_at)}`
+        : "On the site now. Runs until you replace or close it."
     case "scheduled":
       return `Goes live ${relativeDate(poll.starts_at)}, ${formatRunDate(poll.starts_at)}${
-        poll.ends_at ? ` — closes ${formatRunDate(poll.ends_at)}` : ""
+        poll.ends_at ? `. Closes ${formatRunDate(poll.ends_at)}` : ""
       }`
     case "draft":
       return poll.starts_at
         ? `Not published. Publishing keeps its start date of ${formatRunDate(poll.starts_at)}`
-        : "Not published — readers cannot see this"
+        : "Not published. Readers cannot see this."
     case "ended":
       return `Ended ${relativeDate(poll.ends_at)}, ${formatRunDate(poll.ends_at)}`
     case "superseded":
       return "Taken off the site by a later poll"
     case "closed":
-      return poll.starts_at ? `Closed — ran from ${formatRunDate(poll.starts_at)}` : "Closed"
+      return poll.starts_at ? `Closed. Ran from ${formatRunDate(poll.starts_at)}` : "Closed"
     default:
       return poll.status === "active" ? "Published" : "Not published"
   }
@@ -222,11 +231,11 @@ export default function PollView() {
     setError(null)
     try {
       const res = await apiFetch("/v1/polls/manage")
-      if (!res.ok) throw new Error(`Failed loading polls (${res.status})`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load polls (${res.status})`))
       const body = (await res.json()) as PollListResponse
       setPolls(body.polls ?? [])
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load polls")
+      setError(err instanceof Error ? err.message : "Could not load polls.")
     } finally {
       setIsLoading(false)
     }
@@ -246,14 +255,7 @@ export default function PollView() {
       try {
         const res = await apiFetch(path, init)
         if (!res.ok) {
-          let detail = ""
-          try {
-            const body = (await res.json()) as { error?: string }
-            detail = body?.error ? `: ${body.error}` : ""
-          } catch {
-            detail = ""
-          }
-          throw new Error(`${failure} (${res.status})${detail}`)
+          throw new Error(await readErrorMessage(res, `${failure} (${res.status})`))
         }
         await loadPolls()
         return true
@@ -293,7 +295,7 @@ export default function PollView() {
           ends_at: newTiming === "draft" ? null : localInputToISO(newEndsAt) || null,
         }),
       },
-      "Failed to create poll",
+      "Could not create poll",
     )
 
     if (ok) {
@@ -321,7 +323,7 @@ export default function PollView() {
           ends_at: localInputToISO(editEndsAt) || null,
         }),
       },
-      "Failed to update poll",
+      "Could not update poll",
     )
     if (ok) setEditingPollId(null)
   }
@@ -334,7 +336,7 @@ export default function PollView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       },
-      "Failed to change poll status",
+      "Could not change poll status",
     )
 
   // Publishing something that goes live immediately displaces the poll on the
@@ -361,7 +363,7 @@ export default function PollView() {
     ) {
       return
     }
-    void mutate(`/v1/polls/${poll.id}`, { method: "DELETE" }, "Failed to delete poll")
+    void mutate(`/v1/polls/${poll.id}`, { method: "DELETE" }, "Could not delete poll")
   }
 
   const addOption = async (e: FormEvent, pollId: number) => {
@@ -375,7 +377,7 @@ export default function PollView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ option }),
       },
-      "Failed to add poll option",
+      "Could not add poll option",
     )
     if (ok) {
       setNewOptionName("")
@@ -394,7 +396,7 @@ export default function PollView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ option }),
       },
-      "Failed to rename poll option",
+      "Could not rename poll option",
     )
     if (ok) setRenamingOptionId(null)
   }
@@ -404,7 +406,7 @@ export default function PollView() {
     void mutate(
       `/v1/polls/${pollId}/options/${option.id}`,
       { method: "DELETE" },
-      "Failed to delete poll option",
+      "Could not delete poll option",
     )
   }
 
@@ -656,8 +658,8 @@ export default function PollView() {
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10 transition-colors"
                         title={
                           startsLater(poll)
-                            ? `Publish — goes live ${formatRunDate(poll.starts_at)}`
-                            : "Publish — goes on the site now"
+                            ? `Publish. Goes live ${formatRunDate(poll.starts_at)}`
+                            : "Publish. Goes on the site now"
                         }
                       >
                         <Play className="w-4 h-4" />
