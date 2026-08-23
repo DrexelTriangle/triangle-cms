@@ -18,7 +18,8 @@ const homepageCarouselSettingKey = "homepage_carousel"
 // on the Scalene side silently broke the slide.
 //
 // The prefix sits under wp-content/uploads because that is the only tree Nginx
-// serves (see deploy/nginx/triangle-cms.conf); it is outside the YYYY/MM layout
+// serves (the host Nginx site is in the triangle-infrastructure repo); it is
+// outside the YYYY/MM layout
 // so the media reindex and the legacy WP corpus stay visibly separate.
 //
 // That location is served with 30-day immutable caching, which assumes a

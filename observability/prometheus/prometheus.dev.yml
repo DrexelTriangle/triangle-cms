@@ -3,15 +3,15 @@
 # The dev `cms` service serves TLS on 8080 with the self-signed cert in
 # server/certs, hence scheme: https and insecure_skip_verify. Delta runs the
 # backend in CMS_SERVER_MODE=internal-http behind Nginx and has two slots
-# rather than one, so it uses prometheus.delta.yml instead.
+# rather than one, so Delta uses its own scrape config (in the
+# triangle-infrastructure repo) instead.
 
 global:
   scrape_interval: 15s
 
 scrape_configs:
-  # The job name must stay "cms": the CMS dashboard
-  # (observability/grafana/dashboards/gisbxcj.json) filters on job="cms" in
-  # queries like up{job="cms"} and go_goroutines{job="cms"}.
+  # The job name must stay "cms": the CMS dashboard (in triangle-infrastructure)
+  # filters on job="cms" in queries like up{job="cms"} and go_goroutines{job="cms"}.
   - job_name: cms
     metrics_path: /metrics
     scheme: https

@@ -53,7 +53,7 @@ x-backend-base: &backend-base
     EMBEDDINGS_URL: ${EMBEDDINGS_URL-http://embeddings:8000}
   volumes:
     # CephFS media tree (host). rw so the upload endpoint can store new files;
-    # host Nginx serves the same tree read-only (see deploy/nginx/triangle-cms.conf).
+    # host Nginx serves the same tree read-only (that site is in triangle-infrastructure).
     - ${MEDIA_HOST_PATH:-/mnt/cephfs/media}:/mnt/cephfs/media:rw
   healthcheck:
     test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/v1/health/db || exit 1"]

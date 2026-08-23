@@ -16,8 +16,8 @@ frontend/.env
 server/data/
 deploy/*.env
 !deploy/*.env.example
-deploy/runner/
 ..env.un~
 
-# Local secret: Discord webhook for failover alerts (see deploy/mariadb/README.md)
-.webhook
+# Local DB dumps (contain cms_users password hashes and cms_sessions).
+# Kept here so Borg backs them up -- /var/lib/docker volumes are NOT backed up.
+db-backups/
