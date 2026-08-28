@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
-	"strings"
 	"time"
 
 	"server/internal/middleware"
@@ -36,9 +35,9 @@ type articleEditLockResponse struct {
 // @Router /v1/articles/{slug}/edit-lock [put]
 func AcquireArticleEditLock(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slug := strings.TrimSpace(r.PathValue("slug"))
-		if !isValidCanonicalSlug(slug) {
-			writeError(w, http.StatusBadRequest, "slug must be canonical")
+		target, err := articleTargetFromRequest(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		user, ok := middleware.UserFromContext(r.Context())
@@ -46,13 +45,22 @@ func AcquireArticleEditLock(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "forbidden")
 			return
 		}
-		lease, granted := articleEditLeases.Acquire(slug, user.ID, user.Name)
+		// The lease is keyed by row, so two editors on the same article take the
+		// same key whether they arrived on the id-qualified route or on a legacy
+		// /articles/:slug link. Keying by whatever the URL happened to carry
+		// would hand both of them the lock.
+		target, err = resolveArticleTarget(r.Context(), conn, target, false)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		lease, granted := articleEditLeases.Acquire(target.lockKey(), user.ID, user.Name)
 		status := http.StatusOK
 		if !granted {
 			status = http.StatusConflict
 		}
 		writeJSON(w, status, articleEditLockResponse{
-			Slug:       slug,
+			Slug:       target.slug,
 			HeldBySelf: granted,
 			HolderID:   lease.HolderID,
 			HolderName: lease.HolderName,
@@ -74,9 +82,9 @@ func AcquireArticleEditLock(conn *sql.DB) http.HandlerFunc {
 // @Router /v1/articles/{slug}/edit-lock [delete]
 func ReleaseArticleEditLock(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slug := strings.TrimSpace(r.PathValue("slug"))
-		if !isValidCanonicalSlug(slug) {
-			writeError(w, http.StatusBadRequest, "slug must be canonical")
+		target, err := articleTargetFromRequest(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		user, ok := middleware.UserFromContext(r.Context())
@@ -84,7 +92,14 @@ func ReleaseArticleEditLock(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "forbidden")
 			return
 		}
-		articleEditLeases.Release(slug, user.ID)
+		// Resolved the same way AcquireArticleEditLock resolves it, or the
+		// release would miss the lease the acquire took.
+		target, err = resolveArticleTarget(r.Context(), conn, target, false)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		articleEditLeases.Release(target.lockKey(), user.ID)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

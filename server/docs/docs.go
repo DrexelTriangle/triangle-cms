@@ -194,6 +194,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "The slug is deduplicated on the way in: a title or slug that another article already uses is stored with a numeric suffix. The response carries the id and the slug that were actually written.",
                 "consumes": [
                     "application/json"
                 ],
@@ -214,7 +215,10 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created"
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/models.ArticleCreateResponse"
+                        }
                     },
                     "400": {
                         "description": "Bad Request",
@@ -224,6 +228,12 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/models.ErrorResponse"
                         }
@@ -4511,6 +4521,17 @@ const docTemplate = `{
                 },
                 "total_count": {
                     "type": "integer"
+                }
+            }
+        },
+        "models.ArticleCreateResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "slug": {
+                    "type": "string"
                 }
             }
         },

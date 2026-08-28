@@ -78,6 +78,11 @@ type ArticlesResponse struct {
 	Pagination Pagination        `json:"pagination"`
 }
 
+type ArticleCreateResponse struct {
+	ID   int64  `json:"id"`
+	Slug string `json:"slug"`
+}
+
 type AuthorsResponse struct {
 	Authors    []AuthorOverview `json:"authors"`
 	Pagination Pagination       `json:"pagination"`

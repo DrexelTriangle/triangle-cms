@@ -100,12 +100,6 @@ func normalizeCategoryList(categories []string) []string {
 	return out
 }
 
-// execer is satisfied by both *sql.DB and *sql.Tx, so the write-path helpers can
-// join a caller's transaction.
-type execer interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
-
 // ReplaceArticleCategories rewrites one article's rows. Delete-then-insert
 // rather than a diff: an article carries a handful of categories, and the
 // simpler operation cannot leave a stale row behind.

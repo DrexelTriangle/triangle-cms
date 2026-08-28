@@ -269,8 +269,11 @@ const clearArticleListCache = () => {
 function EditArticleView() {
   const navigate = useNavigate()
   const apiFetch = useApiFetch()
-  const { slug: rawSlug } = useParams<{ slug: string }>()
+  const { id: rawID, slug: rawSlug } = useParams<{ id?: string; slug: string }>()
   const slug = useMemo(() => (rawSlug ? decodeURIComponent(rawSlug) : ""), [rawSlug])
+  const articleID = useMemo(() => (rawID && /^\d+$/.test(rawID) ? rawID : ""), [rawID])
+  const articleQuery = articleID ? `?id=${encodeURIComponent(articleID)}` : ""
+  const articleApiPath = slug ? `/v1/articles/${encodeURIComponent(slug)}${articleQuery}` : ""
   const isNew = !rawSlug
 
   const [slugInput, setSlugInput] = useState("")
@@ -423,7 +426,7 @@ function EditArticleView() {
       setError(null)
       setSuccessMessage(null)
       try {
-        const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`)
+        const response = await apiFetch(articleApiPath)
         if (!response.ok) {
           throw new Error(await readErrorMessage(response, `Could not load article (${response.status})`))
         }
@@ -496,7 +499,7 @@ function EditArticleView() {
     return () => {
       cancelled = true
     }
-  }, [apiFetch, slug, isNew])
+  }, [apiFetch, articleApiPath, slug, isNew])
 
   // Try to claim an advisory edit lock while this article is open. If someone
   // else already holds it we surface who, block editing, and keep re-checking
@@ -507,7 +510,7 @@ function EditArticleView() {
     if (isNew || !slug) return
     setLockChecking(true)
     try {
-      const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}/edit-lock`, { method: "PUT" })
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}/edit-lock${articleQuery}`, { method: "PUT" })
       if (response.status === 409) {
         const payload = (await response.json().catch(() => null)) as { holder_name?: string } | null
         setLockedBy(payload?.holder_name?.trim() || "another editor")
@@ -520,7 +523,7 @@ function EditArticleView() {
     } finally {
       setLockChecking(false)
     }
-  }, [apiFetch, slug, isNew])
+  }, [apiFetch, articleQuery, slug, isNew])
 
   useEffect(() => {
     if (isNew || !slug) return
@@ -532,7 +535,7 @@ function EditArticleView() {
     const release = () => {
       if (released) return
       released = true
-      void apiFetch(`/v1/articles/${encodeURIComponent(slug)}/edit-lock`, {
+      void apiFetch(`/v1/articles/${encodeURIComponent(slug)}/edit-lock${articleQuery}`, {
         method: "DELETE",
         keepalive: true,
       }).catch(() => {})
@@ -544,7 +547,7 @@ function EditArticleView() {
       window.removeEventListener("beforeunload", release)
       release()
     }
-  }, [apiFetch, slug, isNew, acquireLock])
+  }, [apiFetch, articleQuery, slug, isNew, acquireLock])
 
   useEffect(() => {
     let cancelled = false
@@ -817,11 +820,21 @@ function EditArticleView() {
           body: JSON.stringify(createPayload),
         })
         if (!response.ok) {
-          throw new Error(`Create failed (${response.status})`)
+          throw new Error(await readErrorMessage(response, `Create failed (${response.status})`))
         }
         clearArticleListCache()
         setSuccessMessage("Article created.")
-        navigate("/articles")
+        // The server owns the slug: a title or slug another article already uses
+        // comes back with a suffix. Land on the new article rather than the list
+        // so the editor is looking at the slug that was actually stored.
+        const created = (await response.json().catch(() => null)) as { id?: number; slug?: string } | null
+        if (created?.id && created.slug) {
+          navigate(`/articles/${encodeURIComponent(String(created.id))}/${encodeURIComponent(created.slug)}/edit`, {
+            replace: true,
+          })
+        } else {
+          navigate("/articles")
+        }
         return
       }
 
@@ -856,7 +869,7 @@ function EditArticleView() {
         noindex: noIndex,
       }
 
-      const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`, {
+      const response = await apiFetch(articleApiPath, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -864,7 +877,10 @@ function EditArticleView() {
         body: JSON.stringify(payload),
       })
       if (!response.ok) {
-        throw new Error(`Save failed (${response.status})`)
+        // A rename onto a slug another article holds comes back 409 with a
+        // message worth showing: the generic text would read as a save that
+        // failed for no reason.
+        throw new Error(await readErrorMessage(response, `Save failed (${response.status})`))
       }
       if (nextTiming) {
         setPublishTiming(nextTiming)
@@ -886,7 +902,8 @@ function EditArticleView() {
         // The route still points at the old slug, which no longer resolves, so
         // move the editor onto the new one before anything refetches.
         setPendingSlug(null)
-        navigate(`/articles/${encodeURIComponent(slugToSave)}/edit`, { replace: true })
+        const basePath = articleID ? `/articles/${encodeURIComponent(articleID)}` : "/articles"
+        navigate(`${basePath}/${encodeURIComponent(slugToSave)}/edit`, { replace: true })
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save article."
@@ -918,7 +935,7 @@ function EditArticleView() {
     }, AUTOSAVE_DELAY_MS)
 
     return () => window.clearTimeout(timer)
-  }, [articleSnapshot, isAutoSaving, isLoading, isNew, isSaving, lockedBy, selectedAuthorIds, selectedCategorySlugs])
+  }, [articleApiPath, articleID, articleSnapshot, isAutoSaving, isLoading, isNew, isSaving, lockedBy, selectedAuthorIds, selectedCategorySlugs])
 
   const inputClass ="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"

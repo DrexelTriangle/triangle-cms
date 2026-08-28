@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"net"
 	"net/http"
@@ -67,6 +69,196 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, models.ErrorResponse{Error: msg})
+}
+
+type articleTarget struct {
+	slug  string
+	id    int64
+	hasID bool
+}
+
+func articleTargetFromRequest(r *http.Request) (articleTarget, error) {
+	slug := strings.TrimSpace(r.PathValue("slug"))
+	if !isValidCanonicalSlug(slug) {
+		return articleTarget{}, fmt.Errorf("slug must be canonical")
+	}
+	rawID := strings.TrimSpace(r.URL.Query().Get("id"))
+	if rawID == "" {
+		return articleTarget{slug: slug}, nil
+	}
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || id <= 0 {
+		return articleTarget{}, fmt.Errorf("id must be a positive integer")
+	}
+	return articleTarget{slug: slug, id: id, hasID: true}, nil
+}
+
+// resolveArticleTarget pins a slug-only request to one row before anything reads
+// or locks. Slugs are not unique, so without this the same request could lock
+// one duplicate, read a second and write a third; the legacy /articles/:slug
+// links that predate the id-qualified routes all arrive this way. The archived
+// flag says which state the caller works in, so a restore resolves the archived
+// twin and a save resolves the live one.
+//
+// A slug matching no row leaves the target unresolved. The handler's own query
+// then reports the 404 on its row count, which is the same answer it gave before.
+func resolveArticleTarget(ctx context.Context, conn *sql.DB, target articleTarget, archived bool) (articleTarget, error) {
+	if target.hasID {
+		return target, nil
+	}
+	id, err := db.ResolveArticleIDBySlug(ctx, conn, target.slug, archived)
+	if err != nil {
+		return target, err
+	}
+	if id == 0 {
+		return target, nil
+	}
+	target.id = id
+	target.hasID = true
+	return target, nil
+}
+
+func (target articleTarget) lockKey() string {
+	if target.hasID {
+		return fmt.Sprintf("id:%d", target.id)
+	}
+	return "slug:" + target.slug
+}
+
+func (target articleTarget) articleWhere() (string, []any) {
+	if target.hasID {
+		return "`id` = ? AND `slug` = ?", []any{target.id, target.slug}
+	}
+	return "`slug` = ?", []any{target.slug}
+}
+
+func (target articleTarget) articleWhereArchived(archived bool) (string, []any) {
+	where, args := target.articleWhere()
+	if archived {
+		return where + " AND `archived_at` IS NOT NULL", args
+	}
+	return where + " AND `archived_at` IS NULL", args
+}
+
+// errArticleSlugLockBusy separates "another create holds this slug" from a
+// broken database, so the caller can answer 503 and invite a retry instead of
+// reporting a server fault.
+var errArticleSlugLockBusy = errors.New("timed out waiting for the article slug lock")
+
+func articleCreateDBLockName(candidate string) string {
+	// MySQL caps a lock name at 64 characters and slugs in the corpus run to
+	// 154, so the name is a hash rather than the slug itself. A collision only
+	// serializes two unrelated creates, which is the behaviour we want anyway.
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(candidate))
+	return "article-create:" + strconv.FormatUint(hash.Sum64(), 36)
+}
+
+func acquireArticleCreateDBLock(ctx context.Context, conn *sql.Conn, candidate string) (func(), error) {
+	lockName := articleCreateDBLockName(candidate)
+	var acquired sql.NullInt64
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, 10)", lockName).Scan(&acquired); err != nil {
+		return nil, err
+	}
+	if !acquired.Valid || acquired.Int64 != 1 {
+		return nil, errArticleSlugLockBusy
+	}
+	return func() {
+		var released sql.NullInt64
+		_ = conn.QueryRowContext(context.Background(), "SELECT RELEASE_LOCK(?)", lockName).Scan(&released)
+	}, nil
+}
+
+// reserveArticleSlug returns a free slug and the lock that keeps it free until
+// the insert lands.
+//
+// The lock is held on the CANDIDATE, not on the stem it was derived from. Two
+// creates can reach the same candidate from different stems -- one titled "Foo"
+// whose slug becomes foo-2, one whose slug is literally foo-2 -- and a lock on
+// the stem would let those two run concurrently and both insert foo-2. The
+// candidate is the thing that has to be unique, so the candidate is the thing
+// that is locked.
+func reserveArticleSlug(ctx context.Context, conn *sql.Conn, requested, title string) (string, func(), error) {
+	base := db.ArticleSlugBase(requested, title)
+	for suffix := 1; suffix <= 100; suffix++ {
+		candidate := base
+		if suffix > 1 {
+			candidate = fmt.Sprintf("%s-%d", base, suffix)
+		}
+		release, err := acquireArticleCreateDBLock(ctx, conn, candidate)
+		if err != nil {
+			return "", nil, err
+		}
+		taken, err := db.ArticleSlugExists(ctx, conn, candidate)
+		if err != nil {
+			release()
+			return "", nil, err
+		}
+		if !taken {
+			return candidate, release, nil
+		}
+		release()
+	}
+	return "", nil, fmt.Errorf("every slug from %q to %q is already taken", base, fmt.Sprintf("%s-%d", base, 100))
+}
+
+// insertArticleWithUniqueSlug holds a pooled connection for exactly as long as
+// the slug reservation and the insert need it.
+//
+// The connection is dedicated because GET_LOCK is scoped to one, and it is
+// released here rather than deferred to the end of the request because
+// everything the create does afterwards -- authors, categories, taxonomy counts
+// -- goes back to the pool. A handler that held this connection across those
+// calls would be waiting on the pool while holding part of it, which deadlocks
+// outright once the pool is the single connection the integration tests use.
+func insertArticleWithUniqueSlug(ctx context.Context, conn *sql.DB, body *models.ArticleInput) (int64, error) {
+	lockedConn, err := conn.Conn(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer lockedConn.Close()
+
+	slug, releaseSlug, err := reserveArticleSlug(ctx, lockedConn, body.Slug, body.Title)
+	if err != nil {
+		return 0, err
+	}
+	defer releaseSlug()
+	body.Slug = slug
+
+	result, err := db.Insert(ctx, lockedConn, "articles",
+		[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date", "canonical_url", "noindex", "photo_alt"},
+		db.ArticleInputToDBFields(*body)...,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// rejectTakenSlug answers 409 when a rename would land on a slug another article
+// already holds. Creation dedupes silently because it picked the slug itself; a
+// rename carries a slug the editor typed, and quietly storing a different one
+// would leave them looking at a permalink the site does not serve.
+func rejectTakenSlug(w http.ResponseWriter, r *http.Request, conn *sql.DB, target articleTarget, newSlug string) bool {
+	if newSlug == "" || newSlug == target.slug {
+		return false
+	}
+	// An unresolved target is a slug that matches no article. That is a 404, and
+	// the caller's own write reports it as one; answering 409 here would explain
+	// the wrong problem.
+	if !target.hasID {
+		return false
+	}
+	taken, err := db.ArticleSlugTakenByOther(r.Context(), conn, newSlug, target.id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return true
+	}
+	if taken {
+		writeError(w, http.StatusConflict, "slug is already taken by another article")
+		return true
+	}
+	return false
 }
 
 // publicReadCacheControl bounds how stale a public read may be.
@@ -359,14 +551,12 @@ func reconcileTaxonomyArticleCounts(ctx context.Context, conn *sql.DB, oldCatego
 	return nil
 }
 
-func loadArticleCategoriesByArchiveState(ctx context.Context, conn *sql.DB, slug string, archived bool) ([]string, bool, error) {
-	query := "SELECT categories FROM articles WHERE slug = ? AND archived_at IS NULL LIMIT 1"
-	if archived {
-		query = "SELECT categories FROM articles WHERE slug = ? AND archived_at IS NOT NULL LIMIT 1"
-	}
+func loadArticleCategoriesByArchiveState(ctx context.Context, conn *sql.DB, target articleTarget, archived bool) ([]string, bool, error) {
+	where, args := target.articleWhereArchived(archived)
+	query := "SELECT categories FROM articles WHERE " + where + " LIMIT 1"
 
 	var raw sql.NullString
-	err := conn.QueryRowContext(ctx, query, slug).Scan(&raw)
+	err := conn.QueryRowContext(ctx, query, args...).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -379,10 +569,11 @@ func loadArticleCategoriesByArchiveState(ctx context.Context, conn *sql.DB, slug
 // last_pub_date remembers the publish date an article had before it was pulled
 // back to draft, so re-publishing restores the original date instead of stamping
 // today's. See articlePatchDateColumns.
-func loadArticlePublishDate(ctx context.Context, conn *sql.DB, slug string) (publishedAt, lastPublishedAt sql.NullTime, err error) {
+func loadArticlePublishDate(ctx context.Context, conn *sql.DB, target articleTarget) (publishedAt, lastPublishedAt sql.NullTime, err error) {
+	where, args := target.articleWhereArchived(false)
 	err = conn.QueryRowContext(ctx,
-		"SELECT pub_date, last_pub_date FROM articles WHERE slug = ? AND archived_at IS NULL LIMIT 1",
-		slug,
+		"SELECT pub_date, last_pub_date FROM articles WHERE "+where+" LIMIT 1",
+		args...,
 	).Scan(&publishedAt, &lastPublishedAt)
 	if err == sql.ErrNoRows {
 		return sql.NullTime{}, sql.NullTime{}, nil
@@ -1657,6 +1848,24 @@ func GetSearch(conn *sql.DB, embedder QueryEmbedder) http.HandlerFunc {
 	}
 }
 
+// scanOneArticle reads the first row of a single-article query and releases the
+// connection before returning, so the caller is free to make its follow-up
+// queries. It takes the (rows, err) pair straight from the query call.
+func scanOneArticle(rows *sql.Rows, queryErr error) (models.Article, bool, error) {
+	if queryErr != nil {
+		return models.Article{}, false, queryErr
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return models.Article{}, false, rows.Err()
+	}
+	a, err := db.ScanArticle(rows)
+	if err != nil {
+		return models.Article{}, false, err
+	}
+	return a, true, rows.Close()
+}
+
 // articleDetailCondition builds the WHERE clause for a single-article lookup.
 // The endpoint is public and returns the FULL article body, so an anonymous
 // caller is restricted to live content: knowing or guessing a slug must not
@@ -1664,11 +1873,18 @@ func GetSearch(conn *sql.DB, embedder QueryEmbedder) http.HandlerFunc {
 // to the same 404 as a nonexistent slug, so the response never reveals that the
 // article exists. Editors are identified by OptionalAuth on the route and still
 // see everything.
+//
+// The ORDER BY is not decoration. Slugs are not unique, so without it a slug
+// carried by two published articles answers with whichever row the scan reached
+// first -- which can differ between two requests for the same URL, and puts
+// whichever one won into a shared cache. Lowest id is the same rule the editor
+// paths resolve by, so the public page and the editor agree on which article a
+// duplicated slug means.
 func articleDetailCondition(r *http.Request) string {
 	if _, isEditor := middleware.UserFromContext(r.Context()); isEditor {
-		return "`slug` = ?"
+		return "`slug` = ? ORDER BY `id` LIMIT 1"
 	}
-	return "`slug` = ? AND `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL"
+	return "`slug` = ? AND `pub_date` IS NOT NULL AND `pub_date` <= UTC_TIMESTAMP() AND `archived_at` IS NULL ORDER BY `id` LIMIT 1"
 }
 
 // @Summary Get an article by slug
@@ -1683,9 +1899,9 @@ func articleDetailCondition(r *http.Request) string {
 // @Router /v1/articles/{slug} [get]
 func GetArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slug := strings.TrimSpace(r.PathValue("slug"))
-		if !isValidCanonicalSlug(slug) {
-			writeError(w, http.StatusBadRequest, "slug must be canonical")
+		target, err := articleTargetFromRequest(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		// This endpoint is public and returns the FULL article body, so an
@@ -1694,19 +1910,34 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 		// The miss falls through to the same 404 as a nonexistent slug, so the
 		// response does not reveal that the article exists at all. Editors are
 		// identified by OptionalAuth on the route and still see everything.
-		rows, err := db.Select(r.Context(), conn, "articles", db.ArticleColumns, articleDetailCondition(r), slug)
+		where := articleDetailCondition(r)
+		args := []any{target.slug}
+		if _, isEditor := middleware.UserFromContext(r.Context()); isEditor {
+			// Resolve even without an ?id=: an editor who followed a legacy
+			// /articles/:slug link must load the row a later save will write,
+			// and "whichever duplicate the scan reached first" is not that row.
+			target, err = resolveArticleTarget(r.Context(), conn, target, false)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if target.hasID {
+				where, args = target.articleWhere()
+				where += " LIMIT 1"
+			}
+		}
+		// Scanned and closed in one step, before anything else queries. An open
+		// *sql.Rows holds its pooled connection, and the author lookup below
+		// wants a second one -- a handler that kept both would be waiting on a
+		// pool it is itself holding, which stalls outright once the pool is the
+		// single connection the integration tests use.
+		a, found, err := scanOneArticle(db.Select(r.Context(), conn, "articles", db.ArticleColumns, where, args...))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		defer rows.Close()
-		if !rows.Next() {
+		if !found {
 			writeError(w, http.StatusNotFound, "article not found")
-			return
-		}
-		a, err := db.ScanArticle(rows)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		articles := []models.Article{a}
@@ -2192,10 +2423,12 @@ func DeleteComment(conn *sql.DB) http.HandlerFunc {
 // @Summary Create an article
 // @Tags articles
 // @Accept json
+// @Description The slug is deduplicated on the way in: a title or slug that another article already uses is stored with a numeric suffix. The response carries the id and the slug that were actually written.
 // @Param body body models.ArticleInput true "Article"
-// @Success 201
+// @Success 201 {object} models.ArticleCreateResponse
 // @Failure 400 {object} models.ErrorResponse
 // @Failure 500 {object} models.ErrorResponse
+// @Failure 503 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/articles [post]
 func PostArticles(conn *sql.DB) http.HandlerFunc {
@@ -2220,17 +2453,15 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "canonical_url must be an absolute http(s) URL")
 			return
 		}
-		fields := db.ArticleInputToDBFields(body)
-		result, err := db.Insert(r.Context(), conn, "articles",
-			[]string{"title", "slug", "description", "text", "excerpt", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "tags", "metadata", "focus_keyword", "meta_description", "seo_title", "creation_date", "scheduled_pub_date", "canonical_url", "noindex", "photo_alt"},
-			fields...,
-		)
+		// Two editors filing "Letter from the editor" on the same afternoon is
+		// the ordinary case, not the rare one, so the slug is deduped rather
+		// than rejected. body.Slug comes back carrying whatever was reserved.
+		articleID, err := insertArticleWithUniqueSlug(r.Context(), conn, &body)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		articleID, err := result.LastInsertId()
-		if err != nil {
+			if errors.Is(err, errArticleSlugLockBusy) {
+				writeError(w, http.StatusServiceUnavailable, err.Error())
+				return
+			}
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2257,8 +2488,8 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 		if body.Status == models.ArticleStatusPublished {
 			action = "article_published"
 		}
-		activity.LogRequest(r, action, body.Title, "slug", strings.TrimSpace(body.Slug), "article_id", articleID)
-		w.WriteHeader(http.StatusCreated)
+		activity.LogRequest(r, action, body.Title, "slug", body.Slug, "article_id", articleID)
+		writeJSON(w, http.StatusCreated, models.ArticleCreateResponse{ID: articleID, Slug: body.Slug})
 	}
 }
 
@@ -2275,23 +2506,31 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 // @Router /v1/articles/{slug} [put]
 func PutArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slug := strings.TrimSpace(r.PathValue("slug"))
-		if !isValidCanonicalSlug(slug) {
-			writeError(w, http.StatusBadRequest, "slug must be canonical")
+		target, err := articleTargetFromRequest(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		unlock := articleEditLocks.Lock(slug)
-		defer unlock()
 		if !requireArticleWriteRole(w, r) {
 			return
 		}
+		// Resolve before locking: the lock has to name the row, not the slug,
+		// or a request arriving on a legacy /articles/:slug URL and one on the
+		// id-qualified route would take different keys for the same article.
+		target, err = resolveArticleTarget(r.Context(), conn, target, false)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		unlock := articleEditLocks.Lock(target.lockKey())
+		defer unlock()
 		var body models.Article
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		if strings.TrimSpace(body.Slug) == "" {
-			body.Slug = slug
+			body.Slug = target.slug
 		} else if !isValidCanonicalSlug(body.Slug) {
 			writeError(w, http.StatusBadRequest, "slug must be canonical")
 			return
@@ -2300,16 +2539,20 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "canonical_url must be an absolute http(s) URL")
 			return
 		}
-		oldCategories, isActiveArticle, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, false)
+		if rejectTakenSlug(w, r, conn, target, strings.TrimSpace(body.Slug)) {
+			return
+		}
+		oldCategories, isActiveArticle, err := loadArticleCategoriesByArchiveState(r.Context(), conn, target, false)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		fields := db.ArticleToDBFields(body)
-		fields = append(fields, slug)
+		where, whereArgs := target.articleWhere()
+		fields = append(fields, whereArgs...)
 		result, err := db.Update(r.Context(), conn, "articles",
 			[]string{"title", "slug", "excerpt", "text", "categories", "pub_date", "mod_date", "priority", "breaking_news", "comment_status", "photo_url", "focus_keyword", "meta_description", "seo_title", "scheduled_pub_date", "canonical_url", "noindex", "photo_alt"},
-			"`slug` = ?",
+			where,
 			fields...,
 		)
 		if err != nil {
@@ -2328,12 +2571,23 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		// See PatchArticle: featuring is exclusive, so the previous pick is
 		// cleared once this one is safely written.
 		if body.IsFeatured {
-			if err := db.ClearFeaturedExcept(r.Context(), conn, body.Slug); err != nil {
+			var err error
+			if target.hasID {
+				err = db.ClearFeaturedExceptID(r.Context(), conn, target.id)
+			} else {
+				err = db.ClearFeaturedExcept(r.Context(), conn, body.Slug)
+			}
+			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
-		if err := db.ReplaceArticleAuthorsBySlug(r.Context(), conn, body.Slug, authorIDsFromOverviews(body.Authors)); err != nil {
+		if target.hasID {
+			err = db.ReplaceArticleAuthors(r.Context(), conn, target.id, authorIDsFromOverviews(body.Authors))
+		} else {
+			err = db.ReplaceArticleAuthorsBySlug(r.Context(), conn, body.Slug, authorIDsFromOverviews(body.Authors))
+		}
+		if err != nil {
 			if err == sql.ErrNoRows {
 				writeError(w, http.StatusNotFound, "article not found")
 				return
@@ -2346,7 +2600,12 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		// the article is filed, which is true of archived rows too -- they are
 		// excluded by the listing's own archived_at predicate, not by being
 		// missing from here.
-		if err := db.ReplaceArticleCategoriesBySlug(r.Context(), conn, body.Slug, body.Categories); err != nil {
+		if target.hasID {
+			err = db.ReplaceArticleCategories(r.Context(), conn, target.id, body.Categories)
+		} else {
+			err = db.ReplaceArticleCategoriesBySlug(r.Context(), conn, body.Slug, body.Categories)
+		}
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2374,28 +2633,35 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 // @Router /v1/articles/{slug} [patch]
 func PatchArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slug := strings.TrimSpace(r.PathValue("slug"))
-		if !isValidCanonicalSlug(slug) {
-			writeError(w, http.StatusBadRequest, "slug must be canonical")
+		target, err := articleTargetFromRequest(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		unlock := articleEditLocks.Lock(slug)
-		defer unlock()
 		if !requireArticleWriteRole(w, r) {
 			return
 		}
+		// See PutArticle: the lock names the resolved row, so every route that
+		// reaches this article contends on the same key.
+		target, err = resolveArticleTarget(r.Context(), conn, target, false)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		unlock := articleEditLocks.Lock(target.lockKey())
+		defer unlock()
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
 		var authorIDs *[]int64
-		oldCategories, isActiveArticle, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, false)
+		oldCategories, isActiveArticle, err := loadArticleCategoriesByArchiveState(r.Context(), conn, target, false)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		currentPublishedAt, lastPublishedAt, err := loadArticlePublishDate(r.Context(), conn, slug)
+		currentPublishedAt, lastPublishedAt, err := loadArticlePublishDate(r.Context(), conn, target)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2433,6 +2699,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		var publishedDateValue any
 		var scheduledDateValue any
+		renamedSlug := ""
 		featuring := false
 		publishedDateSet := false
 		var statusValue models.ArticleStatus
@@ -2535,7 +2802,15 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				// from the body rather than from whatever the loop has processed.
 				content, _ := body["content"].(string)
 				if strings.TrimSpace(content) == "" {
-					stored, err := db.GetArticleContentBySlug(r.Context(), conn, slug)
+					// By id where there is one: a slug lookup can read a
+					// different article's body than the one being written.
+					var stored string
+					var err error
+					if target.hasID {
+						stored, err = db.GetArticleContentByID(r.Context(), conn, target.id)
+					} else {
+						stored, err = db.GetArticleContentBySlug(r.Context(), conn, target.slug)
+					}
 					if err != nil {
 						writeError(w, http.StatusInternalServerError, err.Error())
 						return
@@ -2585,6 +2860,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 					writeError(w, http.StatusBadRequest, "slug must be canonical")
 					return
 				}
+				renamedSlug = trimmed
 				setCols = append(setCols, column)
 				setArgs = append(setArgs, trimmed)
 			default:
@@ -2600,11 +2876,15 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "no valid fields to update")
 			return
 		}
-		targetSlug := slug
+		if rejectTakenSlug(w, r, conn, target, renamedSlug) {
+			return
+		}
+		targetSlug := target.slug
 		setCols = append(setCols, "mod_date")
 		setArgs = append(setArgs, time.Now().UTC().Format("2006-01-02 15:04:05"))
 		if len(setCols) > 0 {
-			result, err := db.Update(r.Context(), conn, "articles", setCols, "`slug` = ?", append(setArgs, slug)...)
+			where, whereArgs := target.articleWhere()
+			result, err := db.Update(r.Context(), conn, "articles", setCols, where, append(setArgs, whereArgs...)...)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
@@ -2626,13 +2906,24 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		// card, and leaving the old pick flagged would make the tiebreak, not
 		// the editor, decide which story runs.
 		if featuring {
-			if err := db.ClearFeaturedExcept(r.Context(), conn, targetSlug); err != nil {
+			var err error
+			if target.hasID {
+				err = db.ClearFeaturedExceptID(r.Context(), conn, target.id)
+			} else {
+				err = db.ClearFeaturedExcept(r.Context(), conn, targetSlug)
+			}
+			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
 		if authorIDs != nil {
-			if err := db.ReplaceArticleAuthorsBySlug(r.Context(), conn, targetSlug, *authorIDs); err != nil {
+			if target.hasID {
+				err = db.ReplaceArticleAuthors(r.Context(), conn, target.id, *authorIDs)
+			} else {
+				err = db.ReplaceArticleAuthorsBySlug(r.Context(), conn, targetSlug, *authorIDs)
+			}
+			if err != nil {
 				if err == sql.ErrNoRows {
 					writeError(w, http.StatusNotFound, "article not found")
 					return
@@ -2644,7 +2935,12 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		// nextCategories is oldCategories unless this patch carried a categories
 		// field, so an unrelated patch rewrites the index to what it already
 		// held rather than clearing it.
-		if err := db.ReplaceArticleCategoriesBySlug(r.Context(), conn, targetSlug, nextCategories); err != nil {
+		if target.hasID {
+			err = db.ReplaceArticleCategories(r.Context(), conn, target.id, nextCategories)
+		} else {
+			err = db.ReplaceArticleCategoriesBySlug(r.Context(), conn, targetSlug, nextCategories)
+		}
+		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2654,11 +2950,11 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				return
 			}
 		}
-		target := targetSlug
+		logTarget := targetSlug
 		if rawTitle, ok := body["title"].(string); ok && strings.TrimSpace(rawTitle) != "" {
-			target = strings.TrimSpace(rawTitle)
+			logTarget = strings.TrimSpace(rawTitle)
 		}
-		activity.LogRequest(r, "article_updated", target, "slug", targetSlug)
+		activity.LogRequest(r, "article_updated", logTarget, "slug", targetSlug)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -2673,17 +2969,25 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 // @Router /v1/articles/{slug} [delete]
 func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slug := strings.TrimSpace(r.PathValue("slug"))
-		if !isValidCanonicalSlug(slug) {
-			writeError(w, http.StatusBadRequest, "slug must be canonical")
+		target, err := articleTargetFromRequest(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		unlock := articleEditLocks.Lock(slug)
-		defer unlock()
 		if !requireArticleWriteRole(w, r) {
 			return
 		}
-		categories, found, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, false)
+		// See PutArticle. The archive state matters here: a slug shared by an
+		// archived row and a live one has to resolve to the one this handler
+		// can actually act on.
+		target, err = resolveArticleTarget(r.Context(), conn, target, false)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		unlock := articleEditLocks.Lock(target.lockKey())
+		defer unlock()
+		categories, found, err := loadArticleCategoriesByArchiveState(r.Context(), conn, target, false)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2692,7 +2996,8 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "article not found")
 			return
 		}
-		result, err := conn.ExecContext(r.Context(), "UPDATE `articles` SET `archived_at` = NOW() WHERE `slug` = ? AND `archived_at` IS NULL", slug)
+		where, args := target.articleWhereArchived(false)
+		result, err := conn.ExecContext(r.Context(), "UPDATE `articles` SET `archived_at` = NOW() WHERE "+where, args...)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2705,7 +3010,7 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		activity.LogRequest(r, "article_deleted", slug)
+		activity.LogRequest(r, "article_deleted", target.slug, "article_id", target.id)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -2720,17 +3025,25 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 // @Router /v1/articles/{slug}/restore [patch]
 func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slug := strings.TrimSpace(r.PathValue("slug"))
-		if !isValidCanonicalSlug(slug) {
-			writeError(w, http.StatusBadRequest, "slug must be canonical")
+		target, err := articleTargetFromRequest(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		unlock := articleEditLocks.Lock(slug)
-		defer unlock()
 		if !requireArticleWriteRole(w, r) {
 			return
 		}
-		categories, found, err := loadArticleCategoriesByArchiveState(r.Context(), conn, slug, true)
+		// See PutArticle. The archive state matters here: a slug shared by an
+		// archived row and a live one has to resolve to the one this handler
+		// can actually act on.
+		target, err = resolveArticleTarget(r.Context(), conn, target, true)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		unlock := articleEditLocks.Lock(target.lockKey())
+		defer unlock()
+		categories, found, err := loadArticleCategoriesByArchiveState(r.Context(), conn, target, true)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2739,7 +3052,8 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "article not found")
 			return
 		}
-		result, err := conn.ExecContext(r.Context(), "UPDATE `articles` SET `archived_at` = NULL WHERE `slug` = ? AND `archived_at` IS NOT NULL", slug)
+		where, args := target.articleWhereArchived(true)
+		result, err := conn.ExecContext(r.Context(), "UPDATE `articles` SET `archived_at` = NULL WHERE "+where, args...)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2752,7 +3066,7 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		activity.LogRequest(r, "article_restored", slug)
+		activity.LogRequest(r, "article_restored", target.slug, "article_id", target.id)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
