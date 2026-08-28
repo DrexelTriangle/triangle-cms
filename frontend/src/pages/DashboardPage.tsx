@@ -35,6 +35,9 @@ interface RecentArticle {
   published_date: string | null
 }
 
+const editArticlePath = (article: Pick<RecentArticle, "id" | "slug">) =>
+  `/articles/${encodeURIComponent(String(article.id))}/${encodeURIComponent(article.slug)}/edit`
+
 interface ApiStats {
   totalArticles: number | null
   publishedArticles: number | null
@@ -244,9 +247,11 @@ export default function DashboardPage() {
         throw new Error(`Save failed (${response.status})`)
       }
 
+      const created = (await response.json().catch(() => null)) as { id?: number | string; slug?: string } | null
+      const createdSlug = created?.slug || slug
       let confirmed = false
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        const verifyResponse = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`)
+        const verifyResponse = await apiFetch(`/v1/articles/${encodeURIComponent(createdSlug)}`)
         if (verifyResponse.ok) {
           confirmed = true
           break
@@ -270,7 +275,11 @@ export default function DashboardPage() {
         }
       }
 
-      navigate(`/articles/${encodeURIComponent(slug)}/edit`)
+      if (created?.id !== undefined && created.id !== null) {
+        navigate(`/articles/${encodeURIComponent(String(created.id))}/${encodeURIComponent(createdSlug)}/edit`)
+      } else {
+        navigate(`/articles/${encodeURIComponent(createdSlug)}/edit`)
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save draft."
       setDraftError(message)
@@ -436,7 +445,7 @@ export default function DashboardPage() {
                       <tr
                         key={article.id}
                         className="hover:bg-muted/40 cursor-pointer transition-colors group"
-                        onClick={() => navigate(`/articles/${article.slug}/edit`)}
+                        onClick={() => navigate(editArticlePath(article))}
                       >
                         <td className="px-5 py-2.5 font-medium group-hover:text-primary transition-colors max-w-[240px] truncate">
                           {article.title}

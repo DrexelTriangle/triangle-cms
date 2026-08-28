@@ -488,10 +488,10 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const effectiveTotalCount = Math.max(totalArticleCount, (page * pageSize) + articles.length)
   const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / pageSize))
   const listLabel = pageTitle.toLowerCase()
-  const editPathForSlug = (slug: string) =>
+  const editPathForArticle = (item: ArticleItem) =>
     fixedType === "developing-stories"
-      ? `/developing-stories/${encodeURIComponent(slug)}/edit`
-      : `/articles/${encodeURIComponent(slug)}/edit`
+      ? `/developing-stories/${encodeURIComponent(item.id)}/${encodeURIComponent(item.slug ?? "")}/edit`
+      : `/articles/${encodeURIComponent(item.id)}/${encodeURIComponent(item.slug ?? "")}/edit`
 
   // subsectionRows walks the section, then each subsection on the trail, and
   // keeps the levels that actually have children to offer.
@@ -562,7 +562,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     setDeleteError(null)
     setDeletingArticleId(item.id)
     try {
-      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}`, {
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}?id=${encodeURIComponent(item.id)}`, {
         method: "DELETE",
       })
       if (!response.ok) {
@@ -589,7 +589,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     setDeleteError(null)
     setDeletingArticleId(item.id)
     try {
-      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}/restore`, {
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}/restore?id=${encodeURIComponent(item.id)}`, {
         method: "PATCH",
       })
       if (!response.ok) {
@@ -830,7 +830,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                         <Link
                           className="block min-w-0 truncate rounded-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                           title={item.title}
-                          to={editPathForSlug(item.slug)}
+                          to={editPathForArticle(item)}
                         >
                           {item.title}
                         </Link>
@@ -883,7 +883,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                         disabled={!item.slug}
                         onClick={() => {
                           if (!item.slug) return
-                          navigate(editPathForSlug(item.slug))
+                          navigate(editPathForArticle(item))
                         }}
                         title={item.slug ? "Edit" : "Edit unavailable"}
                         type="button"

@@ -213,7 +213,7 @@ export default function SeoView() {
               <button
                 key={`${issue.article_id}-${idx}`}
                 type="button"
-                onClick={() => navigate(`/articles/${encodeURIComponent(issue.slug)}/edit`)}
+                onClick={() => navigate(`/articles/${encodeURIComponent(String(issue.article_id))}/${encodeURIComponent(issue.slug)}/edit`)}
                 className={`flex items-start gap-3 rounded-xl border p-4 text-left transition-colors ${
                   issue.type === "error"
                     ? "border-destructive/30 bg-destructive/5 hover:bg-destructive/10"

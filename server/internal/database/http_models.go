@@ -34,6 +34,10 @@ var ArticleSortByColumn = map[string]string{
 	string(models.ArticleSortByCommentStatus): "comment_status",
 }
 
+type queryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email", "login", "archived_at"}
 
 // articleRow is the landing zone for a scanned article: every column at its
@@ -649,6 +653,21 @@ func GetArticleContentBySlug(ctx context.Context, conn *sql.DB, slug string) (st
 	return text.String, nil
 }
 
+// GetArticleContentByID is GetArticleContentBySlug for a request that knows
+// which row it is patching. Slugs are not unique, so deriving an excerpt from a
+// slug lookup can read a different article's body than the one being written.
+func GetArticleContentByID(ctx context.Context, conn *sql.DB, id int64) (string, error) {
+	var text sql.NullString
+	err := conn.QueryRowContext(ctx, "SELECT `text` FROM `articles` WHERE `id` = ?", id).Scan(&text)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return text.String, nil
+}
+
 func ParsePublishedAt(value string) *time.Time {
 	if strings.TrimSpace(value) == "" {
 		return nil
@@ -791,6 +810,92 @@ func normalizeSlug(value string) string {
 
 func CanonicalizeSlug(value string) string {
 	return normalizeSlug(value)
+}
+
+// ArticleSlugBase is the stem every generated slug is built from: the caller's
+// slug if it gave one, otherwise the title, otherwise a constant. Creation paths
+// must all derive it the same way -- the base names the lock that keeps two
+// concurrent creates from picking the same candidate.
+func ArticleSlugBase(requested, title string) string {
+	base := normalizeSlug(requested)
+	if base == "" {
+		base = normalizeSlug(title)
+	}
+	if base == "" {
+		base = "article"
+	}
+	return base
+}
+
+// ArticleSlugExists reports whether any article already carries the slug,
+// archived rows included: an archived article still owns its permalink, and
+// restoring it must not collide with something created in the meantime.
+func ArticleSlugExists(ctx context.Context, conn queryRower, slug string) (bool, error) {
+	var exists int
+	err := conn.QueryRowContext(ctx, "SELECT 1 FROM `articles` WHERE `slug` = ? LIMIT 1", slug).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ArticleSlugTakenByOther is ArticleSlugExists for the rename paths, which must
+// ignore the row doing the renaming: saving an article without touching its slug
+// would otherwise report the article's own slug as a collision. An excludeID of
+// 0 excludes nothing, which is the right answer for a slug that resolves to no
+// row at all.
+func ArticleSlugTakenByOther(ctx context.Context, conn queryRower, slug string, excludeID int64) (bool, error) {
+	var exists int
+	err := conn.QueryRowContext(ctx,
+		"SELECT 1 FROM `articles` WHERE `slug` = ? AND `id` <> ? LIMIT 1", slug, excludeID,
+	).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ResolveArticleIDBySlug picks the row a slug-only request addresses. Slugs are
+// not unique -- the index is deliberately non-UNIQUE, see EnsureArticlesSlugIndex
+// -- so "the article with this slug" has to be a rule rather than an assumption:
+// prefer the archive state the caller is working in, then take the lowest id.
+// Every path that resolves a slug uses this one function, so the row a request
+// locks is the row it reads and the row it writes.
+//
+// A slug that matches nothing returns (0, nil): the caller's own query reports
+// that as a 404 on its row count, and failing here would turn one missing
+// article into a 500.
+func ResolveArticleIDBySlug(ctx context.Context, conn queryRower, slug string, archived bool) (int64, error) {
+	state := "IS NULL"
+	if archived {
+		state = "IS NOT NULL"
+	}
+	var id int64
+	err := conn.QueryRowContext(ctx,
+		"SELECT `id` FROM `articles` WHERE `slug` = ? AND `archived_at` "+state+" ORDER BY `id` LIMIT 1", slug,
+	).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+	err = conn.QueryRowContext(ctx,
+		"SELECT `id` FROM `articles` WHERE `slug` = ? ORDER BY `id` LIMIT 1", slug,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func IsCanonicalSlug(value string) bool {

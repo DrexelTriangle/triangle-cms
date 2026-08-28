@@ -105,12 +105,15 @@ vi.mock("../components/SeoAnalysis", () => ({ default: () => null }))
 
 const patchCalls = () => apiCalls.filter((call) => call.method === "PATCH")
 
-const renderEditor = async () => {
+const renderEditor = async (
+  initialEntry = `/articles/${ARTICLE_SLUG}/edit`,
+  routePath = "/articles/:slug/edit",
+) => {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
   render(
-    <MemoryRouter initialEntries={[`/articles/${ARTICLE_SLUG}/edit`]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
-        <Route path="/articles/:slug/edit" element={<EditArticleView />} />
+        <Route path={routePath} element={<EditArticleView />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -166,6 +169,22 @@ describe("EditArticleView autosave", () => {
     expect(patches[0].body).not.toHaveProperty("status")
     expect(patches[0].body).not.toHaveProperty("published_date")
     expect(patches[0].body?.content).toContain("and more")
+  })
+
+  it("loads and saves by id when the editor route carries one", async () => {
+    const user = await renderEditor(
+      `/articles/42/${ARTICLE_SLUG}/edit`,
+      "/articles/:id/:slug/edit",
+    )
+
+    expect(apiCalls.some((call) => call.method === "GET" && call.url === `/v1/articles/${ARTICLE_SLUG}?id=42`)).toBe(true)
+
+    await user.type(screen.getByTestId("article-body"), " and more")
+    await waitOutAutosave()
+
+    const patches = patchCalls()
+    expect(patches).toHaveLength(1)
+    expect(patches[0].url).toBe(`/v1/articles/${ARTICLE_SLUG}?id=42`)
   })
 
   it("does not unpublish a live article when the editor only selects Draft", async () => {
