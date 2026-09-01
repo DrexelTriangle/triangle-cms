@@ -203,6 +203,17 @@ func main() {
 		slog.Error("failed to backfill article SEO from Yoast export", "error", err)
 		os.Exit(1)
 	}
+	// What that backfill copies is a Yoast *template* ("%%title%% %%page%%"),
+	// which WordPress substituted at render time and nothing substitutes now, so
+	// the tokens reached the public site's <title> and og:title verbatim. Runs
+	// on every start rather than behind the backfill's one-time flag: a database
+	// seeded before this existed already holds the templates. Idempotent.
+	if expanded, err := database.ExpandYoastTitleTemplates(context.Background(), db); err != nil {
+		slog.Error("failed to expand Yoast SEO title templates", "error", err)
+		os.Exit(1)
+	} else if expanded > 0 {
+		slog.Info("expanded Yoast SEO title templates", "articles", expanded)
+	}
 	if err := database.EnsureTaxonomyTable(context.Background(), db); err != nil {
 		slog.Error("failed to create taxonomy table", "error", err)
 		os.Exit(1)
