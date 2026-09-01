@@ -225,11 +225,35 @@ added to WP after the last sync will 404. The rsync must be **pushed from**
 `10.248.40.141` — Delta holds no key to pull:
 
 ```bash
-ssh tadmin@10.248.40.141 'rsync -a --no-owner --no-group --chmod=D755,F644 \
+ssh tadmin@10.248.40.141 'rsync -a --no-owner --no-group --chmod=D775,F664 \
   --exclude="*.php" --exclude="*.exe" --exclude="*.sh" \
   /var/www/html/thetriangle.org/wp-content/uploads/2026/ \
   tadmin@10.248.40.168:/mnt/cephfs/media/wp-content/uploads/2026/'
 ```
+
+**`D775`, not `D755` — the group bit is load-bearing.** The CMS backend runs as
+uid 10001 and owns none of this tree, so its write access comes from a POSIX ACL
+(`user:10001:rwx` plus the `default:` entries new directories inherit). A chmod
+on an ACL'd directory sets the **ACL mask** from the mode's group bits, so
+`D755` silently clamps that entry to `#effective:r-x`. `getfacl` still prints
+`user:10001:rwx` and `ls` shows only a `+`, so it reads as correct.
+
+Uploads then keep working until the 1st of the next month, when the handler
+first has to create a new `YYYY/MM` directory and can't — `POST /v1/media`
+returns 500 on **every** upload with `mkdir .../uploads/YYYY/MM: permission
+denied` in the backend log. That is exactly the 2026-09-01 outage.
+
+`D775` keeps the mask at `rwx` and matches the `0775` the CMS itself creates
+month directories with. Verify after any sync — the mask, not the entry, is
+what decides:
+
+```bash
+getfacl -pc /mnt/cephfs/media/wp-content/uploads/2026 | grep -E '10001|mask::'
+# want: user:10001:rwx  (no "#effective:") and mask::rwx
+```
+
+`ansible-playbook playbooks/delta-host.yml` in `triangle-infrastructure` repairs
+a clamped mask, but only on the next run — the fix belongs in the command above.
 
 It exits **23** with "failed to set times" on one directory. That is a
 directory mtime owned by another uid, not a data failure — ignore it.

@@ -229,6 +229,17 @@ times on .../2026/08" is one directory's mtime, not a data failure — ignore it
 Newly synced files can 404 publicly for up to 4 hours while the pre-sync edge
 404 ages out. `?v=<ts>` returns 200 immediately; that confirms the file is fine.
 
+**Upload ACL mask.** The sync can leave media *readable* and uploads broken. A
+chmod on an ACL'd directory rewrites the ACL mask, capping the backend's
+`user:10001:rwx` grant to `#effective:r-x`; the symptom is delayed until the 1st
+of the next month, when `POST /v1/media` starts returning 500 on every upload.
+Check the mask, not the entry:
+
+```bash
+getfacl -pc /mnt/cephfs/media/wp-content/uploads/2026 | grep -E '10001|mask::'
+# want: user:10001:rwx (no "#effective:") and mask::rwx
+```
+
 **Orphaned author links** — byline present in `articles.authors` but the join
 returns nothing, so the API emits `authors: null`:
 

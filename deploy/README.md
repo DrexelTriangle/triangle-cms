@@ -252,6 +252,26 @@ sudo find /mnt/cephfs/media/wp-content/uploads -type d \
 The `d:` (default) entry is what makes each new `YYYY/MM` directory inherit the
 grant, so this does not need repeating every month.
 
+**But a later chmod silently disables it.** A chmod on an ACL'd directory sets
+the **ACL mask** from the mode's group bits, and the mask caps every named
+entry: `chmod 755` leaves `user:10001:rwx` printed but `#effective:r-x`. An
+rsync of the corpus run with `--chmod=D755` does this to every directory it
+touches (see `docs/HANDOVER.md` — that command now uses `D775`).
+
+Nothing notices at the time. Uploads keep working until the 1st of the next
+month, when the handler first has to create a new `YYYY/MM`, and then every
+upload 500s. Check the mask, not the entry:
+
+```bash
+getfacl -pc /mnt/cephfs/media/wp-content/uploads/2026 | grep -E '10001|mask::'
+# want: user:10001:rwx  (no "#effective:") and mask::rwx
+setfacl -m m::rwx /mnt/cephfs/media/wp-content/uploads{,/2026}   # repair
+```
+
+Only those two levels matter: `uploads/` creates the year, `uploads/YYYY/`
+creates the month. `triangle-infrastructure`'s `delta_cms_host` role repairs
+both on every playbook run.
+
 Without the `acl` package, setgid does the same job in plain POSIX, at the cost
 of changing group ownership rather than adding a grant beside it:
 
