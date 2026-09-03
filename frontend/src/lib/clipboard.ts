@@ -3,7 +3,7 @@
  *
  * navigator.clipboard exists only on secure origins. The CMS is still served
  * over plain HTTP on Delta (the host Nginx site lives in the
- * triangle-infrastructure repo), where the whole API is undefined -- so the
+ * triangle-infrastructure repo), where the whole API is undefined, so the
  * modern path alone would fail on exactly the
  * deployment editors use today. Fall back to the deprecated execCommand copy,
  * which has no such restriction, and only report failure if both fail.

@@ -43,7 +43,7 @@ func featuredSlugs(t *testing.T, conn *sql.DB) []string {
 }
 
 // The homepage has one lead card. If featuring a second article left the first
-// one flagged, the tiebreak in GetFeaturedArticle -- not the editor -- would be
+// one flagged, the tiebreak in GetFeaturedArticle, not the editor, would be
 // deciding which story runs.
 func TestFeaturedArticleHTTP_PatchUnfeaturesThePreviousPick(t *testing.T) {
 	conn := articlePatchTestDB(t)
@@ -125,8 +125,8 @@ func TestFeaturedArticle_UnpublishedRowsNeverLead(t *testing.T) {
 }
 
 // The end-to-end shape editors actually care about: feature a sports story, and
-// the homepage news block -- which Scalene renders news[0] of as the big centre
-// card -- leads with it.
+// the homepage news block, which Scalene renders news[0] of as the big centre
+// card, leads with it.
 func TestFeaturedArticleHTTP_HomepageLeadsWithTheFeaturedArticle(t *testing.T) {
 	conn := articlePatchTestDB(t)
 	ctx := context.Background()

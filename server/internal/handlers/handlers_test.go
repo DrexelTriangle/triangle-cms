@@ -119,7 +119,7 @@ func TestAppendCategorySlugCondition(t *testing.T) {
 	}
 
 	// Whole category titles, compared for equality against the
-	// article_categories index -- so a slug matches a whole category and never
+	// article_categories index, so a slug matches a whole category and never
 	// a fragment of a longer one. See db.CategoryMatchValues.
 	wantArgs := []string{
 		"comics-puzzles",
@@ -642,7 +642,7 @@ func TestSetPublicReadCache_EditorIsNotCacheable(t *testing.T) {
 	setPublicReadCache(rec, req)
 
 	if got := rec.Header().Get("Cache-Control"); got != uncacheableCacheControl {
-		t.Fatalf("Cache-Control = %q, want %q -- an editor's drafts must never be publicly cached", got, uncacheableCacheControl)
+		t.Fatalf("Cache-Control = %q, want %q; an editor's drafts must never be publicly cached", got, uncacheableCacheControl)
 	}
 	if strings.Contains(rec.Header().Get("Cache-Control"), "public") {
 		t.Error("an editor's response must not be marked public")

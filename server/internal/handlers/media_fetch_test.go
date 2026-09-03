@@ -33,7 +33,7 @@ func TestIsPublicUnicast(t *testing.T) {
 		{"carrier-grade NAT low", "100.64.0.1", false},
 		{"carrier-grade NAT high", "100.127.255.254", false},
 		// 100.63 and 100.128 sit just outside 100.64.0.0/10 and must stay
-		// reachable -- the mask is easy to get wrong by a byte.
+		// reachable; the mask is easy to get wrong by a byte.
 		{"below carrier-grade NAT", "100.63.255.255", true},
 		{"above carrier-grade NAT", "100.128.0.1", true},
 		{"unique-local v6", "fd00::1", false},

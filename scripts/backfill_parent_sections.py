@@ -5,7 +5,7 @@ The editor now adds the parent automatically when a subsection is checked, but
 rows written before that (and everything the ETL imported) carry the subsection
 alone. Those articles are missing from their parent section's own page: listing
 by section expands to the subsections underneath it, so a reader browsing
-"Special Editions" does see them -- but anything reading `articles.categories`
+"Special Editions" does see them, but anything reading `articles.categories`
 directly, including the public site's per-article section labels, sees only
 "Welcome Week" with no parent above it.
 
@@ -15,7 +15,7 @@ directly, including the public site's per-article section labels, sees only
 The password comes from CMS_DB_PASSWORD (or a prompt), never from argv.
 Re-runnable and additive: it only ever appends a parent that is missing, and
 never removes or reorders what is already there, so a second run is a no-op.
-Run it with --dry-run first and read the sample -- it rewrites a text column.
+Run it with --dry-run first and read the sample; it rewrites a text column.
 
 "Missing" is judged with the read path's fuzzy substring rule, not exact slug
 equality: an article tagged "Arts & Entertainment" is already matched by the
@@ -235,7 +235,7 @@ def encode_categories(values: list[str], as_json: bool) -> str:
 
     Note this writes a literal "&", where Go's json.Marshal (FormatTags) would
     emit "\\u0026". The category LIKE patterns are built from the plain
-    character, so the escaped form silently fails to match -- keep the plain one.
+    character, so the escaped form silently fails to match. Keep the plain one.
     """
     if not as_json:
         return ",".join(values)
@@ -302,7 +302,7 @@ def parent_already_covered(values: list[str], parent: Parent) -> bool:
     Deliberately uses the read path's fuzzy substring rule rather than exact
     slug equality. The legacy category "Arts & Entertainment" is not slug-equal
     to the section title "Entertainment", but `%entertainment%` matches it, so
-    those articles already list under the section -- adding the canonical title
+    those articles already list under the section, and adding the canonical title
     as well would only paint a second, redundant section label on the article.
     """
     patterns = category_match_patterns(parent.slug)
@@ -406,7 +406,7 @@ def main() -> int:
 
         # No count rebuild needed: site_taxonomy.article_count buckets by section
         # plus its subsections, so these articles were already counted under the
-        # parent. Confirmed on DB1 2026-08-02 -- comics-puzzles read 331 both
+        # parent. Confirmed on DB1 2026-08-02: comics-puzzles read 331 both
         # before and after. This changes which sections an article names, not
         # any total.
         info("Section totals are unaffected; no taxonomy count rebuild needed.")

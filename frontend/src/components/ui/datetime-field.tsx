@@ -234,7 +234,7 @@ function Calendar({ selected, min, max, onSelect }: CalendarProps) {
                   outside ? "text-muted-foreground/50" : "text-foreground",
                   !isSelected && "hover:bg-muted",
                   isSelected && "bg-primary text-primary-foreground hover:bg-primary/90",
-                  // Today is a reference point, not a selection -- an outline
+                  // Today is a reference point, not a selection: an outline
                   // says "you are here" without competing with the filled cell.
                   !isSelected && key === todayKey && "ring-1 ring-inset ring-primary/40 font-medium",
                 )}
@@ -256,8 +256,8 @@ function Calendar({ selected, min, max, onSelect }: CalendarProps) {
 // behind ::-webkit-calendar-picker-indicator, which is a Chrome-only pseudo:
 // Firefox kept its own calendar glyph, so the field showed two picker buttons,
 // and the native one opened the grey-and-red panel this popover exists to
-// replace. That panel is browser chrome -- outside the page, unreachable by our
-// CSS -- so the only way to stop offering it is to stop using the control that
+// replace. That panel is browser chrome (outside the page, unreachable by our
+// CSS) so the only way to stop offering it is to stop using the control that
 // owns it.
 //
 // The cost is that formatting and parsing typed text are now ours. The value

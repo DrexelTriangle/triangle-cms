@@ -76,9 +76,9 @@ func withCategoryAliases(t *testing.T, aliases map[string][]string) {
 var escapedAmp = `\` + "u0026"
 
 // matchesCategories reports whether slug matches a `categories` JSON array. It
-// composes the two halves of the real lookup -- the rows RebuildArticleCategories
+// composes the two halves of the real lookup (the rows RebuildArticleCategories
 // would index for the article, and the values TaxonomyCountCondition would ask
-// for -- so these assertions describe what the database will actually answer.
+// for) so these assertions describe what the database will actually answer.
 func matchesCategories(slug, categoriesJSON string) bool {
 	indexed := normalizeCategoryValues(categoriesJSON)
 	for _, want := range CategoryMatchValues(slug) {
@@ -290,7 +290,7 @@ func TestParseCategoryAliasesRejectsMalformed(t *testing.T) {
 
 func TestCategoryAliasesAreCaseInsensitiveOnTheSlug(t *testing.T) {
 	// Aliases are keyed by lowercased slug, and the stored title's casing must
-	// not matter either -- patterns are matched against a lowercased column.
+	// not matter either: patterns are matched against a lowercased column.
 	withCategoryAliases(t, map[string][]string{"entertainment": {"ARTS & ENTERTAINMENT"}})
 	if !matchesCategories("Entertainment", `["Arts & Entertainment"]`) {
 		t.Error("alias matching must be case-insensitive")
@@ -515,7 +515,7 @@ func TestDescendantsOfWalksEveryLevel(t *testing.T) {
 	got := descendantsOf(children, "entertainment")
 	for _, want := range []string{"food", "movies", "beer-reviews", "wine-reviews", "restaurant-reviews"} {
 		if !containsValue(got, want) {
-			t.Errorf("descendants = %v, want %q included -- a grandchild's articles roll up to the section", got, want)
+			t.Errorf("descendants = %v, want %q included; a grandchild's articles roll up to the section", got, want)
 		}
 	}
 	if len(got) != 5 {

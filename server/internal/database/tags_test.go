@@ -80,7 +80,7 @@ func TestRankTagValuesCountsAnArticleOncePerTag(t *testing.T) {
 		t.Fatalf("got %d tags, want 1: %v", len(ranked), ranked)
 	}
 	if ranked[0].Uses != 1 {
-		t.Errorf("got %d uses, want 1 -- one article carrying a tag three times is still one article", ranked[0].Uses)
+		t.Errorf("got %d uses, want 1; one article carrying a tag three times is still one article", ranked[0].Uses)
 	}
 }
 

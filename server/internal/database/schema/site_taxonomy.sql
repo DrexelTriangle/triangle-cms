@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS site_taxonomy (
   -- Whether the row earns a link in the subsection strip on its section page.
   -- A hidden row is still a real subsection: its articles roll up to the
   -- section and its own page still answers, it simply has no nav entry. That is
-  -- what the WordPress sub-categories need -- a home and a URL, not 48 more
+  -- what the WordPress sub-categories need: a home and a URL, not 48 more
   -- links across seven section pages.
   is_visible TINYINT(1) NOT NULL DEFAULT 1,
   UNIQUE KEY uq_site_taxonomy_kind_slug (kind, slug),

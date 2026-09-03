@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// cms_settings is read on nearly every public page render -- the site title and
-// footer on every layout, the carousel and developing stories on the homepage --
+// cms_settings is read on nearly every public page render (the site title and
+// footer on every layout, the carousel and developing stories on the homepage)
 // and written a few times a month by an editor. Each read was its own round
 // trip, so a burst of traffic turned a handful of near-constant values into the
 // dominant query load and, with a small connection pool, into a queue in front
@@ -108,7 +108,7 @@ func writeSettingRaw(ctx context.Context, conn *sql.DB, key, value string) error
 }
 
 // InvalidateSettingCache drops one key. Exported so a writer that cannot use
-// writeSettingRaw -- a migration, or a multi-statement transaction -- can still
+// writeSettingRaw (a migration, or a multi-statement transaction) can still
 // keep the cache honest.
 func InvalidateSettingCache(key string) {
 	settingsCacheMu.Lock()

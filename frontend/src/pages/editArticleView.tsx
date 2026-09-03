@@ -168,7 +168,7 @@ const SEO_TAG_SUGGESTION_LIMIT = 8
 // results arrive while the editor is still looking at the box.
 const TAG_SEARCH_DEBOUNCE_MS = 200
 
-// The suggestions worth showing, out of whichever set the caller passes -- the
+// The suggestions worth showing, out of whichever set the caller passes: the
 // popular tags when the box is empty, the search results once it is not.
 //
 // The text filter is applied here as well as on the server, and that is the
@@ -338,7 +338,7 @@ function EditArticleView() {
   // would be noise.
   const [popularTags, setPopularTags] = useState<PopularTag[]>([])
   // Matches for what is currently in the tag box, searched over every tag the
-  // archive has rather than only the popular ones -- a beat tag from 2019 is
+  // archive has rather than only the popular ones. A beat tag from 2019 is
   // exactly what nobody remembers the spelling of.
   const [tagSearchResults, setTagSearchResults] = useState<PopularTag[]>([])
   const [imagePickerOpen, setImagePickerOpen] = useState(false)
@@ -657,7 +657,7 @@ function EditArticleView() {
           setPopularTags(Array.isArray(payload) ? payload : [])
         }
       } catch {
-        // Silent by design -- see the popularTags declaration.
+        // Silent by design; see the popularTags declaration.
         if (!cancelled) {
           setPopularTags([])
         }
@@ -696,7 +696,7 @@ function EditArticleView() {
             setTagSearchResults(Array.isArray(payload) ? payload : [])
           }
         } catch {
-          // Silent by design -- the popular tags and the text box both still
+          // Silent by design: the popular tags and the text box both still
           // work, so an error banner would be noise.
           if (!cancelled) {
             setTagSearchResults([])
@@ -1108,7 +1108,7 @@ function EditArticleView() {
     + visibleLegacyCategoryChoices.length
   ), [visibleCategoryGroups, visibleLegacyCategoryChoices])
   // Selected authors sit at the top, in byline order, and stay visible through a
-  // search that would otherwise hide them -- unchecking someone you can no longer
+  // search that would otherwise hide them. Unchecking someone you can no longer
   // see is how a byline silently loses a name.
   const visibleAuthors = useMemo(() => {
     const query = authorSearch.trim().toLowerCase()
@@ -1401,7 +1401,7 @@ function EditArticleView() {
                 {/* Available on drafts too: the newsletter and social posts are
                     built ahead of publication and need the link before the article
                     is live. A new article has no slug until it is saved, so the
-                    URL would be a guess -- offer it only once one exists. */}
+                    URL would be a guess; offer it only once one exists. */}
                 {effectiveSlug ? (
                   <button
                     className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary hover:underline"
@@ -1548,8 +1548,7 @@ function EditArticleView() {
               <span className="flex flex-col gap-0.5">
                 <span className="font-medium text-foreground">Breaking news</span>
                 <span className="text-[11px] text-muted-foreground">
-                  Raises the red banner across the top of the homepage, with this headline, from the moment the article
-                  publishes -- scheduled stories included. Untick it to take the banner down.
+                  Raises the homepage banner with this headline once the article publishes.
                 </span>
               </span>
             </label>

@@ -191,8 +191,8 @@ func HasYoastVariables(value string) bool {
 // ExpandYoastTitle turns a Yoast SEO title template into finished text.
 //
 // WordPress stored an article's SEO title as a template rather than as a title
-// -- "%%title%% %%page%%", or a headline with "%%page%% %%sep%% %%sitename%%"
-// appended -- and Yoast substituted the variables when it rendered the page.
+// ("%%title%% %%page%%", or a headline with "%%page%% %%sep%% %%sitename%%"
+// appended) and Yoast substituted the variables when it rendered the page.
 // Nothing substitutes them here, so a template copied into seo_title verbatim
 // reaches the public site's <title>, og:title and twitter:title as the literal
 // tokens. Mirrors expandSeoVariables in Scalene's src/utils/seoTemplate.ts; the
@@ -200,7 +200,7 @@ func HasYoastVariables(value string) bool {
 //
 // %%page%% expands to nothing, as it did under Yoast: it numbers the pages of a
 // paginated archive, and an article is one page. A variable this corpus does
-// not carry is dropped rather than left visible -- an unrecognised token is
+// not carry is dropped rather than left visible: an unrecognised token is
 // still a token, and printing it is the defect.
 //
 // Returns "" when nothing usable survives, which callers store as a blank
@@ -267,7 +267,7 @@ func isRedundantSEOTitle(expanded, title, siteTitle string) bool {
 // Runs after the Yoast backfill rather than inside it: the backfill only fills
 // blanks and records a one-time flag, so on a database seeded before this
 // existed the templates are already in place and would never be revisited.
-// Idempotent -- expanded text carries no variables, so a second pass matches
+// Idempotent: expanded text carries no variables, so a second pass matches
 // nothing.
 func ExpandYoastTitleTemplates(ctx context.Context, conn *sql.DB) (int, error) {
 	siteTitle, err := GetSiteTitle(ctx, conn)
@@ -299,7 +299,7 @@ func ExpandYoastTitleTemplates(ctx context.Context, conn *sql.DB) (int, error) {
 		}
 		expanded := ExpandYoastTitle(seoTitle, title, siteTitle, primaryCategory)
 		// Yoast's default template is the headline, so expanding it stores a
-		// custom SEO title that says what the article already says -- and then
+		// custom SEO title that says what the article already says, and then
 		// stops tracking the headline when an editor rewrites it. Blank means
 		// "use the headline", which is both what the template meant and what the
 		// SEO audit treats as fine (see auditArticle).

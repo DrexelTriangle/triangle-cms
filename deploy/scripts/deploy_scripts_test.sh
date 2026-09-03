@@ -56,7 +56,7 @@ make_case() {
   PUBLIC_HEALTH_TIMEOUT=0
   # The sidecar wait polls container health, which never turns healthy against
   # the fake compose in these tests. Left at its 240s production default it made
-  # every deploy case sit out the full timeout -- the suite took 8 minutes.
+  # every deploy case sit out the full timeout; the suite took 8 minutes.
   EMBEDDINGS_HEALTH_TIMEOUT=0
   DEPLOY_TEST_MODE=1
   NGINX_TEST_CMD='exit "${FAKE_NGINX_TEST_STATUS:-0}"'

@@ -22,7 +22,7 @@ export CMS_IMAGE_TAG
 # The sidecar image is tagged by content: the git tree hash of embeddings/,
 # which changes only when something in that directory does. Publish skips the
 # build when that tag already exists, and Compose leaves the running container
-# alone when the tag is unchanged -- so a Go-only commit no longer rebuilds a
+# alone when the tag is unchanged, so a Go-only commit no longer rebuilds a
 # ~130MB model image in CI, nor reloads the model on the host for ~60s.
 #
 # Derived from the trusted default-branch checkout rather than from
@@ -55,7 +55,7 @@ echo "deploying ${CMS_IMAGE_TAG} to inactive slot: ${next_slot}"
 # The embedding sidecar is shared by both slots rather than duplicated per slot:
 # it is stateless, so a second copy would only cost memory on a host that has
 # little to spare. That means it is not part of the blue/green swap and has to be
-# brought up separately -- the slot services below are started with --no-deps.
+# brought up separately; the slot services below are started with --no-deps.
 #
 # Deliberately never fatal. Search degrades to lexical-only when the sidecar is
 # missing or still loading its model, so a sidecar problem must not block or roll

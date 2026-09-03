@@ -76,7 +76,7 @@ func TestTagsHTTP_RanksTagsAcrossTheArchive(t *testing.T) {
 
 	// One entry for drexel, not two: the seed spells it both ways, and the
 	// suggestions fold case. The two spellings are equally common here, so the
-	// displayed one is the tie-break -- lexicographically first.
+	// displayed one is the tie-break: lexicographically first.
 	want := []db.PopularTag{
 		{Name: "triangle", Uses: 3},
 		{Name: "Drexel", Uses: 2},
@@ -101,7 +101,7 @@ func TestTagsHTTP_FindsATagOutsideThePopularList(t *testing.T) {
 	for _, tag := range found {
 		names = append(names, tag.Name)
 	}
-	// Exact match first, then the one that merely contains it -- even though
+	// Exact match first, then the one that merely contains it, even though
 	// both are used exactly as often here.
 	want := []string{"lacrosse", "Men's Lacrosse"}
 	if len(names) != len(want) {
@@ -127,7 +127,7 @@ func TestTagsHTTP_ReturnsNothingForAQueryThatMatchesNothing(t *testing.T) {
 }
 
 // An empty box means "what is popular", not "match everything against a blank
-// string", and the two happen to agree -- but only because a blank query short
+// string", and the two happen to agree, but only because a blank query short
 // circuits before matching.
 func TestTagsHTTP_TreatsABlankQueryAsThePopularList(t *testing.T) {
 	conn := articlePatchTestDB(t)

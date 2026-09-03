@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
     # Capped for the same reason as production (see deploy/compose.cms.yml):
     # uncapped, embedding a freshly seeded corpus saturates every core on the
-    # machine. Both settings are needed and should match -- cpus is the ceiling,
+    # machine. Both settings are needed and should match: cpus is the ceiling,
     # OMP_NUM_THREADS stops onnxruntime spawning a thread per core regardless.
     cpus: ${EMBED_CPUS:-4}
     environment:
@@ -50,7 +50,7 @@ services:
       retries: 5
       start_period: 60s
     # Stateless by design: no volume, nothing to back up. Not published to the
-    # host either -- only the CMS talks to it, over the internal network.
+    # host either; only the CMS talks to it, over the internal network.
     networks:
       - triangle_net
 

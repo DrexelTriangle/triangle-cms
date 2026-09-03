@@ -34,7 +34,7 @@ const tagRankingTTL = 10 * time.Minute
 
 // The cached ranking is every distinct tag in the archive, not just the popular
 // ones, because search has to be able to find a tag used twice in 2019.
-// That is ~20k entries against ~9k articles -- a couple of megabytes, and far
+// That is ~20k entries against ~9k articles: a couple of megabytes, and far
 // cheaper than a per-keystroke scan of the article table.
 //
 // The mutex is held across the refresh rather than only around the swap: it
@@ -52,8 +52,8 @@ var (
 // There is no tags table: `articles`.`tags` holds a JSON array per article, so
 // "most used" can only come from aggregating the column. The aggregation runs
 // in Go rather than in SQL (JSON_TABLE) for two reasons. The column is not
-// reliably JSON -- FormatTags falls back to a comma-joined string when
-// marshalling fails, and articles with no tags store "" -- and parseStringListField
+// reliably JSON (FormatTags falls back to a comma-joined string when
+// marshalling fails, and articles with no tags store "") and parseStringListField
 // already absorbs both spellings, so reusing it means the suggestion list cannot
 // disagree with what the article editor itself reads back. Doing it here also
 // makes the case folding below expressible at all.
@@ -70,7 +70,7 @@ func PopularTags(ctx context.Context, conn *sql.DB, limit int) ([]PopularTag, er
 }
 
 // SearchTags finds the tags whose text contains the query, so an editor can
-// reach a tag the archive already has instead of retyping it -- and, more to
+// reach a tag the archive already has instead of retyping it and, more to
 // the point, instead of coining a near-duplicate of one.
 //
 // It searches every tag, not the popular slice PopularTags hands back: a beat
@@ -114,7 +114,7 @@ func SearchTags(ctx context.Context, conn *sql.DB, query string, limit int) ([]P
 	return capTags(found, limit), nil
 }
 
-// matchRank scores how a tag matches the query -- lower is better -- or returns
+// matchRank scores how a tag matches the query (lower is better) or returns
 // -1 for no match. The tiers are the ones a person typing would expect: the
 // tag they typed exactly, then tags starting with it, then tags with a word
 // starting with it, then anything containing it.
@@ -204,7 +204,7 @@ func rankArticleTags(ctx context.Context, conn *sql.DB) ([]PopularTag, error) {
 }
 
 // rankTagValues is the ranking itself, split from the query so the counting
-// rules -- case folding, per-article de-duplication, the tie-break -- are
+// rules (case folding, per-article de-duplication, the tie-break) are
 // testable without a database. Every tag is kept, not just the top slice:
 // search reads this list, so trimming it here would make older tags
 // unfindable rather than merely unpopular.

@@ -348,7 +348,7 @@ var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 // Two places have to be checked. photo_url is the article's lead image and holds
 // an absolute URL from the ETL, hence the suffix match. Body images are embedded
 // by the editor as <img src> inside the article text, and checking only
-// photo_url meant an asset used solely inline looked unreferenced -- the delete
+// photo_url meant an asset used solely inline looked unreferenced, so the delete
 // went through and unlinked a file a published article was still rendering.
 func MediaPathInUse(ctx context.Context, conn *sql.DB, relPath string) (bool, error) {
 	relPath = strings.TrimSpace(relPath)
@@ -431,8 +431,8 @@ func IndexMediaRootWithProgress(
 		// too. The upload path writes its temp file as ".upload-*<ext>" in the
 		// destination directory, so a container kill mid-copy leaves a truncated
 		// image with a real extension sitting next to the finished ones. Adopting
-		// those would fill the library with entries that can never load -- Nginx
-		// refuses to serve dotfiles -- and whose bytes are partial anyway.
+		// those would fill the library with entries that can never load (Nginx
+		// refuses to serve dotfiles) and whose bytes are partial anyway.
 		name := entry.Name()
 		if strings.HasPrefix(name, ".") && absPath != uploadsDir {
 			if entry.IsDir() {

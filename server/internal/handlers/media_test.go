@@ -84,7 +84,7 @@ func TestPostMedia_RejectsOversizeUpload(t *testing.T) {
 }
 
 // The size limit is enforced by MaxBytesReader, not by ParseMultipartForm's
-// argument -- that one only decides how much stays in RAM before spilling to a
+// argument, which only decides how much stays in RAM before spilling to a
 // temp file. A body well past multipartMemoryBytes but under the limit must
 // therefore parse normally; reaching the 415 content-type check proves it did.
 func TestPostMedia_AcceptsBodyLargerThanMultipartMemory(t *testing.T) {
@@ -200,7 +200,7 @@ func TestStoreUpload_NeverClobbers(t *testing.T) {
 }
 
 // The mount guard. An empty MEDIA_ROOT standing in for an unmounted CephFS must
-// not accept uploads: they would land on local disk and be shadowed -- lost --
+// not accept uploads: they would land on local disk and be shadowed, lost,
 // as soon as the mount was repaired.
 func TestCheckMediaStorage(t *testing.T) {
 	t.Run("passes when the sentinel is unset", func(t *testing.T) {
@@ -458,7 +458,7 @@ func TestGetMediaIndexStatus_ReportsIdle(t *testing.T) {
 
 // storeUpload renames a temp file into place, and os.CreateTemp hardcodes mode
 // 0600. If that is not widened before the rename, the stored asset ends up
-// readable only by the CMS's own uid -- the file is there, but the media server
+// readable only by the CMS's own uid: the file is there, but the media server
 // answers 403 for every uploaded image. Pin the mode so that cannot regress.
 func TestStoreUpload_StoresWorldReadableFile(t *testing.T) {
 	dir := t.TempDir()

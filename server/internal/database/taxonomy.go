@@ -93,8 +93,8 @@ func EnsureTaxonomyTable(ctx context.Context, conn *sql.DB) error {
 // Everything after them is a category that never became a subsection: WordPress
 // category archives roll a parent up over its child terms automatically, so
 // /category/sports/ listed every article tagged "Men's Lacrosse" without anyone
-// configuring it. Matching here is flat -- a section finds itself plus the
-// subsections that have a row -- so a category with no row rolls up into
+// configuring it. Matching here is flat: a section finds itself plus the
+// subsections that have a row, so a category with no row rolls up into
 // nothing and its articles appear on no section page at all. That stranded 469
 // published articles, 4.7% of the archive.
 //
@@ -145,7 +145,7 @@ var defaultCategoryAliases = map[string][]string{
 	"opinion": {"Editorial", "Letters to the Editor", "Commentary"},
 
 	// Columns is where recurring bylined series live, which is what the
-	// podcasts are -- "Mark and Jair Explain Sports" is a show, not a sports
+	// podcasts are: "Mark and Jair Explain Sports" is a show, not a sports
 	// article. Anchored matching keeps it out of Sports despite the name.
 	"columns": {
 		"Podcasts",
@@ -184,7 +184,7 @@ type legacySubsection struct {
 // the category chip on those articles pointed at a URL nothing answered. A row
 // gives each one a page and makes the chip land somewhere.
 //
-// The second is the categories that matched nothing at all -- wrestling (103
+// The second is the categories that matched nothing at all: wrestling (103
 // published articles), Triangle Talks (73), Theater (28) and the rest. Those
 // articles appeared on no section page in the CMS or on the site. Filing each
 // under a section is what puts them back, since a section matches its own slug
@@ -197,7 +197,7 @@ type legacySubsection struct {
 //
 // The parent sections' aliases are deliberately left in place. They are what
 // keeps a section's page complete if one of these rows is ever deleted, and
-// duplicate match values cost nothing -- TaxonomyCountCondition de-duplicates.
+// duplicate match values cost nothing; TaxonomyCountCondition de-duplicates.
 var legacySubsections = []legacySubsection{
 	// Sports. WordPress rolled a parent category over its children, so
 	// /category/sports/ listed these without anyone configuring it; flat
@@ -213,8 +213,8 @@ var legacySubsections = []legacySubsection{
 	{"athlete-of-the-week", "Athlete of the Week", "sports"},
 	{"wrestling", "Wrestling", "sports"},
 
-	// Entertainment. Style is the large one -- the beat plus its recurring
-	// features -- and sits here rather than under Opinion's Lifestyle because
+	// Entertainment. Style is the large one (the beat plus its recurring
+	// features) and sits here rather than under Opinion's Lifestyle because
 	// it is culture coverage, not opinion writing.
 	{"features", "Features", "entertainment"},
 	{"style", "Style", "entertainment"},
@@ -241,7 +241,7 @@ var legacySubsections = []legacySubsection{
 	{"commentary", "Commentary", "opinion"},
 
 	// Columns is where recurring bylined series live, which is what the
-	// podcasts are -- "Mark and Jair Explain Sports" is a show, not a sports
+	// podcasts are: "Mark and Jair Explain Sports" is a show, not a sports
 	// article, and a row keeps it out of Sports despite the name.
 	{"podcasts", "Podcasts", "columns"},
 	{"mark-and-jair-explain-sports", "Mark and Jair Explain Sports", "columns"},
@@ -274,7 +274,7 @@ var legacySubsections = []legacySubsection{
 //
 // A row whose slug is taken is skipped rather than updated, for the same reason:
 // an existing row is somebody's, not ours. A row whose parent section is missing
-// is skipped too -- parent_slug has to reference a real section, and a
+// is skipped too: parent_slug has to reference a real section, and a
 // subsection orphaned under a name nothing answers is worse than one more
 // uncategorized category.
 //
@@ -288,7 +288,7 @@ func SeedLegacySubsections(ctx context.Context, conn *sql.DB) ([]string, error) 
 	}
 
 	// The run-once flag lives in cms_settings, so without that table there is no
-	// way to seed exactly once -- and seeding repeatedly would resurrect rows an
+	// way to seed exactly once, and seeding repeatedly would resurrect rows an
 	// editor deleted. Production creates it well before this runs; a database
 	// without it is a test fixture or a half-built schema, and skipping is the
 	// safe answer for both.
@@ -370,7 +370,7 @@ func SeedLegacySubsections(ctx context.Context, conn *sql.DB) ([]string, error) 
 // Beer Reviews, Wine Reviews, Restaurant Reviews and Cooking were already
 // subsections of Entertainment, sitting beside the movies-and-music coverage
 // rather than under a heading of their own. The desk wanted them kept as real
-// categories -- their pages and their chips stay where they are -- but gathered
+// categories (their pages and their chips stay where they are), but gathered
 // under one Food entry in A&E's strip.
 //
 // Cooking differs from the other three in one way worth knowing: it is a
@@ -396,7 +396,7 @@ var (
 // these rows are editable. An editor who moves Restaurant Reviews back out, or
 // deletes Food, must not find the arrangement restored on the next deploy.
 //
-// It cannot ride on legacy_subsections_seeded -- that flag is already set in
+// It cannot ride on legacy_subsections_seeded: that flag is already set in
 // production and those three rows already exist, so this needs its own.
 //
 // Food arrives VISIBLE, unlike the legacy seeding: it is a heading the desk
@@ -486,8 +486,8 @@ func SeedFoodSubsection(ctx context.Context, conn *sql.DB) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		// RowsAffected is not trusted as proof here -- through MaxScale it can
-		// report 0 for a write that landed -- so the slug is reported as touched
+		// RowsAffected is not trusted as proof here, since through MaxScale it
+		// can report 0 for a write that landed, so the slug is reported as touched
 		// either way and the recount that follows settles the numbers.
 		if _, err := result.RowsAffected(); err != nil {
 			return nil, err
@@ -505,8 +505,8 @@ func SeedFoodSubsection(ctx context.Context, conn *sql.DB) ([]string, error) {
 // strip, as decided by the desk: Listicles and Books come out, TV goes in.
 //
 // TV is the substantial one. It arrived hidden with the rest of the legacy
-// WordPress sub-categories -- that seeding deliberately gave 48 categories a
-// home without adding 48 nav links -- but it carries 135 published articles,
+// WordPress sub-categories (that seeding deliberately gave 48 categories a
+// home without adding 48 nav links), but it carries 135 published articles,
 // more than most of the rows that do have a link. Listicles and Books have nine
 // each.
 //
@@ -533,7 +533,7 @@ var entertainmentVisibility = map[string]bool{
 // actually moved.
 //
 // An empty table means the sections have not been imported yet, so it returns
-// without recording the flag and tries again next boot -- otherwise a server
+// without recording the flag and tries again next boot; otherwise a server
 // that starts before its seed import would burn the one run it gets.
 func SeedEntertainmentVisibility(ctx context.Context, conn *sql.DB) error {
 	if conn == nil {
@@ -734,7 +734,7 @@ func RefreshCategoryAliases(ctx context.Context, conn *sql.DB) error {
 // derived from the category NAME alone. That silently produced URLs no page
 // answers: "Men's Basketball" canonicalizes to "men-s-basketball" while the
 // subsection lives at "mens-basketball", so every chip on both basketballs and
-// both soccers -- the four apostrophe subsections -- was a 404. The apostrophe
+// both soccers (the four apostrophe subsections) was a 404. The apostrophe
 // is the same thing possessiveVariant exists to absorb on the matching side;
 // this is that fix applied to the link.
 //
@@ -761,7 +761,7 @@ func CategoryLinkSlug(name string) string {
 }
 
 // ParseCategoryAliases decodes the stored JSON array, dropping blanks. An empty
-// or absent value is not an error -- most rows have no aliases.
+// or absent value is not an error; most rows have no aliases.
 func ParseCategoryAliases(raw string) ([]string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" || trimmed == "null" {
@@ -792,14 +792,14 @@ func categoryAliasesFor(slug string) []string {
 //
 // WordPress category text does not match our slugs literally, so a slug stands
 // in for several spellings: "comics-puzzles" has to find "Comics & Puzzles".
-// This is the single definition of "is this article in this section" -- both the
+// This is the single definition of "is this article in this section": both the
 // article listing and the count rebuild call it, because when they disagreed a
 // section could list 2545 articles while reporting 8.
 //
 // Every value is a WHOLE category title, compared for equality, so a slug never
 // matches a fragment of a longer one. This used to be a LIKE pattern anchored on
 // the JSON quotes around an array member, for the same reason: unanchored
-// patterns silently merged sibling taxonomies -- `%puzzles%` matched the parent
+// patterns silently merged sibling taxonomies: `%puzzles%` matched the parent
 // title "Comics & Puzzles" and so pulled all 219 comics into the Puzzles
 // subsection, and `%men's basketball%` is a substring of "Women's Basketball",
 // which folded the women's team into the men's. Both read as plausible-but-wrong
@@ -807,14 +807,14 @@ func categoryAliasesFor(slug string) []string {
 // equality join gives it for free, and can use an index besides.
 //
 // Because the match is exact, a slug that is not the canonicalized category
-// string resolves to nothing on its own -- it needs an alias row. Those come
+// string resolves to nothing on its own; it needs an alias row. Those come
 // from the cache, so callers must have run RefreshCategoryAliases first;
 // EnsureTaxonomyTable does it at startup.
 //
 // Ampersand escaping used to be folded in SQL here too: the ETL emits a plain
 // "&" while Go's encoding/json HTML-escapes it to & (see FormatTags), so an
 // article edited in the CMS stopped matching its own section. That fold is now
-// implicit -- article_categories is built by JSON-decoding the column, which
+// implicit: article_categories is built by JSON-decoding the column, which
 // resolves the escape to the character it stands for.
 func CategoryMatchValues(slug string) []string {
 	normalized := strings.ToLower(strings.TrimSpace(slug))
@@ -862,8 +862,8 @@ var possessiveStems = map[string]string{
 // "mens-basketball" can still find the category "Men's Basketball". Returns ""
 // when the phrase has no possessive to restore.
 //
-// Without this the four apostrophe subsections -- both basketballs, both
-// soccers -- matched nothing at all, so their pages were empty and their counts
+// Without this the four apostrophe subsections (both basketballs, both
+// soccers) matched nothing at all, so their pages were empty and their counts
 // read 0 while the categories they name were on hundreds of articles.
 func possessiveVariant(phrase string) string {
 	words := strings.Split(phrase, " ")
@@ -994,14 +994,14 @@ func ancestorChain(parents map[string]string, slug string) []string {
 // articles belong to it: itself plus every descendant, to any depth.
 //
 // The descendants matter because a row can be a pure container. Nothing is filed
-// under the category "Special Editions" -- its articles live under "Welcome
-// Week" and "100 Year Anniversary" -- so matching the section slug alone reports
+// under the category "Special Editions" (its articles live under "Welcome
+// Week" and "100 Year Anniversary"), so matching the section slug alone reports
 // zero for a section that visibly has content.
 //
 // Transitive rather than one hop, because the tree is three levels now. Under
 // A&E, Beer Reviews hangs off Food rather than off the section, and a single hop
 // would have counted those articles for Food while dropping them from
-// Entertainment -- a section quietly shorter than the sum of its subsections,
+// Entertainment, a section quietly shorter than the sum of its subsections,
 // which is the same silent-omission failure the alias seeding exists to fix.
 func taxonomyMatchSlugs(ctx context.Context, conn *sql.DB) (map[string][]string, error) {
 	rows, err := conn.QueryContext(ctx, `
@@ -1063,8 +1063,8 @@ func descendantsOf(children map[string][]string, slug string) []string {
 // the given slugs, along with its arguments.
 //
 // It reads the article_categories index rather than the `categories` column.
-// The predicate it replaced was a chain of `LOWER(categories) LIKE '%"news"%'`
-// -- a leading wildcard, so no index could ever serve it, and every section page
+// The predicate it replaced was a chain of `LOWER(categories) LIKE '%"news"%'`:
+// a leading wildcard, so no index could ever serve it, and every section page
 // scanned the whole table to answer it (twice, since the listing pages with a
 // COUNT(*) alongside).
 //
@@ -1130,14 +1130,14 @@ func countArticlesForSlugs(ctx context.Context, conn *sql.DB, slug string, match
 }
 
 // ReportOrphanedArticles logs published articles that match no taxonomy row at
-// all -- the inverse of the zero-match warning in countArticlesForSlugs.
+// all, the inverse of the zero-match warning in countArticlesForSlugs.
 //
 // That warning catches a slug that finds no articles. This catches the
 // direction that actually loses content: an article whose categories name
 // nothing the taxonomy knows about is still published, still reachable by
 // direct link and by search, and appears on no section page. Nothing in the CMS
-// showed it was gone -- a section that quietly omits some of its articles reads
-// as a normal section -- so it took an editor noticing that men's lacrosse had
+// showed it was gone, because a section that quietly omits some of its articles
+// reads as a normal section. It took an editor noticing that men's lacrosse had
 // stopped appearing under Sports, months after the categories diverged.
 //
 // Diagnostic only: it names the gap and leaves the fix (an alias or a
@@ -1251,7 +1251,7 @@ func RebuildTaxonomyArticleCounts(ctx context.Context, conn *sql.DB) error {
 // can have changed, so a save in the sections screen can refresh the number it
 // just invalidated without paying for a full rebuild.
 //
-// A full rebuild runs one scan of the articles table per taxonomy row -- fine as
+// A full rebuild runs one scan of the articles table per taxonomy row: fine as
 // startup or maintenance work, far too slow to sit inside a save. The blast
 // radius of one edit is small: the row itself, plus every ancestor above it,
 // because a row matches its own slug OR any of its descendants'. Nothing else

@@ -303,20 +303,15 @@ type SiteSettingsPatchRequest struct {
 
 // BreakingNewsSettings controls the breaking-news banner shown on the public
 // homepage: whether it is visible, the text it displays, and the article it
-// links to.
-//
-// ArticleSlug is the slug alone, not a path: the public site owns its own URL
-// shape (it routes articles under /article/), and it already composes links
-// this way for developing stories. It is empty for a hand-typed banner, which
-// has no article behind it and renders as plain text.
+// links to. ArticleSlug is the slug alone, not a path, since the public site
+// owns its URL shape; it is empty for a hand-typed banner.
 type BreakingNewsSettings struct {
 	Enabled     bool   `json:"enabled"`
 	Text        string `json:"text"`
 	ArticleSlug string `json:"article_slug,omitempty"`
 }
 
-// Sources a banner can come from, in the order GetBreakingNewsState resolves
-// them: a published article flagged breaking wins over the hand-typed banner.
+// Sources a banner can come from; an article wins over the manual banner.
 const (
 	BreakingNewsSourceNone    = "none"
 	BreakingNewsSourceManual  = "manual"
@@ -324,30 +319,24 @@ const (
 )
 
 // BreakingNewsState is the banner as resolved for a request: the effective
-// Enabled/Text the public site renders, plus what produced them.
-//
-// The banner is derived, not stored. An article flagged breaking drives it
-// from the moment it is published -- which is what makes scheduling work:
-// nothing has to fire at publish time, because the article's pub_date passing
-// is itself the switch. Manual is the hand-typed fallback an admin sets in
-// Settings, kept separate so the settings screen can still edit it while an
-// article is overriding it.
+// Enabled/Text the public site renders, plus what produced them. Manual is the
+// hand-typed fallback, kept separate so Settings can still edit it while an
+// article overrides it.
 type BreakingNewsState struct {
 	BreakingNewsSettings
 	Source       string               `json:"source"`
 	ArticleTitle string               `json:"article_title,omitempty"`
 	Manual       BreakingNewsSettings `json:"manual"`
-	// WindowHours is 0 when a flagged article holds the banner indefinitely,
-	// which is the default; an admin sets a limit in Settings to opt in.
+	// WindowHours is 0 (the default) when a flagged article holds the banner
+	// indefinitely.
 	WindowHours int `json:"window_hours"`
 }
 
 type BreakingNewsSettingsResponse = BreakingNewsState
 
-// BreakingNewsSettingsPatchRequest edits the manual banner only; the
-// article-driven banner is changed by flagging or unflagging the article.
-// WindowHours is optional so a caller that only toggles the banner does not
-// have to know the current window; 0 means the banner has no time limit.
+// BreakingNewsSettingsPatchRequest edits the manual banner only. WindowHours
+// is optional, so a caller toggling the banner need not know the current
+// window; 0 means no time limit.
 type BreakingNewsSettingsPatchRequest struct {
 	Enabled     bool   `json:"enabled"`
 	Text        string `json:"text"`
@@ -472,12 +461,12 @@ type PollOptionView struct {
 }
 
 // PollView is a full poll: the question, when it ran, and its results.
-// StartsAt/EndsAt are RFC3339 strings, or empty when unset -- an absent EndsAt
+// StartsAt/EndsAt are RFC3339 strings, or empty when unset; an absent EndsAt
 // is what the public archive renders as "No Expiry".
 //
 // Status is what an editor set. State is what that means right now once the
 // date window is taken into account (draft/scheduled/live/ended/superseded/
-// closed) -- clients should display State and never re-derive it, so the
+// closed). Clients should display State and never re-derive it, so the
 // editor and the public site can never disagree about what is running.
 type PollView struct {
 	ID         int64            `json:"id"`

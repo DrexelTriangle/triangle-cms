@@ -78,9 +78,8 @@ func GetBreakingNews(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to fetch breaking-news settings")
 			return
 		}
-		// The 60s public cache is what bounds how long an article-driven banner
-		// lags its article, and it is the same 60s the scheduler ticks on, so a
-		// scheduled story's banner lands within a tick of the story itself.
+		// The 60s cache matches the scheduler tick, so an article-driven banner
+		// lands within a tick of its article.
 		setAlwaysPublicCache(w)
 		writeJSON(w, http.StatusOK, state)
 	})
@@ -110,16 +109,15 @@ func PatchBreakingNews(conn *sql.DB) http.Handler {
 			return
 		}
 
-		// Omitted means "leave the window alone", so it is read back rather
-		// than defaulted -- a plain enable/disable must not silently reset it.
+		// Omitted means "leave the window alone", so read it back rather than
+		// defaulting it.
 		window, err := db.GetBreakingNewsWindow(r.Context(), conn)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to fetch breaking-news settings")
 			return
 		}
 		if body.WindowHours != nil {
-			// 0 is the meaningful "no limit" value, so only a negative one is
-			// a mistake worth rejecting.
+			// 0 means "no limit", so only a negative value is a mistake.
 			if *body.WindowHours < 0 {
 				writeError(w, http.StatusBadRequest, "window_hours cannot be negative")
 				return
@@ -139,8 +137,7 @@ func PatchBreakingNews(conn *sql.DB) http.Handler {
 		activity.LogRequest(r, "settings_changed", "Breaking-news banner updated", "breaking_news", logState)
 
 		// Re-resolved rather than echoed: a flagged article may be overriding
-		// the manual banner that was just saved, and the admin should see the
-		// banner the public site is actually rendering.
+		// the manual banner that was just saved.
 		state, err := db.GetBreakingNewsState(r.Context(), conn)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to fetch breaking-news settings")

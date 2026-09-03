@@ -144,7 +144,7 @@ func findItem(t *testing.T, items []models.TaxonomyItem, slug string) models.Tax
 func TestTaxonomyHTTPAliasFixesAnEmptySection(t *testing.T) {
 	conn := taxonomyHTTPTestDB(t)
 
-	// A section whose slug is not the category its articles carry -- the
+	// A section whose slug is not the category its articles carry: the
 	// Entertainment situation, which is the case that motivated aliases.
 	created := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
 		"type":            "section",
@@ -172,7 +172,7 @@ func TestTaxonomyHTTPAliasFixesAnEmptySection(t *testing.T) {
 		t.Fatalf("PUT = %d: %s", updated.Code, updated.Body.String())
 	}
 
-	// The matcher must see it immediately -- no restart. This is what the
+	// The matcher must see it immediately, no restart. This is what the
 	// cache refresh on write buys.
 	values := db.CategoryMatchValues("food")
 	for _, want := range []string{"restaurant reviews", "beer reviews"} {
@@ -209,7 +209,7 @@ func TestTaxonomyHTTPOmittedAliasesSurviveAnEdit(t *testing.T) {
 		t.Fatalf("POST = %d", code)
 	}
 
-	// Rename only -- no category_aliases key at all.
+	// Rename only: no category_aliases key at all.
 	updated := taxonomyRequest(t, PutTaxonomyItem(conn), http.MethodPut, "/v1/taxonomy/section/food", map[string]any{
 		"slug":            "food",
 		"canonical_title": "Food & Drink",
@@ -280,7 +280,7 @@ func TestTaxonomyHTTPAliasesAreNotHTMLEscaped(t *testing.T) {
 		t.Fatalf("read stored aliases: %v", err)
 	}
 	if want := `["Arts & Entertainment"]`; stored != want {
-		t.Fatalf("stored %s, want %s -- an escaped ampersand matches no article", stored, want)
+		t.Fatalf("stored %s, want %s; an escaped ampersand matches no article", stored, want)
 	}
 }
 
@@ -305,7 +305,7 @@ func TestTaxonomyHTTPDeleteRefusesWhenArticlesExist(t *testing.T) {
 	}
 
 	// Recreate it, this time with an article filed under it. site_taxonomy's
-	// article_count is still 0 -- nothing has rebuilt it -- so this is exactly
+	// article_count is still 0 (nothing has rebuilt it) so this is exactly
 	// the stale-count case the live count exists to catch.
 	if code := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
 		"type":            "section",
@@ -370,7 +370,7 @@ func TestTaxonomyHTTPDeleteRefusesSectionWithSubsections(t *testing.T) {
 // TestTaxonomyHTTPAliasSaveUpdatesTheDisplayedCount closes the loop the sections
 // screen actually shows. Matching goes live the moment the alias cache reloads,
 // but article_count is stored, so without a recount the editor's fix works on
-// the site while the screen still reads 0 -- a successful fix that looks failed.
+// the site while the screen still reads 0: a successful fix that looks failed.
 func TestTaxonomyHTTPAliasSaveUpdatesTheDisplayedCount(t *testing.T) {
 	conn := taxonomyHTTPTestDB(t)
 	ctx := context.Background()
@@ -411,7 +411,7 @@ func TestTaxonomyHTTPAliasSaveUpdatesTheDisplayedCount(t *testing.T) {
 	// ...and the number must be right on the very next load, with no rebuild
 	// and no restart.
 	if got := findItem(t, getTaxonomyItems(t, conn), "food").ArticleCount; got != 2 {
-		t.Errorf("count after the fix = %d, want 2 -- the save did not recount", got)
+		t.Errorf("count after the fix = %d, want 2; the save did not recount", got)
 	}
 }
 
@@ -453,15 +453,15 @@ func TestTaxonomyHTTPSubsectionSaveRecountsItsParent(t *testing.T) {
 		t.Errorf("subsection count = %d, want 1", got)
 	}
 	if got := findItem(t, items, "food").ArticleCount; got != 1 {
-		t.Errorf("parent section count = %d, want 1 -- the parent was not recounted", got)
+		t.Errorf("parent section count = %d, want 1; the parent was not recounted", got)
 	}
 }
 
 // TestTaxonomyHTTPDeleteRecountsTheParent covers the case where the parent
 // cannot be resolved after the fact, because the child row is gone by then.
 //
-// Deleting an EMPTY child cannot move a correct parent count -- an empty child
-// contributes nothing -- so the parent's stored count is staled first. If the
+// Deleting an EMPTY child cannot move a correct parent count, since an empty
+// child contributes nothing, so the parent's stored count is staled first. If the
 // delete recounts it, the stale number is corrected; if it does not, the stale
 // number survives.
 func TestTaxonomyHTTPDeleteRecountsTheParent(t *testing.T) {
@@ -493,7 +493,7 @@ func TestTaxonomyHTTPDeleteRecountsTheParent(t *testing.T) {
 	}
 
 	if got := findItem(t, getTaxonomyItems(t, conn), "food").ArticleCount; got != 1 {
-		t.Errorf("parent count after deleting a child = %d, want 1 -- the parent was not recounted", got)
+		t.Errorf("parent count after deleting a child = %d, want 1; the parent was not recounted", got)
 	}
 }
 
@@ -513,7 +513,7 @@ func indexArticleCategories(t *testing.T, conn *sql.DB) {
 //
 // A hidden subsection loses its entry in the section's subsection strip. It
 // keeps its row, its articles, its own listing, and its contribution to the
-// parent section's page -- which is what makes it usable for the WordPress
+// parent section's page, which is what makes it usable for the WordPress
 // sub-categories: 48 more categories with homes, and not 48 more nav links.
 func TestTaxonomyHTTPHiddenSubsectionKeepsEverythingButItsLink(t *testing.T) {
 	conn := taxonomyHTTPTestDB(t)
@@ -559,7 +559,7 @@ func TestTaxonomyHTTPHiddenSubsectionKeepsEverythingButItsLink(t *testing.T) {
 		t.Fatalf("parent for subsection: %v", err)
 	}
 	if !ok || parent != "sports" {
-		t.Errorf("parent of the hidden subsection = %q/%v, want sports -- its page must still answer", parent, ok)
+		t.Errorf("parent of the hidden subsection = %q/%v, want sports; its page must still answer", parent, ok)
 	}
 
 	// And its article still counts, for it and for the section above it.
@@ -571,7 +571,7 @@ func TestTaxonomyHTTPHiddenSubsectionKeepsEverythingButItsLink(t *testing.T) {
 		t.Errorf("hidden subsection count = %d, want 1", got)
 	}
 	if got := findItem(t, items, "sports").ArticleCount; got != 1 {
-		t.Errorf("section count = %d, want 1 -- a hidden child still feeds its section", got)
+		t.Errorf("section count = %d, want 1; a hidden child still feeds its section", got)
 	}
 }
 
@@ -709,7 +709,7 @@ func TestTaxonomyHTTPConvertsBetweenSectionAndSubsection(t *testing.T) {
 //
 // The interesting assertion is the rollup. Beer Reviews is two hops from the
 // section now, and the one-hop rollup this replaced would have counted its
-// articles for Food while dropping them from A&E -- a section quietly shorter
+// articles for Food while dropping them from A&E: a section quietly shorter
 // than the sum of its parts, which is the failure mode nothing on the screen
 // would have shown.
 func TestTaxonomyHTTPThreeLevelNesting(t *testing.T) {
@@ -767,7 +767,7 @@ func TestTaxonomyHTTPThreeLevelNesting(t *testing.T) {
 		{"entertainment", 1, "a grandchild's article still reaches the section"},
 	} {
 		if got := findItem(t, items, want.slug).ArticleCount; got != want.count {
-			t.Errorf("%s count = %d, want %d -- %s", want.slug, got, want.count, want.reason)
+			t.Errorf("%s count = %d, want %d: %s", want.slug, got, want.count, want.reason)
 		}
 	}
 
@@ -791,7 +791,7 @@ func TestTaxonomyHTTPThreeLevelNesting(t *testing.T) {
 		t.Fatalf("validate grandchild params: %v", err)
 	}
 	if deep.Section != "entertainment" {
-		t.Errorf("grandchild section = %q, want entertainment -- the root, not %q", deep.Section, "food")
+		t.Errorf("grandchild section = %q, want entertainment, the root, not %q", deep.Section, "food")
 	}
 
 	// The strip shows direct children only, at both levels. That is the point
@@ -843,7 +843,7 @@ func TestTaxonomyHTTPRejectsCircularParent(t *testing.T) {
 	}
 
 	// Food's parent is a section, so this asks a row to hang under its own
-	// descendant only once entertainment is a subsection -- test the direct
+	// descendant only once entertainment is a subsection; test the direct
 	// case instead: a row cannot parent itself.
 	itself := taxonomyRequest(t, PutTaxonomyItem(conn), http.MethodPut, "/v1/taxonomy/subsection/food", map[string]any{
 		"slug":            "food",

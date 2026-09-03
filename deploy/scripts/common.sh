@@ -246,7 +246,7 @@ wait_for_url() {
 }
 
 # wait_for_embeddings polls the container's health state rather than an HTTP
-# endpoint, because the sidecar is deliberately not published to the host -- only
+# endpoint, because the sidecar is deliberately not published to the host: only
 # the backends reach it, over the compose network. Its healthcheck 503s until the
 # model has finished loading, so "healthy" here means it can actually answer.
 wait_for_embeddings() {

@@ -6,8 +6,8 @@ request path. A distance between vectors from two different models is
 meaningless, so both go through this one service and it reports which model
 produced them.
 
-It is deliberately stateless. Nothing here is a source of truth -- the vectors
-live in MariaDB -- so it needs no volume, no backup, and no reconciliation. If
+It is deliberately stateless. Nothing here is a source of truth (the vectors
+live in MariaDB) so it needs no volume, no backup, and no reconciliation. If
 it restarts, or is missing entirely, the CMS degrades to lexical search.
 """
 
@@ -27,7 +27,7 @@ MODEL_NAME = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
 # BGE is an asymmetric retrieval model: it was trained with short queries
 # prefixed and documents bare. Embedding a query without this prefix quietly
-# costs a chunk of retrieval quality -- it still returns vectors, just worse
+# costs a chunk of retrieval quality: it still returns vectors, just worse
 # ones, which is the kind of bug that never surfaces as an error.
 QUERY_PREFIX = os.getenv(
     "EMBED_QUERY_PREFIX",
@@ -96,7 +96,7 @@ def embed(request: EmbedRequest) -> EmbedResponse:
 
     # Normalize explicitly rather than trusting the model wrapper's default.
     # MariaDB ranks these with euclidean distance, which only agrees with cosine
-    # similarity on unit vectors -- the previous ETL skipped this, so magnitude
+    # similarity on unit vectors. The previous ETL skipped this, so magnitude
     # leaked into every "related articles" ranking.
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     vectors = vectors / np.clip(norms, 1e-12, None)

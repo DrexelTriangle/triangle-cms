@@ -55,10 +55,10 @@ type BreakingNewsLive = {
   articleSlug?: string
 }
 
-// The endpoint returns the RESOLVED banner at the top level and the hand-typed
-// one under `manual`. The form edits the manual banner, so it has to read from
-// `manual` -- binding it to the top level would silently overwrite the manual
-// text with an article's headline the next time an admin hit save.
+// The endpoint returns the resolved banner at the top level and the hand-typed
+// one under `manual`. The form edits the manual banner, so it reads `manual`;
+// binding it to the top level would overwrite that text with an article's
+// headline on the next save.
 function readBreakingNews(body: BreakingNewsResponse) {
   return {
     manual: {
@@ -70,7 +70,7 @@ function readBreakingNews(body: BreakingNewsResponse) {
       text: String(body.text ?? ""),
       articleSlug: body.article_slug,
     } satisfies BreakingNewsLive,
-    // 0 means the banner has no time limit, which is the default.
+    // 0 means no time limit, which is the default.
     window: String(body.window_hours ?? 0),
   }
 }
@@ -120,8 +120,8 @@ export default function SettingsPage() {
   })
   const [breakingSaving, setBreakingSaving] = useState(false)
   const [breakingMessage, setBreakingMessage] = useState<string | null>(null)
-  // What the public site is actually showing, which is not always what the
-  // fields below hold: a published article flagged breaking overrides them.
+  // What the public site is actually showing: an article can override the
+  // fields below.
   const [breakingLive, setBreakingLive] = useState<BreakingNewsLive>({ source: "none", text: "" })
   const [carouselSlides, setCarouselSlides] = useState<CarouselSlide[]>([])
   const [carouselSaved, setCarouselSaved] = useState<CarouselSlide[]>([])
@@ -216,7 +216,7 @@ export default function SettingsPage() {
       setBreakingMessage("Banner text is required when the banner is enabled")
       return
     }
-    // 0 is what the API takes for "no limit", which is the unticked state.
+    // 0 is the API's "no limit", i.e. the unticked state.
     const windowHours = breakingWindowOn ? Number(breakingWindow) : 0
     if (
       breakingWindowOn &&
@@ -696,22 +696,21 @@ export default function SettingsPage() {
         summary={
           breakingLive.source === "article" ? "Live from an article" : breakingLive.source === "manual" ? "Enabled" : "Off"
         }
-        description="Show a breaking-news banner across the top of the public homepage. Any editor can raise one by ticking Breaking news on their article; it appears when the article publishes and comes down when the flag does."
+        description="Banner across the top of the public homepage. Editors can also raise one by ticking Breaking news on an article."
       >
         {breakingLive.source === "article" && (
           <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
             <span className="font-medium">An article is driving the banner:</span> &ldquo;{breakingLive.text}&rdquo;
             <div className="mt-1 text-xs text-muted-foreground">
-              It overrides the banner below until it is unflagged or its duration runs out. To take it down now, untick
-              &ldquo;Breaking news&rdquo; on{" "}
+              It overrides the banner below. Untick &ldquo;Breaking news&rdquo; on{" "}
               {breakingLive.articleSlug ? (
                 <Link to={`/articles/${encodeURIComponent(breakingLive.articleSlug)}/edit`} className="underline">
                   that article
                 </Link>
               ) : (
                 "that article"
-              )}
-              .
+              )}{" "}
+              to take it down.
             </div>
           </div>
         )}
@@ -757,8 +756,7 @@ export default function SettingsPage() {
             </div>
           )}
           <span className="text-xs text-muted-foreground pl-7">
-            Off by default: a banner raised from an article stays up until an editor unticks &ldquo;Breaking news&rdquo;
-            on it. Does not affect the banner above.
+            Applies to article banners only; off by default.
           </span>
         </div>
         <div className="flex items-center gap-3">

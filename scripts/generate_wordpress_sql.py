@@ -84,7 +84,7 @@ NO_AUTO_VALUE_ON_ZERO_PREAMBLE = "SET sql_mode = CONCAT(@@sql_mode, ',NO_AUTO_VA
 # Canonical table definitions, shared with the CMS. The same files are embedded
 # into the binary and executed at startup (server/internal/database/schema.go),
 # so a seeded dev database and production cannot drift apart. Never inline a
-# CREATE TABLE for a CMS-owned table here -- that is the bug this replaced.
+# CREATE TABLE for a CMS-owned table here; that is the bug this replaced.
 SCHEMA_DIR_PARTS = ("server", "internal", "database", "schema")
 
 
@@ -210,7 +210,7 @@ def copy_sql_with_mariadb_mode(src: Path, dest: Path) -> None:
     silently becomes id = 1 (or whatever is next) and every articles_authors /
     seo row pointing at 0 is orphaned. sql_mode is session-scoped and each seed
     file is loaded in its own session, so the statement has to lead every file
-    that inserts rows -- it cannot be set once globally for the batch.
+    that inserts rows; it cannot be set once globally for the batch.
     """
     text = src.read_text(encoding="utf-8", errors="replace")
     if not has_no_auto_value_on_zero(text):

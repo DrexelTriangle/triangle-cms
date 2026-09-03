@@ -23,7 +23,7 @@ type MediaPickerProps = {
   // When set, the picker also accepts a bare image URL. Only the featured-image
   // field wants this: an article's photo_url is served verbatim, so it can point
   // at an image that was never in our library. Body attachments have no such
-  // escape hatch by design -- they get sideloaded so articles never hotlink.
+  // escape hatch by design: they get sideloaded so articles never hotlink.
   onUseUrl?: (url: string) => void
   initialUrl?: string
 }
@@ -147,7 +147,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
   }, [sentinel, hasMore, isLoading, isLoadingMore, items.length])
 
   // Alt text saved from a tile belongs to the library record, so the grid has to
-  // show the new value straight away -- otherwise the "No alt text" warning
+  // show the new value straight away; otherwise the "No alt text" warning
   // stays up on an image that now has some.
   const updateItem = useCallback((id: number, altText: string) => {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, alt_text: altText } : item)))
@@ -344,7 +344,7 @@ type AltTextFieldProps = {
  * Inline alt-text editor for one tile.
  *
  * It writes to the library record (PATCH /v1/media/{id}), not to this article,
- * so an image described once is described everywhere it is used -- the same
+ * so an image described once is described everywhere it is used, the same
  * contract the picker already relies on when it hands alt_text to the editor.
  *
  * Its own error state rather than the picker's banner: a failed save belongs

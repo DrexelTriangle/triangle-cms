@@ -93,9 +93,7 @@ func decodeBreakingNews(t *testing.T, rec *httptest.ResponseRecorder) map[string
 	return payload
 }
 
-// window_hours is optional, and the settings screen is not the only thing that
-// can toggle the banner. A plain enable/disable must not quietly reset how long
-// flagged articles hold the homepage.
+// window_hours is optional: a plain enable/disable must not reset it.
 func TestBreakingNewsSettingsHTTP_OmittedWindowIsPreserved(t *testing.T) {
 	conn := breakingNewsSettingsTestDB(t)
 
@@ -112,8 +110,7 @@ func TestBreakingNewsSettingsHTTP_OmittedWindowIsPreserved(t *testing.T) {
 	}
 }
 
-// 0 is how an admin turns the limit back off, so it has to round-trip rather
-// than fall back to some built-in duration.
+// 0 turns the limit back off, so it has to round-trip rather than fall back.
 func TestBreakingNewsSettingsHTTP_ZeroWindowClearsTheLimit(t *testing.T) {
 	conn := breakingNewsSettingsTestDB(t)
 
@@ -139,9 +136,8 @@ func TestBreakingNewsSettingsHTTP_RejectsANegativeWindow(t *testing.T) {
 	}
 }
 
-// The admin saves a manual banner; an article is already holding the homepage.
-// Echoing the request back would tell them the banner says something it does
-// not, so the response is re-resolved.
+// Saving a manual banner while an article holds the homepage: the response is
+// re-resolved rather than echoed.
 func TestBreakingNewsSettingsHTTP_ResponseReflectsAnOverridingArticle(t *testing.T) {
 	conn := breakingNewsSettingsTestDB(t)
 	if _, err := conn.ExecContext(context.Background(),
