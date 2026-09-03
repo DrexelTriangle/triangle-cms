@@ -509,8 +509,8 @@ definitions:
         type: string
       window_hours:
         description: |-
-          WindowHours is 0 when a flagged article holds the banner indefinitely,
-          which is the default; an admin sets a limit in Settings to opt in.
+          WindowHours is 0 (the default) when a flagged article holds the banner
+          indefinitely.
         type: integer
     type: object
   models.CategorySummary:

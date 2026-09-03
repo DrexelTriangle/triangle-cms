@@ -5031,7 +5031,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "window_hours": {
-                    "description": "WindowHours is 0 when a flagged article holds the banner indefinitely,\nwhich is the default; an admin sets a limit in Settings to opt in.",
+                    "description": "WindowHours is 0 (the default) when a flagged article holds the banner\nindefinitely.",
                     "type": "integer"
                 }
             }
