@@ -4984,6 +4984,9 @@ const docTemplate = `{
         "models.BreakingNewsSettings": {
             "type": "object",
             "properties": {
+                "article_slug": {
+                    "type": "string"
+                },
                 "enabled": {
                     "type": "boolean"
                 },
@@ -5000,17 +5003,36 @@ const docTemplate = `{
                 },
                 "text": {
                     "type": "string"
+                },
+                "window_hours": {
+                    "type": "integer"
                 }
             }
         },
         "models.BreakingNewsSettingsResponse": {
             "type": "object",
             "properties": {
+                "article_slug": {
+                    "type": "string"
+                },
+                "article_title": {
+                    "type": "string"
+                },
                 "enabled": {
                     "type": "boolean"
                 },
+                "manual": {
+                    "$ref": "#/definitions/models.BreakingNewsSettings"
+                },
+                "source": {
+                    "type": "string"
+                },
                 "text": {
                     "type": "string"
+                },
+                "window_hours": {
+                    "description": "WindowHours is 0 when a flagged article holds the banner indefinitely,\nwhich is the default; an admin sets a limit in Settings to opt in.",
+                    "type": "integer"
                 }
             }
         },

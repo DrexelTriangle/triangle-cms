@@ -45,6 +45,25 @@ func EnsureArticlesPublishedIndex(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
+// EnsureArticlesBreakingNewsIndex indexes the banner lookup.
+//
+// GetBreakingNewsState runs on every homepage render, and its predicate is
+// `breaking_news = 1` over the whole migrated corpus -- tens of thousands of
+// rows scanned to find the handful ever flagged, or none at all, which is the
+// common case. Leading on the flag lets the optimizer skip straight to those
+// rows, and pub_date riding along orders them inside the index so the LIMIT 1
+// needs no sort.
+//
+// Non-fatal like the other index builders: the banner resolves correctly
+// without it, just by reading more of the table to do it.
+func EnsureArticlesBreakingNewsIndex(ctx context.Context, conn *sql.DB) error {
+	_, err := conn.ExecContext(ctx, `
+		ALTER TABLE articles
+		ADD INDEX IF NOT EXISTS idx_articles_breaking_news (`+"`breaking_news`, `pub_date`"+`)
+	`)
+	return err
+}
+
 // EnsureArticlesSlugIndex indexes the column every article is addressed by:
 // the detail endpoint, the comment thread, the permalink check, the
 // featured-article write. Without it each of those is a full scan of the

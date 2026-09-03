@@ -138,6 +138,9 @@ func main() {
 	if err := database.EnsureArticleAuthorsIndex(context.Background(), db); err != nil {
 		slog.Error("failed to index article authors; byline lookups scan the join table", "error", err)
 	}
+	if err := database.EnsureArticlesBreakingNewsIndex(context.Background(), db); err != nil {
+		slog.Error("failed to index breaking-news articles; the homepage banner lookup scans the table", "error", err)
+	}
 
 	// Deliberately not fatal, and deliberately after the column migration: the
 	// first FULLTEXT index on `articles` rebuilds the table, which on the

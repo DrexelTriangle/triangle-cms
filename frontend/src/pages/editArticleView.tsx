@@ -1545,7 +1545,13 @@ function EditArticleView() {
                 onChange={(e) => setBreakingNews(e.target.checked)}
                 type="checkbox"
               />
-              <span className="font-medium text-foreground">Breaking news</span>
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-foreground">Breaking news</span>
+                <span className="text-[11px] text-muted-foreground">
+                  Raises the red banner across the top of the homepage, with this headline, from the moment the article
+                  publishes -- scheduled stories included. Untick it to take the banner down.
+                </span>
+              </span>
             </label>
 
             <label className="flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-3 text-sm">
