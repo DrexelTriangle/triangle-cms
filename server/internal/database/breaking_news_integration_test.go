@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"testing"
 
@@ -187,7 +188,10 @@ func TestBreakingNewsState_ScheduledArticleWaitsForItsPubDate(t *testing.T) {
 	}
 }
 
-func TestBreakingNewsState_NewestFlaggedArticleWins(t *testing.T) {
+// The banner carries every flagged story, newest first, and Text still names
+// the newest so a reader that only knows the old single-story fields shows the
+// same headline it always would have.
+func TestBreakingNewsState_CarriesEveryFlaggedArticleNewestFirst(t *testing.T) {
 	conn := breakingNewsTestDB(t)
 	ctx := context.Background()
 
@@ -198,8 +202,63 @@ func TestBreakingNewsState_NewestFlaggedArticleWins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get state: %v", err)
 	}
-	if state.Text != "Newer breaking story" {
-		t.Errorf("text = %q, want the newer story", state.Text)
+	if state.Text != "Newer breaking story" || state.ArticleSlug != "newer" {
+		t.Errorf("single-story fields = %q/%q, want the newer story", state.Text, state.ArticleSlug)
+	}
+	if len(state.Items) != 2 {
+		t.Fatalf("items = %+v, want both stories", state.Items)
+	}
+	if state.Items[0].Text != "Newer breaking story" || state.Items[0].ArticleSlug != "newer" {
+		t.Errorf("items[0] = %+v, want the newer story", state.Items[0])
+	}
+	if state.Items[1].Text != "Older breaking story" || state.Items[1].ArticleSlug != "older" {
+		t.Errorf("items[1] = %+v, want the older story", state.Items[1])
+	}
+}
+
+// The banner scrolls, so a reader waits through everything ahead of the story
+// they came for. The cap is what bounds that wait.
+func TestBreakingNewsState_CapsTheNumberOfStories(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	for i, slug := range []string{"first", "second", "third", "fourth"} {
+		insertArticle(t, conn, slug, "Story "+slug, true,
+			fmt.Sprintf("UTC_TIMESTAMP() - INTERVAL %d HOUR", 10-i), "NULL")
+	}
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if len(state.Items) != maxBreakingNewsItems {
+		t.Fatalf("items = %d, want the cap of %d", len(state.Items), maxBreakingNewsItems)
+	}
+	// Newest first, so the one that falls off the end is the oldest.
+	if state.Items[0].ArticleSlug != "fourth" || state.Items[2].ArticleSlug != "second" {
+		t.Errorf("items = %+v, want the three newest stories", state.Items)
+	}
+}
+
+// The manual banner is one story like any other, so a reader can treat Items as
+// the whole banner rather than special-casing the hand-typed case.
+func TestBreakingNewsState_ManualBannerIsAnItemToo(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	if err := SetBreakingNews(ctx, conn, models.BreakingNewsSettings{Enabled: true, Text: "Campus closed"}, 0); err != nil {
+		t.Fatalf("set manual banner: %v", err)
+	}
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if len(state.Items) != 1 || state.Items[0].Text != "Campus closed" {
+		t.Fatalf("items = %+v, want just the manual banner", state.Items)
+	}
+	if state.Items[0].ArticleSlug != "" {
+		t.Errorf("manual item carried a slug: %q", state.Items[0].ArticleSlug)
 	}
 }
 

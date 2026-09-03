@@ -475,12 +475,23 @@ definitions:
       pagination:
         $ref: '#/definitions/models.Pagination'
     type: object
+  models.BreakingNewsItem:
+    properties:
+      article_slug:
+        type: string
+      text:
+        type: string
+    type: object
   models.BreakingNewsSettings:
     properties:
       article_slug:
         type: string
       enabled:
         type: boolean
+      items:
+        items:
+          $ref: '#/definitions/models.BreakingNewsItem'
+        type: array
       text:
         type: string
     type: object
@@ -501,6 +512,10 @@ definitions:
         type: string
       enabled:
         type: boolean
+      items:
+        items:
+          $ref: '#/definitions/models.BreakingNewsItem'
+        type: array
       manual:
         $ref: '#/definitions/models.BreakingNewsSettings'
       source:
@@ -509,8 +524,8 @@ definitions:
         type: string
       window_hours:
         description: |-
-          WindowHours is 0 when a flagged article holds the banner indefinitely,
-          which is the default; an admin sets a limit in Settings to opt in.
+          WindowHours is 0 (the default) when a flagged article holds the banner
+          indefinitely.
         type: integer
     type: object
   models.CategorySummary:

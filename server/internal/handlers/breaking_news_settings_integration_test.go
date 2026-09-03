@@ -74,6 +74,16 @@ func breakingNewsSettingsTestDB(t *testing.T) *sql.DB {
 	return conn
 }
 
+func seedBreakingArticle(t *testing.T, conn *sql.DB, slug, title, pubExpr string) {
+	t.Helper()
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (slug, title, breaking_news, pub_date) VALUES (?, ?, 1, "+pubExpr+")",
+		slug, title,
+	); err != nil {
+		t.Fatalf("seed %s: %v", slug, err)
+	}
+}
+
 func patchBreakingNews(t *testing.T, conn *sql.DB, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -91,6 +101,41 @@ func decodeBreakingNews(t *testing.T, rec *httptest.ResponseRecorder) map[string
 		t.Fatalf("decode response %q: %v", rec.Body.String(), err)
 	}
 	return payload
+}
+
+// The settings screen lists what is on the banner, so the response has to carry
+// every flagged story, not just the newest.
+func TestBreakingNewsSettingsHTTP_ListsEveryArticleOnTheBanner(t *testing.T) {
+	conn := breakingNewsSettingsTestDB(t)
+
+	seedBreakingArticle(t, conn, "academy", "Academy story", "UTC_TIMESTAMP() - INTERVAL 3 HOUR")
+	seedBreakingArticle(t, conn, "dragonfly", "DragonFly story", "UTC_TIMESTAMP() - INTERVAL 1 HOUR")
+
+	rec := httptest.NewRecorder()
+	GetBreakingNews(conn).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/settings/breaking-news", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Text  string `json:"text"`
+		Items []struct {
+			Text        string `json:"text"`
+			ArticleSlug string `json:"article_slug"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Text != "DragonFly story" {
+		t.Errorf("text = %q, want the newest story", body.Text)
+	}
+	if len(body.Items) != 2 {
+		t.Fatalf("items = %+v, want both stories", body.Items)
+	}
+	if body.Items[0].ArticleSlug != "dragonfly" || body.Items[1].ArticleSlug != "academy" {
+		t.Errorf("items = %+v, want dragonfly then academy", body.Items)
+	}
 }
 
 // window_hours is optional: a plain enable/disable must not reset it.

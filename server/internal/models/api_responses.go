@@ -301,14 +301,27 @@ type SiteSettingsPatchRequest struct {
 	SiteTitle string `json:"site_title"`
 }
 
-// BreakingNewsSettings controls the breaking-news banner shown on the public
-// homepage: whether it is visible, the text it displays, and the article it
-// links to. ArticleSlug is the slug alone, not a path, since the public site
-// owns its URL shape; it is empty for a hand-typed banner.
-type BreakingNewsSettings struct {
-	Enabled     bool   `json:"enabled"`
+// BreakingNewsItem is one story on the breaking-news banner. ArticleSlug is
+// the slug alone, not a path, since the public site owns its URL shape; it is
+// empty for a hand-typed banner, which links nowhere.
+type BreakingNewsItem struct {
 	Text        string `json:"text"`
 	ArticleSlug string `json:"article_slug,omitempty"`
+}
+
+// BreakingNewsSettings controls the breaking-news banner shown on the public
+// homepage: whether it is visible and the stories it scrolls.
+//
+// Items is the banner. Text and ArticleSlug describe Items[0], the newest
+// story, and exist because the public site read them before the banner could
+// carry more than one: they are the single-story view of the same state, not a
+// second copy of it, so a reader that never learns about Items keeps working
+// and shows the newest breaking story.
+type BreakingNewsSettings struct {
+	Enabled     bool               `json:"enabled"`
+	Text        string             `json:"text"`
+	ArticleSlug string             `json:"article_slug,omitempty"`
+	Items       []BreakingNewsItem `json:"items,omitempty"`
 }
 
 // Sources a banner can come from; an article wins over the manual banner.

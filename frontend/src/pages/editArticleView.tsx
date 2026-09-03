@@ -1548,7 +1548,8 @@ function EditArticleView() {
               <span className="flex flex-col gap-0.5">
                 <span className="font-medium text-foreground">Breaking news</span>
                 <span className="text-[11px] text-muted-foreground">
-                  Raises the homepage banner with this headline once the article publishes.
+                  Adds this headline to the scrolling homepage banner once the article publishes. Up to three run at
+                  once, newest first.
                 </span>
               </span>
             </label>
@@ -1563,8 +1564,8 @@ function EditArticleView() {
               <span className="flex flex-col gap-0.5">
                 <span className="font-medium text-foreground">Featured article</span>
                 <span className="text-[11px] text-muted-foreground">
-                  Runs as the big lead story on the homepage. Only one article can be
-                  featured, so this replaces the current one.
+                  Pins this story to the top of the homepage. Up to three can be pinned; the newest leads, and pinning
+                  this one leaves the others up.
                 </span>
               </span>
             </label>
