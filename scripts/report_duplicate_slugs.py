@@ -5,7 +5,7 @@ Two articles can carry the same slug: `articles`.`slug` has a prefix index and
 no UNIQUE constraint (see EnsureArticlesSlugIndex for why), and until the
 id-qualified editor routes landed, creating an article whose title matched an
 existing one filed a second row on the same slug. The CMS then addressed
-articles by slug alone, so opening either one loaded the first match -- the
+articles by slug alone, so opening either one loaded the first match, and the
 newer article "became" the older one.
 
   python ./scripts/report_duplicate_slugs.py \
@@ -18,12 +18,12 @@ the shadowed rows.
 WHICH ROW KEEPS THE BARE SLUG. The one the site serves today: the lowest id
 among the non-archived rows, or the lowest id overall if every row in the group
 is archived. That is exactly what GetArticle resolves a duplicated slug to, so
-the repair never moves a URL a reader or Google already has -- it only gives a
+the repair never moves a URL a reader or Google already has; it only gives a
 working permalink to the rows that had none. The others are renamed with the
 same numeric suffix the create path would have picked, first free wins.
 
 Re-runnable: a second run finds nothing, because the first left one row per
-slug. Archived rows are included -- they keep their slug in the trash and would
+slug. Archived rows are included: they keep their slug in the trash and would
 otherwise collide again the moment someone restores one.
 """
 

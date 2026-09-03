@@ -51,8 +51,8 @@ func TestCachedReadDoesNotTouchTheDatabase(t *testing.T) {
 	}
 }
 
-// A missing row is cached too, otherwise every render of an unset key -- the
-// footer before anyone customizes it -- keeps querying.
+// A missing row is cached too, otherwise every render of an unset key (the
+// footer before anyone customizes it) keeps querying.
 func TestMissingRowIsCached(t *testing.T) {
 	t.Setenv("SETTINGS_CACHE_TTL_SECONDS", "30")
 	ResetSettingsCache()

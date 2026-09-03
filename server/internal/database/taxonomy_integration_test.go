@@ -13,8 +13,8 @@ import (
 )
 
 // A section the seed has no defaults for, for the "keeps no aliases" case.
-// Which slugs are unseeded changes as orphaned categories get filed -- news
-// gained "Paid Post" -- so the choice is guarded by requireUnseeded rather than
+// Which slugs are unseeded changes as orphaned categories get filed (news
+// gained "Paid Post") so the choice is guarded by requireUnseeded rather than
 // assumed, or the assertion would quietly start testing nothing.
 const unseededSlug = "photo"
 
@@ -138,7 +138,7 @@ func TestTaxonomyAliasSeedDoesNotResurrectClearedAliases(t *testing.T) {
 	}
 
 	// An editor deliberately clears the aliases. That is [] , not NULL, and a
-	// later startup must leave it alone -- otherwise the defaults come back
+	// later startup must leave it alone; otherwise the defaults come back
 	// every restart and the edit looks like it never saved.
 	if _, err := conn.ExecContext(ctx,
 		"UPDATE site_taxonomy SET category_aliases = '[]' WHERE slug = 'entertainment'",
@@ -156,7 +156,7 @@ func TestTaxonomyAliasSeedDoesNotResurrectClearedAliases(t *testing.T) {
 		t.Fatalf("read stored aliases: %v", err)
 	}
 	if stored != "[]" {
-		t.Errorf("stored aliases = %s, want [] -- the seed overwrote a deliberate clear", stored)
+		t.Errorf("stored aliases = %s, want []; the seed overwrote a deliberate clear", stored)
 	}
 }
 
@@ -224,7 +224,7 @@ func TestRefreshLoadsCategoryTitlesAndPrefersARealPage(t *testing.T) {
 
 	// Now let Sports absorb the subsection's own category by alias. The
 	// subsection has a page of its own, so the alias must not take the link
-	// away from it -- a chip should reach the most specific page that lists
+	// away from it: a chip should reach the most specific page that lists
 	// the article.
 	if _, err := conn.ExecContext(ctx,
 		`UPDATE site_taxonomy SET category_aliases = ? WHERE slug = 'sports'`,
@@ -305,7 +305,7 @@ func TestLegacySubsectionSeedRunsOnceAndStaysHidden(t *testing.T) {
 	if visible := countRows(t, conn,
 		"SELECT COUNT(*) FROM site_taxonomy WHERE kind = 'subsection' AND is_visible = 1",
 	); visible != 1 {
-		t.Errorf("%d visible subsections, want only the pre-existing one -- the seed must arrive hidden", visible)
+		t.Errorf("%d visible subsections, want only the pre-existing one; the seed must arrive hidden", visible)
 	}
 
 	// Each seeded row carries its exact category title, so matching does not
@@ -314,10 +314,10 @@ func TestLegacySubsectionSeedRunsOnceAndStaysHidden(t *testing.T) {
 		t.Errorf("values = %v, want the seeded category title", got)
 	}
 	// A slug that does not derive its own category is exactly why the seed
-	// writes the title as an alias -- but only for rows it actually created,
+	// writes the title as an alias, but only for rows it actually created,
 	// and this one's parent section is absent here.
 	if got := CategoryMatchValues("aint-that-something-with-brandon-liz"); containsValue(got, "ain't that something with brandon & liz") {
-		t.Errorf("values = %v, want no alias -- that row was skipped for a missing parent", got)
+		t.Errorf("values = %v, want no alias; that row was skipped for a missing parent", got)
 	}
 
 	// The run-once guard: a deleted row stays deleted across a restart.
@@ -411,7 +411,7 @@ func TestFoodSubsectionSeedMovesTheReviewCategories(t *testing.T) {
 		t.Fatalf("read food visibility: %v", err)
 	}
 	if visible != 1 {
-		t.Error("food seeded hidden, want visible -- it is the entry A&E's strip is meant to gain")
+		t.Error("food seeded hidden, want visible; it is the entry A&E's strip is meant to gain")
 	}
 
 	// An editor moves one back, and a restart leaves it where they put it.
@@ -424,7 +424,7 @@ func TestFoodSubsectionSeedMovesTheReviewCategories(t *testing.T) {
 		t.Fatalf("third ensure: %v", err)
 	}
 	if got := parentOf("wine-reviews"); got != "entertainment" {
-		t.Errorf("wine-reviews parent = %q, want entertainment -- the seed re-ran over an editor's change", got)
+		t.Errorf("wine-reviews parent = %q, want entertainment; the seed re-ran over an editor's change", got)
 	}
 }
 
@@ -493,7 +493,7 @@ func TestEntertainmentVisibilitySeedRunsOnce(t *testing.T) {
 		}
 		return p.String
 	}(); parent != "entertainment" {
-		t.Errorf("books parent = %q, want entertainment -- hiding must not re-file a row", parent)
+		t.Errorf("books parent = %q, want entertainment; hiding must not re-file a row", parent)
 	}
 
 	// An editor puts Books back, and a restart leaves it visible.
@@ -506,7 +506,7 @@ func TestEntertainmentVisibilitySeedRunsOnce(t *testing.T) {
 		t.Fatalf("third ensure: %v", err)
 	}
 	if got := visibilityOf("books"); got != 1 {
-		t.Errorf("books is_visible = %d after a restart, want 1 -- the seed re-ran over an editor's change", got)
+		t.Errorf("books is_visible = %d after a restart, want 1; the seed re-ran over an editor's change", got)
 	}
 }
 
@@ -516,7 +516,7 @@ func TestEntertainmentVisibilitySeedRunsOnce(t *testing.T) {
 //
 // It covers the three things that make it "one layer of depth": a section's
 // direct children are listed, a hidden one is not, and a grandchild is not
-// either -- the tree is three levels now, and a footer that recursed would
+// either: the tree is three levels now, and a footer that recursed would
 // print the archive.
 func TestFooterDefaultFollowsTheTaxonomy(t *testing.T) {
 	conn := taxonomyTestDB(t)

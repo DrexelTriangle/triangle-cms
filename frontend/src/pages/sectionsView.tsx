@@ -28,7 +28,7 @@ type SectionRow = {
 }
 
 // How deep the tree may go, counting the section. Mirrors MaxTaxonomyDepth on
-// the server, which is the side that enforces it -- this copy only decides which
+// the server, which is the side that enforces it. This copy only decides which
 // rows the parent picker offers, so that the editor does not present a choice
 // the save would reject.
 const MAX_DEPTH = 3
@@ -74,7 +74,7 @@ const visibilityHint =
   "Hidden items keep their own page and their articles still appear on the parent section, they just lose their link in the section's subsection list."
 
 // Article matching is exact, so a slug that is not the category name resolves
-// to nothing and the section page renders empty -- which reads as "no articles
+// to nothing and the section page renders empty, which reads as "no articles
 // yet" rather than as a misconfiguration. Say what it usually means.
 const emptyCountHint =
   "No articles match this item. If it should have articles, add the exact category name they are filed under under Category Names."
@@ -176,7 +176,7 @@ export default function SectionsView() {
     const rendered = new Set<number>()
 
     // Recursive, because the tree is three levels: a section, its subsections,
-    // and theirs. The rendered set doubles as the cycle guard -- this walks
+    // and theirs. The rendered set doubles as the cycle guard: this walks
     // server data, and a row that somehow parented an ancestor would otherwise
     // loop forever and hang the screen rather than showing a broken tree.
     const pushSubtree = (item: TaxonomyItem, parentTitle: string | null, depth: number, isLast: boolean) => {
@@ -393,7 +393,7 @@ export default function SectionsView() {
           body: JSON.stringify(body),
         })
         // The PUT is addressed by the item's CURRENT type and slug, while the
-        // body carries what it should become -- that is how a section is
+        // body carries what it should become. That is how a section is
         // converted into a subsection.
         : await apiFetch(`/v1/taxonomy/${encodeURIComponent(editor.item.type)}/${encodeURIComponent(editor.item.slug)}`, {
           method: "PUT",
@@ -419,7 +419,7 @@ export default function SectionsView() {
   // is how the desk curates the subsection strip, which is a lot of small
   // yes/no decisions across 90-odd rows.
   //
-  // category_aliases is deliberately absent from the body -- omitting it leaves
+  // category_aliases is deliberately absent from the body: omitting it leaves
   // the stored value alone, and a toggle must not be able to wipe the matching
   // rules that keep a section's page full.
   const toggleVisibility = async (item: TaxonomyItem) => {

@@ -173,8 +173,8 @@ func acquireArticleCreateDBLock(ctx context.Context, conn *sql.Conn, candidate s
 // the insert lands.
 //
 // The lock is held on the CANDIDATE, not on the stem it was derived from. Two
-// creates can reach the same candidate from different stems -- one titled "Foo"
-// whose slug becomes foo-2, one whose slug is literally foo-2 -- and a lock on
+// creates can reach the same candidate from different stems (one titled "Foo"
+// whose slug becomes foo-2, one whose slug is literally foo-2) and a lock on
 // the stem would let those two run concurrently and both insert foo-2. The
 // candidate is the thing that has to be unique, so the candidate is the thing
 // that is locked.
@@ -207,8 +207,8 @@ func reserveArticleSlug(ctx context.Context, conn *sql.Conn, requested, title st
 //
 // The connection is dedicated because GET_LOCK is scoped to one, and it is
 // released here rather than deferred to the end of the request because
-// everything the create does afterwards -- authors, categories, taxonomy counts
-// -- goes back to the pool. A handler that held this connection across those
+// everything the create does afterwards (authors, categories, taxonomy counts)
+// goes back to the pool. A handler that held this connection across those
 // calls would be waiting on the pool while holding part of it, which deadlocks
 // outright once the pool is the single connection the integration tests use.
 func insertArticleWithUniqueSlug(ctx context.Context, conn *sql.DB, body *models.ArticleInput) (int64, error) {
@@ -264,7 +264,7 @@ func rejectTakenSlug(w http.ResponseWriter, r *http.Request, conn *sql.DB, targe
 // publicReadCacheControl bounds how stale a public read may be.
 //
 // Without a Cache-Control header every intermediary picks its own heuristic,
-// and Scalene's fetch cache has no expiry to respect at all -- an edit could
+// and Scalene's fetch cache has no expiry to respect at all, so an edit could
 // take an unbounded time to appear on the site. 60s is short enough that an
 // editor who fixes a headline sees it on the next reload rather than wondering
 // whether the save worked, and long enough that a page is not re-rendered per
@@ -301,7 +301,7 @@ func setPublicReadCache(w http.ResponseWriter, r *http.Request) {
 }
 
 // setAlwaysPublicCache is setPublicReadCache for the reads that have no
-// authenticated form at all -- no auth middleware is registered on them, so
+// authenticated form at all: no auth middleware is registered on them, so
 // every caller gets the same bytes and there is nothing to Vary on.
 func setAlwaysPublicCache(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", publicReadCacheControl)
@@ -400,8 +400,8 @@ func canonicalTitleForTaxonomy(ctx context.Context, conn *sql.DB, kind, slug str
 // reader gets offered, not every subsection that exists.
 //
 // Hidden rows are left out on purpose. Most of the WordPress sub-categories are
-// subsections in every structural sense -- their articles roll up to the
-// section, and /v1/subsections/{slug}/articles answers for them -- but a strip
+// subsections in every structural sense (their articles roll up to the
+// section, and /v1/subsections/{slug}/articles answers for them) but a strip
 // of 30 links is not navigation. The desk decides which ones are worth a link
 // on the sections screen; everything else stays reachable by URL and by the
 // category chip on an article.
@@ -409,7 +409,7 @@ func canonicalTitleForTaxonomy(ctx context.Context, conn *sql.DB, kind, slug str
 // a slug that the desk has left visible.
 //
 // Direct children only, at every level. On A&E that now means Food rather than
-// the three review categories folded underneath it -- which is the point of the
+// the three review categories folded underneath it, which is the point of the
 // nesting, since the strip existed to stay short. Food's own page gets its own
 // strip from the same call.
 func visibleSubsectionsOf(ctx context.Context, conn *sql.DB, parentSlug string) ([]models.TaxonomySummary, error) {
@@ -590,8 +590,8 @@ func formatArticleDate(t time.Time) string {
 // invents here would silently overwrite the real one.
 //   - An explicit published_date always wins.
 //   - Going to draft clears the live date but parks it in last_pub_date.
-//   - Publishing without a date reuses the article's own date -- current first,
-//     then the parked one -- and only falls back to now for something that has
+//   - Publishing without a date reuses the article's own date, current first
+//     and then the parked one, and only falls back to now for something that has
 //     genuinely never been published.
 func articlePatchDateColumns(statusSet bool, status models.ArticleStatus, publishedDateSet bool, publishedDateValue, scheduledDateValue any, currentPublishedAt, lastPublishedAt sql.NullTime, now time.Time) ([]string, []any) {
 	if statusSet && status == models.ArticleStatusDraft {
@@ -689,7 +689,7 @@ func categoryPreferenceSlugs(params ArticleParams) []string {
 
 // articleListItems converts articles for a listing. preferSlugs is the section
 // and subsections the listing was asked for, empty when there is no section
-// context -- an author page or an unfiltered listing -- where no category is
+// context (an author page or an unfiltered listing) where no category is
 // more relevant than another and the article's own order stands.
 func articleListItems(articles []models.Article, excerptWords int, preferSlugs ...string) []models.ArticleListItem {
 	items := make([]models.ArticleListItem, 0, len(articles))
@@ -1498,7 +1498,7 @@ type ArticleParams struct {
 //
 // The fallback is not cosmetic. An empty slug list makes
 // appendCategorySlugCondition add no condition at all, so a filter that failed
-// to resolve would not narrow the listing -- it would return every article on
+// to resolve would not narrow the listing: it would return every article on
 // the site under a subsection's name. Callers that build ArticleParams without
 // going through normalizeAndValidateArticleParams reach exactly that state.
 func (p ArticleParams) subsectionMatch() []string {
@@ -1546,7 +1546,7 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, o
 //
 // Editors keep `id` DESC. Their listing includes drafts, whose `pub_date` is
 // NULL and would sort to the very end, burying a new draft on the last page of
-// a 10k-article list -- the same reason articleOrderByClause exists for their
+// a 10k-article list, the same reason articleOrderByClause exists for their
 // explicit date sorts.
 func defaultArticleOrderBy(r *http.Request) string {
 	if _, isEditor := middleware.UserFromContext(r.Context()); isEditor {
@@ -1609,7 +1609,7 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 	// was measured: it saves 3.8ms on the paging COUNT and costs 0.1ms on the
 	// listing itself, and in exchange the definition of "filed" would move from
 	// the columns to two indexes that agree with them by data rather than by
-	// construction. Four milliseconds does not buy that -- the failure mode is
+	// construction. Four milliseconds does not buy that: the failure mode is
 	// articles silently vanishing from every listing while still resolving by
 	// direct link.
 	artifactFilter := "((TRIM(COALESCE(`authors`, '')) <> '' AND TRIM(`authors`) <> '[]') OR (TRIM(COALESCE(`categories`, '')) <> '' AND TRIM(`categories`) <> '[]'))"
@@ -1876,7 +1876,7 @@ func scanOneArticle(rows *sql.Rows, queryErr error) (models.Article, bool, error
 //
 // The ORDER BY is not decoration. Slugs are not unique, so without it a slug
 // carried by two published articles answers with whichever row the scan reached
-// first -- which can differ between two requests for the same URL, and puts
+// first, which can differ between two requests for the same URL, and puts
 // whichever one won into a shared cache. Lowest id is the same rule the editor
 // paths resolve by, so the public page and the editor agree on which article a
 // duplicated slug means.
@@ -1928,7 +1928,7 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		// Scanned and closed in one step, before anything else queries. An open
 		// *sql.Rows holds its pooled connection, and the author lookup below
-		// wants a second one -- a handler that kept both would be waiting on a
+		// wants a second one. A handler that kept both would be waiting on a
 		// pool it is itself holding, which stalls outright once the pool is the
 		// single connection the integration tests use.
 		a, found, err := scanOneArticle(db.Select(r.Context(), conn, "articles", db.ArticleColumns, where, args...))
@@ -2597,7 +2597,7 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		// Keyed on the new slug, because the UPDATE above may have renamed it.
 		// Unconditional, unlike the taxonomy counts: the index describes where
-		// the article is filed, which is true of archived rows too -- they are
+		// the article is filed, which is true of archived rows too: they are
 		// excluded by the listing's own archived_at predicate, not by being
 		// missing from here.
 		if target.hasID {
@@ -2795,7 +2795,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				}
 				// The editor sends the excerpt field on every save, blank or not,
 				// so a patch that clears it is the ordinary case of an author who
-				// never filled it in -- not a request for an article with no
+				// never filled it in, not a request for an article with no
 				// summary anywhere it is listed. Derive one from the body, the
 				// same fallback POST applies. The patch's own content wins if it
 				// carries one; the map is iterated in random order, so read it
@@ -3241,7 +3241,7 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 		// "3-6-3" layout renders news[0] as the big centre card), so featuring
 		// an article means moving it to the front of that list. It is spliced in
 		// rather than sorted into the news query because the featured article
-		// may be filed under any section -- a featured sports story still takes
+		// may be filed under any section: a featured sports story still takes
 		// the lead card, which a news-scoped ORDER BY could never do.
 		if offset == 0 {
 			if err := leadWithFeaturedArticle(r, conn, &sectionArticles, excerptWords, newsLimit, newsMatchSlugs); err != nil {
@@ -3250,8 +3250,8 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 			}
 		}
 
-		// The homepage carries the editor's live decisions -- the featured lead,
-		// the breaking-news banner, the carousel -- so it needs the shortest
+		// The homepage carries the editor's live decisions (the featured lead,
+		// the breaking-news banner, the carousel) so it needs the shortest
 		// freshness bound of anything here, which is why publicReadCacheControl
 		// is set to one that suits it. The rest of the public reads inherited
 		// the same bound rather than each picking one.

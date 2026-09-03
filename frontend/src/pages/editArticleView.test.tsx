@@ -7,7 +7,7 @@ import EditArticleView from "./editArticleView"
 
 // The publish-timing radios are intent, not action: only the publish button may
 // move an article across the draft/live line. These tests pin that, because the
-// failure mode is silent -- an editor clicking "Publish now" to read the blurb
+// failure mode is silent: an editor clicking "Publish now" to read the blurb
 // would have had the article on the public site 2.5 seconds later.
 
 const ARTICLE_SLUG = "live-story"
@@ -328,7 +328,7 @@ describe("EditArticleView SEO tag suggestions", () => {
   })
 
   // A suggestion for a tag the article already carries is a dead control, and
-  // clicking it would look broken -- the add is a no-op against the dedupe.
+  // clicking it would look broken: the add is a no-op against the dedupe.
   it("does not suggest a tag the article already carries", async () => {
     articleTags = ["triangle"]
     await renderEditor()
@@ -396,7 +396,7 @@ describe("EditArticleView SEO tag suggestions", () => {
     expect(searches[0].url).toContain("q=lacrosse")
   })
 
-  // A tag nobody has used is still a tag worth adding -- but the editor should
+  // A tag nobody has used is still a tag worth adding, but the editor should
   // be told that is what they are doing.
   it("says so when nothing in the archive matches", async () => {
     const user = await renderEditor()

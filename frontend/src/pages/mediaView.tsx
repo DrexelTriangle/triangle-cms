@@ -272,7 +272,7 @@ function MediaView() {
         </div>
 
         {/* Uploading is part of writing a story, so it stays open to any
-            signed-in editor -- the same rule POST /v1/media applies. Only the
+            signed-in editor, the same rule POST /v1/media applies. Only the
             destructive and bulk actions (delete, reindex) are admin-only. */}
         <div className="flex items-center gap-2">
           <input
@@ -468,7 +468,7 @@ function MediaDetailPanel({ item, onClose, onSave }: MediaDetailPanelProps) {
 
   // The URL, not the bare path: what people paste this into (a story, a
   // message, a browser) needs the whole link to resolve. The server returns a
-  // root-relative URL when MEDIA_BASE_URL is unset -- media is then served from
+  // root-relative URL when MEDIA_BASE_URL is unset: media is then served from
   // this same origin, so resolving against it gives the link people expect.
   const fullUrl = new URL(item.url, window.location.origin).href
 

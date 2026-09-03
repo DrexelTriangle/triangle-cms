@@ -207,7 +207,7 @@ func TestMediaHTTP_PublicGalleryOnlyServesCuratedImages(t *testing.T) {
 	upload("house-ad.png")
 
 	// Nothing is in the gallery until an editor says so, including brand-new
-	// uploads -- the default has to be off or the /photo page fills itself.
+	// uploads: the default has to be off or the /photo page fills itself.
 	emptyRec := httptest.NewRecorder()
 	GetPublicGallery(conn).ServeHTTP(emptyRec, httptest.NewRequest(http.MethodGet, "/v1/gallery", nil))
 	var empty models.MediaGalleryResponse
@@ -330,7 +330,7 @@ func TestMediaHTTP_DeleteRefusesAssetInUse(t *testing.T) {
 
 // The same protection for an image that only ever appears inside the article
 // body. Checking photo_url alone let this delete through and unlink a file a
-// published article was still rendering -- the one path here that destroyed
+// published article was still rendering: the one path here that destroyed
 // content rather than just confusing the library.
 func TestMediaHTTP_DeleteRefusesAssetUsedInArticleBody(t *testing.T) {
 	conn := mediaHTTPTestDB(t)

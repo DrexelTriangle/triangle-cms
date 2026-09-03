@@ -19,7 +19,7 @@ import (
 )
 
 // These drive the real reconciler against a real MariaDB, with the model itself
-// stubbed. The model is the one part that cannot be asserted on -- what matters
+// stubbed. The model is the one part that cannot be asserted on; what matters
 // here is that the loop finds the right work, writes vectors of the right shape,
 // records the hash and model that make the next pass a no-op, and converges.
 //
@@ -253,7 +253,7 @@ func TestReconciler_ReembedsEditedArticlesOnly(t *testing.T) {
 }
 
 // An article created after the initial backfill has no vector at all, so it is
-// caught by the missing-row path rather than the staleness one -- even though
+// caught by the missing-row path rather than the staleness one, even though
 // POST leaves mod_date NULL.
 func TestReconciler_EmbedsArticlesCreatedAfterTheBackfill(t *testing.T) {
 	conn := reconcilerTestDB(t)
@@ -425,8 +425,8 @@ func TestReconciler_StopsImmediatelyWithoutASidecar(t *testing.T) {
 	}
 }
 
-// Run has to survive an unreachable sidecar -- it is down during its own model
-// load and during every deploy -- and pick up again once it returns.
+// Run has to survive an unreachable sidecar (it is down during its own model
+// load and during every deploy) and pick up again once it returns.
 func TestReconciler_SurvivesAnUnreachableSidecar(t *testing.T) {
 	conn := reconcilerTestDB(t)
 	seedArticle(t, conn, "story", "Story", "<p>Body</p>", "2026-01-01 12:00:00")

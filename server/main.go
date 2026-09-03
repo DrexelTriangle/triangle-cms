@@ -392,7 +392,7 @@ func newDefaultServer(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Lo
 			// Metrics is outermost: Chain applies in reverse, so it wraps
 			// Recovery and therefore records the 500 a panic turns into rather
 			// than losing the request entirely. Compression sits just inside
-			// Logging and just outside Recovery -- see middleware.Compression
+			// Logging and just outside Recovery; see middleware.Compression
 			// for why that position is the only correct one.
 			Handler:   middleware.Chain(mux, middleware.Metrics, middleware.Logging, middleware.Compression, middleware.Recovery),
 			TLSConfig: tlsConfig,

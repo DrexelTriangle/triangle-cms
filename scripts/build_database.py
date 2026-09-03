@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build a complete Triangle database on any MariaDB target, from ETL seed SQL.
 
-Unlike scripts/reseed_from_etl.py -- which rebuilds the LOCAL Docker stack by
-deleting its volume -- this talks to a target over the network, so it works
+Unlike scripts/reseed_from_etl.py, which rebuilds the LOCAL Docker stack by
+deleting its volume, this talks to a target over the network, so it works
 against local Docker, a scratch database, a test container, or DB1 via MaxScale.
 That makes it the tool for repeatable infrastructure tests and, eventually, the
 final migration.
@@ -58,7 +58,7 @@ OPTIONAL_TABLES = ("article_embeddings",)
 # Created by the CMS's own migrations; their absence means step 3 did not run.
 CMS_TABLES = ("cms_users", "cms_sessions", "cms_settings", "media", "cms_polls", "site_taxonomy")
 
-# DB1 and MaxScale are Delta infrastructure, NOT production -- rebuilding them
+# DB1 and MaxScale are Delta infrastructure, NOT production, so rebuilding them
 # is a legitimate and expected thing to do. They are still gated because
 # `triangle` there is the live migrated dataset that everything currently reads,
 # and because DB1 becomes production later, so the habit should already be in

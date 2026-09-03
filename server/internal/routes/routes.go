@@ -21,7 +21,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	// because Nginx proxies just /v1 and /swagger: nothing routes /metrics in
 	// from outside, and Prometheus reaches it over the host loopback port the
 	// slot publishes. If a public vhost ever forwards /metrics, put it behind
-	// auth first -- it exposes route names, traffic volumes, and error rates.
+	// auth first: it exposes route names, traffic volumes, and error rates.
 	mux.Handle("GET /metrics", promhttp.Handler())
 
 	mux.HandleFunc("GET /v1/health", handlers.HealthCheck)
@@ -96,7 +96,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/media/{id}", authMW(handlers.GetMediaItem(conn)))
 	// Adding an image is part of writing an article, so uploading (and the paste
 	// sideload that wraps it) is open to editors. Destructive and bulk
-	// operations -- delete, reindex -- stay admin-only.
+	// operations (delete, reindex) stay admin-only.
 	mux.Handle("POST /v1/media", authMW(handlers.PostMedia(conn)))
 	mux.Handle("POST /v1/media/fetch", authMW(handlers.PostMediaFetch(conn)))
 	// Indexing runs in the background (the walk outlives any proxy timeout), so
@@ -128,7 +128,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/developing-stories", handlers.GetDevelopingStories(conn))
 	mux.Handle("GET /v1/taxonomy", handlers.GetTaxonomy(conn))
 	// Tag suggestions and search for the article editor. Aggregated from the
-	// articles themselves -- there is no tags table -- so it is a read-only
+	// articles themselves (there is no tags table) so it is a read-only
 	// editing aid, not part of the taxonomy CRUD above.
 	mux.Handle("GET /v1/tags", authMW(handlers.GetTags(conn)))
 	mux.Handle("GET /v1/taxonomy/{type}/{slug}", handlers.GetTaxonomyItem(conn))

@@ -60,7 +60,7 @@ func TestNormalizeCategoryAliases(t *testing.T) {
 
 func TestNormalizeCategoryAliasesNeverReturnsNull(t *testing.T) {
 	// NULL means "never set" and is what the defaults seed on, so a write must
-	// store [] instead -- otherwise clearing aliases would silently restore the
+	// store [] instead; otherwise clearing aliases would silently restore the
 	// seeded defaults on the next startup.
 	got, err := normalizeCategoryAliases(nil)
 	if err != nil {

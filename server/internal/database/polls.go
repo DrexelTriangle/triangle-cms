@@ -30,7 +30,7 @@ const (
 
 // Poll lifecycle. Status is what an editor sets; it means "in rotation", not
 // "on the site right now". A poll is only served to readers once its start date
-// has arrived and its end date has not passed -- that is what makes start dates
+// has arrived and its end date has not passed. That is what makes start dates
 // actually schedule instead of being decoration. See LivePollID.
 //
 // Several polls may therefore hold Active at once (one running, others queued
@@ -66,7 +66,7 @@ const (
 )
 
 // ErrNoActivePoll is returned when a read or vote targets the active poll and
-// there isn't one. Callers map this to 404 rather than 500 -- "no poll running"
+// there isn't one. Callers map this to 404 rather than 500: "no poll running"
 // is a normal state, not a failure.
 var ErrNoActivePoll = errors.New("no active poll")
 
@@ -233,7 +233,7 @@ func MigrateLegacyPoll(ctx context.Context, conn *sql.DB) error {
 // ListPolls returns polls newest-first with their options attached.
 //
 // When includeDrafts is false only polls an editor has published (active or
-// closed) are returned -- the public archive must never leak an unpublished
+// closed) are returned; the public archive must never leak an unpublished
 // question.
 func ListPolls(ctx context.Context, conn *sql.DB, includeDrafts bool, limit, offset int) ([]Poll, error) {
 	query := `
@@ -347,7 +347,7 @@ func GetPollByID(ctx context.Context, conn *sql.DB, id int64) (*Poll, error) {
 //     can queue one without disturbing what is running;
 //   - when it starts it takes over, because it started later;
 //   - an earlier poll can never come back afterwards, even if it never had an
-//     end date -- it was superseded, and resurrection would be baffling.
+//     end date: it was superseded, and resurrection would be baffling.
 //
 // The end date is checked in Go rather than in the WHERE clause on purpose. As
 // a SQL filter it would skip the ended poll and hand the slot back to the one
@@ -479,7 +479,7 @@ func UpdatePoll(ctx context.Context, conn *sql.DB, id int64, question *string, s
 	if status != nil && *status == PollStatusActive {
 		// Whether this displaces the running poll depends on the dates the row
 		// will have *after* this update, which for an omitted field means the
-		// ones it already has -- so read them inside the transaction.
+		// ones it already has, so read them inside the transaction.
 		effStarts, effEnds, err := effectiveWindowTx(ctx, tx, id, startsAt, endsAt, clearStarts, clearEnds)
 		if err != nil {
 			return err

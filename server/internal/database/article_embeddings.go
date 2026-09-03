@@ -41,7 +41,7 @@ func EnsureArticleEmbeddingsTable(ctx context.Context, conn *sql.DB) error {
 	// Expand-only migration for databases seeded by the old ETL, whose table has
 	// article_id and embedding but none of the bookkeeping columns. Without
 	// source_hash those rows read as "hash mismatch" and the reconciler re-embeds
-	// the entire corpus once, which is correct but slow -- so they default to ''
+	// the entire corpus once, which is correct but slow, so they default to ''
 	// and ArticlesNeedingEmbeddings treats '' as "unknown, leave it alone".
 	_, err := conn.ExecContext(ctx, `
 		ALTER TABLE article_embeddings

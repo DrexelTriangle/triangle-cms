@@ -7,8 +7,8 @@ import (
 	db "server/internal/database"
 )
 
-// The editor renders state and nothing else -- an empty one takes the page down
-// rather than degrading -- so every view has to carry one.
+// The editor renders state and nothing else, and an empty one takes the page
+// down rather than degrading, so every view has to carry one.
 func TestPollView_AlwaysCarriesState(t *testing.T) {
 	past := time.Now().Add(-24 * time.Hour)
 	future := time.Now().Add(24 * time.Hour)

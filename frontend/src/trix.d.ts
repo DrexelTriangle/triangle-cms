@@ -3,7 +3,7 @@ import "trix";
 declare global {
   // The attributes an attachment is constructed with. These are what Trix
   // serializes into the figure's data-trix-attachment JSON, so anything added
-  // here survives a save/load round trip -- which is how alt text is carried.
+  // here survives a save/load round trip, which is how alt text is carried.
   interface TrixAttachmentAttributes {
     url: string;
     href?: string;
@@ -23,7 +23,7 @@ declare global {
           preview: {
             // Trix's default is "gallery", which is what makes its gallery
             // filter fuse adjacent images into one block. Nullable so we can
-            // turn that off -- see TrixEditor.tsx.
+            // turn that off; see TrixEditor.tsx.
             presentation: string | null;
             caption: {
               name: boolean;
@@ -123,7 +123,7 @@ declare global {
   }
 
   // Fired while Trix is building the little toolbar that floats over a selected
-  // attachment, before it is inserted -- our hook for adding buttons of our own
+  // attachment, before it is inserted: our hook for adding buttons of our own
   // next to Trix's built-in Remove.
   interface TrixAttachmentToolbarEvent extends Event {
     toolbar: HTMLElement;

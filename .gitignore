@@ -19,5 +19,5 @@ deploy/*.env
 ..env.un~
 
 # Local DB dumps (contain cms_users password hashes and cms_sessions).
-# Kept here so Borg backs them up -- /var/lib/docker volumes are NOT backed up.
+# Kept here so Borg backs them up; /var/lib/docker volumes are NOT backed up.
 db-backups/

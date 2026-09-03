@@ -11,11 +11,9 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// The banner is resolved entirely in SQL -- the published predicate, the
-// window, and "newest wins" are all in one query -- so these need a real
-// MariaDB. The interesting case is the scheduled one: an article whose
-// pub_date is in the future must not raise the banner early, and UTC_TIMESTAMP
-// comparisons against DATETIME columns are exactly what a fake would get wrong.
+// The banner is resolved entirely in SQL, so these need a real MariaDB: the
+// UTC_TIMESTAMP comparisons a scheduled article turns on are what a fake would
+// get wrong.
 //
 // CMS_TEST_DSN='user:pw@tcp(127.0.0.1:3306)/cms_test?parseTime=true&multiStatements=true' go test ./internal/database/ -run BreakingNewsState -v
 func breakingNewsTestDB(t *testing.T) *sql.DB {
@@ -77,17 +75,14 @@ func breakingNewsTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("ensure breaking-news index: %v", err)
 	}
 
-	// The settings cache is per-process and outlives the table drop above, so
-	// a value written by an earlier test would be served here as if it were
-	// still stored. Clearing it makes each case start from real state.
+	// The settings cache is per-process and outlives the table drop above.
 	ResetSettingsCache()
 
 	return conn
 }
 
 // insertArticle adds one article. pubExpr and schedExpr are SQL expressions so
-// a case can say "an hour ago" or "in an hour" relative to the server clock
-// rather than the test's, which is the comparison the query actually makes.
+// times are relative to the server clock, which is what the query compares to.
 func insertArticle(t *testing.T, conn *sql.DB, slug, title string, breaking bool, pubExpr, schedExpr string) {
 	t.Helper()
 	flag := 0
@@ -144,8 +139,7 @@ func TestBreakingNewsState_PublishedArticleOverridesTheManualBanner(t *testing.T
 	if state.Source != models.BreakingNewsSourceArticle {
 		t.Errorf("source = %q, want %q", state.Source, models.BreakingNewsSourceArticle)
 	}
-	// The slug rides on the banner itself, not just the settings view: it is
-	// what the public site builds the banner's link from.
+	// The public site builds the banner's link from the slug.
 	if state.BreakingNewsSettings.ArticleSlug != "dragonfly" {
 		t.Errorf("article_slug = %q, want %q", state.BreakingNewsSettings.ArticleSlug, "dragonfly")
 	}
@@ -153,8 +147,7 @@ func TestBreakingNewsState_PublishedArticleOverridesTheManualBanner(t *testing.T
 	if !state.Manual.Enabled || state.Manual.Text != "Campus closed" {
 		t.Errorf("manual banner was not preserved, got %+v", state.Manual)
 	}
-	// A hand-typed banner has no article behind it, so it must not inherit the
-	// overriding article's link.
+	// A hand-typed banner must not inherit the overriding article's link.
 	if state.Manual.ArticleSlug != "" {
 		t.Errorf("manual banner carried a slug: %q", state.Manual.ArticleSlug)
 	}
@@ -164,8 +157,7 @@ func TestBreakingNewsState_ScheduledArticleWaitsForItsPubDate(t *testing.T) {
 	conn := breakingNewsTestDB(t)
 	ctx := context.Background()
 
-	// Exactly what an editor scheduling an 11am story leaves behind: flagged,
-	// not yet published, waiting on the scheduler tick.
+	// A scheduled story: flagged, not yet published.
 	insertArticle(t, conn, "tomorrow", "Scheduled scoop", true, "NULL", "UTC_TIMESTAMP() + INTERVAL 1 HOUR")
 
 	state, err := GetBreakingNewsState(ctx, conn)
@@ -176,8 +168,8 @@ func TestBreakingNewsState_ScheduledArticleWaitsForItsPubDate(t *testing.T) {
 		t.Fatalf("a scheduled article raised the banner early: %+v", state)
 	}
 
-	// Publish it the way the scheduler does, then it takes the banner with no
-	// further action -- that is the whole point of deriving it.
+	// Publish it the way the scheduler does; it takes the banner with no
+	// further action.
 	if _, err := conn.ExecContext(ctx,
 		"UPDATE articles SET pub_date = UTC_TIMESTAMP(), scheduled_pub_date = NULL WHERE slug = ?", "tomorrow"); err != nil {
 		t.Fatalf("publish article: %v", err)
@@ -211,8 +203,8 @@ func TestBreakingNewsState_NewestFlaggedArticleWins(t *testing.T) {
 	}
 }
 
-// The default. An article flagged months ago and never unticked still holds the
-// banner, because nothing was configured to take it down.
+// The default: an article flagged months ago and never unticked still holds
+// the banner.
 func TestBreakingNewsState_KeepsAnOldArticleWhenNoWindowIsSet(t *testing.T) {
 	conn := breakingNewsTestDB(t)
 	ctx := context.Background()

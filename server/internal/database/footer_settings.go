@@ -24,8 +24,8 @@ type footerPart struct {
 	Entries []models.FooterEntry
 }
 
-// footerTemplate is the SHAPE of the footer -- which sections share a column and
-// in what order -- with the links themselves left to the taxonomy.
+// footerTemplate is the SHAPE of the footer (which sections share a column and
+// in what order) with the links themselves left to the taxonomy.
 //
 // The shape stays hand-written because it is a layout decision that no data
 // answers: Columns is stacked under Opinion and Special Editions under Comics &
@@ -35,8 +35,8 @@ type footerPart struct {
 // The two literal blocks are the entries that are not taxonomy at all. The About
 // column is site furniture. The Special Editions block is subtler: those rows DO
 // exist in the taxonomy now, but three of the four deliberately point somewhere
-// other than their own page -- The Rectangle is an external site, Welcome Week is
-// a search URL, 100 Year Anniversary is a bespoke page -- and Graduation is a
+// other than their own page (The Rectangle is an external site, Welcome Week is
+// a search URL, 100 Year Anniversary is a bespoke page) and Graduation is a
 // section of its own that appears in no other column. Generating them would
 // quietly redirect four working links.
 func footerTemplate() [][]footerPart {
@@ -84,8 +84,8 @@ type footerTaxonomy struct {
 
 // loadFooterTaxonomy reads the sections and their DIRECT visible subsections.
 //
-// Direct only. The tree is three levels deep now -- Beer Reviews hangs under
-// Food, which hangs under A&E -- and a footer that recursed would list the whole
+// Direct only. The tree is three levels deep now (Beer Reviews hangs under
+// Food, which hangs under A&E) and a footer that recursed would list the whole
 // archive. One layer is what the section strip shows, so the footer matches the
 // page it links to.
 //
@@ -140,7 +140,7 @@ func loadFooterTaxonomy(ctx context.Context, conn *sql.DB) (footerTaxonomy, erro
 // buildFooterColumns renders footerTemplate against the taxonomy.
 //
 // Falls back to the static columns whenever the taxonomy cannot supply the
-// sections -- an unreadable table, or one that has not been imported yet. The
+// sections: an unreadable table, or one that has not been imported yet. The
 // footer is on every page, so "render the old links" beats "render an empty
 // nav" by a wide margin.
 func buildFooterColumns(ctx context.Context, conn *sql.DB) []models.FooterColumn {
@@ -271,7 +271,7 @@ func staticFooterColumns() []models.FooterColumn {
 // generatedFooter caches the columns built from the taxonomy.
 //
 // The footer renders on every page and the stored setting is absent by default,
-// so without this every request would run a taxonomy query -- the exact shape of
+// so without this every request would run a taxonomy query, the exact shape of
 // load that put a queue in front of the database on 2026-08-06. It shares
 // settingsCacheTTL with cms_settings, since it is the same kind of value: read
 // constantly, changed a few times a month.

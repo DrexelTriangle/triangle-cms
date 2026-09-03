@@ -12,7 +12,7 @@ import (
 // lookup instead of a scan.
 //
 // It replaces a `categories LIKE '%"news"%'` predicate. That predicate could
-// never use an index -- a leading wildcard on a LONGTEXT column rules it out --
+// never use an index (a leading wildcard on a LONGTEXT column rules it out)
 // so every section page, every homepage block and every taxonomy count read the
 // whole articles table, twice per request once the paging COUNT(*) is included.
 //
@@ -35,8 +35,8 @@ const maxCategoryLength = 191
 // Two rewrites were measured against this corpus and both rejected:
 //
 //   - Two EXISTS over articles_authors and this table. Correct on today's data
-//     -- zero disagreements across all 9,371 development and 10,113 production
-//     rows -- and worth 13.1ms -> 9.4ms on the COUNT, but it also costs 0.1ms
+//     (zero disagreements across all 9,371 development and 10,113 production
+//     rows) and worth 13.1ms -> 9.4ms on the COUNT, but it also costs 0.1ms
 //     on the listing query, which materializes both subqueries to return 21
 //     rows. Under 4ms net, in exchange for moving the definition of "filed"
 //     onto indexes that match the columns by data rather than by construction.
@@ -145,8 +145,8 @@ func ReplaceArticleCategoriesBySlug(ctx context.Context, conn *sql.DB, slug stri
 
 // RebuildArticleCategories rebuilds the whole table from `articles`.
 //
-// Run at every startup. It is cheap -- the corpus is under ten thousand rows and
-// two or three categories each -- and running it unconditionally is what makes
+// Run at every startup. It is cheap (the corpus is under ten thousand rows and
+// two or three categories each) and running it unconditionally is what makes
 // the table safe to depend on: after a WordPress ETL reseed, which replaces
 // `articles` wholesale and renumbers its ids, the previous contents are not
 // merely stale but point at the wrong articles.

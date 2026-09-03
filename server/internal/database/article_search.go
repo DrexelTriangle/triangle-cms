@@ -84,7 +84,7 @@ func IsFulltextIndexMissingError(err error) bool {
 // It prefers FULLTEXT: a leading-wildcard LIKE over `text` cannot use an index,
 // so the old query scanned every published body on every keystroke. MATCH ranks
 // by term frequency, and the title-only index is weighted above the combined one
-// so a headline hit still outranks a passing body mention -- the intent the
+// so a headline hit still outranks a passing body mention: the intent the
 // previous CASE expression encoded, with real relevance underneath it.
 //
 // It falls back to LIKE when the query is too short to tokenize or when the
@@ -182,7 +182,7 @@ func SearchArticlesHybrid(ctx context.Context, conn *sql.DB, term string, queryV
 }
 
 // fuseByReciprocalRank merges ranked ID lists into one ordering. Ties break
-// toward the first list, which is the lexical one -- when both halves rate two
+// toward the first list, which is the lexical one. When both halves rate two
 // articles equally, the one whose words the reader actually typed wins.
 func fuseByReciprocalRank(lists ...[]int64) []int64 {
 	scores := make(map[int64]float64)
@@ -241,8 +241,8 @@ const vectorOverFetch = 3
 func buildVectorNeighbourQuery(limit int) string {
 	// The nearest-neighbour scan has to stand alone in a derived table.
 	// MariaDB only uses the HNSW index for a bare ORDER BY VEC_DISTANCE ... LIMIT
-	// over the one table; joining articles in to filter by visibility -- which is
-	// how this was first written -- silently disqualifies the index and turns the
+	// over the one table; joining articles in to filter by visibility, which is
+	// how this was first written, silently disqualifies the index and turns the
 	// query into a full scan of every stored vector plus a filesort. Measured on
 	// the production corpus that was 360ms against 7ms, and it degrades linearly
 	// as the archive grows.

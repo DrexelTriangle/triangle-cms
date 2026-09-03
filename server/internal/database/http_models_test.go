@@ -185,7 +185,7 @@ func TestArticleToDBFields_StampsModifiedDate(t *testing.T) {
 // The excerpt field is optional in the editor, and a PUT sends it blank when the
 // author never filled it in. Storing that blank left the article with no summary
 // on the section pages and the homepage, which render `excerpt` and never the
-// body -- POST had derived one from the body all along, and a full replacement
+// body. POST had derived one from the body all along, and a full replacement
 // has the same body to derive from.
 func TestArticleToDBFields_DerivesExcerptFromBodyWhenBlank(t *testing.T) {
 	fields := ArticleToDBFields(models.Article{
@@ -284,7 +284,7 @@ func TestDeriveExcerpt_DropsShortcodes(t *testing.T) {
 }
 
 // The shortcode rule keys on attributes, not on brackets, so editorial
-// interjections survive -- they are part of the sentence.
+// interjections survive: they are part of the sentence.
 func TestDeriveExcerpt_KeepsEditorialBrackets(t *testing.T) {
 	content := `<p>He said the vote was "unanimious" [sic] and [Editor's note: it was not].</p>`
 	want := `He said the vote was "unanimious" [sic] and [Editor's note: it was not].`

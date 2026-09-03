@@ -84,7 +84,7 @@ func main() {
 	for _, a := range blank {
 		derived := db.ExcerptOrDerived("", a.content)
 		if strings.TrimSpace(derived) == "" {
-			// Nothing to derive from -- a body that is a bare shortcode, an
+			// Nothing to derive from: a body that is a bare shortcode, an
 			// image-only post, or a genuinely empty draft. Leave it alone: an
 			// empty excerpt is what it had, and there is no text to improve on.
 			if *verbose || empty < 10 {

@@ -244,7 +244,7 @@ func TestArticlePatchHTTP_IDQualifiedPatchOnlyUpdatesThatRow(t *testing.T) {
 // The newsroom's report, end to end: an editor opens New Article, types a title
 // another article already carries, and leaves the slug field blank. Before the
 // id-qualified routes this filed a second row on the same slug, and every
-// screen that addressed the article by slug then showed the FIRST one -- so the
+// screen that addressed the article by slug then showed the FIRST one, so the
 // new article "became" the old one.
 func TestArticleFlowHTTP_SecondArticleWithTheSameTitleStaysItsOwnArticle(t *testing.T) {
 	conn := articlePatchTestDB(t)
@@ -586,7 +586,7 @@ func TestArticlePatchHTTP_DraftSaveKeepsPublishDateForRepublish(t *testing.T) {
 }
 
 // The canonical URL override and the noindex flag have to survive a PATCH, and a
-// malformed canonical has to be refused rather than stored -- the public site
+// malformed canonical has to be refused rather than stored: the public site
 // emits whatever is in that column verbatim.
 func TestArticlePatchHTTP_CanonicalURLAndNoIndexRoundTrip(t *testing.T) {
 	conn := articlePatchTestDB(t)
@@ -637,7 +637,7 @@ func TestArticlePatchHTTP_CanonicalURLAndNoIndexRoundTrip(t *testing.T) {
 }
 
 // The featured image's alt text is article-scoped, so it has to survive a PATCH
-// on its own -- an author fixing only the description must not have to touch
+// on its own, since an author fixing only the description must not have to touch
 // anything else to make it stick.
 func TestArticlePatchHTTP_PhotoAltRoundTrip(t *testing.T) {
 	conn := articlePatchTestDB(t)
@@ -694,8 +694,8 @@ func TestArticlePatchHTTP_PhotoAltRoundTrip(t *testing.T) {
 
 // The excerpt box is optional, and the editor sends it on every save whether the
 // author filled it in or not. Storing the blank verbatim published articles with
-// no summary anywhere they are listed -- listings render `excerpt` and never the
-// body -- so a blank means "derive one", the same fallback a POST applies.
+// no summary anywhere they are listed (listings render `excerpt` and never the
+// body) so a blank means "derive one", the same fallback a POST applies.
 func TestArticlePatchHTTP_BlankExcerptIsDerivedFromBody(t *testing.T) {
 	conn := articlePatchTestDB(t)
 	if _, err := conn.ExecContext(context.Background(),
@@ -769,7 +769,7 @@ func TestArticlePatchHTTP_BlankExcerptIsDerivedFromBody(t *testing.T) {
 }
 
 // A save that changes nothing still matched its row, so it is a success. It used
-// to be answered 404 -- the UPDATE changed no values, MySQL reported zero rows
+// to be answered 404: the UPDATE changed no values, MySQL reported zero rows
 // affected, and the handler reads zero as "no such article". The editor sends the
 // whole form on every save and autosaves on a timer, so two saves inside the same
 // second are enough to hit it: mod_date is stamped to the second, so the second
@@ -793,7 +793,7 @@ func TestArticlePatchHTTP_NoOpSaveIsNotAMissingArticle(t *testing.T) {
 		}
 	}
 
-	// A slug that genuinely is not there must still be a 404 -- the fix must not
+	// A slug that genuinely is not there must still be a 404; the fix must not
 	// turn "no such article" into a silent success.
 	rec := httptest.NewRecorder()
 	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("no-such-story", body))

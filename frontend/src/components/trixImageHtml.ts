@@ -3,7 +3,7 @@
 //
 // These two live together because they are inverses and have to stay that way.
 // Trix represents an image as <figure data-trix-attachment='{json}'> with the
-// caption, alt text and alignment encoded in JSON data attributes -- markup that
+// caption, alt text and alignment encoded in JSON data attributes: markup that
 // means nothing outside a Trix editor. The public site renders article HTML
 // directly and has no Trix stylesheet, so what we persist is plain semantic
 // <figure>/<img>/<figcaption> using the same WordPress class names as the
@@ -114,7 +114,7 @@ const parseDocument = (html: string): Document | null => {
  * editing, and treats the figure as a movable attachment.
  *
  * Without this, Trix's parser drops a <figcaption> onto the next line as body
- * text -- the caption "isn't picked up by the editor". It handles both the
+ * text, so the caption "isn't picked up by the editor". It handles both the
  * markup this module writes and the two WordPress import shapes (block editor:
  * <figure><figcaption>; classic editor: <div class="wp-caption">…<*
  * class="wp-caption-text">).
@@ -164,7 +164,7 @@ export const articleHtmlToTrix = (html: string): string => {
     if (height) data.height = height
 
     // Deliberately no presentation. Trix's "gallery" presentation fuses
-    // adjacent images into a single block -- see the config in TrixEditor.tsx.
+    // adjacent images into a single block; see the config in TrixEditor.tsx.
     const attributes: AttachmentAttributes = {}
     if (caption) attributes.caption = caption
     if (align) attributes.align = align
@@ -182,7 +182,7 @@ export const articleHtmlToTrix = (html: string): string => {
     // Give each image a block of its own. Trix deliberately does not count an
     // attachment element as a block (its isBlockElement bails on anything
     // carrying data-trix-attachment), so figures that are siblings in the
-    // stored markup -- the ordinary shape of the WordPress corpus -- parse into
+    // stored markup (the ordinary shape of the WordPress corpus) parse into
     // one shared block. A block is the unit the editor's reordering moves, so
     // that made two adjacent images inseparable: dragging either moved both,
     // and swapping them was not expressible at all. The <div> wrapper is how
@@ -210,7 +210,7 @@ export const articleHtmlToTrix = (html: string): string => {
  * public site renders: <figure class="wp-caption alignX"><img src alt><figcaption
  * class="wp-caption-text">.
  *
- * Non-image attachments are left exactly as Trix wrote them -- this only knows
+ * Non-image attachments are left exactly as Trix wrote them: this only knows
  * how to reduce an image to an <img>, and silently mangling anything else would
  * lose data.
  *
@@ -256,7 +256,7 @@ export const trixHtmlToArticle = (html: string): string => {
     img.setAttribute("alt", alt)
     // Deliberately no width/height. The public site sizes article images purely
     // in CSS (#article figure img { width: 100% }), and width/height attributes
-    // are presentational hints that CSS outranks -- so the width would be
+    // are presentational hints that CSS outranks, so the width would be
     // overridden while the height still applied, stretching every image. They
     // would normally be worth emitting to reserve layout space, but that only
     // holds on a page with a matching `height: auto`.

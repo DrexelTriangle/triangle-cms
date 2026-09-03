@@ -19,31 +19,24 @@ const (
 	keySEORobotsURL     = "seo_robots_url"
 )
 
-// Breaking-news banner settings keys, stored in the cms_settings key-value table.
-//
-// These hold the MANUAL banner only. The banner an editor raises by flagging
-// an article is not stored anywhere: it is derived from the article on read,
-// so it appears exactly when the article publishes and disappears when the
-// flag comes off.
+// Breaking-news banner settings keys, stored in the cms_settings key-value
+// table. These hold the manual banner only; the article-driven one is derived
+// on read.
 const (
 	keyBreakingNewsEnabled = "breaking_news_enabled"
 	keyBreakingNewsText    = "breaking_news_text"
 	keyBreakingNewsWindow  = "breaking_news_window_hours"
 )
 
-// How long a flagged article keeps the banner after it publishes.
-//
-// Zero means no limit, and that is the default: the banner comes down when the
-// editor unticks the article, and nothing takes it down on their behalf. An
-// admin can set a limit in Settings if they want one, but it is opt-in --
-// a banner vanishing on a timer nobody chose would be its own surprise.
+// How long a flagged article keeps the banner after it publishes. Zero, the
+// default, means no limit: the banner comes down when the editor unticks it.
 const (
 	breakingNewsWindowUnlimited = 0
 	maxBreakingNewsWindowHours  = 24 * 7
 )
 
-// NormalizeBreakingNewsWindow clamps a requested window into the supported
-// range. A zero or negative value is "no limit".
+// NormalizeBreakingNewsWindow clamps a window into the supported range. Zero
+// or negative is "no limit".
 func NormalizeBreakingNewsWindow(hours int) int {
 	if hours <= 0 {
 		return breakingNewsWindowUnlimited
@@ -97,11 +90,8 @@ func SetSiteTitle(ctx context.Context, conn *sql.DB, title string) error {
 	return setSetting(ctx, conn, "site_title", normalized)
 }
 
-// GetBreakingNews returns the banner the public site should render.
-//
-// It is the effective half of GetBreakingNewsState -- the homepage only needs
-// to know whether to show a banner and what it says, not which of the two
-// sources produced it.
+// GetBreakingNews returns the effective banner, without the source detail the
+// public site has no use for.
 func GetBreakingNews(ctx context.Context, conn *sql.DB) (models.BreakingNewsSettings, error) {
 	state, err := GetBreakingNewsState(ctx, conn)
 	if err != nil {
@@ -110,12 +100,9 @@ func GetBreakingNews(ctx context.Context, conn *sql.DB) (models.BreakingNewsSett
 	return state.BreakingNewsSettings, nil
 }
 
-// GetBreakingNewsState resolves the banner from both of its sources.
-//
-// A published article flagged breaking wins over the manual banner: it is the
-// more specific and more recent signal, and the newsroom flow the flag exists
-// for is "this story is the breaking story now". When two are live the newest
-// one holds the banner, since there is only one banner to hold.
+// GetBreakingNewsState resolves the banner from both of its sources. A
+// published article flagged breaking wins over the manual banner; the newest
+// such article wins over the others.
 func GetBreakingNewsState(ctx context.Context, conn *sql.DB) (models.BreakingNewsState, error) {
 	manual, err := getManualBreakingNews(ctx, conn)
 	if err != nil {
@@ -162,8 +149,7 @@ func GetBreakingNewsWindow(ctx context.Context, conn *sql.DB) (int, error) {
 	}
 	hours, convErr := strconv.Atoi(strings.TrimSpace(raw))
 	if convErr != nil {
-		// A blank or corrupt value is a missing setting, not a reason to fail
-		// the homepage; unset is the documented default anyway.
+		// A blank or corrupt value reads as unset rather than failing the read.
 		return breakingNewsWindowUnlimited, nil
 	}
 	return NormalizeBreakingNewsWindow(hours), nil
@@ -174,8 +160,7 @@ func getManualBreakingNews(ctx context.Context, conn *sql.DB) (models.BreakingNe
 	if err != nil {
 		return models.BreakingNewsSettings{}, err
 	}
-	// getSetting falls back when the stored value is blank, so an empty banner
-	// text is read raw rather than through getSetting's fallback handling.
+	// Read raw: getSetting would substitute a fallback for a blank banner text.
 	text, _, err := readSettingRaw(ctx, conn, keyBreakingNewsText)
 	if err != nil {
 		return models.BreakingNewsSettings{}, err
@@ -187,16 +172,12 @@ func getManualBreakingNews(ctx context.Context, conn *sql.DB) (models.BreakingNe
 }
 
 // latestBreakingArticle returns the newest published article flagged breaking,
-// or empty strings when none is.
+// or empty strings when there is none. The published predicate is the one
+// every other public read uses, so a scheduled article starts driving the
+// banner exactly when it becomes readable.
 //
-// The published predicate is the same one every other public read uses, which
-// is the whole point: a scheduled article starts driving the banner at the
-// same instant it starts being readable, with no separate publish hook to
-// drift out of step with it.
-//
-// windowHours of 0 is no limit, in which case the age clause is left off the
-// query rather than passed as a sentinel -- `INTERVAL 0 HOUR` would exclude
-// every article instead of including them all.
+// windowHours of 0 is no limit, so the age clause is omitted rather than
+// passed: `INTERVAL 0 HOUR` would exclude everything.
 func latestBreakingArticle(ctx context.Context, conn *sql.DB, windowHours int) (string, string, error) {
 	query := `
 		SELECT slug, title

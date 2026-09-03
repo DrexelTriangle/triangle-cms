@@ -852,8 +852,8 @@ func parsePollTime(raw *string) (*time.Time, bool, error) {
 		return &parsed, false, nil
 	}
 
-	// A zoneless timestamp -- what <input type="datetime-local"> hands you
-	// unhelped -- used to parse as UTC, so a poll scheduled for 9am in
+	// A zoneless timestamp, what <input type="datetime-local"> hands you
+	// unhelped, used to parse as UTC, so a poll scheduled for 9am in
 	// Philadelphia went live at 5am. There is no zone the server can supply
 	// that is better than a guess, so make the caller state one.
 	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02"} {

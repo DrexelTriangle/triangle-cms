@@ -160,7 +160,7 @@ func TestArticleSearch_RequiresEveryTerm(t *testing.T) {
 }
 
 // Search is public, so it must never surface drafts, scheduled articles, or
-// soft-deleted ones -- the property the FULLTEXT rewrite most easily loses.
+// soft-deleted ones, the property the FULLTEXT rewrite most easily loses.
 func TestArticleSearch_ReturnsOnlyLiveArticles(t *testing.T) {
 	conn := articleSearchTestDB(t, true)
 	seedSearchArticle(t, conn, "live", "Senate approves budget", "", "Body.", "2026-01-01 12:00:00")

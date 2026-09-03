@@ -13,8 +13,8 @@ const homepageCarouselSettingKey = "homepage_carousel"
 
 // Default slide images live on the media filesystem under a `scalene/` prefix
 // rather than in Scalene's bundled public/images. Bundled paths could not be
-// changed from the CMS -- editing the Podcast banner meant a Scalene commit and
-// redeploy -- which defeats the point of a CMS-editable carousel, and a rename
+// changed from the CMS (editing the Podcast banner meant a Scalene commit and
+// redeploy) which defeats the point of a CMS-editable carousel, and a rename
 // on the Scalene side silently broke the slide.
 //
 // The prefix sits under wp-content/uploads because that is the only tree Nginx
@@ -24,7 +24,7 @@ const homepageCarouselSettingKey = "homepage_carousel"
 //
 // That location is served with 30-day immutable caching, which assumes a
 // filename pins its bytes. To swap one of these banners, upload under a NEW
-// name and repoint the slide -- overwriting in place leaves the old image at
+// name and repoint the slide; overwriting in place leaves the old image at
 // the edge for up to a month.
 const defaultCarouselImageBase = "https://delta.thetriangle.org/wp-content/uploads/scalene"
 

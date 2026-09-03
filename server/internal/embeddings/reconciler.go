@@ -14,8 +14,8 @@ import (
 // This is a background loop rather than a write hook on PatchArticle/PutArticle/
 // PostArticles for three reasons. There are three write paths and a bulk ETL
 // load, and a hook on each is four places to forget. Inference on the save path
-// would make an editor wait on the sidecar, and make saves fail when it is down
-// -- an unacceptable trade for a search index. And a hook can only ever fix
+// would make an editor wait on the sidecar, and make saves fail when it is
+// down: an unacceptable trade for a search index. And a hook can only ever fix
 // articles written after it shipped, whereas a reconciler converges the corpus
 // it finds, which is the same operation as the initial backfill.
 //
@@ -159,7 +159,7 @@ func (r *Reconciler) pass(ctx context.Context) (bool, error) {
 }
 
 // DimensionMismatchError means the sidecar is serving a model whose output does
-// not fit the vector column -- almost always an EMBED_MODEL change that was not
+// not fit the vector column: almost always an EMBED_MODEL change that was not
 // accompanied by the schema change it requires.
 type DimensionMismatchError struct {
 	Got   int

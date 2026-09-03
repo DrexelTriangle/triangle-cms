@@ -16,7 +16,7 @@ const featuredArticleConditions = "WHERE `priority` = 1 AND `pub_date` IS NOT NU
 
 // GetFeaturedArticle returns the featured article, or nil when nothing is
 // featured. Unpublished, scheduled and archived rows are skipped so an article
-// cannot reach the homepage through the flag alone -- an editor who features a
+// cannot reach the homepage through the flag alone: an editor who features a
 // draft and forgets to publish it gets the normal newest-first lead, not a
 // headline the public should not see yet.
 //
