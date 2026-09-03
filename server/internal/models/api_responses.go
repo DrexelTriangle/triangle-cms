@@ -302,15 +302,57 @@ type SiteSettingsPatchRequest struct {
 }
 
 // BreakingNewsSettings controls the breaking-news banner shown on the public
-// homepage: whether it is visible and the text it displays.
+// homepage: whether it is visible, the text it displays, and the article it
+// links to.
+//
+// ArticleSlug is the slug alone, not a path: the public site owns its own URL
+// shape (it routes articles under /article/), and it already composes links
+// this way for developing stories. It is empty for a hand-typed banner, which
+// has no article behind it and renders as plain text.
 type BreakingNewsSettings struct {
-	Enabled bool   `json:"enabled"`
-	Text    string `json:"text"`
+	Enabled     bool   `json:"enabled"`
+	Text        string `json:"text"`
+	ArticleSlug string `json:"article_slug,omitempty"`
 }
 
-type BreakingNewsSettingsResponse = BreakingNewsSettings
+// Sources a banner can come from, in the order GetBreakingNewsState resolves
+// them: a published article flagged breaking wins over the hand-typed banner.
+const (
+	BreakingNewsSourceNone    = "none"
+	BreakingNewsSourceManual  = "manual"
+	BreakingNewsSourceArticle = "article"
+)
 
-type BreakingNewsSettingsPatchRequest = BreakingNewsSettings
+// BreakingNewsState is the banner as resolved for a request: the effective
+// Enabled/Text the public site renders, plus what produced them.
+//
+// The banner is derived, not stored. An article flagged breaking drives it
+// from the moment it is published -- which is what makes scheduling work:
+// nothing has to fire at publish time, because the article's pub_date passing
+// is itself the switch. Manual is the hand-typed fallback an admin sets in
+// Settings, kept separate so the settings screen can still edit it while an
+// article is overriding it.
+type BreakingNewsState struct {
+	BreakingNewsSettings
+	Source       string               `json:"source"`
+	ArticleTitle string               `json:"article_title,omitempty"`
+	Manual       BreakingNewsSettings `json:"manual"`
+	// WindowHours is 0 when a flagged article holds the banner indefinitely,
+	// which is the default; an admin sets a limit in Settings to opt in.
+	WindowHours int `json:"window_hours"`
+}
+
+type BreakingNewsSettingsResponse = BreakingNewsState
+
+// BreakingNewsSettingsPatchRequest edits the manual banner only; the
+// article-driven banner is changed by flagging or unflagging the article.
+// WindowHours is optional so a caller that only toggles the banner does not
+// have to know the current window; 0 means the banner has no time limit.
+type BreakingNewsSettingsPatchRequest struct {
+	Enabled     bool   `json:"enabled"`
+	Text        string `json:"text"`
+	WindowHours *int   `json:"window_hours,omitempty"`
+}
 
 // HomepageCarouselSlide is one public Splide carousel item for Scalene's
 // homepage. ImageURL may be empty for a text-only slide.

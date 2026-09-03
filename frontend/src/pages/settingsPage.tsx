@@ -5,7 +5,7 @@ import MediaPicker, { type MediaPickerItem } from "../components/MediaPicker"
 import SettingsSection from "../components/SettingsSection"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { useSessionAuth } from "../auth/sessionAuthContext"
 
 type IndexStatus = {
@@ -35,6 +35,45 @@ const emptyCarouselSlide = (): CarouselSlide => ({
   text_color: "#ffffff",
   desktop_only: false,
 })
+
+// Mirrors server/internal/database/settings.go; the API clamps anything larger.
+const MAX_BREAKING_WINDOW_HOURS = 24 * 7
+
+type BreakingNewsResponse = {
+  enabled?: boolean
+  text?: string
+  source?: string
+  article_slug?: string
+  article_title?: string
+  manual?: { enabled?: boolean; text?: string }
+  window_hours?: number
+}
+
+type BreakingNewsLive = {
+  source: string
+  text: string
+  articleSlug?: string
+}
+
+// The endpoint returns the RESOLVED banner at the top level and the hand-typed
+// one under `manual`. The form edits the manual banner, so it has to read from
+// `manual` -- binding it to the top level would silently overwrite the manual
+// text with an article's headline the next time an admin hit save.
+function readBreakingNews(body: BreakingNewsResponse) {
+  return {
+    manual: {
+      enabled: Boolean(body.manual?.enabled),
+      text: String(body.manual?.text ?? ""),
+    },
+    live: {
+      source: String(body.source ?? "none"),
+      text: String(body.text ?? ""),
+      articleSlug: body.article_slug,
+    } satisfies BreakingNewsLive,
+    // 0 means the banner has no time limit, which is the default.
+    window: String(body.window_hours ?? 0),
+  }
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -72,9 +111,18 @@ export default function SettingsPage() {
   const [taxonomyRebuildMessage, setTaxonomyRebuildMessage] = useState<string | null>(null)
   const [breakingEnabled, setBreakingEnabled] = useState(false)
   const [breakingText, setBreakingText] = useState("")
-  const [breakingSaved, setBreakingSaved] = useState<{ enabled: boolean; text: string }>({ enabled: false, text: "" })
+  const [breakingWindowOn, setBreakingWindowOn] = useState(false)
+  const [breakingWindow, setBreakingWindow] = useState("24")
+  const [breakingSaved, setBreakingSaved] = useState<{ enabled: boolean; text: string; window: string }>({
+    enabled: false,
+    text: "",
+    window: "0",
+  })
   const [breakingSaving, setBreakingSaving] = useState(false)
   const [breakingMessage, setBreakingMessage] = useState<string | null>(null)
+  // What the public site is actually showing, which is not always what the
+  // fields below hold: a published article flagged breaking overrides them.
+  const [breakingLive, setBreakingLive] = useState<BreakingNewsLive>({ source: "none", text: "" })
   const [carouselSlides, setCarouselSlides] = useState<CarouselSlide[]>([])
   const [carouselSaved, setCarouselSaved] = useState<CarouselSlide[]>([])
   const [carouselSaving, setCarouselSaving] = useState(false)
@@ -116,13 +164,15 @@ export default function SettingsPage() {
       try {
         const res = await apiFetch("/v1/settings/breaking-news")
         if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load breaking news settings (${res.status})`))
-        const body = (await res.json()) as { enabled?: boolean; text?: string }
-        const enabled = Boolean(body.enabled)
-        const text = String(body.text ?? "")
+        const body = (await res.json()) as BreakingNewsResponse
+        const state = readBreakingNews(body)
         if (!cancelled) {
-          setBreakingEnabled(enabled)
-          setBreakingText(text)
-          setBreakingSaved({ enabled, text })
+          setBreakingEnabled(state.manual.enabled)
+          setBreakingText(state.manual.text)
+          setBreakingWindowOn(state.window !== "0")
+          setBreakingWindow(state.window === "0" ? "24" : state.window)
+          setBreakingSaved({ enabled: state.manual.enabled, text: state.manual.text, window: state.window })
+          setBreakingLive(state.live)
         }
       } catch (err) {
         if (!cancelled) {
@@ -166,6 +216,15 @@ export default function SettingsPage() {
       setBreakingMessage("Banner text is required when the banner is enabled")
       return
     }
+    // 0 is what the API takes for "no limit", which is the unticked state.
+    const windowHours = breakingWindowOn ? Number(breakingWindow) : 0
+    if (
+      breakingWindowOn &&
+      (!Number.isInteger(windowHours) || windowHours < 1 || windowHours > MAX_BREAKING_WINDOW_HOURS)
+    ) {
+      setBreakingMessage(`Banner duration must be a whole number of hours between 1 and ${MAX_BREAKING_WINDOW_HOURS}`)
+      return
+    }
 
     setBreakingSaving(true)
     setBreakingMessage(null)
@@ -173,15 +232,17 @@ export default function SettingsPage() {
       const res = await apiFetch("/v1/settings/breaking-news", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: breakingEnabled, text }),
+        body: JSON.stringify({ enabled: breakingEnabled, text, window_hours: windowHours }),
       })
       if (!res.ok) throw new Error(await readErrorMessage(res, `Could not save breaking news settings (${res.status})`))
-      const body = (await res.json()) as { enabled?: boolean; text?: string }
-      const savedEnabled = Boolean(body.enabled)
-      const savedText = String(body.text ?? "")
-      setBreakingEnabled(savedEnabled)
-      setBreakingText(savedText)
-      setBreakingSaved({ enabled: savedEnabled, text: savedText })
+      const body = (await res.json()) as BreakingNewsResponse
+      const state = readBreakingNews(body)
+      setBreakingEnabled(state.manual.enabled)
+      setBreakingText(state.manual.text)
+      setBreakingWindowOn(state.window !== "0")
+      setBreakingWindow(state.window === "0" ? "24" : state.window)
+      setBreakingSaved({ enabled: state.manual.enabled, text: state.manual.text, window: state.window })
+      setBreakingLive(state.live)
       setBreakingMessage("Saved")
     } catch (err) {
       setBreakingMessage(err instanceof Error ? err.message : "Could not save breaking news settings.")
@@ -366,7 +427,11 @@ export default function SettingsPage() {
 
   const carouselDirty = JSON.stringify(carouselSlides) !== JSON.stringify(carouselSaved)
   const siteTitleDirty = siteTitleDraft.trim() !== siteTitle
-  const breakingDirty = breakingEnabled !== breakingSaved.enabled || breakingText.trim() !== breakingSaved.text
+  const breakingWindowValue = breakingWindowOn ? breakingWindow.trim() : "0"
+  const breakingDirty =
+    breakingEnabled !== breakingSaved.enabled ||
+    breakingText.trim() !== breakingSaved.text ||
+    breakingWindowValue !== breakingSaved.window
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -628,9 +693,28 @@ export default function SettingsPage() {
         title="Breaking News"
         storageKey="breaking-news"
         dirty={breakingDirty}
-        summary={breakingEnabled ? "Enabled" : "Off"}
-        description="Show a breaking-news banner across the top of the public homepage."
+        summary={
+          breakingLive.source === "article" ? "Live from an article" : breakingLive.source === "manual" ? "Enabled" : "Off"
+        }
+        description="Show a breaking-news banner across the top of the public homepage. Any editor can raise one by ticking Breaking news on their article; it appears when the article publishes and comes down when the flag does."
       >
+        {breakingLive.source === "article" && (
+          <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+            <span className="font-medium">An article is driving the banner:</span> &ldquo;{breakingLive.text}&rdquo;
+            <div className="mt-1 text-xs text-muted-foreground">
+              It overrides the banner below until it is unflagged or its duration runs out. To take it down now, untick
+              &ldquo;Breaking news&rdquo; on{" "}
+              {breakingLive.articleSlug ? (
+                <Link to={`/articles/${encodeURIComponent(breakingLive.articleSlug)}/edit`} className="underline">
+                  that article
+                </Link>
+              ) : (
+                "that article"
+              )}
+              .
+            </div>
+          </div>
+        )}
         <label className="flex items-center gap-3 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -649,14 +733,40 @@ export default function SettingsPage() {
             placeholder="Breaking news headline"
           />
         </div>
+        <div className="flex flex-col gap-2 max-w-xl">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={breakingWindowOn}
+              onChange={(e) => setBreakingWindowOn(e.target.checked)}
+              className="h-4 w-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/40"
+            />
+            <span className="text-sm text-foreground">Take article banners down automatically</span>
+          </label>
+          {breakingWindowOn && (
+            <div className="flex items-center gap-2 pl-7">
+              <input
+                type="number"
+                min={1}
+                max={MAX_BREAKING_WINDOW_HOURS}
+                value={breakingWindow}
+                onChange={(e) => setBreakingWindow(e.target.value)}
+                className="w-24 px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <span className="text-sm text-muted-foreground">hours after the article publishes</span>
+            </div>
+          )}
+          <span className="text-xs text-muted-foreground pl-7">
+            Off by default: a banner raised from an article stays up until an editor unticks &ldquo;Breaking news&rdquo;
+            on it. Does not affect the banner above.
+          </span>
+        </div>
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={saveBreakingNews}
             disabled={
-              breakingSaving ||
-              (breakingEnabled && breakingText.trim() === "") ||
-              (breakingEnabled === breakingSaved.enabled && breakingText.trim() === breakingSaved.text)
+              breakingSaving || (breakingEnabled && breakingText.trim() === "") || !breakingDirty
             }
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
           >

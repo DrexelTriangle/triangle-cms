@@ -477,6 +477,8 @@ definitions:
     type: object
   models.BreakingNewsSettings:
     properties:
+      article_slug:
+        type: string
       enabled:
         type: boolean
       text:
@@ -488,13 +490,28 @@ definitions:
         type: boolean
       text:
         type: string
+      window_hours:
+        type: integer
     type: object
   models.BreakingNewsSettingsResponse:
     properties:
+      article_slug:
+        type: string
+      article_title:
+        type: string
       enabled:
         type: boolean
+      manual:
+        $ref: '#/definitions/models.BreakingNewsSettings'
+      source:
+        type: string
       text:
         type: string
+      window_hours:
+        description: |-
+          WindowHours is 0 when a flagged article holds the banner indefinitely,
+          which is the default; an admin sets a limit in Settings to opt in.
+        type: integer
     type: object
   models.CategorySummary:
     properties:
