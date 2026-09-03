@@ -39,12 +39,18 @@ const emptyCarouselSlide = (): CarouselSlide => ({
 // Mirrors server/internal/database/settings.go; the API clamps anything larger.
 const MAX_BREAKING_WINDOW_HOURS = 24 * 7
 
+type BreakingNewsItem = {
+  text?: string
+  article_slug?: string
+}
+
 type BreakingNewsResponse = {
   enabled?: boolean
   text?: string
   source?: string
   article_slug?: string
   article_title?: string
+  items?: BreakingNewsItem[]
   manual?: { enabled?: boolean; text?: string }
   window_hours?: number
 }
@@ -53,6 +59,7 @@ type BreakingNewsLive = {
   source: string
   text: string
   articleSlug?: string
+  items: { text: string; articleSlug?: string }[]
 }
 
 // The endpoint returns the resolved banner at the top level and the hand-typed
@@ -69,6 +76,13 @@ function readBreakingNews(body: BreakingNewsResponse) {
       source: String(body.source ?? "none"),
       text: String(body.text ?? ""),
       articleSlug: body.article_slug,
+      // The banner scrolls every flagged story, so the screen has to show all
+      // of them: an editor looking for why their headline is not up needs to
+      // see the others that are.
+      items: (body.items ?? []).map((item) => ({
+        text: String(item.text ?? ""),
+        articleSlug: item.article_slug,
+      })),
     } satisfies BreakingNewsLive,
     // 0 means no time limit, which is the default.
     window: String(body.window_hours ?? 0),
@@ -122,7 +136,7 @@ export default function SettingsPage() {
   const [breakingMessage, setBreakingMessage] = useState<string | null>(null)
   // What the public site is actually showing: an article can override the
   // fields below.
-  const [breakingLive, setBreakingLive] = useState<BreakingNewsLive>({ source: "none", text: "" })
+  const [breakingLive, setBreakingLive] = useState<BreakingNewsLive>({ source: "none", text: "", items: [] })
   const [carouselSlides, setCarouselSlides] = useState<CarouselSlide[]>([])
   const [carouselSaved, setCarouselSaved] = useState<CarouselSlide[]>([])
   const [carouselSaving, setCarouselSaving] = useState(false)
@@ -694,23 +708,42 @@ export default function SettingsPage() {
         storageKey="breaking-news"
         dirty={breakingDirty}
         summary={
-          breakingLive.source === "article" ? "Live from an article" : breakingLive.source === "manual" ? "Enabled" : "Off"
+          breakingLive.source === "article"
+            ? breakingLive.items.length > 1
+              ? `Live from ${breakingLive.items.length} articles`
+              : "Live from an article"
+            : breakingLive.source === "manual"
+              ? "Enabled"
+              : "Off"
         }
-        description="Banner across the top of the public homepage. Editors can also raise one by ticking Breaking news on an article."
+        description="Banner across the top of the public homepage. Editors can also raise one by ticking Breaking news on an article; the banner scrolls through all of them."
       >
         {breakingLive.source === "article" && (
           <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
-            <span className="font-medium">An article is driving the banner:</span> &ldquo;{breakingLive.text}&rdquo;
+            <span className="font-medium">
+              {breakingLive.items.length > 1 ? "Articles on the banner:" : "An article is driving the banner:"}
+            </span>
+            <ol className="mt-1 flex flex-col gap-1">
+              {breakingLive.items.map((item, index) => (
+                <li key={`${item.articleSlug ?? "manual"}-${index}`}>
+                  &ldquo;{item.text}&rdquo;
+                  {item.articleSlug && (
+                    <>
+                      {" "}
+                      <Link
+                        to={`/articles/${encodeURIComponent(item.articleSlug)}/edit`}
+                        className="text-xs underline text-muted-foreground"
+                      >
+                        edit
+                      </Link>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ol>
             <div className="mt-1 text-xs text-muted-foreground">
-              It overrides the banner below. Untick &ldquo;Breaking news&rdquo; on{" "}
-              {breakingLive.articleSlug ? (
-                <Link to={`/articles/${encodeURIComponent(breakingLive.articleSlug)}/edit`} className="underline">
-                  that article
-                </Link>
-              ) : (
-                "that article"
-              )}{" "}
-              to take it down.
+              These override the banner below, newest first. Untick &ldquo;Breaking news&rdquo; on an article to take it
+              off.
             </div>
           </div>
         )}

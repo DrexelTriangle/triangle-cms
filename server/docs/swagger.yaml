@@ -475,12 +475,23 @@ definitions:
       pagination:
         $ref: '#/definitions/models.Pagination'
     type: object
+  models.BreakingNewsItem:
+    properties:
+      article_slug:
+        type: string
+      text:
+        type: string
+    type: object
   models.BreakingNewsSettings:
     properties:
       article_slug:
         type: string
       enabled:
         type: boolean
+      items:
+        items:
+          $ref: '#/definitions/models.BreakingNewsItem'
+        type: array
       text:
         type: string
     type: object
@@ -501,6 +512,10 @@ definitions:
         type: string
       enabled:
         type: boolean
+      items:
+        items:
+          $ref: '#/definitions/models.BreakingNewsItem'
+        type: array
       manual:
         $ref: '#/definitions/models.BreakingNewsSettings'
       source:

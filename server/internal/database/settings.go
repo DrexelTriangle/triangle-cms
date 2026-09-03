@@ -35,6 +35,11 @@ const (
 	maxBreakingNewsWindowHours  = 24 * 7
 )
 
+// How many flagged articles the banner carries at once. The banner scrolls
+// them, so the cap is about how long a reader waits for a given headline to
+// come back around, not about width.
+const maxBreakingNewsItems = 3
+
 // NormalizeBreakingNewsWindow clamps a window into the supported range. Zero
 // or negative is "no limit".
 func NormalizeBreakingNewsWindow(hours int) int {
@@ -100,9 +105,15 @@ func GetBreakingNews(ctx context.Context, conn *sql.DB) (models.BreakingNewsSett
 	return state.BreakingNewsSettings, nil
 }
 
-// GetBreakingNewsState resolves the banner from both of its sources. A
-// published article flagged breaking wins over the manual banner; the newest
-// such article wins over the others.
+// GetBreakingNewsState resolves the banner from both of its sources. Published
+// articles flagged breaking win over the manual banner, newest first, up to
+// maxBreakingNewsItems.
+//
+// Items carries all of them and is what the banner scrolls. Enabled/Text/
+// ArticleSlug describe the first, which is the newest: the public site read
+// those three before the banner could carry more than one story, so they stay
+// the single-story view of the same state rather than becoming a second copy
+// of it.
 func GetBreakingNewsState(ctx context.Context, conn *sql.DB) (models.BreakingNewsState, error) {
 	manual, err := getManualBreakingNews(ctx, conn)
 	if err != nil {
@@ -120,22 +131,26 @@ func GetBreakingNewsState(ctx context.Context, conn *sql.DB) (models.BreakingNew
 		Manual:               manual,
 		WindowHours:          window,
 	}
-	if !manual.Enabled {
+	if manual.Enabled && manual.Text != "" {
+		state.Items = []models.BreakingNewsItem{{Text: manual.Text}}
+		state.Manual.Items = state.Items
+	} else {
 		state.Source = models.BreakingNewsSourceNone
 	}
 
-	slug, title, err := latestBreakingArticle(ctx, conn, window)
+	articles, err := breakingArticles(ctx, conn, window, maxBreakingNewsItems)
 	if err != nil {
 		return models.BreakingNewsState{}, err
 	}
-	if title != "" {
+	if len(articles) > 0 {
 		state.BreakingNewsSettings = models.BreakingNewsSettings{
 			Enabled:     true,
-			Text:        title,
-			ArticleSlug: slug,
+			Text:        articles[0].Text,
+			ArticleSlug: articles[0].ArticleSlug,
+			Items:       articles,
 		}
 		state.Source = models.BreakingNewsSourceArticle
-		state.ArticleTitle = title
+		state.ArticleTitle = articles[0].Text
 	}
 
 	return state, nil
@@ -171,14 +186,14 @@ func getManualBreakingNews(ctx context.Context, conn *sql.DB) (models.BreakingNe
 	}, nil
 }
 
-// latestBreakingArticle returns the newest published article flagged breaking,
-// or empty strings when there is none. The published predicate is the one
-// every other public read uses, so a scheduled article starts driving the
-// banner exactly when it becomes readable.
+// breakingArticles returns the published articles flagged breaking, newest
+// first, at most limit of them. The published predicate is the one every other
+// public read uses, so a scheduled article starts driving the banner exactly
+// when it becomes readable.
 //
 // windowHours of 0 is no limit, so the age clause is omitted rather than
 // passed: `INTERVAL 0 HOUR` would exclude everything.
-func latestBreakingArticle(ctx context.Context, conn *sql.DB, windowHours int) (string, string, error) {
+func breakingArticles(ctx context.Context, conn *sql.DB, windowHours, limit int) ([]models.BreakingNewsItem, error) {
 	query := `
 		SELECT slug, title
 		FROM articles
@@ -192,17 +207,31 @@ func latestBreakingArticle(ctx context.Context, conn *sql.DB, windowHours int) (
 		query += "  AND pub_date > UTC_TIMESTAMP() - INTERVAL ? HOUR\n"
 		args = append(args, windowHours)
 	}
-	query += "\tORDER BY pub_date DESC, id DESC\n\tLIMIT 1"
+	query += "\tORDER BY pub_date DESC, id DESC\n\tLIMIT ?"
+	args = append(args, limit)
 
-	var slug, title sql.NullString
-	err := conn.QueryRowContext(ctx, query, args...).Scan(&slug, &title)
-	if err == sql.ErrNoRows {
-		return "", "", nil
-	}
+	rows, err := conn.QueryContext(ctx, query, args...)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
-	return strings.TrimSpace(slug.String), strings.TrimSpace(title.String), nil
+	defer rows.Close()
+
+	var items []models.BreakingNewsItem
+	for rows.Next() {
+		var slug, title sql.NullString
+		if err := rows.Scan(&slug, &title); err != nil {
+			return nil, err
+		}
+		// A flagged article with no headline has nothing to put on the banner,
+		// and the banner is all headline.
+		if text := strings.TrimSpace(title.String); text != "" {
+			items = append(items, models.BreakingNewsItem{
+				Text:        text,
+				ArticleSlug: strings.TrimSpace(slug.String),
+			})
+		}
+	}
+	return items, rows.Err()
 }
 
 // SetBreakingNews persists the manual breaking-news banner and its window.

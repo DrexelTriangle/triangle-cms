@@ -2465,13 +2465,6 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		// See PatchArticle: featuring is exclusive.
-		if body.IsFeatured {
-			if err := db.ClearFeaturedExceptID(r.Context(), conn, articleID); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-		}
 		if err := db.ReplaceArticleAuthors(r.Context(), conn, articleID, body.Authors); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2567,20 +2560,6 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		if rowsAffected == 0 {
 			writeError(w, http.StatusNotFound, "article not found")
 			return
-		}
-		// See PatchArticle: featuring is exclusive, so the previous pick is
-		// cleared once this one is safely written.
-		if body.IsFeatured {
-			var err error
-			if target.hasID {
-				err = db.ClearFeaturedExceptID(r.Context(), conn, target.id)
-			} else {
-				err = db.ClearFeaturedExcept(r.Context(), conn, body.Slug)
-			}
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
 		}
 		if target.hasID {
 			err = db.ReplaceArticleAuthors(r.Context(), conn, target.id, authorIDsFromOverviews(body.Authors))
@@ -2700,7 +2679,6 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		var publishedDateValue any
 		var scheduledDateValue any
 		renamedSlug := ""
-		featuring := false
 		publishedDateSet := false
 		var statusValue models.ArticleStatus
 		statusSet := false
@@ -2848,7 +2826,6 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				}
 				setCols = append(setCols, column)
 				setArgs = append(setArgs, b)
-				featuring = b
 			case "slug":
 				s, ok := v.(string)
 				if !ok {
@@ -2900,21 +2877,6 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			}
 			if newSlug, ok := body["slug"].(string); ok && strings.TrimSpace(newSlug) != "" {
 				targetSlug = strings.TrimSpace(newSlug)
-			}
-		}
-		// Exactly one article is featured at a time: the homepage has one lead
-		// card, and leaving the old pick flagged would make the tiebreak, not
-		// the editor, decide which story runs.
-		if featuring {
-			var err error
-			if target.hasID {
-				err = db.ClearFeaturedExceptID(r.Context(), conn, target.id)
-			} else {
-				err = db.ClearFeaturedExcept(r.Context(), conn, targetSlug)
-			}
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
 			}
 		}
 		if authorIDs != nil {
@@ -3071,42 +3033,51 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// leadWithFeaturedArticle moves the featured article to the front of the
-// homepage news block. It is a no-op when nothing is featured, so the default
-// homepage stays newest-first.
+// leadWithFeaturedArticles moves the pinned articles to the front of the
+// homepage news block, newest first. It is a no-op when nothing is pinned, so
+// the default homepage stays newest-first.
 //
-// The featured article keeps its place in its own section block: a featured
-// sports story leads the homepage and still appears in the sports rundown,
-// which is what a lead story does in print. Only the news block dedupes, so a
-// featured news story is promoted rather than duplicated.
-func leadWithFeaturedArticle(r *http.Request, conn *sql.DB, homepage *models.HomepageResponse, excerptWords, newsLimit int, newsMatchSlugs []string) error {
-	featured, err := db.GetFeaturedArticle(r.Context(), conn)
-	if err != nil || featured == nil {
+// A pinned article keeps its place in its own section block: a pinned sports
+// story leads the homepage and still appears in the sports rundown, which is
+// what a lead story does in print. Only the news block dedupes, so a pinned
+// news story is promoted rather than duplicated.
+func leadWithFeaturedArticles(r *http.Request, conn *sql.DB, homepage *models.HomepageResponse, excerptWords, newsLimit int, newsMatchSlugs []string) error {
+	featured, err := db.GetFeaturedArticles(r.Context(), conn, db.MaxFeaturedArticles)
+	if err != nil || len(featured) == 0 {
 		return err
 	}
 
-	articles := []models.Article{*featured}
-	if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
+	if err := db.PopulateArticleAuthors(r.Context(), conn, featured); err != nil {
 		return err
 	}
-	items := articleListItems(articles, excerptWords, newsMatchSlugs...)
+	items := articleListItems(featured, excerptWords, newsMatchSlugs...)
 	if len(items) == 0 {
 		return nil
 	}
-	homepage.News = spliceFeaturedLead(homepage.News, items[0], newsLimit)
+	homepage.News = spliceFeaturedLeads(homepage.News, items, newsLimit)
 	return nil
 }
 
-// spliceFeaturedLead puts the featured article at the head of the news block,
-// dropping the copy already in the list so a featured news story is promoted
-// rather than printed twice. The list is re-trimmed to limit because splicing in
-// a story from another section would otherwise push the block one card past the
-// layout it was sized for.
-func spliceFeaturedLead(news []models.ArticleListItem, featured models.ArticleListItem, limit int) []models.ArticleListItem {
-	out := make([]models.ArticleListItem, 0, len(news)+1)
-	out = append(out, featured)
+// spliceFeaturedLeads puts the pinned articles at the head of the news block in
+// the order given, dropping the copies already in the list so a pinned news
+// story is promoted rather than printed twice. The list is re-trimmed to limit
+// because splicing in stories from other sections would otherwise push the
+// block past the layout it was sized for.
+func spliceFeaturedLeads(news []models.ArticleListItem, featured []models.ArticleListItem, limit int) []models.ArticleListItem {
+	out := make([]models.ArticleListItem, 0, len(news)+len(featured))
+	pinned := make(map[int64]bool, len(featured))
+	for _, item := range featured {
+		// A pin is only ever meant to move a story up. Two pins on one id
+		// cannot happen through the API, but a duplicate here would print the
+		// same card twice, which is worse than dropping one.
+		if pinned[item.ID] {
+			continue
+		}
+		pinned[item.ID] = true
+		out = append(out, item)
+	}
 	for _, item := range news {
-		if item.ID != featured.ID {
+		if !pinned[item.ID] {
 			out = append(out, item)
 		}
 	}
@@ -3238,13 +3209,13 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 		}
 
 		// The homepage lead is the first entry of the news block (Scalene's
-		// "3-6-3" layout renders news[0] as the big centre card), so featuring
-		// an article means moving it to the front of that list. It is spliced in
-		// rather than sorted into the news query because the featured article
-		// may be filed under any section: a featured sports story still takes
-		// the lead card, which a news-scoped ORDER BY could never do.
+		// "3-6-3" layout renders news[0] as the big centre card), so pinning an
+		// article means moving it to the front of that list. Pins are spliced in
+		// rather than sorted into the news query because a pinned article may be
+		// filed under any section: a pinned sports story still takes the lead
+		// card, which a news-scoped ORDER BY could never do.
 		if offset == 0 {
-			if err := leadWithFeaturedArticle(r, conn, &sectionArticles, excerptWords, newsLimit, newsMatchSlugs); err != nil {
+			if err := leadWithFeaturedArticles(r, conn, &sectionArticles, excerptWords, newsLimit, newsMatchSlugs); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}

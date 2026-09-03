@@ -4981,6 +4981,17 @@ const docTemplate = `{
                 }
             }
         },
+        "models.BreakingNewsItem": {
+            "type": "object",
+            "properties": {
+                "article_slug": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
         "models.BreakingNewsSettings": {
             "type": "object",
             "properties": {
@@ -4989,6 +5000,12 @@ const docTemplate = `{
                 },
                 "enabled": {
                     "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.BreakingNewsItem"
+                    }
                 },
                 "text": {
                     "type": "string"
@@ -5020,6 +5037,12 @@ const docTemplate = `{
                 },
                 "enabled": {
                     "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.BreakingNewsItem"
+                    }
                 },
                 "manual": {
                     "$ref": "#/definitions/models.BreakingNewsSettings"

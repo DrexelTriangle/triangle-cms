@@ -42,10 +42,10 @@ func featuredSlugs(t *testing.T, conn *sql.DB) []string {
 	return slugs
 }
 
-// The homepage has one lead card. If featuring a second article left the first
-// one flagged, the tiebreak in GetFeaturedArticle, not the editor, would be
-// deciding which story runs.
-func TestFeaturedArticleHTTP_PatchUnfeaturesThePreviousPick(t *testing.T) {
+// Pinning used to be exclusive, so a second breaking story took the first one
+// down. The newsroom case that changed it: a story goes out, something else
+// breaks an hour later, and both belong at the top.
+func TestFeaturedArticleHTTP_PinningASecondStoryKeepsTheFirst(t *testing.T) {
 	conn := articlePatchTestDB(t)
 	published := time.Now().UTC().Add(-24 * time.Hour).Format("2006-01-02 15:04:05")
 	seedFeaturedTestArticle(t, conn, "old-lead", true, published, nil)
@@ -61,8 +61,8 @@ func TestFeaturedArticleHTTP_PatchUnfeaturesThePreviousPick(t *testing.T) {
 		t.Fatalf("patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
 	}
 	slugs := featuredSlugs(t, conn)
-	if len(slugs) != 1 || slugs[0] != "new-lead" {
-		t.Fatalf("featured slugs = %v, want [new-lead]", slugs)
+	if len(slugs) != 2 || slugs[0] != "new-lead" || slugs[1] != "old-lead" {
+		t.Fatalf("featured slugs = %v, want both new-lead and old-lead", slugs)
 	}
 }
 
@@ -85,12 +85,12 @@ func TestFeaturedArticleHTTP_PatchCanClearTheFeaturedFlag(t *testing.T) {
 	if slugs := featuredSlugs(t, conn); len(slugs) != 0 {
 		t.Fatalf("featured slugs = %v, want none", slugs)
 	}
-	featured, err := db.GetFeaturedArticle(context.Background(), conn)
+	featured, err := db.GetFeaturedArticles(context.Background(), conn, db.MaxFeaturedArticles)
 	if err != nil {
-		t.Fatalf("get featured article: %v", err)
+		t.Fatalf("get featured articles: %v", err)
 	}
-	if featured != nil {
-		t.Fatalf("featured article = %q, want none", featured.Slug)
+	if len(featured) != 0 {
+		t.Fatalf("featured articles = %v, want none", featured)
 	}
 }
 
@@ -106,21 +106,46 @@ func TestFeaturedArticle_UnpublishedRowsNeverLead(t *testing.T) {
 	seedFeaturedTestArticle(t, conn, "featured-scheduled", true, future, nil)
 	seedFeaturedTestArticle(t, conn, "featured-archived", true, past, past)
 
-	featured, err := db.GetFeaturedArticle(context.Background(), conn)
+	featured, err := db.GetFeaturedArticles(context.Background(), conn, db.MaxFeaturedArticles)
 	if err != nil {
-		t.Fatalf("get featured article: %v", err)
+		t.Fatalf("get featured articles: %v", err)
 	}
-	if featured != nil {
-		t.Fatalf("featured article = %q, want none", featured.Slug)
+	if len(featured) != 0 {
+		t.Fatalf("featured articles = %v, want none", featured)
 	}
 
 	seedFeaturedTestArticle(t, conn, "featured-live", true, past, nil)
-	featured, err = db.GetFeaturedArticle(context.Background(), conn)
+	featured, err = db.GetFeaturedArticles(context.Background(), conn, db.MaxFeaturedArticles)
 	if err != nil {
-		t.Fatalf("get featured article: %v", err)
+		t.Fatalf("get featured articles: %v", err)
 	}
-	if featured == nil || featured.Slug != "featured-live" {
-		t.Fatalf("featured article = %v, want featured-live", featured)
+	if len(featured) != 1 || featured[0].Slug != "featured-live" {
+		t.Fatalf("featured articles = %v, want just featured-live", featured)
+	}
+}
+
+// Pins lead newest-first, and the cap is what stops the news block from being
+// nothing but pins.
+func TestFeaturedArticles_NewestFirstAndCapped(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	base := time.Now().UTC().Add(-96 * time.Hour)
+	for i, slug := range []string{"pin-oldest", "pin-middle", "pin-newer", "pin-newest"} {
+		at := base.Add(time.Duration(i) * time.Hour).Format("2006-01-02 15:04:05")
+		seedFeaturedTestArticle(t, conn, slug, true, at, nil)
+	}
+
+	featured, err := db.GetFeaturedArticles(context.Background(), conn, db.MaxFeaturedArticles)
+	if err != nil {
+		t.Fatalf("get featured articles: %v", err)
+	}
+	if len(featured) != db.MaxFeaturedArticles {
+		t.Fatalf("got %d pinned articles, want the cap of %d", len(featured), db.MaxFeaturedArticles)
+	}
+	want := []string{"pin-newest", "pin-newer", "pin-middle"}
+	for i, slug := range want {
+		if featured[i].Slug != slug {
+			t.Fatalf("pinned articles = %v, want %v", featured, want)
+		}
 	}
 }
 
@@ -195,5 +220,22 @@ func TestFeaturedArticleHTTP_HomepageLeadsWithTheFeaturedArticle(t *testing.T) {
 	slugs := homepageNewsSlugs()
 	if len(slugs) == 0 || slugs[0] != "old-sports-story" {
 		t.Fatalf("featured news block = %v, want it to lead with old-sports-story", slugs)
+	}
+
+	// Erik's case: a second story breaks an hour later and is pinned too. It
+	// takes the lead because it is newer, and the first one keeps the slot
+	// behind it rather than dropping back into the rundown.
+	rec = httptest.NewRecorder()
+	body = `{"title":"Newest news","excerpt":"","content":"Body","comment_status":"open",` +
+		`"photo_url":"","breaking_news":false,"is_featured":true,"categories":["News"],` +
+		`"authors":[],"focus_keyword":"","meta_description":"","seo_title":""}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("newest-news", body))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+
+	slugs = homepageNewsSlugs()
+	if len(slugs) < 2 || slugs[0] != "newest-news" || slugs[1] != "old-sports-story" {
+		t.Fatalf("news block = %v, want both pins leading with newest-news", slugs)
 	}
 }
