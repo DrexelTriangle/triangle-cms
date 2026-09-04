@@ -1362,6 +1362,16 @@ paths:
         in: query
         name: slug
         type: string
+      - description: When true, return only articles flagged as breaking news; when
+          false, only those not flagged.
+        in: query
+        name: breaking
+        type: boolean
+      - description: When true, return only featured (pinned) articles; when false,
+          only those not featured.
+        in: query
+        name: featured
+        type: boolean
       - description: Sort field
         enum:
         - title

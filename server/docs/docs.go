@@ -143,6 +143,18 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "boolean",
+                        "description": "When true, return only articles flagged as breaking news; when false, only those not flagged.",
+                        "name": "breaking",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "When true, return only featured (pinned) articles; when false, only those not featured.",
+                        "name": "featured",
+                        "in": "query"
+                    },
+                    {
                         "enum": [
                             "title",
                             "slug",

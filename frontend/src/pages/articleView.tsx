@@ -17,6 +17,7 @@ type ArticleItem = {
   slug?: string
   featuredImage?: string
   breakingNews: boolean
+  isFeatured: boolean
 }
 
 type ApiArticle = {
@@ -28,6 +29,7 @@ type ApiArticle = {
   creation_date?: string
   featured_image?: string
   breaking_news?: boolean
+  is_featured?: boolean
   authors?: Array<{
     name?: string
   }>
@@ -97,6 +99,12 @@ type ArticleViewProps = {
 // means send no status filter at all.
 type PublishedFilter = "all" | "published" | "draft" | "scheduled"
 
+// A flag filter is three-state: "all" sends no parameter at all, the other two
+// send breaking/featured explicitly. "Not breaking" has to be a real choice
+// rather than the absence of one -- an editor clearing a false alarm wants the
+// stories that are NOT flagged.
+type FlagFilter = "all" | "on" | "off"
+
 type ArticleViewUIState = {
   searchQuery?: string
   activeTab?: "all" | "trash"
@@ -104,9 +112,13 @@ type ArticleViewUIState = {
   sectionFilterSlug?: string
   subsectionFilterSlug?: string
   publishedFilter?: PublishedFilter
+  breakingFilter?: FlagFilter
+  featuredFilter?: FlagFilter
   dateSortDirection?: "asc" | "desc"
   pageSize?: number
 }
+
+const flagFilterParam = (filter: FlagFilter) => (filter === "on" ? "true" : "false")
 
 type ArticleResultsCacheEntry = {
   items: ArticleItem[]
@@ -154,6 +166,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const [subsections, setSubsections] = useState<ApiTaxonomyItem[]>([])
   const [subsectionFilterSlug, setSubsectionFilterSlug] = useState(() => loadUIState().subsectionFilterSlug ?? "")
   const [publishedFilter, setPublishedFilter] = useState<PublishedFilter>(() => loadUIState().publishedFilter ?? "all")
+  const [breakingFilter, setBreakingFilter] = useState<FlagFilter>(() => loadUIState().breakingFilter ?? "all")
+  const [featuredFilter, setFeaturedFilter] = useState<FlagFilter>(() => loadUIState().featuredFilter ?? "all")
   const [dateSortDirection, setDateSortDirection] = useState<"asc" | "desc">(() => loadUIState().dateSortDirection ?? "desc")
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -169,13 +183,17 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       sectionFilterSlug,
       subsectionFilterSlug,
       publishedFilter,
+      breakingFilter,
+      featuredFilter,
       dateSortDirection,
       pageSize,
     } satisfies ArticleViewUIState)
   }, [
     activeTab,
     authorQuery,
+    breakingFilter,
     dateSortDirection,
+    featuredFilter,
     pageSize,
     publishedFilter,
     searchQuery,
@@ -390,6 +408,12 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         if (subsectionFilterSlug) {
           params.set("subsection_slug", subsectionFilterSlug)
         }
+        if (breakingFilter !== "all") {
+          params.set("breaking", flagFilterParam(breakingFilter))
+        }
+        if (featuredFilter !== "all") {
+          params.set("featured", flagFilterParam(featuredFilter))
+        }
         if (fixedType) {
           params.set("type", fixedType)
         }
@@ -432,6 +456,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           slug: item.slug,
           featuredImage: item.featured_image,
           breakingNews: Boolean(item.breaking_news),
+          isFeatured: Boolean(item.is_featured),
         }))
 
         if (!cancelled) {
@@ -469,7 +494,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     return () => {
       cancelled = true
     }
-  }, [activeTab, apiFetch, authorQuery, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, sectionFilterSlug, selectedAuthorSlug, subsectionFilterSlug])
+  }, [activeTab, apiFetch, authorQuery, breakingFilter, dateSortDirection, excludeType, featuredFilter, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, sectionFilterSlug, selectedAuthorSlug, subsectionFilterSlug])
 
   const onChangeTab = (tab: "all" | "trash") => {
     setActiveTab(tab)
@@ -483,7 +508,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
 
   useEffect(() => {
     setPage(0)
-  }, [authorQuery, publishedFilter, dateSortDirection, searchQuery, sectionFilterSlug, subsectionFilterSlug, pageSize])
+  }, [authorQuery, publishedFilter, breakingFilter, featuredFilter, dateSortDirection, searchQuery, sectionFilterSlug, subsectionFilterSlug, pageSize])
 
   const effectiveTotalCount = Math.max(totalArticleCount, (page * pageSize) + articles.length)
   const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / pageSize))
@@ -751,6 +776,28 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
             </div>
           </div>
         )}
+
+        {/* Breaking and Featured are the two flags an editor sets from the
+            article form, and the two they need to audit: which stories are
+            still flagged as breaking, and what is currently pinned. Both are
+            three-state, so "not flagged" is reachable rather than implied. */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Breaking</span>
+          <div className="flex gap-1.5">
+            <button aria-pressed={breakingFilter === "all"} className={filterTagClass(breakingFilter === "all")} onClick={() => setBreakingFilter("all")} type="button">All</button>
+            <button aria-pressed={breakingFilter === "on"} className={filterTagClass(breakingFilter === "on")} onClick={() => setBreakingFilter("on")} type="button">Breaking</button>
+            <button aria-pressed={breakingFilter === "off"} className={filterTagClass(breakingFilter === "off")} onClick={() => setBreakingFilter("off")} type="button">Not breaking</button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Featured</span>
+          <div className="flex gap-1.5">
+            <button aria-pressed={featuredFilter === "all"} className={filterTagClass(featuredFilter === "all")} onClick={() => setFeaturedFilter("all")} type="button">All</button>
+            <button aria-pressed={featuredFilter === "on"} className={filterTagClass(featuredFilter === "on")} onClick={() => setFeaturedFilter("on")} type="button">Featured</button>
+            <button aria-pressed={featuredFilter === "off"} className={filterTagClass(featuredFilter === "off")} onClick={() => setFeaturedFilter("off")} type="button">Not featured</button>
+          </div>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -840,6 +887,11 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                       {item.breakingNews ? (
                         <span className="inline-flex shrink-0 items-center rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold uppercase text-red-700 dark:bg-red-950/40 dark:text-red-300">
                           Breaking
+                        </span>
+                      ) : null}
+                      {item.isFeatured ? (
+                        <span className="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                          Featured
                         </span>
                       ) : null}
                     </div>
