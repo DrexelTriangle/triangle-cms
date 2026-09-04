@@ -81,6 +81,21 @@ PLACEHOLDER_EMBEDDINGS_SQL = """DROP TABLE IF EXISTS article_embeddings;
 
 NO_AUTO_VALUE_ON_ZERO_PREAMBLE = "SET sql_mode = CONCAT(@@sql_mode, ',NO_AUTO_VALUE_ON_ZERO');\n"
 
+# The options table is dropped first: its foreign key onto cms_polls would
+# refuse the parent's DROP while it still exists.
+POLL_ARCHIVE_DROP_SQL = """DROP TABLE IF EXISTS cms_poll_options;
+DROP TABLE IF EXISTS cms_polls;
+"""
+
+# No poll artifact means no archive to seed. The application's EnsureSchema
+# creates both tables at startup, so an empty file leaves the archive empty
+# rather than leaving the CMS without its tables.
+EMPTY_POLL_ARCHIVE_SQL = (
+    "-- No poll archive in the ETL output.\n"
+    "-- wordpress-etl only emits polls.sql/poll_options.sql once its\n"
+    "-- scripts/dump_wp_polls.sh has written the wp-polls tables into Data/.\n"
+)
+
 # Canonical table definitions, shared with the CMS. The same files are embedded
 # into the binary and executed at startup (server/internal/database/schema.go),
 # so a seeded dev database and production cannot drift apart. Never inline a
@@ -340,6 +355,36 @@ def main() -> int:
         ]
     )
 
+    polls_sql = first_existing_file(
+        [
+            src_dir / "polls.sql",
+            src_parent / "polls.sql",
+            src_parent / "logs" / "sql" / "polls.sql",
+            src_parent / "sql" / "polls.sql",
+            src_grandparent / "polls.sql",
+            src_grandparent / "logs" / "sql" / "polls.sql",
+            src_grandparent / "sql" / "polls.sql",
+        ]
+    )
+    poll_options_sql = first_existing_file(
+        [
+            src_dir / "poll_options.sql",
+            src_parent / "poll_options.sql",
+            src_parent / "logs" / "sql" / "poll_options.sql",
+            src_parent / "sql" / "poll_options.sql",
+            src_grandparent / "poll_options.sql",
+            src_grandparent / "logs" / "sql" / "poll_options.sql",
+            src_grandparent / "sql" / "poll_options.sql",
+        ]
+    )
+    # Options without their polls would fail the foreign key, and polls without
+    # their options would seed an archive of unanswerable questions. Take the
+    # pair or neither.
+    if (polls_sql is None) != (poll_options_sql is None):
+        missing = "poll_options.sql" if polls_sql is not None else "polls.sql"
+        print(f"found one half of the poll archive but not {missing}; skipping polls", file=sys.stderr)
+        polls_sql = poll_options_sql = None
+
     authors_sql = require_file(authors_sql, "authors.sql")
     articles_sql = require_file(articles_sql, "articles.sql")
     article_authors_sql = require_file(article_authors_sql, "articles_authors.sql")
@@ -359,6 +404,8 @@ def main() -> int:
     out_taxonomy = out_dir / "06-taxonomy.sql"
     out_poll_counts = out_dir / "07-poll-counts.sql"
     out_comments = out_dir / "08-comments.sql"
+    out_polls = out_dir / "09-polls.sql"
+    out_poll_options = out_dir / "10-poll-options.sql"
 
     copy_sql_with_mariadb_mode(authors_sql, out_authors)
     copy_sql_with_mariadb_mode(articles_sql, out_articles)
@@ -382,6 +429,18 @@ def main() -> int:
     else:
         out_comments.write_text(canonical_schema(root_dir, "comments"), encoding="utf-8")
 
+    # Both poll tables are dropped from the polls file, options first: the
+    # options table's foreign key would otherwise refuse the parent's DROP. When
+    # the ETL produced no polls the files are left empty rather than creating
+    # the tables, because the application's EnsureSchema creates them on start
+    # anyway -- an empty seed leaves an empty archive, not a broken one.
+    if polls_sql is not None and poll_options_sql is not None:
+        out_polls.write_text(POLL_ARCHIVE_DROP_SQL + polls_sql.read_text(encoding="utf-8"), encoding="utf-8")
+        shutil.copyfile(poll_options_sql, out_poll_options)
+    else:
+        out_polls.write_text(EMPTY_POLL_ARCHIVE_SQL, encoding="utf-8")
+        out_poll_options.write_text(EMPTY_POLL_ARCHIVE_SQL, encoding="utf-8")
+
     print(f"Imported ETL SQL into: {out_dir}")
     print(f"  01-authors.sql <- {authors_sql}")
     print(f"  02-articles.sql <- {articles_sql}")
@@ -397,6 +456,12 @@ def main() -> int:
         print(f"  08-comments.sql <- {comments_sql}")
     else:
         print("  08-comments.sql <- placeholder (no ETL comments artifact found)")
+    if polls_sql is not None:
+        print(f"  09-polls.sql <- {polls_sql}")
+        print(f"  10-poll-options.sql <- {poll_options_sql}")
+    else:
+        print("  09-polls.sql <- empty (no ETL poll artifact; run wordpress-etl's scripts/dump_wp_polls.sh)")
+        print("  10-poll-options.sql <- empty")
     return 0
 
 
