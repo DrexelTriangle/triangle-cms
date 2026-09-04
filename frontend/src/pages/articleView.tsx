@@ -850,7 +850,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
-              <th className="w-16 px-3 py-3" scope="col" aria-label="Featured image" />
+              {/* min-w as well as w: see the thumbnail cell below. */}
+              <th className="w-16 min-w-[4rem] px-3 py-3" scope="col" aria-label="Featured image" />
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Title</th>
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Authors</th>
               <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Status</th>
@@ -882,9 +883,16 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                 <tr key={item.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
                   <td className="px-3 py-2 w-16">
                     {item.featuredImage ? (
+                      // min-w, because w-12 alone does not survive a crowded
+                      // table. Tailwind's preflight puts max-width:100% on every
+                      // img, which makes this one's min-content width zero, and
+                      // auto table layout then takes the space it needs from the
+                      // only column that will yield. The result is a 4px-wide
+                      // sliver of photo at full height: the second badge on a
+                      // row was enough to trigger it.
                       <img
                         alt=""
-                        className="w-12 h-10 object-cover rounded-md bg-muted flex-shrink-0"
+                        className="w-12 min-w-[3rem] h-10 object-cover rounded-md bg-muted flex-shrink-0"
                         src={item.featuredImage}
                         // The image proxy blocks cross-origin referers (returns 403),
                         // so suppress the Referer header to let the thumbnail load.
