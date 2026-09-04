@@ -26,9 +26,13 @@ func TestNormalizeSectionSlug(t *testing.T) {
 	}
 }
 
+// site_taxonomy is the only definition of a section, so with no handle to it
+// nothing resolves. The section and subsection tree itself is exercised against
+// a real database in taxonomy_integration_test.go; these cases only pin the
+// no-taxonomy contract and the status-code mapping, which need no rows.
 func TestNormalizeAndValidateArticleParams_RejectsUnknownSectionSlug(t *testing.T) {
 	_, err := normalizeAndValidateArticleParams(context.Background(), nil, ArticleParams{
-		Section: "candp",
+		Section: "sports",
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown section_slug")
@@ -44,21 +48,6 @@ func TestNormalizeAndValidateArticleParams_RejectsUnknownSubsectionSlug(t *testi
 	})
 	if !errors.Is(err, errSubsectionNotFound) {
 		t.Fatalf("err = %v, want errSubsectionNotFound", err)
-	}
-}
-
-// A subsection that exists but sits under a different parent is a genuinely
-// contradictory request, so it must stay a 400 rather than becoming a 404.
-func TestArticleParamsStatus_MismatchedParentStaysBadRequest(t *testing.T) {
-	_, err := normalizeAndValidateArticleParams(context.Background(), nil, ArticleParams{
-		Section:    "sports",
-		Subsection: "the-love-triangle",
-	})
-	if err == nil {
-		t.Fatal("expected error for subsection outside the named section")
-	}
-	if got := articleParamsStatus(err, errSubsectionNotFound); got != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", got, http.StatusBadRequest)
 	}
 }
 
@@ -85,8 +74,8 @@ func TestArticleParamsStatus_OnlyPathParamDegradesToNotFound(t *testing.T) {
 	}
 }
 
-// The handlers validate against the static taxonomy fallback when there is no
-// database handle, so an unknown slug is answered before anything is queried.
+// With no database handle no slug resolves, so the handlers answer before
+// anything is queried.
 func TestSectionArticlesHandlers_UnknownPathSlugReturnsNotFound(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -123,31 +112,5 @@ func TestSectionArticlesHandlers_UnknownPathSlugReturnsNotFound(t *testing.T) {
 				t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusNotFound, rec.Body.String())
 			}
 		})
-	}
-}
-
-// The section_slug/subsection_slug query filters are caller-chosen filters
-// rather than the addressed resource, so they keep answering 400.
-func TestGetSectionArticles_UnknownSubsectionFilterStaysBadRequest(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/v1/sections/sports/articles?subsection_slug=not-a-subsection", nil)
-	req.SetPathValue("section_slug", "sports")
-	rec := httptest.NewRecorder()
-
-	GetSectionArticles(nil)(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d (body %s)", rec.Code, http.StatusBadRequest, rec.Body.String())
-	}
-}
-
-func TestNormalizeAndValidateArticleParams_FallbackAllowsKnownColumn(t *testing.T) {
-	got, err := normalizeAndValidateArticleParams(context.Background(), nil, ArticleParams{
-		Subsection: "the-love-triangle",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.Section != "columns" {
-		t.Fatalf("section = %q, want columns", got.Section)
 	}
 }

@@ -819,6 +819,66 @@ func TestTaxonomyHTTPThreeLevelNesting(t *testing.T) {
 	}
 }
 
+// TestTaxonomyHTTPArticleFiltersResolveFromTheTable is what replaced the
+// hard-coded section/subsection table that used to back these checks when there
+// was no database handle. That mirror was frozen at the seven sections it was
+// written with, so a subsection an editor added resolved in production and was
+// rejected in the tests, and the tests still passed. site_taxonomy is now the
+// only source, which is why this has to be an integration test.
+func TestTaxonomyHTTPArticleFiltersResolveFromTheTable(t *testing.T) {
+	conn := taxonomyHTTPTestDB(t)
+	ctx := context.Background()
+
+	create := func(kind, slug, title string, parent any) {
+		t.Helper()
+		recorder := taxonomyRequest(t, PostTaxonomy(conn), http.MethodPost, "/v1/taxonomy", map[string]any{
+			"type":            kind,
+			"slug":            slug,
+			"canonical_title": title,
+			"parent_slug":     parent,
+		})
+		if recorder.Code != http.StatusCreated {
+			t.Fatalf("POST %s = %d: %s", slug, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	create("section", "sports", "Sports", nil)
+	create("section", "columns", "Columns", nil)
+	create("subsection", "the-love-triangle", "The Love Triangle", "columns")
+
+	// A subsection resolves to the section that actually holds it.
+	got, err := normalizeAndValidateArticleParams(ctx, conn, ArticleParams{Subsection: "the-love-triangle"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Section != "columns" {
+		t.Errorf("section = %q, want columns", got.Section)
+	}
+
+	// A subsection that exists but sits under a different parent is a
+	// contradictory request, not a missing one, so it stays a 400.
+	_, err = normalizeAndValidateArticleParams(ctx, conn, ArticleParams{
+		Section:    "sports",
+		Subsection: "the-love-triangle",
+	})
+	if err == nil {
+		t.Fatal("expected an error for a subsection outside the named section")
+	}
+	if status := articleParamsStatus(err, errSubsectionNotFound); status != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", status, http.StatusBadRequest)
+	}
+
+	// The same distinction over HTTP: the section in the path exists, so the
+	// unknown subsection is a bad filter rather than a missing resource.
+	req := httptest.NewRequest(http.MethodGet, "/v1/sections/sports/articles?subsection_slug=not-a-subsection", nil)
+	req.SetPathValue("section_slug", "sports")
+	rec := httptest.NewRecorder()
+	GetSectionArticles(conn)(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("GET with an unknown subsection filter = %d, want %d: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
 // TestTaxonomyHTTPRejectsCircularParent covers the other way a walk could fail
 // to terminate: making an ancestor into a descendant.
 func TestTaxonomyHTTPRejectsCircularParent(t *testing.T) {

@@ -49,16 +49,6 @@ type EditorState =
   | { mode: "create"; label: string }
   | { mode: "edit"; item: TaxonomyItem; label: string }
 
-const SECTION_ORDER = [
-  "news",
-  "sports",
-  "opinion",
-  "columns",
-  "entertainment",
-  "comics-puzzles",
-  "special-editions",
-]
-
 const emptyForm: FormState = {
   type: "section",
   canonicalTitle: "",
@@ -96,9 +86,7 @@ async function readErrorMessage(response: Response) {
 }
 
 function typeLabel(item: TaxonomyItem) {
-  if (item.type === "section") return "Section"
-  if (item.parent_slug === "columns") return "Column"
-  return "Subsection"
+  return item.type === "section" ? "Section" : "Subsection"
 }
 
 export default function SectionsView() {
@@ -144,16 +132,12 @@ export default function SectionsView() {
   const parentSections = useMemo(() => {
     return items
       .filter((item) => item.type === "section")
-      .sort((left, right) => {
-        const leftIndex = SECTION_ORDER.indexOf(left.slug)
-        const rightIndex = SECTION_ORDER.indexOf(right.slug)
-        if (leftIndex !== -1 || rightIndex !== -1) {
-          if (leftIndex === -1) return 1
-          if (rightIndex === -1) return -1
-          return leftIndex - rightIndex
-        }
-        return left.canonical_title.localeCompare(right.canonical_title)
-      })
+      // By id, which is the order the sections were created in and so the
+      // running order the desk gave them. The articles screen orders its
+      // section filter the same way, so the two screens agree, and a section
+      // added today lands at the end of both instead of being invisible to a
+      // list of slugs frozen in this file.
+      .sort((left, right) => left.id - right.id)
   }, [items])
 
   const childrenByParent = useMemo(() => {
