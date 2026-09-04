@@ -161,34 +161,22 @@ export default function DashboardPage() {
         if (!fallback.ok) throw new Error("taxonomy unavailable")
         return fallback.json()
       })
-      .then(async (d) => {
-        let totalSections = Array.isArray(d)
+      // site_taxonomy is the only place that knows how many sections there are.
+      // This used to fall back to counting the homepage blocks against a list of
+      // six keys written here, which answered "6" however many sections the desk
+      // had actually configured -- a wrong number that looked like a real one.
+      // The tile keeps its placeholder instead when taxonomy is unavailable.
+      .then((d) => {
+        const totalSections = Array.isArray(d)
           ? d.filter((item) => item?.type === "section").length || d.length
           : null
-        if (totalSections == null || totalSections === 0) {
-          const homepageRes = await apiFetch("/v1/homepage")
-          if (homepageRes.ok) {
-            const homepage = await homepageRes.json()
-            const sectionKeys = ["news", "opinion", "sports", "entertainment", "candp", "columns"]
-            totalSections = sectionKeys.filter((key) => Array.isArray(homepage?.[key])).length
-          }
-        }
         setStats((s) => ({
           ...s,
           totalSections,
         }))
       })
-      .catch(async () => {
-        try {
-          const homepageRes = await apiFetch("/v1/homepage")
-          if (!homepageRes.ok) return
-          const homepage = await homepageRes.json()
-          const sectionKeys = ["news", "opinion", "sports", "entertainment", "candp", "columns"]
-          const totalSections = sectionKeys.filter((key) => Array.isArray(homepage?.[key])).length
-          setStats((s) => ({ ...s, totalSections }))
-        } catch {
-          // Keep placeholder when both sources are unavailable.
-        }
+      .catch(() => {
+        // Keep the placeholder rather than guessing.
       })
 
     apiFetch("/v1/articles?limit=1")

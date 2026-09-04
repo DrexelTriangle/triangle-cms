@@ -32,63 +32,6 @@ func articleParamsStatus(err, pathParamErr error) int {
 	return http.StatusBadRequest
 }
 
-var allowedSubsectionsBySection = map[string]map[string]struct{}{
-	"news": {
-		"academic-transformation": {},
-		"transit":                 {},
-		"public-safety":           {},
-		"campus":                  {},
-		"city":                    {},
-		"national":                {},
-		"world":                   {},
-	},
-	"sports": {
-		"mens-basketball":   {},
-		"womens-basketball": {},
-		"big-5":             {},
-		"philly-sports":     {},
-		"field-hockey":      {},
-		"mens-soccer":       {},
-		"womens-soccer":     {},
-		"nil":               {},
-		"squash":            {},
-	},
-	"opinion": {
-		"science-tech":    {},
-		"from-the-editor": {},
-		"politics":        {},
-		"lifestyle":       {},
-	},
-	"columns": {
-		"the-love-triangle":    {},
-		"tri-this-sweet-treat": {},
-		"from-the-playbook":    {},
-		"jack-of-all-takes":    {},
-		"the-green-angle":      {},
-		"the-overall-score":    {},
-	},
-	"entertainment": {
-		"movies":              {},
-		"music":               {},
-		"happening-in-philly": {},
-		"cooking":             {},
-		"books":               {},
-		"gaming":              {},
-		"listicles":           {},
-		"performing-arts":     {},
-		"the-drawing-board":   {},
-	},
-	"comics-puzzles": {
-		"political-cartoons": {},
-		"crossword":          {},
-		"sudoku":             {},
-		"comics":             {},
-		"puzzles":            {},
-		"satire":             {},
-	},
-	"graduation": {},
-}
-
 func normalizeAndValidateArticleParams(ctx context.Context, conn *sql.DB, params ArticleParams) (ArticleParams, error) {
 	params.AuthorSlug = strings.TrimSpace(params.AuthorSlug)
 	params.AuthorSearch = strings.TrimSpace(params.AuthorSearch)
@@ -150,10 +93,13 @@ func normalizeSectionSlug(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
+// site_taxonomy is the only list of what a section is. Without a handle there
+// is nothing to check against, so every slug is unknown: a hard-coded mirror of
+// the tree here would answer for the seven sections it was written with and
+// deny the ones an editor has added since.
 func taxonomySectionExists(ctx context.Context, conn *sql.DB, section string) (bool, error) {
 	if conn == nil {
-		_, ok := allowedSubsectionsBySection[section]
-		return ok, nil
+		return false, nil
 	}
 
 	var exists int
@@ -168,9 +114,8 @@ func taxonomySectionExists(ctx context.Context, conn *sql.DB, section string) (b
 }
 
 // sectionMatchSlugs returns the section plus every subsection below it, at any
-// depth, which together define what "articles in this section" means. Falls back
-// to the section alone when there is no database handle, matching the behaviour
-// of the other taxonomy lookups here.
+// depth, which together define what "articles in this section" means. Without a
+// database handle there are no subsections to find, so the section stands alone.
 //
 // Transitive because the tree is three levels: A&E holds Food, and Food holds
 // Beer Reviews. One hop would have listed Food's own articles under A&E while
@@ -181,11 +126,7 @@ func sectionMatchSlugs(ctx context.Context, conn *sql.DB, section string) ([]str
 		return nil, nil
 	}
 	if conn == nil {
-		slugs := []string{trimmed}
-		for subsection := range allowedSubsectionsBySection[trimmed] {
-			slugs = append(slugs, subsection)
-		}
-		return slugs, nil
+		return []string{trimmed}, nil
 	}
 	return db.TaxonomyDescendants(ctx, conn, trimmed)
 }
@@ -197,37 +138,34 @@ func sectionMatchSlugs(ctx context.Context, conn *sql.DB, section string) ([]str
 // ?subsection_slug= agrees with ?section_slug=, and the caller names a section.
 // Returning "food" for beer-reviews would fail that check against the only
 // section a reader could have arrived from.
+//
+// Without a handle nothing resolves, for the reason taxonomySectionExists gives.
 func rootSectionForSubsection(ctx context.Context, conn *sql.DB, subsection string) (string, bool, error) {
-	if conn != nil {
-		var parent sql.NullString
-		err := conn.QueryRowContext(ctx,
-			"SELECT parent_slug FROM site_taxonomy WHERE kind = ? AND slug = ? LIMIT 1",
-			string(models.TaxonomyTypeSubsection), subsection,
-		).Scan(&parent)
-		if err == sql.ErrNoRows {
-			return "", false, nil
-		}
-		if err != nil {
-			return "", false, err
-		}
-		if !parent.Valid || strings.TrimSpace(parent.String) == "" {
-			return "", false, nil
-		}
-		ancestors, err := db.TaxonomyAncestors(ctx, conn, subsection)
-		if err != nil {
-			return "", false, err
-		}
-		if len(ancestors) == 0 {
-			return "", false, nil
-		}
-		// Nearest first, so the last entry is the top of the chain.
-		return ancestors[len(ancestors)-1], true, nil
+	if conn == nil {
+		return "", false, nil
 	}
 
-	for section, subsections := range allowedSubsectionsBySection {
-		if _, ok := subsections[subsection]; ok {
-			return section, true, nil
-		}
+	var parent sql.NullString
+	err := conn.QueryRowContext(ctx,
+		"SELECT parent_slug FROM site_taxonomy WHERE kind = ? AND slug = ? LIMIT 1",
+		string(models.TaxonomyTypeSubsection), subsection,
+	).Scan(&parent)
+	if err == sql.ErrNoRows {
+		return "", false, nil
 	}
-	return "", false, nil
+	if err != nil {
+		return "", false, err
+	}
+	if !parent.Valid || strings.TrimSpace(parent.String) == "" {
+		return "", false, nil
+	}
+	ancestors, err := db.TaxonomyAncestors(ctx, conn, subsection)
+	if err != nil {
+		return "", false, err
+	}
+	if len(ancestors) == 0 {
+		return "", false, nil
+	}
+	// Nearest first, so the last entry is the top of the chain.
+	return ancestors[len(ancestors)-1], true, nil
 }
