@@ -46,6 +46,10 @@ SEED_FILES = (
     "06-taxonomy.sql",
     "07-poll-counts.sql",
     "08-comments.sql",
+    # Polls before their options: the options table's foreign key needs the
+    # parent rows to exist.
+    "09-polls.sql",
+    "10-poll-options.sql",
 )
 
 # Row counts worth reporting, and the shape a healthy seed has.
@@ -57,6 +61,8 @@ VERIFY_TABLES = (
     "comments",
     "article_embeddings",
     "site_taxonomy",
+    "cms_polls",
+    "cms_poll_options",
 )
 
 
@@ -303,7 +309,7 @@ def confirm(
     print("    - articles, authors, SEO rows and comments")
     print("    - cms_users and cms_sessions   -> you will be logged out of the local CMS")
     print("    - cms_settings                 -> site title, SEO defaults, breaking news")
-    print("    - polls and poll votes")
+    print("    - polls, poll options and their recorded votes")
     print("    - the media catalogue          -> files on disk survive; the DB rows do not")
     print("\n  There is no backup and no undo. Anything you created by hand in the")
     print("  local CMS and care about should be exported first.")
@@ -453,6 +459,13 @@ def verify(compose: list[str]) -> dict[str, str]:
 
     if results.get("article_embeddings") in ("MISSING", "0"):
         warn("article_embeddings is empty; /v1/articles/{slug} Related will be empty.")
+
+    if results.get("cms_polls") in ("MISSING", "0"):
+        warn(
+            "cms_polls is empty; /pollsarchive will have nothing in it. The ETL only "
+            "emits polls once its scripts/dump_wp_polls.sh has written the wp-polls "
+            "tables into Data/."
+        )
 
     return results
 
