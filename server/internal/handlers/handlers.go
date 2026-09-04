@@ -1260,8 +1260,8 @@ func GetAuthorArticles(conn *sql.DB) http.HandlerFunc {
 // @Param archived query bool false "When true, return only soft-deleted articles. Ignored for unauthenticated callers."
 // @Param title query string false "Filter by title (partial match)"
 // @Param slug query string false "Filter by slug (partial match)"
-// @Param breaking query bool false "When true, return only articles flagged as breaking news; when false, only those not flagged."
-// @Param featured query bool false "When true, return only featured (pinned) articles; when false, only those not featured."
+// @Param breaking query bool false "When true, return only articles flagged as breaking news. Any other value does not filter."
+// @Param featured query bool false "When true, return only featured (pinned) articles. Any other value does not filter."
 // @Param sort_by query string false "Sort field" Enums(title,slug,creation_date,published_date,status,comment_status)
 // @Param sort_direction query string false "Sort direction" Enums(asc,desc)
 // @Success 200 {object} models.ArticlesResponse
@@ -1708,49 +1708,36 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 		args = append(args, "%"+slug+"%")
 	}
 
-	// Both columns are nullable and default to 0, and rows imported from
-	// WordPress leave them NULL rather than 0. COALESCE on the "off" side is
-	// what keeps ?breaking=false from hiding the whole archive, since
-	// `breaking_news` = 0 is never true for NULL.
-	if breaking, ok := parseBoolFilter(q, "breaking"); ok {
-		if breaking {
-			conditions = append(conditions, "`breaking_news` = 1")
-		} else {
-			conditions = append(conditions, "COALESCE(`breaking_news`, 0) = 0")
-		}
+	// Both flags narrow to the articles that carry them. `priority` is the
+	// featured/pinned column; is_featured is the name it goes by over the wire,
+	// and GetFeaturedArticles reads the same one.
+	if flagFilterOn(q, "breaking") {
+		conditions = append(conditions, "`breaking_news` = 1")
 	}
-
-	// `priority` is the featured/pinned flag; is_featured is the name it goes by
-	// over the wire. GetFeaturedArticles reads the same column.
-	if featured, ok := parseBoolFilter(q, "featured"); ok {
-		if featured {
-			conditions = append(conditions, "`priority` = 1")
-		} else {
-			conditions = append(conditions, "COALESCE(`priority`, 0) = 0")
-		}
+	if flagFilterOn(q, "featured") {
+		conditions = append(conditions, "`priority` = 1")
 	}
 
 	return conditions, args
 }
 
-// parseBoolFilter reads an optional boolean query param. The second result says
-// whether the caller asked at all, so an absent param and an explicit false stay
-// distinguishable: absent means "do not filter", false means "only the ones that
-// are off". A value that parses as neither is treated as absent rather than
-// guessed at, so a typo widens the listing instead of silently narrowing it to
-// the wrong half.
-func parseBoolFilter(q url.Values, key string) (bool, bool) {
+// flagFilterOn reports whether a flag filter is switched on. Absent, false and
+// unparseable all mean "do not filter", which is the whole of the contract: the
+// parameter is a switch, and a switch cannot ask for the unflagged half.
+//
+// `= 1` rather than a truthiness test because both columns are nullable, and
+// NULL is what the WordPress archive holds -- it must read as unflagged, not as
+// unknown.
+func flagFilterOn(q url.Values, key string) bool {
 	if _, provided := q[key]; !provided {
-		return false, false
+		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(q.Get(key))) {
+	// Bare ?breaking is the HTML-form spelling of true.
 	case "", "1", "true", "yes":
-		// Bare ?breaking is the HTML-form spelling of true.
-		return true, true
-	case "0", "false", "no":
-		return false, true
+		return true
 	default:
-		return false, false
+		return false
 	}
 }
 

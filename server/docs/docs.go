@@ -144,13 +144,13 @@ const docTemplate = `{
                     },
                     {
                         "type": "boolean",
-                        "description": "When true, return only articles flagged as breaking news; when false, only those not flagged.",
+                        "description": "When true, return only articles flagged as breaking news. Any other value does not filter.",
                         "name": "breaking",
                         "in": "query"
                     },
                     {
                         "type": "boolean",
-                        "description": "When true, return only featured (pinned) articles; when false, only those not featured.",
+                        "description": "When true, return only featured (pinned) articles. Any other value does not filter.",
                         "name": "featured",
                         "in": "query"
                     },
