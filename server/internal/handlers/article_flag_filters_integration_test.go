@@ -12,14 +12,14 @@ import (
 	db "server/internal/database"
 )
 
-// The Articles screen offers Breaking and Featured as filters, so both have to
+// The Articles screen offers Breaking and Featured as switches, so both have to
 // narrow the listing on their own and in combination with the section filter
 // the editor may already have set.
 //
-// The awkward part is the "off" half. Both columns are nullable and the
-// WordPress archive leaves them NULL rather than 0, so `breaking_news` = 0
-// matches none of it; a filter written that way would answer "not breaking"
-// with only the handful of rows the CMS itself has written.
+// The seed keeps a row with both flags NULL, which is the shape the WordPress
+// archive is in. It must stay out of every "on" result: `= 1` is false for
+// NULL, and a truthiness test written some other way could let nine thousand
+// imported rows into a list of breaking stories.
 func seedFlagFilterArticles(t *testing.T, conn *sql.DB) {
 	t.Helper()
 	ctx := context.Background()
@@ -90,20 +90,19 @@ func TestArticleFlagFiltersHTTP(t *testing.T) {
 			want:  []string{"breaking-campus-story", "breaking-sports-story"},
 		},
 		{
-			// The NULL row has to be here, or "not breaking" hides the archive.
-			name:  "not breaking",
-			query: "?breaking=false",
-			want:  []string{"featured-campus-story", "imported-campus-story", "ordinary-campus-story"},
-		},
-		{
 			name:  "featured only",
 			query: "?featured=true",
 			want:  []string{"breaking-sports-story", "featured-campus-story"},
 		},
 		{
-			name:  "not featured",
-			query: "?featured=false",
-			want:  []string{"breaking-campus-story", "imported-campus-story", "ordinary-campus-story"},
+			// A switch cannot ask for the unflagged half, so false is inert. The
+			// failure this pins is it being read as "not breaking" instead.
+			name:  "false does not filter",
+			query: "?breaking=false",
+			want: []string{
+				"breaking-campus-story", "breaking-sports-story", "featured-campus-story",
+				"imported-campus-story", "ordinary-campus-story",
+			},
 		},
 		{
 			// Both at once: the article that is breaking AND pinned.
