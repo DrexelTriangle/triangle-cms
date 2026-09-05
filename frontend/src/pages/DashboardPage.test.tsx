@@ -20,7 +20,7 @@ beforeEach(async () => {
     if (url.startsWith("/v1/taxonomy")) {
       return Response.json([{ type: "section", slug: "news" }])
     }
-    if (url.startsWith("/v1/authors")) return Response.json([])
+    if (url.startsWith("/v1/authors")) return Response.json({ authors: [], pagination: { total_count: 0 } })
     return Response.json({ articles: [], pagination: { total_count: 0 } })
   })
   await act(async () => { render(

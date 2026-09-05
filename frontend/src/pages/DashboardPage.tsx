@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react"
+import { useDashboardData, type RecentArticle } from "../hooks/useDashboardData"
+import { slugify } from "../lib/slugify"
+import { clearArticleListCache } from "../lib/articleCache"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { publicSiteUrl } from "../auth/urls"
@@ -19,27 +22,8 @@ import { Button } from "@/components/ui/button"
 import { articleStatusChipClass } from "../lib/articleStatus"
 import { readErrorMessage } from "../lib/apiError"
 
-interface RecentArticle {
-  id: number
-  title: string
-  slug: string
-  status: "published" | "draft" | "scheduled"
-  authors: { name: string }[]
-  categories: { name: string }[]
-  published_date: string | null
-}
-
 const editArticlePath = (article: Pick<RecentArticle, "id" | "slug">) =>
   `/articles/${encodeURIComponent(String(article.id))}/${encodeURIComponent(article.slug)}/edit`
-
-interface ApiStats {
-  totalArticles: number | null
-  publishedArticles: number | null
-  draftArticles: number | null
-  totalAuthors: number | null
-  totalSections: number | null
-  loading: boolean
-}
 
 // Scheduled articles use future-relative dates.
 function timeAgo(dateStr: string | null) {
@@ -64,109 +48,14 @@ function formatStatusLabel(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()
 }
 
-function toCanonicalSlug(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-}
-
 export default function DashboardPage() {
   const navigate = useNavigate()
   const apiFetch = useApiFetch()
-  const [recentArticles, setRecentArticles] = useState<RecentArticle[]>([])
+  const { recentArticles, stats, apiHealth } = useDashboardData()
   const [draftTitle, setDraftTitle] = useState("")
   const [draftContent, setDraftContent] = useState("")
   const [isSavingDraft, setIsSavingDraft] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
-  const [apiHealth, setApiHealth] = useState<"ok" | "error" | "checking">("checking")
-  const [stats, setStats] = useState<ApiStats>({ totalArticles: null, publishedArticles: null, draftArticles: null, totalAuthors: null, totalSections: null, loading: true })
-
-  useEffect(() => {
-    apiFetch("/v1/articles?limit=10")
-      .then((r) => r.json())
-      .then((d) => {
-        setRecentArticles(d.articles ?? [])
-        setStats((s) => ({
-          ...s,
-          totalArticles: d.pagination?.total_count ?? d.pagination?.totalCount ?? null,
-          loading: false,
-        }))
-      })
-      .catch(() => setStats((s) => ({ ...s, loading: false })))
-
-    apiFetch("/v1/articles?status=published&limit=1")
-      .then((r) => r.json())
-      .then((d) => {
-        setStats((s) => ({
-          ...s,
-          publishedArticles: d.pagination?.total_count ?? d.pagination?.totalCount ?? null,
-        }))
-      })
-      .catch(() => {})
-
-    apiFetch("/v1/articles?status=draft&limit=1")
-      .then((r) => r.json())
-      .then((d) => {
-        setStats((s) => ({
-          ...s,
-          draftArticles: d.pagination?.total_count ?? d.pagination?.totalCount ?? null,
-        }))
-      })
-      .catch(() => {})
-
-    apiFetch("/v1/authors?limit=10000")
-      .then((r) => r.json())
-      .then((d) => {
-        setStats((s) => ({
-          ...s,
-          totalAuthors: Array.isArray(d) ? d.length : (d.pagination?.total_count ?? d.pagination?.totalCount ?? null),
-        }))
-      })
-      .catch(() => {})
-
-    apiFetch("/v1/taxonomy?type=section")
-      .then(async (r) => {
-        if (r.ok) return r.json()
-        const fallback = await apiFetch("/v1/taxonomy")
-        if (!fallback.ok) throw new Error("taxonomy unavailable")
-        return fallback.json()
-      })
-      .then(async (d) => {
-        let totalSections = Array.isArray(d)
-          ? d.filter((item) => item?.type === "section").length || d.length
-          : null
-        if (totalSections == null || totalSections === 0) {
-          const homepageRes = await apiFetch("/v1/homepage")
-          if (homepageRes.ok) {
-            const homepage = await homepageRes.json()
-            const sectionKeys = ["news", "opinion", "sports", "entertainment", "candp", "columns"]
-            totalSections = sectionKeys.filter((key) => Array.isArray(homepage?.[key])).length
-          }
-        }
-        setStats((s) => ({
-          ...s,
-          totalSections,
-        }))
-      })
-      .catch(async () => {
-        try {
-          const homepageRes = await apiFetch("/v1/homepage")
-          if (!homepageRes.ok) return
-          const homepage = await homepageRes.json()
-          const sectionKeys = ["news", "opinion", "sports", "entertainment", "candp", "columns"]
-          const totalSections = sectionKeys.filter((key) => Array.isArray(homepage?.[key])).length
-          setStats((s) => ({ ...s, totalSections }))
-        } catch {
-          // Keep placeholder when both sources are unavailable.
-        }
-      })
-
-    apiFetch("/v1/articles?limit=1")
-      .then((r) => (r.ok ? setApiHealth("ok") : setApiHealth("error")))
-      .catch(() => setApiHealth("error"))
-  }, [apiFetch])
 
   const createQuickDraft = async () => {
     const title = draftTitle.trim()
@@ -175,7 +64,7 @@ export default function DashboardPage() {
     setIsSavingDraft(true)
     setDraftError(null)
 
-    const slug = toCanonicalSlug(title) || "draft"
+    const slug = slugify(title) || "draft"
     const payload = {
       title,
       slug,
@@ -203,18 +92,7 @@ export default function DashboardPage() {
       const created = (await response.json().catch(() => null)) as { id?: number | string; slug?: string } | null
       const createdSlug = created?.slug || slug
 
-      if (typeof window !== "undefined") {
-        const keysToDelete: string[] = []
-        for (let i = 0; i < window.sessionStorage.length; i += 1) {
-          const key = window.sessionStorage.key(i)
-          if (key?.startsWith("articleView:")) {
-            keysToDelete.push(key)
-          }
-        }
-        for (const key of keysToDelete) {
-          window.sessionStorage.removeItem(key)
-        }
-      }
+      clearArticleListCache("all")
 
       if (created?.id !== undefined && created.id !== null) {
         navigate(`/articles/${encodeURIComponent(String(created.id))}/${encodeURIComponent(createdSlug)}/edit`)

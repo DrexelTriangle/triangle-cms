@@ -1,5 +1,7 @@
+import { clearArticleListCache } from "../lib/articleCache"
+import { slugify } from "../lib/slugify"
 import { readErrorMessage } from "../lib/apiError"
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
 import { ArrowLeft, Save, Image, Search, X, Copy, Check, RefreshCw, Plus } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
@@ -126,16 +128,6 @@ const isValidCanonicalUrl = (value: string): boolean => {
   return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.host !== ""
 }
 
-// Mirrors db.CanonicalizeSlug on the server: lowercase, every run of
-// non-alphanumerics collapsed to a single dash, no leading or trailing dash.
-// Anything else is rejected as non-canonical by the API.
-const slugify = (value: string): string =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-
 const parseSEOTags = (value: string): string[] => {
   const seen = new Set<string>()
   return value
@@ -241,22 +233,6 @@ const PUBLISH_TIMING_OPTIONS: Array<{ value: PublishTiming; label: string; blurb
 ]
 
 const AUTOSAVE_DELAY_MS = 2500
-
-// ArticleView caches list results in sessionStorage keyed by query; clear those
-// entries so the list refetches after an article is created or edited.
-const clearArticleListCache = () => {
-  if (typeof window === "undefined") return
-  const keysToDelete: string[] = []
-  for (let i = 0; i < window.sessionStorage.length; i += 1) {
-    const key = window.sessionStorage.key(i)
-    if (key?.startsWith("articleView:") && key.endsWith(":results")) {
-      keysToDelete.push(key)
-    }
-  }
-  for (const key of keysToDelete) {
-    window.sessionStorage.removeItem(key)
-  }
-}
 
 function EditArticleView() {
   const navigate = useNavigate()
@@ -909,6 +885,10 @@ function EditArticleView() {
     }
   }
 
+  const autosave = useEffectEvent(() => {
+    void saveArticle(undefined, { autosave: true })
+  })
+
   useEffect(() => {
     if (isNew || isLoading || lockedBy || isSaving || isAutoSaving) return
     if (!snapshotInitializedRef.current) return
@@ -923,7 +903,7 @@ function EditArticleView() {
 
     setAutoSaveMessage("Unsaved changes.")
     const timer = window.setTimeout(() => {
-      void saveArticle(undefined, { autosave: true })
+      autosave()
     }, AUTOSAVE_DELAY_MS)
 
     return () => window.clearTimeout(timer)

@@ -1,3 +1,5 @@
+import { readErrorMessage } from "../lib/apiError"
+import { slugify } from "../lib/slugify"
 import { useCallback, useEffect, useState } from "react"
 import type { FormEvent } from "react"
 import { Search, Plus, Pencil, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2 } from "lucide-react"
@@ -41,19 +43,6 @@ function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
 }
 
-// Mirrors the server's canonical slug rules (lowercase, non-alphanumeric runs -> "-", trimmed).
-function slugify(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
-}
-
-async function errorMessageFromResponse(res: Response, fallback: string) {
-  try {
-    const data = await res.json()
-    if (typeof data?.error === "string" && data.error.trim()) return data.error
-  } catch { /* keep fallback */ }
-  return fallback
-}
-
 const AVATAR_COLORS = [
   "bg-blue-500", "bg-violet-500", "bg-green-500", "bg-orange-500",
   "bg-rose-500", "bg-teal-500", "bg-indigo-500", "bg-amber-500",
@@ -86,7 +75,7 @@ function AuthorsView() {
     const { sortBy, sortDirection } = SORT_PARAMS[sortMode]
     return apiFetch(`/v1/authors?limit=${pageSize}&offset=${page * pageSize}&sort_by=${sortBy}&sort_direction=${sortDirection}${searchParam}${archivedParam}`)
       .then(async (r) => {
-        if (!r.ok) throw new Error(await errorMessageFromResponse(r, `Could not load authors (${r.status})`))
+        if (!r.ok) throw new Error(await readErrorMessage(r, `Could not load authors (${r.status})`))
         return r.json() as Promise<Author[] | AuthorsResponse>
       })
       .then((data) => {
@@ -104,7 +93,7 @@ function AuthorsView() {
   const loadTrashCount = useCallback(() => {
     return apiFetch("/v1/authors?limit=1&archived=1")
       .then(async (r) => {
-        if (!r.ok) throw new Error(await errorMessageFromResponse(r, `Could not load trash count (${r.status})`))
+        if (!r.ok) throw new Error(await readErrorMessage(r, `Could not load trash count (${r.status})`))
         return r.json() as Promise<Author[] | AuthorsResponse>
       })
       .then((data) => {
@@ -173,7 +162,7 @@ function AuthorsView() {
         method: "DELETE",
       })
       if (!response.ok) {
-        throw new Error(await errorMessageFromResponse(response, `Delete failed (${response.status})`))
+        throw new Error(await readErrorMessage(response, `Delete failed (${response.status})`))
       }
       setAuthors((prev) => prev.filter((item) => item.id !== author.id))
       setTotalAuthorCount((prev) => Math.max(0, prev - 1))
@@ -198,7 +187,7 @@ function AuthorsView() {
         method: "PATCH",
       })
       if (!response.ok) {
-        throw new Error(await errorMessageFromResponse(response, `Restore failed (${response.status})`))
+        throw new Error(await readErrorMessage(response, `Restore failed (${response.status})`))
       }
       setAuthors((prev) => prev.filter((item) => item.id !== author.id))
       setTotalAuthorCount((prev) => Math.max(0, prev - 1))
@@ -484,7 +473,7 @@ function CreateAuthorModal({ onClose, onCreated }: { onClose: () => void; onCrea
         }),
       })
       if (!res.ok) {
-        throw new Error(await errorMessageFromResponse(res, `Could not create author (${res.status})`))
+        throw new Error(await readErrorMessage(res, `Could not create author (${res.status})`))
       }
       onCreated()
     } catch (err) {
@@ -596,7 +585,7 @@ function EditAuthorModal({ author, onClose, onUpdated }: { author: Author; onClo
     apiFetch(`/v1/authors/${encodeURIComponent(author.slug)}`)
       .then(async (res) => {
         if (!res.ok) {
-          throw new Error(await errorMessageFromResponse(res, `Could not load author (${res.status})`))
+          throw new Error(await readErrorMessage(res, `Could not load author (${res.status})`))
         }
         return res.json() as Promise<Author>
       })
@@ -645,7 +634,7 @@ function EditAuthorModal({ author, onClose, onUpdated }: { author: Author; onClo
         }),
       })
       if (!res.ok) {
-        throw new Error(await errorMessageFromResponse(res, `Could not update author (${res.status})`))
+        throw new Error(await readErrorMessage(res, `Could not update author (${res.status})`))
       }
       onUpdated()
     } catch (err) {

@@ -1,3 +1,4 @@
+import { slugify } from "../lib/slugify"
 import { readErrorMessage } from "../lib/apiError"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertTriangle, Columns3, Eye, EyeOff, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react"
@@ -67,13 +68,6 @@ const visibilityHint =
 
 const emptyCountHint =
   "No matching articles. Check the exact category names."
-
-const slugify = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
 
 function typeLabel(item: TaxonomyItem) {
   if (item.type === "section") return "Section"

@@ -1,3 +1,4 @@
+import { readSessionJSON, writeSessionJSON, clearArticleListCache } from "../lib/articleCache"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2, Copy, Check } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
@@ -111,22 +112,6 @@ type ArticleViewUIState = {
 type ArticleResultsCacheEntry = {
   items: ArticleItem[]
   totalArticleCount: number
-}
-
-const readSessionJSON = <T,>(key: string, fallback: T): T => {
-  if (typeof window === "undefined") return fallback
-  const raw = window.sessionStorage.getItem(key)
-  if (!raw) return fallback
-  try {
-    return JSON.parse(raw) as T
-  } catch {
-    return fallback
-  }
-}
-
-const writeSessionJSON = (key: string, value: unknown) => {
-  if (typeof window === "undefined") return
-  window.sessionStorage.setItem(key, JSON.stringify(value))
 }
 
 function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: ArticleViewProps) {
@@ -529,20 +514,6 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
     }`
 
-  const clearArticleViewCache = () => {
-    if (typeof window === "undefined") return
-    const keysToDelete: string[] = []
-    for (let i = 0; i < window.sessionStorage.length; i += 1) {
-      const key = window.sessionStorage.key(i)
-      if (key?.startsWith("articleView:")) {
-        keysToDelete.push(key)
-      }
-    }
-    for (const key of keysToDelete) {
-      window.sessionStorage.removeItem(key)
-    }
-  }
-
   const copyArticleLink = async (item: ArticleItem) => {
     if (!item.slug) return
     if (await copyText(articleUrl(item.slug))) {
@@ -572,7 +543,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       setArticles((prev) => prev.filter((article) => article.id !== item.id))
       setTotalArticleCount((prev) => Math.max(0, prev - 1))
       setTrashCount((prev) => (activeTab === "all" ? prev + 1 : prev))
-      clearArticleViewCache()
+      clearArticleListCache("all")
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to delete article."
       setDeleteError(message)
@@ -599,7 +570,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       setArticles((prev) => prev.filter((article) => article.id !== item.id))
       setTotalArticleCount((prev) => Math.max(0, prev - 1))
       setTrashCount((prev) => Math.max(0, prev - 1))
-      clearArticleViewCache()
+      clearArticleListCache("all")
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to restore article."
       setDeleteError(message)
