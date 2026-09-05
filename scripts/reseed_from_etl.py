@@ -13,7 +13,7 @@ End to end:
 Step 3 is destructive and irreversible: the seed files are mounted into
 docker-entrypoint-initdb.d, which MariaDB runs *only* on a first-time init, so a
 genuine re-seed means throwing the data directory away. Everything local goes
-with it -- see the warning block this prints before it touches anything.
+with it; see the warning block this prints before it touches anything.
 
   python ./scripts/reseed_from_etl.py                 # full run, with prompts
   python ./scripts/reseed_from_etl.py --skip-etl      # reuse existing ETL SQL
@@ -46,6 +46,10 @@ SEED_FILES = (
     "06-taxonomy.sql",
     "07-poll-counts.sql",
     "08-comments.sql",
+    # Polls before their options: the options table's foreign key needs the
+    # parent rows to exist.
+    "09-polls.sql",
+    "10-poll-options.sql",
 )
 
 # Row counts worth reporting, and the shape a healthy seed has.
@@ -57,6 +61,8 @@ VERIFY_TABLES = (
     "comments",
     "article_embeddings",
     "site_taxonomy",
+    "cms_polls",
+    "cms_poll_options",
 )
 
 
@@ -143,7 +149,7 @@ def preflight(args: argparse.Namespace) -> tuple[Path, Path | None]:
         raise Fail(f"{ROOT_DIR} does not look like the triangle-cms checkout.")
 
     # compose interpolates these with `:?`, so a missing .env fails only *after*
-    # the volume is already gone -- which would leave no database at all.
+    # the volume is already gone, which would leave no database at all.
     env_file = ROOT_DIR / ".env"
     if not env_file.is_file():
         raise Fail(".env is missing; compose needs MARIADB_ROOT_PASSWORD and MARIADB_PASSWORD.")
@@ -269,8 +275,8 @@ def embeddings_outlook(args: argparse.Namespace, etl_dir: Path) -> tuple[bool, s
     """Will this run end up with article embeddings, and why/why not?
 
     Answered BEFORE the destructive confirmation. The seed always replaces
-    article_embeddings -- with a real table, or with a placeholder that drops it
-    -- so "no embeddings" is a decision to destroy the ones you have, and the
+    article_embeddings, with a real table or with a placeholder that drops it,
+    so "no embeddings" is a decision to destroy the ones you have, and the
     user has to be able to see that while they can still say no.
     """
     if args.no_embeddings:
@@ -303,7 +309,7 @@ def confirm(
     print("    - articles, authors, SEO rows and comments")
     print("    - cms_users and cms_sessions   -> you will be logged out of the local CMS")
     print("    - cms_settings                 -> site title, SEO defaults, breaking news")
-    print("    - polls and poll votes")
+    print("    - polls, poll options and their recorded votes")
     print("    - the media catalogue          -> files on disk survive; the DB rows do not")
     print("\n  There is no backup and no undo. Anything you created by hand in the")
     print("  local CMS and care about should be exported first.")
@@ -320,10 +326,10 @@ def confirm(
     # and there is nothing left to decide.
     will_embed, why = embeddings_outlook(args, etl_dir)
     if will_embed:
-        print(f"\n  Embeddings: YES -- {why}.")
+        print(f"\n  Embeddings: YES ({why}).")
     else:
         current = counts.get("article_embeddings")
-        print(f"\n  Embeddings: NO -- {why}.")
+        print(f"\n  Embeddings: NO ({why}).")
         if current and current != "0":
             print(f"    The seed replaces article_embeddings, so the {current} rows you have now")
             print("    are destroyed and NOT regenerated. Related-articles on")
@@ -449,10 +455,17 @@ def verify(compose: list[str]) -> dict[str, str]:
     if min_id == "0":
         info("articles.id = 0 preserved")
     else:
-        warn(f"MIN(articles.id) is {min_id}, expected 0 -- the id=0 row was renumbered.")
+        warn(f"MIN(articles.id) is {min_id}, expected 0; the id=0 row was renumbered.")
 
     if results.get("article_embeddings") in ("MISSING", "0"):
         warn("article_embeddings is empty; /v1/articles/{slug} Related will be empty.")
+
+    if results.get("cms_polls") in ("MISSING", "0"):
+        warn(
+            "cms_polls is empty; /pollsarchive will have nothing in it. The ETL only "
+            "emits polls once its scripts/dump_wp_polls.sh has written the wp-polls "
+            "tables into Data/."
+        )
 
     return results
 

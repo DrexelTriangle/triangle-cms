@@ -22,8 +22,8 @@ var gzipWriterPool = sync.Pool{
 	},
 }
 
-// compressibleTypes are the media types worth compressing. Everything else --
-// JPEG and PNG from the media library above all -- is already compressed, and
+// compressibleTypes are the media types worth compressing. Everything else,
+// JPEG and PNG from the media library above all, is already compressed, and
 // running it through gzip spends CPU to make the response marginally larger.
 var compressibleTypes = []string{
 	"application/json",
@@ -51,7 +51,7 @@ func compressible(contentType string) bool {
 const minCompressSize = 512
 
 // gzipResponseWriter defers the decision to compress until the first Write,
-// because that is the earliest point at which Content-Type is known -- handlers
+// because that is the earliest point at which Content-Type is known: handlers
 // set it just before writing the body, and some let net/http sniff it.
 type gzipResponseWriter struct {
 	http.ResponseWriter
@@ -142,7 +142,7 @@ func (g *gzipResponseWriter) decide(large bool) error {
 func (g *gzipResponseWriter) flush() {
 	if !g.decided {
 		if !g.wroteHead {
-			// A handler that wrote nothing at all -- 204s, and the HEAD-like
+			// A handler that wrote nothing at all: 204s, and the HEAD-like
 			// paths. Fall through to the standard 200 net/http would send.
 			g.status = http.StatusOK
 		}
@@ -179,7 +179,7 @@ func (g *gzipResponseWriter) Flush() {
 //
 // Placement matters. This must sit *outside* Recovery, so that the 500 body
 // Recovery writes after a panic goes through the same encoder as everything
-// else -- inside it, the gzip stream would be closed during unwinding and the
+// else. Inside it, the gzip stream would be closed during unwinding and the
 // plain-text error would be appended to a finished stream, producing a response
 // no client can decode. The consequence is that Logging and Metrics, which are
 // outside this, keep counting uncompressed bytes; that is the same number they

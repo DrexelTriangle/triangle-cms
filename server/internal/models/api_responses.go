@@ -78,6 +78,11 @@ type ArticlesResponse struct {
 	Pagination Pagination        `json:"pagination"`
 }
 
+type ArticleCreateResponse struct {
+	ID   int64  `json:"id"`
+	Slug string `json:"slug"`
+}
+
 type AuthorsResponse struct {
 	Authors    []AuthorOverview `json:"authors"`
 	Pagination Pagination       `json:"pagination"`
@@ -296,16 +301,60 @@ type SiteSettingsPatchRequest struct {
 	SiteTitle string `json:"site_title"`
 }
 
-// BreakingNewsSettings controls the breaking-news banner shown on the public
-// homepage: whether it is visible and the text it displays.
-type BreakingNewsSettings struct {
-	Enabled bool   `json:"enabled"`
-	Text    string `json:"text"`
+// BreakingNewsItem is one story on the breaking-news banner. ArticleSlug is
+// the slug alone, not a path, since the public site owns its URL shape; it is
+// empty for a hand-typed banner, which links nowhere.
+type BreakingNewsItem struct {
+	Text        string `json:"text"`
+	ArticleSlug string `json:"article_slug,omitempty"`
 }
 
-type BreakingNewsSettingsResponse = BreakingNewsSettings
+// BreakingNewsSettings controls the breaking-news banner shown on the public
+// homepage: whether it is visible and the stories it scrolls.
+//
+// Items is the banner. Text and ArticleSlug describe Items[0], the newest
+// story, and exist because the public site read them before the banner could
+// carry more than one: they are the single-story view of the same state, not a
+// second copy of it, so a reader that never learns about Items keeps working
+// and shows the newest breaking story.
+type BreakingNewsSettings struct {
+	Enabled     bool               `json:"enabled"`
+	Text        string             `json:"text"`
+	ArticleSlug string             `json:"article_slug,omitempty"`
+	Items       []BreakingNewsItem `json:"items,omitempty"`
+}
 
-type BreakingNewsSettingsPatchRequest = BreakingNewsSettings
+// Sources a banner can come from; an article wins over the manual banner.
+const (
+	BreakingNewsSourceNone    = "none"
+	BreakingNewsSourceManual  = "manual"
+	BreakingNewsSourceArticle = "article"
+)
+
+// BreakingNewsState is the banner as resolved for a request: the effective
+// Enabled/Text the public site renders, plus what produced them. Manual is the
+// hand-typed fallback, kept separate so Settings can still edit it while an
+// article overrides it.
+type BreakingNewsState struct {
+	BreakingNewsSettings
+	Source       string               `json:"source"`
+	ArticleTitle string               `json:"article_title,omitempty"`
+	Manual       BreakingNewsSettings `json:"manual"`
+	// WindowHours is 0 (the default) when a flagged article holds the banner
+	// indefinitely.
+	WindowHours int `json:"window_hours"`
+}
+
+type BreakingNewsSettingsResponse = BreakingNewsState
+
+// BreakingNewsSettingsPatchRequest edits the manual banner only. WindowHours
+// is optional, so a caller toggling the banner need not know the current
+// window; 0 means no time limit.
+type BreakingNewsSettingsPatchRequest struct {
+	Enabled     bool   `json:"enabled"`
+	Text        string `json:"text"`
+	WindowHours *int   `json:"window_hours,omitempty"`
+}
 
 // HomepageCarouselSlide is one public Splide carousel item for Scalene's
 // homepage. ImageURL may be empty for a text-only slide.
@@ -425,12 +474,12 @@ type PollOptionView struct {
 }
 
 // PollView is a full poll: the question, when it ran, and its results.
-// StartsAt/EndsAt are RFC3339 strings, or empty when unset -- an absent EndsAt
+// StartsAt/EndsAt are RFC3339 strings, or empty when unset; an absent EndsAt
 // is what the public archive renders as "No Expiry".
 //
 // Status is what an editor set. State is what that means right now once the
 // date window is taken into account (draft/scheduled/live/ended/superseded/
-// closed) -- clients should display State and never re-derive it, so the
+// closed). Clients should display State and never re-derive it, so the
 // editor and the public site can never disagree about what is running.
 type PollView struct {
 	ID         int64            `json:"id"`

@@ -285,7 +285,7 @@ trix-editor.trix-content .attachment__caption .attachment__size {
 
 /* An image with no caption yet. Trix marks the empty <figcaption> with
    data-trix-placeholder ("Add a caption…") but ships no CSS for it, so the
-   element collapses to zero height -- invisible, and with nothing to click.
+   element collapses to zero height: invisible, and with nothing to click.
    Rendering the placeholder gives the author both the prompt and the target. */
 trix-editor.trix-content .attachment__caption[data-trix-placeholder]:empty::before {
   content: attr(data-trix-placeholder);
@@ -447,8 +447,8 @@ trix-editor.trix-content .attachment__toolbar .attachment__metadata-container {
 
 /* Remove. Trix draws this as a white circle with a 2px `highlight` (system
    accent) border and hides the text label behind text-indent, showing an ✕ via
-   a ::before background image. Keep the icon -- undoing the text-indent would
-   leave the button empty -- and drop only the standalone-circle chrome, which
+   a ::before background image. Keep the icon (undoing the text-indent would
+   leave the button empty) and drop only the standalone-circle chrome, which
    looks wrong now that it sits inside a grouped toolbar. */
 trix-editor.trix-content .attachment__toolbar .trix-button--remove {
   position: relative;
@@ -476,8 +476,8 @@ trix-editor.trix-content .attachment.attachment--preview.attachment--dragging {
   cursor: grabbing;
 }
 
-/* Per-image alignment. No longer settable from the editor -- the public site
-   sizes article images at width:100%, which leaves nothing for a float to do --
+/* Per-image alignment. No longer settable from the editor, since the public
+   site sizes article images at width:100%, which leaves nothing for a float to do,
    but alignment already present on migrated WordPress content is preserved
    through a save, so it is still reflected here to match what will publish.
 
@@ -486,7 +486,7 @@ trix-editor.trix-content .attachment.attachment--preview.attachment--dragging {
    as far as Trix's MutationObserver is concerned: it re-parses the document,
    re-renders it and restores its own selection, which yanks the caret (and the
    focus) back into the article from wherever the author had moved it. Doing
-   that on every trix-change -- i.e. on every keystroke -- made the editor
+   that on every trix-change, i.e. on every keystroke, made the editor
    un-leavable while an image was selected. */
 trix-editor.trix-content .attachment--preview[data-trix-attributes*='"align":"left"'] {
   text-align: left;

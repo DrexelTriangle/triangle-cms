@@ -10,8 +10,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// The vector half is almost entirely database behaviour -- VECTOR columns,
-// VEC_FromText round-tripping, and nearest-neighbour ordering -- so these need a
+// The vector half is almost entirely database behaviour (VECTOR columns,
+// VEC_FromText round-tripping, and nearest-neighbour ordering) so these need a
 // real MariaDB 11.7+.
 //
 // CMS_TEST_DSN='user:pw@tcp(127.0.0.1:3306)/cms_test?parseTime=true&multiStatements=true' go test ./internal/database/ -run ArticleEmbeddings -v
@@ -311,8 +311,8 @@ func TestArticleEmbeddings_DeletesVectorsForArticlesThatLeftPublic(t *testing.T)
 	}
 }
 
-// The point of the hybrid: an article the lexical half cannot find at all --
-// because it never uses the reader's words -- still surfaces on vector
+// The point of the hybrid: an article the lexical half cannot find at all,
+// because it never uses the reader's words, still surfaces on vector
 // similarity alone.
 func TestArticleSearchHybrid_SurfacesArticlesLexicalSearchMisses(t *testing.T) {
 	conn := articleEmbeddingsTestDB(t)

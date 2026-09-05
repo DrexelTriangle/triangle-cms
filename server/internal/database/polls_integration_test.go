@@ -191,7 +191,7 @@ func TestPollScheduledPollWaitsForItsStartDate(t *testing.T) {
 		t.Fatalf("get running poll: %v", err)
 	}
 	if stillRunning.Status != PollStatusActive {
-		t.Fatalf("running poll status = %q, want %q -- scheduling closed it", stillRunning.Status, PollStatusActive)
+		t.Fatalf("running poll status = %q, want %q; scheduling closed it", stillRunning.Status, PollStatusActive)
 	}
 
 	scheduled, err := GetPollByID(ctx, conn, queued)

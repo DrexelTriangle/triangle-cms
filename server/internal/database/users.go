@@ -28,7 +28,7 @@ func EnsureArticlesSchema(ctx context.Context, conn *sql.DB) error {
 
 // EnsureArticlesPublishedIndex adds the index the public listing orders on.
 //
-// Every public read -- homepage blocks, section pages, /v1/articles -- is
+// Every public read (homepage blocks, section pages, /v1/articles) is
 // "newest published first, LIMIT n". Without an index on pub_date that is a
 // filesort over the whole migrated corpus on each of those requests; with one
 // the optimizer walks the index backwards and stops at the limit. `id` rides
@@ -45,16 +45,29 @@ func EnsureArticlesPublishedIndex(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
+// EnsureArticlesBreakingNewsIndex indexes the banner lookup, which runs on
+// every homepage render and otherwise scans the whole corpus for the handful
+// of flagged rows. pub_date rides along so the LIMIT 1 needs no sort.
+//
+// Non-fatal like the other index builders: the banner resolves without it.
+func EnsureArticlesBreakingNewsIndex(ctx context.Context, conn *sql.DB) error {
+	_, err := conn.ExecContext(ctx, `
+		ALTER TABLE articles
+		ADD INDEX IF NOT EXISTS idx_articles_breaking_news (`+"`breaking_news`, `pub_date`"+`)
+	`)
+	return err
+}
+
 // EnsureArticlesSlugIndex indexes the column every article is addressed by:
 // the detail endpoint, the comment thread, the permalink check, the
 // featured-article write. Without it each of those is a full scan of the
-// migrated corpus -- ten thousand rows read to return one.
+// migrated corpus: ten thousand rows read to return one.
 //
 // It is a PREFIX index, and that detail is the whole design. The ETL ships
 // `slug` as LONGTEXT, which cannot be indexed whole; the obvious fix is to
 // narrow the column to VARCHAR first. Do not. Retyping a column rewrites the
 // table, and rewriting `articles` means re-tokenizing 44MB of article bodies
-// into the two FULLTEXT indexes -- measured at over six minutes on a corpus
+// into the two FULLTEXT indexes, measured at over six minutes on a corpus
 // this size, holding a lock the newsroom's writes would queue behind, and on a
 // blue/green deploy the container doing it is not even the one serving. Adding
 // a secondary index is an in-place operation that does none of that.
@@ -62,7 +75,7 @@ func EnsureArticlesPublishedIndex(ctx context.Context, conn *sql.DB) error {
 // 191 characters is a prefix no slug in the corpus reaches (the longest is 154)
 // and stays under the 767-byte limit older row formats impose, so it is exact
 // in practice and safe on any table layout. Even where it were not, a prefix
-// index only narrows the candidates -- InnoDB rechecks the full value -- so
+// index only narrows the candidates (InnoDB rechecks the full value) so
 // this can cost an extra row read but can never return a wrong article.
 //
 // The index is deliberately not UNIQUE. Uniqueness is a property of the data,
@@ -82,7 +95,7 @@ func EnsureArticlesSlugIndex(ctx context.Context, conn *sql.DB) error {
 // LoadAuthorsByArticleIDs resolves a page of articles' bylines with one
 // `WHERE articles_id IN (...)`, but the ETL creates `articles_authors` with
 // only a primary key on its own id, so that lookup scanned the entire join
-// table on every listing request -- including each of the homepage's six
+// table on every listing request, including each of the homepage's six
 // section blocks. author_id rides along so the index covers the join.
 //
 // Cheap and safe to run at boot, unlike anything touching `articles`: the table

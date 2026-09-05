@@ -8,11 +8,13 @@ import (
 	"testing"
 
 	_ "github.com/go-sql-driver/mysql"
+
+	"server/internal/models"
 )
 
 // A section the seed has no defaults for, for the "keeps no aliases" case.
-// Which slugs are unseeded changes as orphaned categories get filed -- news
-// gained "Paid Post" -- so the choice is guarded by requireUnseeded rather than
+// Which slugs are unseeded changes as orphaned categories get filed (news
+// gained "Paid Post") so the choice is guarded by requireUnseeded rather than
 // assumed, or the assertion would quietly start testing nothing.
 const unseededSlug = "photo"
 
@@ -136,7 +138,7 @@ func TestTaxonomyAliasSeedDoesNotResurrectClearedAliases(t *testing.T) {
 	}
 
 	// An editor deliberately clears the aliases. That is [] , not NULL, and a
-	// later startup must leave it alone -- otherwise the defaults come back
+	// later startup must leave it alone; otherwise the defaults come back
 	// every restart and the edit looks like it never saved.
 	if _, err := conn.ExecContext(ctx,
 		"UPDATE site_taxonomy SET category_aliases = '[]' WHERE slug = 'entertainment'",
@@ -154,7 +156,7 @@ func TestTaxonomyAliasSeedDoesNotResurrectClearedAliases(t *testing.T) {
 		t.Fatalf("read stored aliases: %v", err)
 	}
 	if stored != "[]" {
-		t.Errorf("stored aliases = %s, want [] -- the seed overwrote a deliberate clear", stored)
+		t.Errorf("stored aliases = %s, want []; the seed overwrote a deliberate clear", stored)
 	}
 }
 
@@ -222,7 +224,7 @@ func TestRefreshLoadsCategoryTitlesAndPrefersARealPage(t *testing.T) {
 
 	// Now let Sports absorb the subsection's own category by alias. The
 	// subsection has a page of its own, so the alias must not take the link
-	// away from it -- a chip should reach the most specific page that lists
+	// away from it: a chip should reach the most specific page that lists
 	// the article.
 	if _, err := conn.ExecContext(ctx,
 		`UPDATE site_taxonomy SET category_aliases = ? WHERE slug = 'sports'`,
@@ -303,7 +305,7 @@ func TestLegacySubsectionSeedRunsOnceAndStaysHidden(t *testing.T) {
 	if visible := countRows(t, conn,
 		"SELECT COUNT(*) FROM site_taxonomy WHERE kind = 'subsection' AND is_visible = 1",
 	); visible != 1 {
-		t.Errorf("%d visible subsections, want only the pre-existing one -- the seed must arrive hidden", visible)
+		t.Errorf("%d visible subsections, want only the pre-existing one; the seed must arrive hidden", visible)
 	}
 
 	// Each seeded row carries its exact category title, so matching does not
@@ -312,10 +314,10 @@ func TestLegacySubsectionSeedRunsOnceAndStaysHidden(t *testing.T) {
 		t.Errorf("values = %v, want the seeded category title", got)
 	}
 	// A slug that does not derive its own category is exactly why the seed
-	// writes the title as an alias -- but only for rows it actually created,
+	// writes the title as an alias, but only for rows it actually created,
 	// and this one's parent section is absent here.
 	if got := CategoryMatchValues("aint-that-something-with-brandon-liz"); containsValue(got, "ain't that something with brandon & liz") {
-		t.Errorf("values = %v, want no alias -- that row was skipped for a missing parent", got)
+		t.Errorf("values = %v, want no alias; that row was skipped for a missing parent", got)
 	}
 
 	// The run-once guard: a deleted row stays deleted across a restart.
@@ -409,7 +411,7 @@ func TestFoodSubsectionSeedMovesTheReviewCategories(t *testing.T) {
 		t.Fatalf("read food visibility: %v", err)
 	}
 	if visible != 1 {
-		t.Error("food seeded hidden, want visible -- it is the entry A&E's strip is meant to gain")
+		t.Error("food seeded hidden, want visible; it is the entry A&E's strip is meant to gain")
 	}
 
 	// An editor moves one back, and a restart leaves it where they put it.
@@ -422,7 +424,7 @@ func TestFoodSubsectionSeedMovesTheReviewCategories(t *testing.T) {
 		t.Fatalf("third ensure: %v", err)
 	}
 	if got := parentOf("wine-reviews"); got != "entertainment" {
-		t.Errorf("wine-reviews parent = %q, want entertainment -- the seed re-ran over an editor's change", got)
+		t.Errorf("wine-reviews parent = %q, want entertainment; the seed re-ran over an editor's change", got)
 	}
 }
 
@@ -491,7 +493,7 @@ func TestEntertainmentVisibilitySeedRunsOnce(t *testing.T) {
 		}
 		return p.String
 	}(); parent != "entertainment" {
-		t.Errorf("books parent = %q, want entertainment -- hiding must not re-file a row", parent)
+		t.Errorf("books parent = %q, want entertainment; hiding must not re-file a row", parent)
 	}
 
 	// An editor puts Books back, and a restart leaves it visible.
@@ -504,6 +506,111 @@ func TestEntertainmentVisibilitySeedRunsOnce(t *testing.T) {
 		t.Fatalf("third ensure: %v", err)
 	}
 	if got := visibilityOf("books"); got != 1 {
-		t.Errorf("books is_visible = %d after a restart, want 1 -- the seed re-ran over an editor's change", got)
+		t.Errorf("books is_visible = %d after a restart, want 1; the seed re-ran over an editor's change", got)
+	}
+}
+
+// TestFooterDefaultFollowsTheTaxonomy is the point of generating the footer:
+// the desk curates the section strip, and the footer follows without anyone
+// editing a second list.
+//
+// It covers the three things that make it "one layer of depth": a section's
+// direct children are listed, a hidden one is not, and a grandchild is not
+// either: the tree is three levels now, and a footer that recursed would
+// print the archive.
+func TestFooterDefaultFollowsTheTaxonomy(t *testing.T) {
+	conn := taxonomyTestDB(t)
+	ctx := context.Background()
+
+	if err := EnsureSettingsTable(ctx, conn); err != nil {
+		t.Fatalf("ensure settings table: %v", err)
+	}
+	if err := EnsureTaxonomyTable(ctx, conn); err != nil {
+		t.Fatalf("ensure taxonomy table: %v", err)
+	}
+	t.Cleanup(InvalidateGeneratedFooter)
+
+	insertTaxonomyRow(t, conn, 1, "section", "entertainment", "Entertainment")
+	// Movies is linked, Books is hidden, and Beer Reviews is a grandchild under
+	// the visible Food row.
+	for _, row := range []struct {
+		id      int64
+		slug    string
+		title   string
+		parent  string
+		visible int
+	}{
+		{2, "movies", "Movies", "entertainment", 1},
+		{3, "books", "Books", "entertainment", 0},
+		{4, "food", "Food", "entertainment", 1},
+		{5, "beer-reviews", "Beer Reviews", "food", 1},
+	} {
+		insertTaxonomyRow(t, conn, row.id, "subsection", row.slug, row.title)
+		if _, err := conn.ExecContext(ctx,
+			"UPDATE site_taxonomy SET parent_slug = ?, is_visible = ? WHERE slug = ?",
+			row.parent, row.visible, row.slug,
+		); err != nil {
+			t.Fatalf("place %s: %v", row.slug, err)
+		}
+	}
+
+	labels := func() []string {
+		t.Helper()
+		settings, err := GetFooterSettings(ctx, conn)
+		if err != nil {
+			t.Fatalf("get footer settings: %v", err)
+		}
+		var found []string
+		for _, column := range settings.Columns {
+			for _, entry := range column.Entries {
+				found = append(found, entry.Label)
+			}
+		}
+		return found
+	}
+
+	got := labels()
+	has := func(label string) bool {
+		for _, entry := range got {
+			if entry == label {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !has("Movies") || !has("Food") {
+		t.Errorf("footer = %v, want the visible subsections listed", got)
+	}
+	if has("Books") {
+		t.Error("a hidden subsection reached the footer; the strip toggle has to drive both")
+	}
+	if has("Beer Reviews") {
+		t.Error("a grandchild reached the footer; the footer is one layer deep")
+	}
+	// The literal blocks survive alongside the generated ones.
+	if !has("The Rectangle") || !has("Contact Us") {
+		t.Errorf("footer = %v, want the non-taxonomy links kept", got)
+	}
+
+	// Hiding Movies removes it, once the cached columns are dropped the way a
+	// taxonomy write does.
+	if _, err := conn.ExecContext(ctx, "UPDATE site_taxonomy SET is_visible = 0 WHERE slug = 'movies'"); err != nil {
+		t.Fatalf("hide movies: %v", err)
+	}
+	InvalidateGeneratedFooter()
+	if got = labels(); has("Movies") {
+		t.Errorf("footer = %v, want Movies gone after it was hidden", got)
+	}
+
+	// A stored menu still wins: generating is the DEFAULT, not an override of
+	// whatever an editor saved in the settings screen.
+	if err := SetFooterSettings(ctx, conn, models.FooterSettings{Columns: []models.FooterColumn{
+		{Entries: []models.FooterEntry{{Kind: models.FooterEntryLink, Label: "Only This", Href: "/only"}}},
+	}}); err != nil {
+		t.Fatalf("store a custom footer: %v", err)
+	}
+	if got = labels(); len(got) != 1 || got[0] != "Only This" {
+		t.Errorf("footer = %v, want the stored menu to win over the generated default", got)
 	}
 }

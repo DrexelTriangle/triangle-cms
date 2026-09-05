@@ -47,13 +47,13 @@ x-backend-base: &backend-base
     # (91m) and below Cloudflare's 100 MB tunnel limit; raise all of them
     # together or the smallest one silently wins.
     MEDIA_MAX_UPLOAD_BYTES: ${MEDIA_MAX_UPLOAD_BYTES:-94371840}
-    # Semantic search. Shared by both slots -- the sidecar is stateless, so there
+    # Semantic search. Shared by both slots: the sidecar is stateless, so there
     # is no reason to run one per slot. Leave empty to run lexical-only search:
     # the backend then skips query embedding and its reconciler exits at start.
     EMBEDDINGS_URL: ${EMBEDDINGS_URL-http://embeddings:8000}
   volumes:
     # CephFS media tree (host). rw so the upload endpoint can store new files;
-    # host Nginx serves the same tree read-only (see deploy/nginx/triangle-cms.conf).
+    # host Nginx serves the same tree read-only (that site is in triangle-infrastructure).
     - ${MEDIA_HOST_PATH:-/mnt/cephfs/media}:/mnt/cephfs/media:rw
   healthcheck:
     test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/v1/health/db || exit 1"]
@@ -80,7 +80,7 @@ x-frontend-base: &frontend-base
 services:
   # One shared instance, not one per slot: it holds no state, so both slots can
   # use it and a deploy never has to wait for a model to load. Not exposed to the
-  # host -- only the backends talk to it, over the internal network.
+  # host; only the backends talk to it, over the internal network.
   embeddings:
     # Tagged by content, not by commit: CMS_EMBEDDINGS_TAG is the git tree hash
     # of embeddings/, so it only changes when the sidecar itself changes. Tagging
@@ -98,8 +98,8 @@ services:
     # without OMP_NUM_THREADS, onnxruntime still spawns one thread per visible
     # core and thrashes against that ceiling instead of respecting it.
     #
-    # This trades backfill throughput for headroom -- roughly 2 articles/sec
-    # becomes 1.4 -- which is the right way round: the backfill is background
+    # This trades backfill throughput for headroom (roughly 2 articles/sec
+    # becomes 1.4) which is the right way round: the backfill is background
     # work that converges on its own, and nothing waits on it.
     cpus: ${EMBED_CPUS:-4}
     environment:

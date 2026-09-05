@@ -120,8 +120,10 @@ export default function App() {
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/articles" element={<ArticleView excludeType="developing-stories" />} />
+          <Route path="/articles/:id/:slug/edit" element={<EditArticleView />} />
           <Route path="/articles/:slug/edit" element={<EditArticleView />} />
           <Route path="/developing-stories" element={<DevelopingStoriesView />} />
+          <Route path="/developing-stories/:id/:slug/edit" element={<EditArticleView />} />
           <Route path="/developing-stories/:slug/edit" element={<EditArticleView />} />
           <Route path="/articles/new" element={<EditArticleView />} />
           <Route path="/developing-stories/new" element={<ComingSoon page="New developing story" />} />

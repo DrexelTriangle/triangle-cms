@@ -6,8 +6,8 @@ import (
 )
 
 func TestNormalizeCanonicalURLAcceptsBlankAsNoOverride(t *testing.T) {
-	// Blank is the common case -- the public site falls back to its own
-	// /article/<slug> URL -- so it must validate rather than 400 every save.
+	// Blank is the common case (the public site falls back to its own
+	// /article/<slug> URL) so it must validate rather than 400 every save.
 	for _, raw := range []string{"", "   ", "\t\n"} {
 		got, ok := NormalizeCanonicalURL(raw)
 		if !ok {

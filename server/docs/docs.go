@@ -194,6 +194,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "The slug is deduplicated on the way in: a title or slug that another article already uses is stored with a numeric suffix. The response carries the id and the slug that were actually written.",
                 "consumes": [
                     "application/json"
                 ],
@@ -214,7 +215,10 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created"
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/models.ArticleCreateResponse"
+                        }
                     },
                     "400": {
                         "description": "Bad Request",
@@ -224,6 +228,12 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/models.ErrorResponse"
                         }
@@ -4514,6 +4524,17 @@ const docTemplate = `{
                 }
             }
         },
+        "models.ArticleCreateResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
         "models.ArticleDetailResponse": {
             "type": "object",
             "properties": {
@@ -4960,11 +4981,31 @@ const docTemplate = `{
                 }
             }
         },
+        "models.BreakingNewsItem": {
+            "type": "object",
+            "properties": {
+                "article_slug": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
         "models.BreakingNewsSettings": {
             "type": "object",
             "properties": {
+                "article_slug": {
+                    "type": "string"
+                },
                 "enabled": {
                     "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.BreakingNewsItem"
+                    }
                 },
                 "text": {
                     "type": "string"
@@ -4979,17 +5020,42 @@ const docTemplate = `{
                 },
                 "text": {
                     "type": "string"
+                },
+                "window_hours": {
+                    "type": "integer"
                 }
             }
         },
         "models.BreakingNewsSettingsResponse": {
             "type": "object",
             "properties": {
+                "article_slug": {
+                    "type": "string"
+                },
+                "article_title": {
+                    "type": "string"
+                },
                 "enabled": {
                     "type": "boolean"
                 },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.BreakingNewsItem"
+                    }
+                },
+                "manual": {
+                    "$ref": "#/definitions/models.BreakingNewsSettings"
+                },
+                "source": {
+                    "type": "string"
+                },
                 "text": {
                     "type": "string"
+                },
+                "window_hours": {
+                    "description": "WindowHours is 0 (the default) when a flagged article holds the banner\nindefinitely.",
+                    "type": "integer"
                 }
             }
         },
@@ -5952,6 +6018,13 @@ const docTemplate = `{
                 },
                 "subsection": {
                     "$ref": "#/definitions/models.TaxonomySummary"
+                },
+                "subsections": {
+                    "description": "Subsections are this subsection's OWN visible children, so a middle row\nlike Food gets the same link strip a section page has. Empty for a leaf,\nwhich is most of them.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.TaxonomySummary"
+                    }
                 }
             }
         },

@@ -56,7 +56,7 @@ make_case() {
   PUBLIC_HEALTH_TIMEOUT=0
   # The sidecar wait polls container health, which never turns healthy against
   # the fake compose in these tests. Left at its 240s production default it made
-  # every deploy case sit out the full timeout -- the suite took 8 minutes.
+  # every deploy case sit out the full timeout; the suite took 8 minutes.
   EMBEDDINGS_HEALTH_TIMEOUT=0
   DEPLOY_TEST_MODE=1
   NGINX_TEST_CMD='exit "${FAKE_NGINX_TEST_STATUS:-0}"'
@@ -282,11 +282,11 @@ test_lock_contention() {
   exec 8>&-
 }
 
-test_host_nginx_health_uses_default_type() {
-  local nginx_conf="${SCRIPT_DIR}/../nginx/triangle-cms.conf"
-  assert_file_contains "${nginx_conf}" 'default_type text/plain'
-  assert_file_not_contains "${nginx_conf}" 'add_header Content-Type text/plain'
-}
+# test_host_nginx_health_uses_default_type moved with the file it guards.
+# nginx/triangle-cms.conf now lives in triangle-infrastructure
+# (roles/delta_cms_host/files/), and the assertion is tests/site-contracts.sh
+# over there. Asserting on a file this repo no longer ships would only test
+# whichever stale copy happened to be on the runner.
 
 test_no_old_production_include_path_references() {
   local old_path
@@ -312,7 +312,6 @@ test_failed_readiness_leaves_active_slot
 test_failed_public_smoke_rolls_back
 test_invalid_and_malicious_sha
 test_lock_contention
-test_host_nginx_health_uses_default_type
 test_no_old_production_include_path_references
 
 echo "deploy script tests passed"

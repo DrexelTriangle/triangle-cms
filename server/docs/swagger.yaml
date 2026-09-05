@@ -163,6 +163,13 @@ definitions:
       total_count:
         type: integer
     type: object
+  models.ArticleCreateResponse:
+    properties:
+      id:
+        type: integer
+      slug:
+        type: string
+    type: object
   models.ArticleDetailResponse:
     properties:
       authors:
@@ -468,10 +475,23 @@ definitions:
       pagination:
         $ref: '#/definitions/models.Pagination'
     type: object
+  models.BreakingNewsItem:
+    properties:
+      article_slug:
+        type: string
+      text:
+        type: string
+    type: object
   models.BreakingNewsSettings:
     properties:
+      article_slug:
+        type: string
       enabled:
         type: boolean
+      items:
+        items:
+          $ref: '#/definitions/models.BreakingNewsItem'
+        type: array
       text:
         type: string
     type: object
@@ -481,13 +501,32 @@ definitions:
         type: boolean
       text:
         type: string
+      window_hours:
+        type: integer
     type: object
   models.BreakingNewsSettingsResponse:
     properties:
+      article_slug:
+        type: string
+      article_title:
+        type: string
       enabled:
         type: boolean
+      items:
+        items:
+          $ref: '#/definitions/models.BreakingNewsItem'
+        type: array
+      manual:
+        $ref: '#/definitions/models.BreakingNewsSettings'
+      source:
+        type: string
       text:
         type: string
+      window_hours:
+        description: |-
+          WindowHours is 0 (the default) when a flagged article holds the banner
+          indefinitely.
+        type: integer
     type: object
   models.CategorySummary:
     properties:
@@ -1120,6 +1159,14 @@ definitions:
         $ref: '#/definitions/models.TaxonomySummary'
       subsection:
         $ref: '#/definitions/models.TaxonomySummary'
+      subsections:
+        description: |-
+          Subsections are this subsection's OWN visible children, so a middle row
+          like Food gets the same link strip a section page has. Empty for a leaf,
+          which is most of them.
+        items:
+          $ref: '#/definitions/models.TaxonomySummary'
+        type: array
     type: object
   models.TaxonomyInput:
     properties:
@@ -1354,6 +1401,9 @@ paths:
     post:
       consumes:
       - application/json
+      description: 'The slug is deduplicated on the way in: a title or slug that another
+        article already uses is stored with a numeric suffix. The response carries
+        the id and the slug that were actually written.'
       parameters:
       - description: Article
         in: body
@@ -1364,12 +1414,18 @@ paths:
       responses:
         "201":
           description: Created
+          schema:
+            $ref: '#/definitions/models.ArticleCreateResponse'
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/models.ErrorResponse'
         "500":
           description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/models.ErrorResponse'
       security:

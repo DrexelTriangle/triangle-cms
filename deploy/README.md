@@ -1,383 +1,193 @@
-# Triangle CMS Delta Deployment
+# Triangle CMS Delta deployment
 
-This directory describes the production deployment shape for Delta. It is split
-from local development and from database/proxy infrastructure on purpose.
+Production deployment shape for Delta, kept separate from local development and
+from database/proxy infrastructure.
 
-## Runtime Topology
+## Runtime topology
 
-Delta runs:
+Delta runs host Nginx on port 80, a self-hosted GitHub Actions runner (labels
+`drexel-vpn`, `delta`, `triangle-cms`), and four containers:
 
-- Host Nginx on HTTP port 80.
-- Self-hosted GitHub Actions runner with labels `drexel-vpn`, `delta`, and
-  `triangle-cms`.
-- Blue frontend container on `127.0.0.1:8091`.
-- Blue backend container on `127.0.0.1:8081`.
-- Green frontend container on `127.0.0.1:8092`.
-- Green backend container on `127.0.0.1:8082`.
+| Slot | Frontend | Backend |
+|---|---|---|
+| blue | `127.0.0.1:8091` | `127.0.0.1:8081` |
+| green | `127.0.0.1:8092` | `127.0.0.1:8082` |
 
-Delta does not run MariaDB, MaxScale, Loki, or Promtail in the CMS
-deployment Compose project. The backend connects to the external database/proxy
-endpoint supplied by `DB_HOST` and `DB_PORT` in the host-only `cms.env`.
+The CMS Compose project does not run MariaDB, MaxScale, Loki or Promtail. The
+backend connects to the external database/proxy endpoint given by `DB_HOST` and
+`DB_PORT` in the host-only `cms.env`.
 
-Loki and Promtail do run on Delta, but in the separate `triangle-observability`
-Compose project (`compose.observability.yml`). Nothing in CI/CD starts it: the
-deploy scripts pin `COMPOSE_FILE` to `compose.cms.yml` so that a CMS deploy can
-never tear the log stack down. It is brought up by hand, once, and `restart:
-unless-stopped` keeps it up across deploys.
+Loki and Promtail do run on Delta, in the separate `triangle-observability`
+Compose project, which lives in
+[`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure).
+Nothing here starts or stops it: the deploy scripts pin `COMPOSE_FILE` to
+`compose.cms.yml` so a CMS deploy cannot tear the log stack down, and
+`restart: unless-stopped` keeps it up across deploys.
 
-## Exposing Loki to the Triangle Grafana
+## Observability
 
-The Triangle Grafana queries Delta's Loki as a datasource. Loki has no
-authentication of its own in any configuration, so it is published only to
-`127.0.0.1:13100` and fronted by the `nginx/triangle-loki.conf` site on port
-3100, which adds basic auth, blocks the write path, and 404s everything that is
-not a query.
+Prometheus, Loki, Promtail, Alertmanager, blackbox and the two read-only nginx
+endpoints central Grafana queries all **moved to
+[`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure)**
+and are applied with `ansible-playbook playbooks/observability.yml`. This repo's
+workflow no longer deploys them.
 
-1. **The stack deploys itself.** `deploy/scripts/deploy-observability.sh` runs
-   as a step of the Deploy Delta workflow, immediately after the CMS deploy, so
-   an observability change reaches Delta the same way application code does —
-   merge to main and wait. Nothing here needs starting by hand.
+Two things about that stack constrain the CMS:
 
-   It syncs `observability/` and `compose.observability.yml` from the runner's
-   checkout into `~triangle-runner/triangle-observability` and runs Compose from
-   there. **It copies rather than running in place on purpose:** the checkout is
-   the only tree on Delta that contains `observability/`, but `actions/checkout`
-   resets it on every deploy, which would yank the bind-mount sources out from
-   under a long-lived stack. The destination is owned by the runner and sits
-   outside `_work/`, so Actions never touches it. Override with the
-   `DELTA_OBSERVABILITY_DIR` repository variable if the host is laid out
-   differently.
+- **Prometheus joins this project's Compose network**, declared `external` on
+  its side. The CMS stack must be up before the observability stack will start,
+  and **renaming a service in `compose.cms.yml` breaks scraping in a different
+  repository**: `observability/prometheus/prometheus.delta.yml` over there
+  scrapes both slots by container name.
+- **The backend exposes unauthenticated Prometheus metrics on `GET /metrics`.**
+  That is safe only because the host nginx proxies just `/v1` and `/swagger`, so
+  nothing routes it in from outside and Prometheus reaches it on the slot's
+  loopback port. If a vhost ever forwards `/metrics`, put it behind auth first:
+  it exposes route names, traffic volumes and error rates.
 
-   It **cannot** disturb the CMS: this is a separate Compose project, so
-   `up -d` cannot recreate or stop the slots. The one real coupling is that
-   Prometheus joins the CMS network, declared `external`, which is why the step
-   runs after the CMS deploy rather than beside it — and why a from-scratch
-   bring-up needs the CMS stack up first.
+`up{job="cms"}` returns **two** series, one per slot, labelled `slot="blue"` /
+`slot="green"`. The idle slot being up is normal and says nothing about which
+one serves traffic.
 
-   Two behaviours worth knowing before changing anything here:
-
-   - **A config-only change does not restart anything by itself.** `up -d` sees
-     an identical Compose spec and reports `Running` even though a mounted file's
-     contents changed, so the new config never takes effect. The script
-     fingerprints the synced tree and issues an explicit `restart` when it
-     differs — and skips it entirely when it does not, so an ordinary CMS deploy
-     costs nothing.
-   - **The sync is `--inplace`.** Ordinary `rsync` writes a temp file and
-     renames, giving every file a new inode, while a running container's bind
-     mount still holds the old one. That combination serves stale config that
-     looks correctly deployed.
-
-   The step fails the job if Prometheus comes up with zero alerting rules or no
-   attached Alertmanager, because a stack that is running but silently not
-   alerting is worse than one that is plainly down.
-
-   To run it by hand (from a repo checkout on Delta):
-
-   ```
-   deploy/scripts/deploy-observability.sh
-   ```
-
-2. **The Nginx sites deploy automatically too**, in the same step. They are
-   installed into `/etc/nginx/triangle-observability/`, a directory the runner
-   OWNS, which a root-owned `/etc/nginx/conf.d/triangle-observability.conf`
-   pulls in with a wildcard `include`.
-
-   That indirection is deliberate: it keeps the runner's sudo rights at exactly
-   the two commands the CMS deploy already needs — `nginx -t` and
-   `nginx -s reload` — rather than granting write access to `/etc/nginx` or a
-   general "install this file as root" rule. It is the same shape as
-   `/etc/nginx/triangle-cms/`, which the runner already owns for blue/green.
-
-   The install is transactional, because this Nginx also serves the CMS: the
-   live files are snapshotted, the new ones installed, and `nginx -t` run
-   **before** any reload. A config that fails validation is reverted and the step
-   fails — Nginx keeps serving the old config throughout, and no broken file is
-   left on disk for the *next* reload (which could be the CMS deploy's) to trip
-   over.
-
-   `nginx/triangle-cms.conf` is deliberately NOT deployed this way: it is the
-   live site's own server block, a materially larger blast radius than two
-   loopback-proxying endpoints, and it changes about never.
-
-   The **one-time root bootstrap**, already done on Delta. Note the sites no
-   longer live in `sites-available`/`sites-enabled` — a copy in both places
-   would collide on the same `listen` ports:
-
-   ```
-   sudo install -d -o triangle-runner -g triangle-runner -m 0750 \
-     /etc/nginx/triangle-observability
-   printf 'include /etc/nginx/triangle-observability/*.conf;\n' \
-     | sudo tee /etc/nginx/conf.d/triangle-observability.conf >/dev/null
-   sudo nginx -t && sudo nginx -s reload
-   ```
-
-3. Create the datasource credentials (still a manual, one-time step — it is a
-   secret, not config):
-
-   ```
-   sudo htpasswd -B -c /etc/nginx/triangle-observability.htpasswd triangle-grafana
-   sudo chown root:www-data /etc/nginx/triangle-observability.htpasswd
-   sudo chmod 0640 /etc/nginx/triangle-observability.htpasswd
-   sudo nginx -t && sudo nginx -s reload
-   ```
-
-   Both endpoints share one htpasswd file, so the Triangle Grafana uses the same
-   credentials for its Loki and Prometheus datasources. The plaintext is kept at
-   `/etc/triangle-observability/loki-datasource-password` (0600 root) — Nginx
-   stores only a bcrypt hash, so losing that file means resetting the password
-   rather than looking it up.
-
-   Note that `htpasswd` is not installed on Delta by default; it ships in
-   `apache2-utils` on Debian/Ubuntu and `httpd-tools` on RHEL-family hosts.
-
-4. Verify from Delta before handing the details over. Expect `401` then `200`:
-
-   ```
-   curl -s -o /dev/null -w '%{http_code}\n' localhost:3100/loki/api/v1/labels
-   curl -s -o /dev/null -w '%{http_code}\n' -u triangle-grafana \
-     localhost:3100/loki/api/v1/labels
-   ```
-
-   `curl -s localhost:3100/ready` reports `Pattern Ingester not ready: waiting
-   for 15s after being ready` indefinitely, and that is expected rather than a
-   fault: `loki-config.yml` enables `pattern_ingester`, whose readiness never
-   latches in a single-binary deployment. Loki serves queries normally. Use the
-   authenticated `/loki/api/v1/labels` call above as the real health signal.
-
-   Then confirm logs are actually arriving, which is the check that catches a
-   log-driver mismatch. This must return a non-empty list of container names:
-
-   ```
-   curl -s -u triangle-grafana \
-     'localhost:3100/loki/api/v1/label/container/values'
-   ```
-
-5. In the Triangle Grafana, add two datasources, both with Basic auth enabled
-   and the same credentials. No path prefix or extra headers are needed:
-
-   | Type | URL |
-   | --- | --- |
-   | Loki | `http://<delta-vpn-ip>:3100` |
-   | Prometheus | `http://<delta-vpn-ip>:9090` |
-
-   **Name them so they end in `-delta`** — in practice `prometheus-delta` and
-   `loki-delta`. The UIDs no longer matter: the CMS dashboard resolves its
-   datasources through two template variables (`prometheus_ds`, `loki_ds`)
-   whose `regex` is `/-delta$/`, so the dropdowns match only these two and bind
-   to them on import. Name one of them something else and it drops out of the
-   dropdown, and the panels go blank again.
-
-   This replaced hardcoded UIDs, which could not work here: the central Grafana
-   already had its own Prometheus and Loki holding the UIDs `prometheus` and
-   `loki`, and Grafana assigns a random UID to anything created through the UI.
-   Panels kept querying the *central* pair and rendered empty — the display name
-   was never what the dashboard looked at. The failure is silent: the dashboard
-   imports cleanly and every panel just shows no data.
-
-   The dashboard needs both datasources: 16 panel references query Prometheus
-   and only 3 query Loki, so a Loki-only setup renders a mostly empty dashboard.
-
-6. Import `observability/grafana/dashboards/gisbxcj.json`.
-
-**Delta no longer runs its own Grafana** (removed 2026-08-05). Every dashboard
-lives in the central Triangle Grafana, which reaches this stack through the two
-Nginx endpoints above, so a second local Grafana only duplicated it. Nothing was
-lost with it — the one dashboard it held was byte-identical to the repo copy.
-
-Removing it costs no alerting: the database-tier alerts live in Prometheus and
-Alertmanager, not Grafana, precisely so they survive this (see
-`deploy/mariadb/README.md`). Basic auth on these endpoints travels in cleartext;
-fold them into TLS when TLS lands on Delta.
-
-### Metrics and the CMS dashboard
-
-The backend exposes Prometheus metrics on `GET /metrics`, and the stack runs a
-Prometheus that scrapes both slots by container name
-(`observability/prometheus/prometheus.delta.yml`). To do that it attaches to the
-CMS project's network, declared `external` so this stack never owns it. The
-consequence is an ordering dependency: the CMS stack must be up first, or
-Compose refuses to start this one with a missing-network error.
-
-Scraping via the host gateway does not work, and it is worth knowing why before
-"simplifying" it back: the slots publish to `127.0.0.1:8081/8082`, loopback
-only, so a container dialling `172.17.0.1` gets connection refused.
-
-The "CMS Dashboard" JSON lives at `observability/grafana/dashboards/gisbxcj.json`
-and is imported into the central Grafana by hand — there is no local Grafana to
-provision it into any more.
-
-`/metrics` is unauthenticated. That is safe only because Nginx proxies just
-`/v1` and `/swagger`, so nothing routes it in from outside and Prometheus
-reaches it on the slot's loopback port. If a vhost ever forwards `/metrics`, put
-it behind auth first: it exposes route names, traffic volumes, and error rates.
-
-`up{job="cms"}` returns **two** series, one per slot, each labelled
-`slot="blue"` / `slot="green"`. The idle slot being up is normal and says
-nothing about which one serves traffic.
-
-Dashboards can be edited in the Grafana UI, and those edits live only in that
-Grafana's database until pulled back into the repo. Point the script at whichever
-Grafana holds them — now the central one, not Delta:
-
-**Check the diff before committing a pull.** Grafana serializes the *resolved*
-datasource of each panel, so a round-trip through the UI can write concrete UIDs
-back over the `${prometheus_ds}` / `${loki_ds}` references and re-create exactly
-the breakage the template variables exist to prevent. If `git diff` after a pull
-shows `"uid"` values that are not `${...}`, restore them before committing.
-
-```
-GF_URL=https://<central-grafana> \
-  GRAFANA_ADMIN_USER=... GRAFANA_ADMIN_PASSWORD=... scripts/pull-dashboards.sh
-```
+The local stack in the repo-root `docker-compose.yml` keeps its own Prometheus
+(`observability/prometheus/prometheus.dev.yml`). Its Loki, Promtail and Grafana
+services were removed when their shared configs moved, so `docker compose logs`
+is the local log story.
 
 ### Reading blue/green logs in Grafana
 
-Both slots run all the time. Only one receives traffic, and **nothing in the log
-stream says which one** -- the idle slot goes on emitting healthchecks
-indefinitely, so it is entirely possible to read the wrong slot's logs and
-conclude the site is idle. The active slot is whatever Nginx currently points
-at:
+Both slots run all the time, only one receives traffic, and **nothing in the log
+stream says which one**: the idle slot goes on emitting healthchecks
+indefinitely, so it is easy to read the wrong slot's logs and conclude the site
+is idle. The active slot is whatever Nginx points at:
 
 ```
 sudo cat /etc/nginx/triangle-cms/active-upstreams.conf   # set $triangle_cms_slot blue;
 ```
 
-Filter by slot in Grafana with the `compose_service` label
-(`backend-blue`, `frontend-green`, ...) or `container`
-(`triangle-cms-backend-blue-1`). Two consequences of how Compose names things:
+Filter by slot with the `compose_service` label (`backend-blue`,
+`frontend-green`) or `container` (`triangle-cms-backend-blue-1`). Two
+consequences of how Compose names things:
 
 - Container names are reused across deploys, so labels do not churn and
-  cardinality stays flat. But the pre-deploy and post-deploy containers for a
-  slot land in the *same* stream, so a deploy boundary is only visible by
-  timestamp, not by label.
+  cardinality stays flat. But a slot's pre-deploy and post-deploy containers
+  land in the *same* stream, so a deploy boundary is visible only by timestamp.
 - A slot's logs are captured from the moment its container starts, including
   startup and crash output, even though discovery only refreshes every 15s.
   Promtail backfills from the beginning of a newly discovered container's log,
   so a container that dies during a deploy still gets its logs shipped.
 
-Nginx serves whichever frontend slot is active and proxies `/v1`, `/swagger`,
-and `/swagger/` to the matching backend slot. The initial Nginx config listens on
-HTTP with `server_name _`, so it works through Delta's VPN IP or hostname before
-a public domain exists.
+Nginx serves whichever frontend slot is active and proxies `/v1`, `/swagger` and
+`/swagger/` to the matching backend slot. The initial config listens on HTTP
+with `server_name _`, so it works through Delta's VPN IP or hostname before a
+public domain exists.
 
-Later, when `cms.thetriangle.org` is ready, update the host Nginx site with that
-`server_name`, configure HTTPS certificates, update `FRONTEND_ORIGIN` and
-`OIDC_REDIRECT_URI` in `cms.env`, and update the GitHub environment variable
-`DELTA_PUBLIC_BASE_URL`. The backend should remain in `CMS_SERVER_MODE=internal-http`
-behind Nginx.
+When `cms.thetriangle.org` is ready: set that `server_name`, configure HTTPS,
+update `FRONTEND_ORIGIN` and `OIDC_REDIRECT_URI` in `cms.env`, and update the
+GitHub environment variable `DELTA_PUBLIC_BASE_URL`. The backend stays in
+`CMS_SERVER_MODE=internal-http` behind Nginx.
 
 ## Files
 
 - `compose.cms.yml` - Delta-only blue/green frontend/backend slots.
 - `cms.env.example` - sanitized variable-name-only production env template.
-- `nginx/triangle-cms.conf` - host Nginx site template.
+- `nginx/triangle-cms.conf` - **moved** to
+  [`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure)
+  (`roles/delta_cms_host/`). Install it with `playbooks/delta-host.yml`.
 - `nginx/triangle-cms-active-upstreams.conf.example` - generated include seed.
-- `nginx/triangle-loki.conf` - read-only Loki endpoint for the Triangle Grafana.
 - `scripts/deploy.sh` - deploy exact SHA to inactive slot, switch, smoke test.
-- `scripts/deploy-observability.sh` - sync and apply the observability stack and
-  its Nginx sites; runs as a Deploy Delta step after `deploy.sh`.
-- `scripts/rollback.sh` - explicit rollback to the other slot or named slot.
+- `scripts/rollback.sh` - explicit rollback to the other slot or a named slot.
 
-## One-Time Server Bootstrap
+## One-time server bootstrap
 
-A GitHub workflow cannot safely install and register its own runner. Bootstrap is
-a manual server task:
+A workflow cannot safely install and register its own runner, so bootstrap is a
+manual server task:
 
-1. Install Docker, the Docker Compose plugin, Nginx, curl or wget, and flock.
+1. Install Docker, the Compose plugin, Nginx, curl or wget, and flock.
 2. Create a least-privilege local user for deployments.
-3. Register a self-hosted GitHub Actions runner on Delta inside the Drexel VPN.
-   Apply the labels `drexel-vpn`, `delta`, and `triangle-cms`.
+3. Register a self-hosted runner on Delta inside the Drexel VPN, with labels
+   `drexel-vpn`, `delta`, `triangle-cms`.
 4. Allow the runner user to run Docker and reload/test Nginx. Prefer narrow
-   sudoers rules only for `/usr/sbin/nginx -t` and
-   `/usr/sbin/nginx -s reload`.
-5. Place the host-only production env file at the path configured by
-   `DELTA_CMS_ENV_FILE`. Do not put it in git.
-6. Install `nginx/triangle-cms.conf` as an enabled Nginx site.
-7. Create the narrow runtime-state directory and seed the active upstream
-   include:
+   sudoers rules for `/usr/sbin/nginx -t` and `/usr/sbin/nginx -s reload` only.
+5. Place the host-only production env file at `DELTA_CMS_ENV_FILE`. Not in git.
+6. Install the host Nginx site with `triangle-infrastructure`'s
+   `playbooks/delta-host.yml` (below).
+7. Create the runtime-state directory and seed the active upstream include:
 
    ```bash
-   sudo install -d \
-     -o triangle-runner \
-     -g triangle-runner \
-     -m 0750 \
+   sudo install -d -o triangle-runner -g triangle-runner -m 0750 \
      /etc/nginx/triangle-cms
 
-   sudo install \
-     -o triangle-runner \
-     -g triangle-runner \
-     -m 0644 \
+   sudo install -o triangle-runner -g triangle-runner -m 0644 \
      deploy/nginx/triangle-cms-active-upstreams.conf.example \
      /etc/nginx/triangle-cms/active-upstreams.conf
    ```
 
-8. Validate Nginx and reload it once during bootstrap.
+8. Validate Nginx and reload it once.
 9. Confirm the runner can pull GHCR images and run `docker compose`.
 
 Keep `/etc/nginx` root-owned and non-writable by the runner. Only
-`/etc/nginx/triangle-cms` is writable runtime state for deployments, scoped to
-the generated active upstream include. The directory should be owned by
-`triangle-runner:triangle-runner` with mode `0750`; the active include should be
-owned by `triangle-runner:triangle-runner` with mode `0644`. The host Nginx site
-such as `/etc/nginx/sites-available/triangle-cms.conf` remains root-owned.
+`/etc/nginx/triangle-cms` is runtime state, owned `triangle-runner:triangle-runner`
+mode `0750`, with the active include at `0644`. The site itself
+(`/etc/nginx/sites-available/triangle-cms.conf`) stays root-owned.
 
 ### Installing the Nginx site
 
-Steps 6-8 above, concretely. The repo is not checked out on Delta, so copy the
-two files over first (from a workstation, at the repo root):
+**This is Ansible's job.** The site and the runner-owned state directory are
+`roles/delta_cms_host` in
+[`triangle-infrastructure`](https://github.com/DrexelTriangle/triangle-infrastructure):
 
 ```bash
-scp deploy/nginx/triangle-cms.conf \
-    deploy/nginx/triangle-cms-active-upstreams.conf.example \
-    <user>@<delta>:/tmp/
+ansible-playbook playbooks/delta-host.yml --limit thetriangle-delta --check --diff
+ansible-playbook playbooks/delta-host.yml --limit thetriangle-delta
 ```
 
-Then on Delta:
+The role creates `/etc/nginx/triangle-cms` and **deliberately does not manage
+`active-upstreams.conf` inside it**. That file is written by `deploy.sh` on
+every release and read back to determine the live slot, so anything that
+templates it silently reverts production to the other slot.
+
+Seed the include once, by hand:
 
 ```bash
-sudo cp /tmp/triangle-cms.conf /etc/nginx/sites-available/triangle-cms.conf
-sudo ln -sf /etc/nginx/sites-available/triangle-cms.conf /etc/nginx/sites-enabled/
-
-sudo install -d -o triangle-runner -g triangle-runner -m 0750 /etc/nginx/triangle-cms
 sudo install -o triangle-runner -g triangle-runner -m 0644 \
-  /tmp/triangle-cms-active-upstreams.conf.example \
+  triangle-cms-active-upstreams.conf.example \
   /etc/nginx/triangle-cms/active-upstreams.conf
 
 # The stock default site also matches `server_name _` and can win the vhost pick.
 sudo rm -f /etc/nginx/sites-enabled/default
-
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
 Nginx will not start without `active-upstreams.conf`, since the site `include`s
-it unconditionally. A passing `nginx -t` *before* the site is enabled only
-validates the stock config and proves nothing.
+it unconditionally. A passing `nginx -t` *before* the site is enabled validates
+only the stock config and proves nothing.
 
-The site sets `client_max_body_size 91m` on `/v1/` to sit just above the
-backend's `MEDIA_MAX_UPLOAD_BYTES` (90 MiB default). Nginx's stock limit is 1m,
-which rejects an ordinary phone photo with a 413 before the CMS ever sees it, so
-a deploy that skips re-copying this file leaves media uploads broken while the
-app looks correctly configured. Raise both together, never just one.
+The site sets `client_max_body_size 91m` on `/v1/`, just above the backend's
+`MEDIA_MAX_UPLOAD_BYTES` (90 MiB default). Nginx's stock limit is 1m, which
+rejects an ordinary phone photo with a 413 before the CMS sees it, so a deploy
+that skips re-copying this file leaves uploads broken while the app looks
+correctly configured. Raise both together, never one.
 
-The 90 MiB figure is sized to the migrated corpus, which contains unresized
-camera originals up to ~77 MiB (largest: `2025/07/BZ9A5771.jpg`). The hard
-ceiling above it is Cloudflare's **100 MB** request-body limit on the tunnel
-fronting Delta; a body that passes Nginx and the backend but exceeds that dies
-at the edge with an error the CMS never sees, so do not raise the pair past
-~95 MiB without moving media uploads off the tunnel.
+90 MiB is sized to the migrated corpus, which holds unresized camera originals
+up to ~77 MiB (largest: `2025/07/BZ9A5771.jpg`). The ceiling above it is
+Cloudflare's **100 MB** request-body limit on the tunnel fronting Delta; a body
+that passes Nginx and the backend but exceeds that dies at the edge with an
+error the CMS never sees. Do not raise the pair past ~95 MiB without moving
+uploads off the tunnel.
 
-The backend streams uploads to a temp file rather than buffering them in RAM
-(only the first 8 MiB stays in memory), so a large upload costs container disk,
-not memory.
+The backend streams uploads to a temp file rather than buffering them (only the
+first 8 MiB stays in memory), so a large upload costs container disk, not
+memory.
 
 ### Media serving
 
 `location /wp-content/` reads the migrated WordPress corpus straight off CephFS.
-It has no dependency on the containers, the runner, or the database, so it can be
-brought up on its own before the rest of the stack exists. `/` and `/v1/` return
-502 until a slot is deployed; that is expected and does not affect media.
+It depends on no container, runner or database, so it can be brought up before
+the rest of the stack exists. `/` and `/v1/` return 502 until a slot is
+deployed; that is expected and does not affect media.
 
-Verify the mount and that the Nginx worker user can traverse to it:
+Verify the mount and that the Nginx worker can traverse to it:
 
 ```bash
 mountpoint /mnt/cephfs
@@ -386,24 +196,24 @@ sudo -u www-data ls /mnt/cephfs/media/wp-content/uploads >/dev/null && echo ok
 
 A failure there is almost always missing execute permission on a path component
 (`sudo chmod o+x /mnt/cephfs /mnt/cephfs/media`), not the Nginx config. On
-RHEL-family hosts SELinux blocks the read separately; check `ausearch -m avc -ts
-recent` and set `httpd_read_user_content`.
+RHEL-family hosts SELinux blocks the read separately: check
+`ausearch -m avc -ts recent` and set `httpd_read_user_content`.
 
-Smoke test with a real file:
+Smoke test with a real file, expecting `200` and
+`Cache-Control: public, max-age=2592000, immutable`:
 
 ```bash
 find /mnt/cephfs/media/wp-content/uploads -name '*.jpg' | head -1
 curl -I http://localhost/wp-content/uploads/YYYY/MM/name.jpg
 ```
 
-Expect `200` with `Cache-Control: public, max-age=2592000, immutable`.
+### Making the media tree writable
 
-### Making the media tree writable (uploads)
-
-The checks above only prove Nginx can *read*. `POST /v1/media` also has to
+Those checks only prove Nginx can *read*. `POST /v1/media` also has to
 **write**, and the rsynced corpus arrives owned by whoever ran the rsync
 (`tadmin`), mode 755, while the backend container runs as uid **10001**. Nothing
-in the read path notices, so uploads fail long after media serving looks healthy:
+in the read path notices, so uploads fail long after media serving looks
+healthy:
 
 ```bash
 docker exec triangle-cms-backend-blue-1 \
@@ -411,8 +221,8 @@ docker exec triangle-cms-backend-blue-1 \
 ```
 
 If that says `Permission denied`, grant the container uid write on upload
-directories. CephFS is mounted with `acl`, so this is additive -- ownership and
-the migrated files are untouched, and Nginx keeps reading as before. The mount
+directories. CephFS is mounted with `acl`, so this is additive: ownership and
+the migrated files are untouched, and Nginx keeps reading as before. A mount
 supporting ACLs does not mean the tools are installed; Ubuntu server images
 generally lack them:
 
@@ -422,18 +232,37 @@ sudo find /mnt/cephfs/media/wp-content/uploads -type d \
   -exec setfacl -m u:10001:rwx -m d:u:10001:rwx {} +
 ```
 
-The `d:` (default) entry is what makes each new `YYYY/MM` directory inherit the
-grant, so this does not need repeating every month.
+The `d:` (default) entry makes each new `YYYY/MM` directory inherit the grant,
+so this does not need repeating every month.
+
+**A later chmod silently disables it.** A chmod on an ACL'd directory sets the
+**ACL mask** from the mode's group bits, and the mask caps every named entry:
+`chmod 755` leaves `user:10001:rwx` printed but `#effective:r-x`. An rsync run
+with `--chmod=D755` does this to every directory it touches (see
+`docs/HANDOVER.md`; that command now uses `D775`).
+
+Nothing notices at the time. Uploads keep working until the 1st of the next
+month, when the handler first has to create a new `YYYY/MM`, and then every
+upload 500s. Check the mask, not the entry:
+
+```bash
+getfacl -pc /mnt/cephfs/media/wp-content/uploads/2026 | grep -E '10001|mask::'
+# want: user:10001:rwx  (no "#effective:") and mask::rwx
+setfacl -m m::rwx /mnt/cephfs/media/wp-content/uploads{,/2026}   # repair
+```
+
+Only those two levels matter: `uploads/` creates the year, `uploads/YYYY/`
+creates the month. `triangle-infrastructure`'s `delta_cms_host` role repairs
+both on every playbook run.
 
 Without the `acl` package, setgid does the same job in plain POSIX, at the cost
-of changing group ownership rather than adding a grant beside it:
+of changing group ownership rather than adding a grant beside it. `101` is the
+container's gid; the setgid bit is what new directories inherit:
 
 ```bash
 sudo find /mnt/cephfs/media/wp-content/uploads -type d -exec chgrp 101 {} +
 sudo find /mnt/cephfs/media/wp-content/uploads -type d -exec chmod 2775 {} +
 ```
-
-`101` is the container's gid; the setgid bit is what new directories inherit.
 
 The failure is easy to misread. `MkdirAll` returns nil for a directory that
 already exists, and every migrated `YYYY/MM` directory does exist, so a
@@ -444,8 +273,8 @@ create upload directory`. Check the backend log for the underlying `error=`.
 
 Serving the files is independent of *listing* them. The CMS media page reads a
 `media` table, which starts empty: the rsynced corpus is on disk but unknown to
-the database. After the media rsync completes, populate it once from the CMS
-(Media -> Reindex) or directly:
+the database. After the rsync, populate it once from the CMS (Media -> Reindex)
+or directly:
 
 ```bash
 curl -X POST https://localhost/v1/media/index   # admin session required; returns 202
@@ -453,34 +282,33 @@ curl https://localhost/v1/media/index           # poll progress
 ```
 
 It walks `MEDIA_ROOT/wp-content/uploads`, skips WordPress's generated `-WxH`
-thumbnails, and inserts a row per original. It is idempotent and safe to re-run —
-already-indexed files are skipped and any alt text set in the CMS is preserved —
-so re-run it after any later out-of-band rsync. Uploads through the CMS index
-themselves and need no reindex.
+thumbnails, and inserts a row per original. It is idempotent: already-indexed
+files are skipped and any alt text set in the CMS is preserved, so re-run it
+after any later out-of-band rsync. Uploads through the CMS index themselves.
 
 **The index runs in the background.** `POST` returns `202` immediately and `GET`
 reports `{running, progress:{walked, scanned, added, skipped}, error}`; a second
-`POST` while one is in flight returns `409`. This is not cosmetic: the real corpus
-is ~145k filesystem entries and the walk takes minutes, while Nginx cuts an idle
-upstream read at 60s and Cloudflare at ~100s. A synchronous version was cancelled
-by those proxies every time and could never finish. A run is capped at two hours
-so a wedged filesystem cannot leave the job stuck "running" forever.
+`POST` while one is in flight returns `409`. The real corpus is ~145k filesystem
+entries and the walk takes minutes, while Nginx cuts an idle upstream read at
+60s and Cloudflare at ~100s, so a synchronous version could never finish. A run
+is capped at two hours so a wedged filesystem cannot leave the job stuck.
 
-Progress is reported per entry *walked* rather than per file indexed, because the
-corpus is mostly derivatives that are skipped without a stat — counting only
-indexed files would look frozen for long stretches.
+Progress counts entries *walked* rather than files indexed: the corpus is mostly
+skipped derivatives, so counting indexed files would look frozen for long
+stretches.
 
 ### The public photo gallery
 
-`/v1/gallery`, which the public site's `/photo` page reads, serves only images an
+`/v1/gallery`, which the public `/photo` page reads, serves only images an
 editor has marked (Media -> open an image -> "Show on the photo gallery", or the
-"Photo gallery" filter to review the current set). The library itself is every
-file on the mount — house ads, comic strips, crossword scans — so an unfiltered
-gallery is a dump of the upload directory rather than the photo desk's work.
+"Photo gallery" filter to review the set). The library is every file on the
+mount, house ads and comic strips and crossword scans included, so an unfiltered
+gallery would be a dump of the upload directory rather than the photo desk's
+work.
 
 Reindexing never sets the flag. WordPress kept the same selection as the
-`include_in_gallery` attachment meta, so seed it once per cutover from the legacy
-database:
+`include_in_gallery` attachment meta, so seed it once per cutover from the
+legacy database:
 
 ```bash
 python ./scripts/backfill_gallery_flags.py \
@@ -491,71 +319,61 @@ python ./scripts/backfill_gallery_flags.py \
 Passwords come from `WP_DB_PASSWORD` / `CMS_DB_PASSWORD` or a prompt. Drop
 `--dry-run` to apply. By default the CMS ends up matching WordPress exactly,
 which also *clears* marks made in the CMS since the last run; once editors are
-curating in the CMS, use `--additive` so it only ever adds. Run it after the
-media reindex — it matches on file path, and images the library has not seen yet
-are reported and skipped.
+curating in the CMS, use `--additive`. Run it after the media reindex: it
+matches on file path, and images the library has not seen are reported and
+skipped.
 
 ### Disk
 
-Blue/green keeps two frontend and two backend images resident, plus whatever
-prior tags have not been reaped. Delta's root filesystem is small (15 GB), so
-prune before it fills:
+Blue/green keeps two frontend and two backend images resident, plus unreaped
+prior tags. Prune before Delta's root filesystem fills:
 
 ```bash
 docker image prune -af --filter 'until=168h'
 ```
 
-## Required Host Environment
+## Required host environment
 
-Copy `cms.env.example` to the private host env path and fill it with real values.
-The file must contain the exact immutable image tag for the active deployment:
+Copy `cms.env.example` to the private host env path and fill in real values. It
+must carry the exact immutable image tag for the active deployment.
 
-- `CMS_IMAGE_TAG`
-- `CMS_BACKEND_IMAGE`
-- `CMS_FRONTEND_IMAGE`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_HOST`
-- `DB_PORT`
-- `OIDC_ISSUER_URL`
-- `OIDC_CLIENT_ID`
-- `OIDC_CLIENT_SECRET`
-- `FRONTEND_ORIGIN`
-- `OIDC_REDIRECT_URI`
-- `CMS_SESSION_TTL_SECONDS`
-- `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP`
-- `AKISMET_API_KEY` - optional; leave empty to disable comment spam filtering.
-- `AKISMET_BLOG_URL` - full public site URL Akismet should associate with
-  comment checks. Required when `AKISMET_API_KEY` is set.
+`CMS_IMAGE_TAG`, `CMS_BACKEND_IMAGE`, `CMS_FRONTEND_IMAGE`, `DB_NAME`,
+`DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `OIDC_ISSUER_URL`,
+`OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `FRONTEND_ORIGIN`, `OIDC_REDIRECT_URI`,
+`CMS_SESSION_TTL_SECONDS`, `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP`, plus:
+
+- `AKISMET_API_KEY` - optional; empty disables comment spam filtering.
+- `AKISMET_BLOG_URL` - public site URL Akismet associates with comment checks.
+  Required when `AKISMET_API_KEY` is set.
 - `MEDIA_HOST_PATH` - host path to the CephFS media tree, bind-mounted into the
   backend. Defaults to `/mnt/cephfs/media`.
 - `MEDIA_ROOT` - the same tree as seen *inside* the container. Leave at
   `/mnt/cephfs/media` unless the bind-mount target changes.
-- `MEDIA_BASE_URL` - public origin that serves `/wp-content/`, used to build
-  media URLs returned by the upload endpoint. Empty yields relative URLs.
-- `MEDIA_MAX_UPLOAD_BYTES` - per-file upload cap in bytes. Empty uses the
-  90 MiB default. Must stay at or below Nginx's `client_max_body_size`.
+- `MEDIA_BASE_URL` - public origin serving `/wp-content/`, used to build media
+  URLs returned by the upload endpoint. Empty yields relative URLs.
+- `MEDIA_MAX_UPLOAD_BYTES` - per-file upload cap in bytes; empty uses the 90 MiB
+  default. Must stay at or below Nginx's `client_max_body_size`.
 
-Keep `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP=false` in production. Rebuild
-taxonomy through the admin endpoint after deploys when needed.
+Keep `CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP=false` in production; rebuild
+through the admin endpoint after deploys when needed.
 
-New users are created as editors. The very first user to log in to an empty
+New users are created as editors. The first user to log in to an empty
 `cms_users` table is bootstrapped as an admin; promote anyone else from the
 users screen.
 
-## Required GitHub Production Environment Variables
+## Required GitHub environment variables
 
-Configure these as GitHub Environment variables for `production`:
+Set these on the `production` GitHub Environment:
 
 - `DELTA_CMS_ENV_FILE` - absolute path to the host-only `cms.env`.
-- `DELTA_NGINX_ACTIVE_INCLUDE` - usually `/etc/nginx/triangle-cms/active-upstreams.conf`.
+- `DELTA_NGINX_ACTIVE_INCLUDE` - usually
+  `/etc/nginx/triangle-cms/active-upstreams.conf`.
 - `DELTA_PUBLIC_BASE_URL` - initial HTTP VPN URL or hostname for smoke tests.
 
-Production database passwords, OIDC secrets, runner registration tokens,
-certificates, and server addresses must not be exposed to pull-request workflows.
-The deploy workflow runs only on the labelled self-hosted runner and uses the
-host env file.
+Database passwords, OIDC secrets, runner registration tokens, certificates and
+server addresses must not be exposed to pull-request workflows. The deploy
+workflow runs only on the labelled self-hosted runner and uses the host env
+file.
 
 ## Deployment
 
@@ -565,70 +383,50 @@ Images are immutable and tagged only with the full commit SHA:
 - `ghcr.io/drexeltriangle/triangle-cms-frontend:<sha>`
 
 Automatic publish runs only after a successful CI workflow for a trusted push to
-`main`. It publishes backend and frontend images tagged with that exact commit
-SHA. Manual publish is intentionally unsupported.
+`main`, and tags both images with that exact SHA. Manual publish is
+intentionally unsupported.
 
-The deploy workflow checks out trusted deployment code from the protected default
-branch. The image SHA is data only: it is never used as an Actions checkout ref,
-script path, Compose-file source, env-file source, or executable source.
-
-The deploy workflow runs:
+The deploy workflow checks out deployment code from the protected default
+branch. The image SHA is data only: never an Actions checkout ref, script path,
+Compose-file source, env-file source, or executable source.
 
 ```bash
 deploy/scripts/deploy.sh <full-commit-sha>
 ```
 
-The script:
+The script acquires an exclusive `flock`, runs preflight checks, reads the
+active slot from the Nginx include, pulls the exact SHA images, starts only the
+inactive slot, waits for backend `/v1/health/db` and frontend `/healthz`, writes
+the active include atomically, runs `nginx -t` and a graceful reload, then runs
+public smoke tests through Nginx. It switches back automatically if post-switch
+smoke tests fail, and keeps the previous slot running for fast rollback. It
+never runs `docker compose down -v` and never deletes persistent data.
 
-- Acquires an exclusive `flock`.
-- Runs deployment preflight checks before pulling images or starting containers.
-- Reads the active slot from the Nginx include.
-- Pulls the exact frontend/backend SHA images.
-- Starts only the inactive frontend/backend services.
-- Waits for backend `/v1/health/db` and frontend `/healthz`.
-- Writes the active Nginx include atomically.
-- Runs `nginx -t` and gracefully reloads Nginx.
-- Runs public smoke tests through Nginx.
-- Switches back automatically if post-switch smoke tests fail.
-- Keeps the previous slot running for fast rollback.
-
-It never runs `docker compose down -v` and never deletes persistent data.
-
-The deployment preflight fails before pulling images, starting containers, or
-switching Nginx if the active include directory is missing or not writable, an
-existing active include is not readable and writable, the active slot is not
-`blue` or `green`, `cms.env` is missing or unreadable, or Nginx validation/reload
-privileges are not available.
+Preflight fails before pulling images, starting containers or switching Nginx if
+the active include directory is missing or not writable, an existing include is
+not readable and writable, the active slot is not `blue` or `green`, `cms.env`
+is missing or unreadable, or Nginx validation/reload privileges are unavailable.
 
 ## Rollback
 
-Rollback switches Nginx back to the previous running slot:
+Switches Nginx back to the previous running slot, optionally by name:
 
 ```bash
 deploy/scripts/rollback.sh
-```
-
-You can also name a target slot:
-
-```bash
 deploy/scripts/rollback.sh blue
-deploy/scripts/rollback.sh green
 ```
 
-For recovery to an older image SHA, manually run the deploy workflow with that
-full SHA. The backend and frontend images for that SHA must already exist in
-GHCR. Manual deployment starts the inactive slot with those immutable images and
-then switches traffic after health checks.
+To recover an older image SHA, run the deploy workflow manually with that SHA;
+its backend and frontend images must already exist in GHCR. That starts the
+inactive slot on those immutable images and switches after health checks.
 
-## Stateful and Rollback Notes
+## Stateful and rollback notes
 
-The backend runs additive, idempotent startup schema operations such as
-`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, and one guarded SEO
-backfill. Rollback is safe only while database changes stay backward-compatible.
-Do not deploy destructive migrations without a backup and a tested restoration
-plan.
+The backend runs additive, idempotent startup schema operations (`CREATE TABLE
+IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, one guarded SEO backfill). Rollback
+is safe only while database changes stay backward-compatible. Do not deploy
+destructive migrations without a backup and a tested restore.
 
-Activity/audit state is in MariaDB. Article edit leases and IP rate-limit
-counters remain in process memory; they can reset during a release switch. Shared
-locking/rate limiting should move to MariaDB or Redis later, but that is outside
-this CI/CD implementation.
+Activity and audit state is in MariaDB. Article edit leases and IP rate-limit
+counters live in process memory and can reset during a release switch; shared
+locking and rate limiting should move to MariaDB or Redis eventually.

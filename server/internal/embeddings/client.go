@@ -35,8 +35,8 @@ const (
 var ErrDisabled = errors.New("embeddings: no sidecar configured")
 
 // queryCacheSize bounds the query-embedding cache. Newsroom search traffic is
-// heavily repeated -- the same handful of terms, plus every prefix of whatever
-// someone is currently typing -- so a small cache removes most sidecar round
+// heavily repeated (the same handful of terms, plus every prefix of whatever
+// someone is currently typing) so a small cache removes most sidecar round
 // trips from the request path.
 const queryCacheSize = 512
 

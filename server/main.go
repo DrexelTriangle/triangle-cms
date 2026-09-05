@@ -138,6 +138,9 @@ func main() {
 	if err := database.EnsureArticleAuthorsIndex(context.Background(), db); err != nil {
 		slog.Error("failed to index article authors; byline lookups scan the join table", "error", err)
 	}
+	if err := database.EnsureArticlesBreakingNewsIndex(context.Background(), db); err != nil {
+		slog.Error("failed to index breaking-news articles; the homepage banner lookup scans the table", "error", err)
+	}
 
 	// Deliberately not fatal, and deliberately after the column migration: the
 	// first FULLTEXT index on `articles` rebuilds the table, which on the
@@ -202,6 +205,17 @@ func main() {
 	if err := database.BackfillArticleSEOFromYoast(context.Background(), db); err != nil {
 		slog.Error("failed to backfill article SEO from Yoast export", "error", err)
 		os.Exit(1)
+	}
+	// What that backfill copies is a Yoast *template* ("%%title%% %%page%%"),
+	// which WordPress substituted at render time and nothing substitutes now, so
+	// the tokens reached the public site's <title> and og:title verbatim. Runs
+	// on every start rather than behind the backfill's one-time flag: a database
+	// seeded before this existed already holds the templates. Idempotent.
+	if expanded, err := database.ExpandYoastTitleTemplates(context.Background(), db); err != nil {
+		slog.Error("failed to expand Yoast SEO title templates", "error", err)
+		os.Exit(1)
+	} else if expanded > 0 {
+		slog.Info("expanded Yoast SEO title templates", "articles", expanded)
 	}
 	if err := database.EnsureTaxonomyTable(context.Background(), db); err != nil {
 		slog.Error("failed to create taxonomy table", "error", err)
@@ -378,7 +392,7 @@ func newDefaultServer(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Lo
 			// Metrics is outermost: Chain applies in reverse, so it wraps
 			// Recovery and therefore records the 500 a panic turns into rather
 			// than losing the request entirely. Compression sits just inside
-			// Logging and just outside Recovery -- see middleware.Compression
+			// Logging and just outside Recovery; see middleware.Compression
 			// for why that position is the only correct one.
 			Handler:   middleware.Chain(mux, middleware.Metrics, middleware.Logging, middleware.Compression, middleware.Recovery),
 			TLSConfig: tlsConfig,

@@ -58,7 +58,7 @@ func TestFuseByReciprocalRank(t *testing.T) {
 		},
 		{
 			// A result deep in the lexical list but top of the vector list should
-			// still surface -- this is the "story about parking permits that never
+			// still surface: this is the "story about parking permits that never
 			// says parking" case the vector half exists for.
 			name:    "a deep lexical hit rises on a strong vector rank",
 			lexical: []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
@@ -92,8 +92,8 @@ func TestFuseByReciprocalRankKeepsResultsUnique(t *testing.T) {
 
 // The nearest-neighbour scan must stand alone in a derived table. MariaDB only
 // uses the HNSW index for a bare ORDER BY VEC_DISTANCE ... LIMIT over the one
-// table, so joining articles in to filter by visibility -- the obvious way to
-// write this, and how it was first written -- silently disqualifies the index
+// table, so joining articles in to filter by visibility (the obvious way to
+// write this, and how it was first written) silently disqualifies the index
 // and turns the query into a full scan of every stored vector plus a filesort.
 // On the production corpus that was 360ms against 7ms.
 //
@@ -109,7 +109,7 @@ func TestBuildVectorNeighbourQueryKeepsTheScanIndexEligible(t *testing.T) {
 	if orderBy < 0 {
 		t.Fatalf("query no longer orders the inner scan by distance:\n%s", query)
 	}
-	// Nothing may join before the distance ordering -- that is exactly what
+	// Nothing may join before the distance ordering; that is exactly what
 	// disqualifies the index.
 	if inner := query[:orderBy]; strings.Contains(strings.ToUpper(inner), "JOIN") {
 		t.Errorf("the vector scan joins another table before ordering by distance, which disqualifies the HNSW index:\n%s", query)

@@ -119,7 +119,7 @@ func TestAppendCategorySlugCondition(t *testing.T) {
 	}
 
 	// Whole category titles, compared for equality against the
-	// article_categories index -- so a slug matches a whole category and never
+	// article_categories index, so a slug matches a whole category and never
 	// a fragment of a longer one. See db.CategoryMatchValues.
 	wantArgs := []string{
 		"comics-puzzles",
@@ -432,6 +432,9 @@ func TestArticleDetailCondition_AnonymousSeesOnlyLiveArticles(t *testing.T) {
 	if !strings.Contains(got, "`archived_at` IS NULL") {
 		t.Fatalf("anonymous lookup must exclude archived articles, got %q", got)
 	}
+	if !strings.Contains(got, "ORDER BY `id` LIMIT 1") {
+		t.Fatalf("lookup must resolve duplicates deterministically, got %q", got)
+	}
 }
 
 func TestArticleDetailCondition_EditorSeesEverything(t *testing.T) {
@@ -440,8 +443,16 @@ func TestArticleDetailCondition_EditorSeesEverything(t *testing.T) {
 
 	got := articleDetailCondition(req)
 
-	if got != "`slug` = ?" {
+	if !strings.HasPrefix(got, "`slug` = ?") {
+		t.Fatalf("editor lookup must match on the slug, got %q", got)
+	}
+	if strings.Contains(got, "pub_date") || strings.Contains(got, "archived_at") {
 		t.Fatalf("editor lookup must not be narrowed, got %q", got)
+	}
+	// Duplicated slugs make "the article" a choice, and it has to be the same
+	// choice every time.
+	if !strings.Contains(got, "ORDER BY `id` LIMIT 1") {
+		t.Fatalf("lookup must resolve duplicates deterministically, got %q", got)
 	}
 }
 
@@ -631,7 +642,7 @@ func TestSetPublicReadCache_EditorIsNotCacheable(t *testing.T) {
 	setPublicReadCache(rec, req)
 
 	if got := rec.Header().Get("Cache-Control"); got != uncacheableCacheControl {
-		t.Fatalf("Cache-Control = %q, want %q -- an editor's drafts must never be publicly cached", got, uncacheableCacheControl)
+		t.Fatalf("Cache-Control = %q, want %q; an editor's drafts must never be publicly cached", got, uncacheableCacheControl)
 	}
 	if strings.Contains(rec.Header().Get("Cache-Control"), "public") {
 		t.Error("an editor's response must not be marked public")

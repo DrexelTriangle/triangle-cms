@@ -454,7 +454,7 @@ export default function CommentsView() {
             {comments.map((comment) => {
               const actionsDisabled = busyCommentId !== null
               const hasMappedArticle = comment.article_slug && comment.article_id > 0
-              const articlePath = hasMappedArticle ? `/articles/${encodeURIComponent(comment.article_slug)}/edit` : ""
+              const articlePath = hasMappedArticle ? `/articles/${encodeURIComponent(String(comment.article_id))}/${encodeURIComponent(comment.article_slug)}/edit` : ""
               const publicPath = comment.article_slug ? `${siteUrl}/article/${comment.article_slug}` : ""
 
               return (

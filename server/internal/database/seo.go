@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -168,4 +169,156 @@ func auditArticle(id int64, slug, title, seoTitle, metaDesc, focusKeyword, photo
 func hasFeaturedImage(photoURL string) bool {
 	trimmed := strings.TrimSpace(photoURL)
 	return trimmed != "" && trimmed != "-1"
+}
+
+// yoastVariablePattern matches a Yoast template variable: "%%title%%".
+var yoastVariablePattern = regexp.MustCompile(`%%[a-zA-Z0-9_]+%%`)
+
+// yoastGluedSeparatorPattern finds a separator an editor typed with no space
+// before the variable that follows it ("Pars pro Toto -%%sitename%%").
+var yoastGluedSeparatorPattern = regexp.MustCompile(`([-|\x{2013}\x{2014}])(%%)`)
+
+// yoastSeparatorRunPattern collapses separators a dropped variable has left
+// sitting next to each other.
+var yoastSeparatorRunPattern = regexp.MustCompile(`(?:\s*-\s*){2,}`)
+
+// HasYoastVariables reports whether a value still carries an unexpanded Yoast
+// template variable.
+func HasYoastVariables(value string) bool {
+	return yoastVariablePattern.MatchString(value)
+}
+
+// ExpandYoastTitle turns a Yoast SEO title template into finished text.
+//
+// WordPress stored an article's SEO title as a template rather than as a title
+// ("%%title%% %%page%%", or a headline with "%%page%% %%sep%% %%sitename%%"
+// appended) and Yoast substituted the variables when it rendered the page.
+// Nothing substitutes them here, so a template copied into seo_title verbatim
+// reaches the public site's <title>, og:title and twitter:title as the literal
+// tokens. Mirrors expandSeoVariables in Scalene's src/utils/seoTemplate.ts; the
+// two are meant to agree.
+//
+// %%page%% expands to nothing, as it did under Yoast: it numbers the pages of a
+// paginated archive, and an article is one page. A variable this corpus does
+// not carry is dropped rather than left visible: an unrecognised token is
+// still a token, and printing it is the defect.
+//
+// Returns "" when nothing usable survives, which callers store as a blank
+// seo_title: the public site then renders the headline, which is what Yoast's
+// default template meant in the first place.
+func ExpandYoastTitle(template, title, siteTitle, primaryCategory string) string {
+	if template == "" {
+		return ""
+	}
+
+	spaced := yoastGluedSeparatorPattern.ReplaceAllString(template, "$1 $2")
+
+	const sep = "-"
+	expanded := yoastVariablePattern.ReplaceAllStringFunc(spaced, func(token string) string {
+		switch strings.ToLower(strings.Trim(token, "%")) {
+		case "title":
+			return strings.TrimSpace(title)
+		case "sitename":
+			return strings.TrimSpace(siteTitle)
+		case "primary_category":
+			return strings.TrimSpace(primaryCategory)
+		case "sep":
+			return sep
+		default:
+			return ""
+		}
+	})
+
+	return tidyYoastSeparators(expanded, sep)
+}
+
+// tidyYoastSeparators cleans up after a variable that expanded to nothing: the
+// punctuation framing it is still there, so a template ending in %%sep%% leaves
+// the title hanging on a dash and a dropped %%page%% leaves two separators in a
+// row. Returns "" when only punctuation survived.
+func tidyYoastSeparators(value, sep string) string {
+	collapsed := strings.Join(strings.Fields(value), " ")
+	collapsed = yoastSeparatorRunPattern.ReplaceAllString(collapsed, " "+sep+" ")
+	collapsed = strings.TrimSpace(strings.TrimPrefix(collapsed, sep))
+	collapsed = strings.TrimSpace(strings.TrimSuffix(collapsed, sep))
+	if collapsed == sep {
+		return ""
+	}
+	return collapsed
+}
+
+// isRedundantSEOTitle reports whether an expanded title says no more than the
+// public site would render on its own: the headline, or the headline with the
+// publication name appended, which is the fallback the article page already
+// builds (ArticleLayout.astro).
+func isRedundantSEOTitle(expanded, title, siteTitle string) bool {
+	normalize := func(value string) string {
+		return strings.ToLower(strings.Join(strings.Fields(value), " "))
+	}
+	candidate := normalize(expanded)
+	return candidate == "" ||
+		candidate == normalize(title) ||
+		candidate == normalize(title+" - "+siteTitle)
+}
+
+// ExpandYoastTitleTemplates rewrites every seo_title still holding a Yoast
+// template into the text Yoast would have rendered.
+//
+// Runs after the Yoast backfill rather than inside it: the backfill only fills
+// blanks and records a one-time flag, so on a database seeded before this
+// existed the templates are already in place and would never be revisited.
+// Idempotent: expanded text carries no variables, so a second pass matches
+// nothing.
+func ExpandYoastTitleTemplates(ctx context.Context, conn *sql.DB) (int, error) {
+	siteTitle, err := GetSiteTitle(ctx, conn)
+	if err != nil {
+		return 0, err
+	}
+
+	rows, err := conn.QueryContext(ctx, `
+		SELECT id, COALESCE(title, ''), COALESCE(seo_title, ''),
+		       COALESCE(JSON_VALUE(categories, '$[0]'), '')
+		FROM articles
+		WHERE seo_title REGEXP '%%[a-zA-Z0-9_]+%%'
+	`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type rewrite struct {
+		id       int64
+		seoTitle string
+	}
+	var pending []rewrite
+	for rows.Next() {
+		var id int64
+		var title, seoTitle, primaryCategory string
+		if err := rows.Scan(&id, &title, &seoTitle, &primaryCategory); err != nil {
+			return 0, err
+		}
+		expanded := ExpandYoastTitle(seoTitle, title, siteTitle, primaryCategory)
+		// Yoast's default template is the headline, so expanding it stores a
+		// custom SEO title that says what the article already says, and then
+		// stops tracking the headline when an editor rewrites it. Blank means
+		// "use the headline", which is both what the template meant and what the
+		// SEO audit treats as fine (see auditArticle).
+		if isRedundantSEOTitle(expanded, title, siteTitle) {
+			expanded = ""
+		}
+		pending = append(pending, rewrite{id: id, seoTitle: expanded})
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	for _, row := range pending {
+		if _, err := conn.ExecContext(ctx,
+			"UPDATE articles SET seo_title = ? WHERE id = ?", row.seoTitle, row.id,
+		); err != nil {
+			return 0, err
+		}
+	}
+
+	return len(pending), nil
 }

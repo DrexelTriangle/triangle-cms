@@ -7,7 +7,7 @@ import EditArticleView from "./editArticleView"
 
 // The publish-timing radios are intent, not action: only the publish button may
 // move an article across the draft/live line. These tests pin that, because the
-// failure mode is silent -- an editor clicking "Publish now" to read the blurb
+// failure mode is silent: an editor clicking "Publish now" to read the blurb
 // would have had the article on the public site 2.5 seconds later.
 
 const ARTICLE_SLUG = "live-story"
@@ -105,12 +105,15 @@ vi.mock("../components/SeoAnalysis", () => ({ default: () => null }))
 
 const patchCalls = () => apiCalls.filter((call) => call.method === "PATCH")
 
-const renderEditor = async () => {
+const renderEditor = async (
+  initialEntry = `/articles/${ARTICLE_SLUG}/edit`,
+  routePath = "/articles/:slug/edit",
+) => {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
   render(
-    <MemoryRouter initialEntries={[`/articles/${ARTICLE_SLUG}/edit`]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
-        <Route path="/articles/:slug/edit" element={<EditArticleView />} />
+        <Route path={routePath} element={<EditArticleView />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -166,6 +169,22 @@ describe("EditArticleView autosave", () => {
     expect(patches[0].body).not.toHaveProperty("status")
     expect(patches[0].body).not.toHaveProperty("published_date")
     expect(patches[0].body?.content).toContain("and more")
+  })
+
+  it("loads and saves by id when the editor route carries one", async () => {
+    const user = await renderEditor(
+      `/articles/42/${ARTICLE_SLUG}/edit`,
+      "/articles/:id/:slug/edit",
+    )
+
+    expect(apiCalls.some((call) => call.method === "GET" && call.url === `/v1/articles/${ARTICLE_SLUG}?id=42`)).toBe(true)
+
+    await user.type(screen.getByTestId("article-body"), " and more")
+    await waitOutAutosave()
+
+    const patches = patchCalls()
+    expect(patches).toHaveLength(1)
+    expect(patches[0].url).toBe(`/v1/articles/${ARTICLE_SLUG}?id=42`)
   })
 
   it("does not unpublish a live article when the editor only selects Draft", async () => {
@@ -309,7 +328,7 @@ describe("EditArticleView SEO tag suggestions", () => {
   })
 
   // A suggestion for a tag the article already carries is a dead control, and
-  // clicking it would look broken -- the add is a no-op against the dedupe.
+  // clicking it would look broken: the add is a no-op against the dedupe.
   it("does not suggest a tag the article already carries", async () => {
     articleTags = ["triangle"]
     await renderEditor()
@@ -377,7 +396,7 @@ describe("EditArticleView SEO tag suggestions", () => {
     expect(searches[0].url).toContain("q=lacrosse")
   })
 
-  // A tag nobody has used is still a tag worth adding -- but the editor should
+  // A tag nobody has used is still a tag worth adding, but the editor should
   // be told that is what they are doing.
   it("says so when nothing in the archive matches", async () => {
     const user = await renderEditor()

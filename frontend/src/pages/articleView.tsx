@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2, Copy, Check } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { articleUrl } from "../auth/urls"
@@ -54,6 +54,8 @@ type ApiTaxonomyItem = {
   type: string
   slug: string
   canonical_title: string
+  // Only subsections carry one; it names the section or subsection above them.
+  parent_slug?: string | null
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200]
@@ -100,6 +102,7 @@ type ArticleViewUIState = {
   activeTab?: "all" | "trash"
   authorQuery?: string
   sectionFilterSlug?: string
+  subsectionFilterSlug?: string
   publishedFilter?: PublishedFilter
   dateSortDirection?: "asc" | "desc"
   pageSize?: number
@@ -134,6 +137,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const resultsCacheKey = `${storageKeyBase}:results`
   const authorsCacheKey = `${storageKeyBase}:authors`
   const sectionsCacheKey = "articleView:sections"
+  const subsectionsCacheKey = "articleView:subsections"
   const loadUIState = () => readSessionJSON<ArticleViewUIState>(uiStateKey, {})
 
   const [searchQuery, setSearchQuery] = useState(() => loadUIState().searchQuery ?? "")
@@ -147,6 +151,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const [authorQuery, setAuthorQuery] = useState(() => loadUIState().authorQuery ?? "")
   const [sections, setSections] = useState<ApiTaxonomyItem[]>([])
   const [sectionFilterSlug, setSectionFilterSlug] = useState(() => loadUIState().sectionFilterSlug ?? "")
+  const [subsections, setSubsections] = useState<ApiTaxonomyItem[]>([])
+  const [subsectionFilterSlug, setSubsectionFilterSlug] = useState(() => loadUIState().subsectionFilterSlug ?? "")
   const [publishedFilter, setPublishedFilter] = useState<PublishedFilter>(() => loadUIState().publishedFilter ?? "all")
   const [dateSortDirection, setDateSortDirection] = useState<"asc" | "desc">(() => loadUIState().dateSortDirection ?? "desc")
   const [isLoading, setIsLoading] = useState(true)
@@ -161,11 +167,22 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
       activeTab,
       authorQuery,
       sectionFilterSlug,
+      subsectionFilterSlug,
       publishedFilter,
       dateSortDirection,
       pageSize,
     } satisfies ArticleViewUIState)
-  }, [activeTab, authorQuery, dateSortDirection, pageSize, publishedFilter, searchQuery, sectionFilterSlug, uiStateKey])
+  }, [
+    activeTab,
+    authorQuery,
+    dateSortDirection,
+    pageSize,
+    publishedFilter,
+    searchQuery,
+    sectionFilterSlug,
+    subsectionFilterSlug,
+    uiStateKey,
+  ])
 
   const selectedAuthorSlug = useMemo(() => {
     const normalizedValue = authorQuery.trim().toLowerCase()
@@ -182,46 +199,91 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   useEffect(() => {
     let cancelled = false
 
-    const fetchSections = async () => {
-      const cachedSections = readSessionJSON<ApiTaxonomyItem[] | null>(sectionsCacheKey, null)
-      if (cachedSections) {
-        setSections(cachedSections)
+    const fetchTaxonomy = async (
+      type: "section" | "subsection",
+      cacheKey: string,
+      apply: (items: ApiTaxonomyItem[]) => void,
+    ) => {
+      const cached = readSessionJSON<ApiTaxonomyItem[] | null>(cacheKey, null)
+      if (cached) {
+        apply(cached)
         return
       }
 
       try {
-        const response = await apiFetch("/v1/taxonomy?type=section")
+        const response = await apiFetch(`/v1/taxonomy?type=${type}`)
         if (!response.ok) {
-          throw new Error(`Sections request failed (${response.status})`)
+          throw new Error(`Taxonomy request failed (${response.status})`)
         }
 
         const payload = (await response.json()) as ApiTaxonomyItem[]
-        const nextSections = (Array.isArray(payload) ? payload : [])
-          .filter((section) => section.type === "section")
+        const nextItems = (Array.isArray(payload) ? payload : [])
+          .filter((item) => item.type === type)
           .sort((left, right) => left.id - right.id)
 
         if (!cancelled) {
-          setSections(nextSections)
-          writeSessionJSON(sectionsCacheKey, nextSections)
+          apply(nextItems)
+          writeSessionJSON(cacheKey, nextItems)
         }
       } catch {
         if (!cancelled) {
-          setSections([])
+          apply([])
         }
       }
     }
 
-    void fetchSections()
+    void fetchTaxonomy("section", sectionsCacheKey, setSections)
+    void fetchTaxonomy("subsection", subsectionsCacheKey, setSubsections)
     return () => {
       cancelled = true
     }
-  }, [apiFetch, sectionsCacheKey])
+  }, [apiFetch, sectionsCacheKey, subsectionsCacheKey])
 
   useEffect(() => {
     if (!sectionFilterSlug || sections.length === 0) return
     if (sections.some((section) => section.slug === sectionFilterSlug)) return
     setSectionFilterSlug("")
   }, [sectionFilterSlug, sections])
+
+  // childrenOf answers with the subsections parented directly by a slug, which
+  // is what one row of the drill-down strip lists.
+  const childrenOf = useCallback(
+    (parentSlug: string) => subsections.filter((subsection) => subsection.parent_slug === parentSlug),
+    [subsections],
+  )
+
+  // subsectionTrail is the chain from the selected section down to the selected
+  // subsection, so the strip can show a row of siblings at every level. It comes
+  // back empty when the selection no longer resolves, which is the signal the
+  // effect below uses to drop a stale filter.
+  const subsectionTrail = useMemo(() => {
+    if (!subsectionFilterSlug || !sectionFilterSlug) return []
+
+    const bySlug = new Map(subsections.map((subsection) => [subsection.slug, subsection]))
+    const trail: ApiTaxonomyItem[] = []
+    let current = bySlug.get(subsectionFilterSlug)
+    while (current) {
+      trail.unshift(current)
+      const parent = current.parent_slug ?? ""
+      if (parent === sectionFilterSlug) return trail
+      // A cycle would be a server-side bug, but the walk must still terminate.
+      if (trail.some((item) => item.slug === parent)) return []
+      current = bySlug.get(parent)
+    }
+    return []
+  }, [sectionFilterSlug, subsectionFilterSlug, subsections])
+
+  useEffect(() => {
+    if (!subsectionFilterSlug) return
+    if (!sectionFilterSlug) {
+      // A subsection filter only means anything under its section.
+      setSubsectionFilterSlug("")
+      return
+    }
+    if (subsections.length === 0) return
+    if (subsectionTrail.length > 0) return
+    setSubsectionFilterSlug("")
+  }, [sectionFilterSlug, subsectionFilterSlug, subsectionTrail, subsections])
 
   useEffect(() => {
     let cancelled = false
@@ -325,6 +387,9 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         if (sectionFilterSlug) {
           params.set("section_slug", sectionFilterSlug)
         }
+        if (subsectionFilterSlug) {
+          params.set("subsection_slug", subsectionFilterSlug)
+        }
         if (fixedType) {
           params.set("type", fixedType)
         }
@@ -404,7 +469,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     return () => {
       cancelled = true
     }
-  }, [activeTab, apiFetch, authorQuery, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, sectionFilterSlug, selectedAuthorSlug])
+  }, [activeTab, apiFetch, authorQuery, dateSortDirection, excludeType, fixedType, page, pageSize, publishedFilter, resultsCacheKey, searchQuery, sectionFilterSlug, selectedAuthorSlug, subsectionFilterSlug])
 
   const onChangeTab = (tab: "all" | "trash") => {
     setActiveTab(tab)
@@ -418,15 +483,37 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
 
   useEffect(() => {
     setPage(0)
-  }, [authorQuery, publishedFilter, dateSortDirection, searchQuery, sectionFilterSlug, pageSize])
+  }, [authorQuery, publishedFilter, dateSortDirection, searchQuery, sectionFilterSlug, subsectionFilterSlug, pageSize])
 
   const effectiveTotalCount = Math.max(totalArticleCount, (page * pageSize) + articles.length)
   const totalPages = Math.max(1, Math.ceil(effectiveTotalCount / pageSize))
   const listLabel = pageTitle.toLowerCase()
-  const editPathForSlug = (slug: string) =>
+  const editPathForArticle = (item: ArticleItem) =>
     fixedType === "developing-stories"
-      ? `/developing-stories/${encodeURIComponent(slug)}/edit`
-      : `/articles/${encodeURIComponent(slug)}/edit`
+      ? `/developing-stories/${encodeURIComponent(item.id)}/${encodeURIComponent(item.slug ?? "")}/edit`
+      : `/articles/${encodeURIComponent(item.id)}/${encodeURIComponent(item.slug ?? "")}/edit`
+
+  // subsectionRows walks the section, then each subsection on the trail, and
+  // keeps the levels that actually have children to offer.
+  const subsectionRows = useMemo(() => {
+    if (!sectionFilterSlug) return []
+
+    const parents = [sectionFilterSlug, ...subsectionTrail.map((item) => item.slug)]
+    return parents.flatMap((parentSlug, depth) => {
+      const items = childrenOf(parentSlug)
+      if (items.length === 0) return []
+      const parentIsSection = depth === 0
+      return [{
+        parentSlug,
+        parentIsSection,
+        items,
+        // Deselecting a nested row means falling back to its parent subsection,
+        // not to the whole section.
+        allLabel: parentIsSection ? "All subsections" : `All of ${subsectionTrail[depth - 1].canonical_title}`,
+        selectedSlug: subsectionTrail[depth]?.slug ?? "",
+      }]
+    })
+  }, [childrenOf, sectionFilterSlug, subsectionTrail])
 
   const filterTagClass = (active: boolean) =>
     `px-3 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer border ${
@@ -475,7 +562,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     setDeleteError(null)
     setDeletingArticleId(item.id)
     try {
-      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}`, {
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}?id=${encodeURIComponent(item.id)}`, {
         method: "DELETE",
       })
       if (!response.ok) {
@@ -502,7 +589,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     setDeleteError(null)
     setDeletingArticleId(item.id)
     try {
-      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}/restore`, {
+      const response = await apiFetch(`/v1/articles/${encodeURIComponent(item.slug)}/restore?id=${encodeURIComponent(item.id)}`, {
         method: "PATCH",
       })
       if (!response.ok) {
@@ -566,13 +653,41 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                 aria-pressed={sectionFilterSlug === section.slug}
                 className={filterTagClass(sectionFilterSlug === section.slug)}
                 key={section.id}
-                onClick={() => setSectionFilterSlug(section.slug)}
+                onClick={() => {
+                  setSectionFilterSlug(section.slug)
+                  setSubsectionFilterSlug("")
+                }}
                 type="button"
               >
                 {section.canonical_title}
               </button>
             ))}
           </div>
+          {/* One row per level: the selected section's subsections, then the
+              selected subsection's own, for as deep as the tree goes. */}
+          {subsectionRows.map((row) => (
+            <div className="flex flex-wrap gap-1.5 pl-3 border-l-2 border-border" key={row.parentSlug}>
+              <button
+                aria-pressed={row.selectedSlug === ""}
+                className={filterTagClass(row.selectedSlug === "")}
+                onClick={() => setSubsectionFilterSlug(row.parentIsSection ? "" : row.parentSlug)}
+                type="button"
+              >
+                {row.allLabel}
+              </button>
+              {row.items.map((subsection) => (
+                <button
+                  aria-pressed={row.selectedSlug === subsection.slug}
+                  className={filterTagClass(row.selectedSlug === subsection.slug)}
+                  key={subsection.id}
+                  onClick={() => setSubsectionFilterSlug(subsection.slug)}
+                  type="button"
+                >
+                  {subsection.canonical_title}
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
       )}
 
@@ -715,7 +830,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                         <Link
                           className="block min-w-0 truncate rounded-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                           title={item.title}
-                          to={editPathForSlug(item.slug)}
+                          to={editPathForArticle(item)}
                         >
                           {item.title}
                         </Link>
@@ -768,7 +883,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                         disabled={!item.slug}
                         onClick={() => {
                           if (!item.slug) return
-                          navigate(editPathForSlug(item.slug))
+                          navigate(editPathForArticle(item))
                         }}
                         title={item.slug ? "Edit" : "Edit unavailable"}
                         type="button"

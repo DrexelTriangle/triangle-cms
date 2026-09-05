@@ -34,6 +34,10 @@ var ArticleSortByColumn = map[string]string{
 	string(models.ArticleSortByCommentStatus): "comment_status",
 }
 
+type queryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 var AuthorColumns = []string{"id", "display_name", "first_name", "last_name", "email", "login", "archived_at"}
 
 // articleRow is the landing zone for a scanned article: every column at its
@@ -249,7 +253,7 @@ func ScanAuthorOverview(rows *sql.Rows) (models.AuthorOverview, error) {
 	return a, nil
 }
 
-// ScanArticle reads a row selected with ArticleColumns -- the full set,
+// ScanArticle reads a row selected with ArticleColumns: the full set,
 // including the article body.
 func ScanArticle(rows *sql.Rows) (models.Article, error) {
 	return scanArticleRow(rows, true)
@@ -344,7 +348,7 @@ func (row articleRow) toArticle() models.Article {
 }
 
 // NormalizeCanonicalURL trims a canonical-URL override and reports whether it is
-// usable. An empty value is valid and means "no override" -- the public site
+// usable. An empty value is valid and means "no override": the public site
 // falls back to its own /article/<slug> URL. A non-empty value must be an
 // absolute http(s) URL with a host: a relative or scheme-less string in a
 // <link rel="canonical"> is worse than no override at all, because it silently
@@ -382,8 +386,8 @@ func parseStringListField(value sql.NullString) []string {
 //
 // It is the listing path, and there is deliberately no full-column counterpart:
 // every caller that collects more than one article is building a list of
-// excerpts, and the single read that needs the body -- the article detail
-// endpoint -- scans its one row with ScanArticle directly.
+// excerpts, and the single read that needs the body (the article detail
+// endpoint) scans its one row with ScanArticle directly.
 func CollectArticles(rows *sql.Rows) ([]models.Article, error) {
 	var articles []models.Article
 	for rows.Next() {
@@ -501,7 +505,7 @@ func GetRelatedArticlesBySlug(ctx context.Context, conn *sql.DB, slug string, k 
 		"JOIN article_embeddings AS cand_vec ON cand_vec.article_id <> src.id " +
 		"JOIN articles AS a ON a.id = cand_vec.article_id " +
 		// "Related reading" is surfaced on the public article page, so a
-		// candidate must be live content regardless of who is asking -- an
+		// candidate must be live content regardless of who is asking: an
 		// unpublished or soft-deleted article is not something to link to from
 		// anywhere, including the CMS preview.
 		"WHERE src.slug = ? AND a.pub_date IS NOT NULL AND a.pub_date <= UTC_TIMESTAMP() AND a.archived_at IS NULL " +
@@ -649,6 +653,21 @@ func GetArticleContentBySlug(ctx context.Context, conn *sql.DB, slug string) (st
 	return text.String, nil
 }
 
+// GetArticleContentByID is GetArticleContentBySlug for a request that knows
+// which row it is patching. Slugs are not unique, so deriving an excerpt from a
+// slug lookup can read a different article's body than the one being written.
+func GetArticleContentByID(ctx context.Context, conn *sql.DB, id int64) (string, error) {
+	var text sql.NullString
+	err := conn.QueryRowContext(ctx, "SELECT `text` FROM `articles` WHERE `id` = ?", id).Scan(&text)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return text.String, nil
+}
+
 func ParsePublishedAt(value string) *time.Time {
 	if strings.TrimSpace(value) == "" {
 		return nil
@@ -720,8 +739,8 @@ var slugDelimiterPattern = regexp.MustCompile(`[^a-z0-9]+`)
 var htmlTagPattern = regexp.MustCompile(`<[^>]*>`)
 
 // Image captions are markup, not article text. An article normally opens with
-// its featured image, so stripping tags blindly made the caption -- a photo
-// credit line -- the first thing the derived excerpt picked up. This drops the
+// its featured image, so stripping tags blindly made the caption, a photo
+// credit line, the first thing the derived excerpt picked up. This drops the
 // caption-bearing markup first: what the editor writes (trixHtmlToArticle emits
 // <figure class="wp-caption"><figcaption>) and both WordPress import shapes
 // (block: <figure><figcaption>; classic: <div class="wp-caption">…<p
@@ -734,8 +753,8 @@ var captionMarkupPattern = regexp.MustCompile(
 
 // WordPress shortcodes are markup too, but bracketed rather than angled, so
 // tag-stripping leaves them intact: a crossword post whose body is a single
-// [puzzleme ...] shortcode derived an excerpt that was the whole shortcode --
-// attributes, embed ids and all -- and the public site printed it under the
+// [puzzleme ...] shortcode derived an excerpt that was the whole shortcode,
+// attributes and embed ids and all, and the public site printed it under the
 // headline. Two shapes are removed, both narrow enough to leave editorial
 // brackets ("[sic]", "[Editor's note]") alone: the shortcodes this corpus
 // actually carries, named explicitly; and any bracketed token that carries
@@ -768,8 +787,8 @@ func deriveExcerpt(content string) string {
 
 // ExcerptOrDerived is what every write that sets the `excerpt` column stores.
 // An excerpt is optional in the editor, so a blank one means "derive it from
-// the body", never "store nothing": listings render `excerpt` and nothing else
-// -- the body is not selected for them -- so a stored empty string is an
+// the body", never "store nothing": listings render `excerpt` and nothing
+// else, since the body is not selected for them, so a stored empty string is an
 // article that appears on every section page and the homepage with no summary
 // under it.
 func ExcerptOrDerived(excerpt, content string) string {
@@ -791,6 +810,92 @@ func normalizeSlug(value string) string {
 
 func CanonicalizeSlug(value string) string {
 	return normalizeSlug(value)
+}
+
+// ArticleSlugBase is the stem every generated slug is built from: the caller's
+// slug if it gave one, otherwise the title, otherwise a constant. Creation paths
+// must all derive it the same way: the base names the lock that keeps two
+// concurrent creates from picking the same candidate.
+func ArticleSlugBase(requested, title string) string {
+	base := normalizeSlug(requested)
+	if base == "" {
+		base = normalizeSlug(title)
+	}
+	if base == "" {
+		base = "article"
+	}
+	return base
+}
+
+// ArticleSlugExists reports whether any article already carries the slug,
+// archived rows included: an archived article still owns its permalink, and
+// restoring it must not collide with something created in the meantime.
+func ArticleSlugExists(ctx context.Context, conn queryRower, slug string) (bool, error) {
+	var exists int
+	err := conn.QueryRowContext(ctx, "SELECT 1 FROM `articles` WHERE `slug` = ? LIMIT 1", slug).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ArticleSlugTakenByOther is ArticleSlugExists for the rename paths, which must
+// ignore the row doing the renaming: saving an article without touching its slug
+// would otherwise report the article's own slug as a collision. An excludeID of
+// 0 excludes nothing, which is the right answer for a slug that resolves to no
+// row at all.
+func ArticleSlugTakenByOther(ctx context.Context, conn queryRower, slug string, excludeID int64) (bool, error) {
+	var exists int
+	err := conn.QueryRowContext(ctx,
+		"SELECT 1 FROM `articles` WHERE `slug` = ? AND `id` <> ? LIMIT 1", slug, excludeID,
+	).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ResolveArticleIDBySlug picks the row a slug-only request addresses. Slugs are
+// not unique (the index is deliberately non-UNIQUE, see EnsureArticlesSlugIndex)
+// so "the article with this slug" has to be a rule rather than an assumption:
+// prefer the archive state the caller is working in, then take the lowest id.
+// Every path that resolves a slug uses this one function, so the row a request
+// locks is the row it reads and the row it writes.
+//
+// A slug that matches nothing returns (0, nil): the caller's own query reports
+// that as a 404 on its row count, and failing here would turn one missing
+// article into a 500.
+func ResolveArticleIDBySlug(ctx context.Context, conn queryRower, slug string, archived bool) (int64, error) {
+	state := "IS NULL"
+	if archived {
+		state = "IS NOT NULL"
+	}
+	var id int64
+	err := conn.QueryRowContext(ctx,
+		"SELECT `id` FROM `articles` WHERE `slug` = ? AND `archived_at` "+state+" ORDER BY `id` LIMIT 1", slug,
+	).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+	err = conn.QueryRowContext(ctx,
+		"SELECT `id` FROM `articles` WHERE `slug` = ? ORDER BY `id` LIMIT 1", slug,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func IsCanonicalSlug(value string) bool {
@@ -892,7 +997,7 @@ func ArticleToDBFields(body models.Article) []any {
 		// COALESCE(mod_date, pub_date), so a PUT silently reset the article's
 		// last-modified date to its publish date, and the embedding reconciler --
 		// which finds stale vectors by comparing mod_date to when the article was
-		// last embedded -- could never tell a PUT-edited article had changed.
+		// last embedded, could never tell a PUT-edited article had changed.
 		time.Now().UTC().Format("2006-01-02 15:04:05"),
 		body.IsFeatured,
 		body.BreakingNews,

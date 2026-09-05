@@ -16,7 +16,7 @@ Passwords come from WP_DB_PASSWORD and CMS_DB_PASSWORD (or a prompt), never from
 argv. Re-runnable: it sets the flag on what WordPress has marked and, unless
 --additive, clears it on everything else, so the CMS ends up matching WordPress
 exactly. Marks made in the CMS since the last run are therefore lost unless you
-pass --additive -- which is the right choice once editors have started curating
+pass --additive, which is the right choice once editors have started curating
 in the CMS and WordPress is only the historical seed.
 """
 

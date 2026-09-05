@@ -56,6 +56,36 @@ jobs:
       - name: Build
         run: npm run build
 
+  # The Docker build regenerates the Swagger docs from the handler annotations,
+  # so the binary always serves a current spec, but server/docs is also
+  # committed, and the Pages site publishes that committed copy. Nothing forced
+  # the two to agree, so annotations could change without a follow-up
+  # `swag init` and the published reference would drift from the real API with
+  # no signal. Regenerate here and fail on any diff.
+  swagger-docs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      # Pinned to the same version server/Dockerfile installs. A different
+      # version would report drift the real build never produces.
+      - name: Install swag
+        run: go install github.com/swaggo/swag/cmd/swag@v1.16.6
+      - name: Regenerate docs
+        run: swag init --parseDependency --parseInternal
+      - name: Committed docs are current
+        run: |
+          if ! git diff --exit-code -- docs; then
+            echo "::error file=server/docs/swagger.json::server/docs is stale. Run 'swag init --parseDependency --parseInternal' in server/ and commit the result."
+            exit 1
+          fi
+
   docker-builds:
     runs-on: ubuntu-latest
     steps:
@@ -91,8 +121,8 @@ jobs:
         run: deploy/scripts/deploy_scripts_test.sh
 
   # The Python in scripts/ was previously untested. A full reseed cannot run
-  # here -- it needs the WordPress export zip, which is not in the repo, and a
-  # local Docker stack -- so this covers the parts that can fail silently: the
+  # here: it needs the WordPress export zip, which is not in the repo, and a
+  # local Docker stack. This covers the parts that can fail silently: the
   # scripts compiling at all, the seed generator's id=0 guarantee, and the
   # reseed script's refusal to destroy data unattended.
   scripts:
@@ -112,7 +142,7 @@ jobs:
       # The non-TTY guard is the only thing standing between an automated
       # context and a destroyed database, so assert it stays a guard: this must
       # FAIL to proceed. Without a Docker daemon the run would abort in
-      # preflight anyway, so accept either refusal -- what is not acceptable is
+      # preflight anyway, so accept either refusal. What is not acceptable is
       # a clean exit, which would mean it sailed past the confirmation.
       - name: Refuses to destroy data unattended
         run: |
@@ -141,7 +171,7 @@ jobs:
           fi
 
           # A mention of the mode in a comment must not be mistaken for setting
-          # it -- that regression would silently skip the preamble.
+          # it; that regression would silently skip the preamble.
           printf -- "-- NO_AUTO_VALUE_ON_ZERO handled upstream\nINSERT INTO articles (\`author_ids\`, \`comment_status\`) VALUES ('y','open');\n" > "$etl/articles.sql"
           python ./scripts/generate_wordpress_sql.py "$etl" "$out"
           if ! head -1 "$out/02-articles.sql" | grep -q '^SET sql_mode'; then

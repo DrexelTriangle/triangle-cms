@@ -40,7 +40,7 @@ const (
 	// unset. The migrated WordPress corpus contains full-resolution camera
 	// originals up to ~77 MiB, so anything smaller than this rejects files the
 	// newsroom demonstrably produces. The ceiling is Cloudflare's 100 MB request
-	// limit on the tunnel in front of Delta -- stay below it, since a body that
+	// limit on the tunnel in front of Delta. Stay below it, since a body that
 	// clears the backend but not the tunnel fails with an opaque edge error.
 	defaultMaxUploadBytes int64 = 90 << 20 // 90 MiB
 	// multipartMemoryBytes is how much of a multipart body ParseMultipartForm may
@@ -92,8 +92,8 @@ var nonSlugChars = regexp.MustCompile(`[^a-z0-9]+`)
 // wpDerivativeSuffix matches the "-800x600" WordPress appends to generated
 // thumbnails. The indexer skips names of this shape (they are derivatives of an
 // original that is already in the library), so an *upload* must never be given
-// one: its row exists now, but a rebuild of the media table -- which the reseed
-// plan calls for -- would not adopt the file back while articles still point at
+// one: its row exists now, but a rebuild of the media table (which the reseed
+// plan calls for) would not adopt the file back while articles still point at
 // it. sanitizeBaseName defuses the shape instead.
 var wpDerivativeSuffix = regexp.MustCompile(`-\d+x\d+$`)
 
@@ -112,8 +112,8 @@ func mediaSentinel() string {
 //
 // This matters because the Docker bind mount silently creates MEDIA_HOST_PATH if
 // CephFS is not mounted at deploy time. Without this check uploads land on the
-// host's local disk and index cleanly, and are then shadowed -- effectively lost
-// -- the moment the mount is repaired. MEDIA_ROOT_SENTINEL names something the
+// host's local disk and index cleanly, and are then shadowed, effectively lost,
+// the moment the mount is repaired. MEDIA_ROOT_SENTINEL names something the
 // migrated corpus is known to contain (the uploads directory itself is the
 // natural choice); a fresh install with no corpus should leave it unset.
 func CheckMediaStorage() error {
@@ -221,7 +221,7 @@ func PostMedia(conn *sql.DB) http.Handler {
 }
 
 // storeImage validates, stores and indexes a single image, and is the one place
-// bytes become a media library entry -- shared by the multipart upload path and
+// bytes become a media library entry, shared by the multipart upload path and
 // the paste sideload path so both agree on what is accepted and where it lands.
 //
 // src must be seekable: sniffing the content type consumes the leading bytes,
@@ -257,7 +257,7 @@ func storeImage(ctx context.Context, conn *sql.DB, src io.ReadSeeker, filename s
 	}
 	// MkdirAll's mode is masked by the process umask, so the first upload of a
 	// new month can leave YYYY/ or YYYY/MM without the world-execute bit the
-	// Nginx worker needs to traverse into it -- a 403 indistinguishable from the
+	// Nginx worker needs to traverse into it: a 403 indistinguishable from the
 	// file-mode one. Best effort: a directory the ETL's rsync already created is
 	// owned by another uid and cannot be chmod'ed by us, which is fine because
 	// that one is already correct.
@@ -270,7 +270,7 @@ func storeImage(ctx context.Context, conn *sql.DB, src io.ReadSeeker, filename s
 		// simply not writable by this container's uid, and those need very
 		// different fixes. A permission error here is easy to mistake for a
 		// mkdir failure, since MkdirAll returns nil for a directory that
-		// already exists -- which every migrated YYYY/MM directory does.
+		// already exists, which every migrated YYYY/MM directory does.
 		slog.Error("media upload: store file", "dir", absDir, "error", err)
 		return models.MediaUploadResponse{}, fmt.Errorf("%w: %v", errStoreFailed, err)
 	}
@@ -388,7 +388,7 @@ func PostMediaFetch(conn *sql.DB) http.Handler {
 
 		// Buffer to a temp file: storeImage has to seek back after sniffing and a
 		// response body cannot. Reading one byte past the cap is what detects an
-		// oversized image -- Content-Length is supplied by the remote server and
+		// oversized image: Content-Length is supplied by the remote server and
 		// so cannot be trusted as the guard.
 		maxBytes := maxUploadBytes()
 		tmp, err := os.CreateTemp("", "sideload-*")
@@ -564,7 +564,7 @@ func storeUpload(dir, base, ext string, src io.Reader) (name string, size int64,
 	}()
 
 	// os.CreateTemp always creates with mode 0600, and os.Rename moves the temp
-	// file's *inode* onto the destination -- so the 0644 that reserveAndRename
+	// file's *inode* onto the destination, so the 0644 that reserveAndRename
 	// uses to claim the name is discarded along with the file it created. Without
 	// this the stored asset is readable only by the CMS's own uid, and the Nginx
 	// worker serving /wp-content/ answers 403 for every uploaded image. Chmod is
@@ -1011,7 +1011,7 @@ func DeleteMediaItem(conn *sql.DB) http.Handler {
 			if root := mediaRoot(); root != "" {
 				if abs, ok := resolveMediaPath(root, item.Path); ok {
 					// The row is already gone, so a failed unlink leaves a file the
-					// next reindex will re-adopt -- as a new row, without the alt
+					// next reindex will re-adopt, as a new row, without the alt
 					// text and caption this one had. That looks like the delete
 					// silently undid itself, so it has to be visible in the log.
 					if err := os.Remove(abs); err != nil && !errors.Is(err, os.ErrNotExist) {

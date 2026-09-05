@@ -1,0 +1,323 @@
+package database
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"testing"
+
+	"server/internal/models"
+
+	_ "github.com/go-sql-driver/mysql"
+)
+
+// The banner is resolved entirely in SQL, so these need a real MariaDB: the
+// UTC_TIMESTAMP comparisons a scheduled article turns on are what a fake would
+// get wrong.
+//
+// CMS_TEST_DSN='user:pw@tcp(127.0.0.1:3306)/cms_test?parseTime=true&multiStatements=true' go test ./internal/database/ -run BreakingNewsState -v
+func breakingNewsTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	dsn := os.Getenv("CMS_TEST_DSN")
+	if dsn == "" {
+		t.Skip("CMS_TEST_DSN not set; skipping breaking-news integration test")
+	}
+
+	conn, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	conn.SetMaxOpenConns(1)
+	if err := conn.Ping(); err != nil {
+		t.Fatalf("ping test database: %v", err)
+	}
+
+	ctx := context.Background()
+	var acquired sql.NullInt64
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, 60)", "cms_integration_test_shared_tables").Scan(&acquired); err != nil {
+		t.Fatalf("acquire test lock: %v", err)
+	}
+	if !acquired.Valid || acquired.Int64 != 1 {
+		t.Fatal("timed out waiting for the shared table lock")
+	}
+	t.Cleanup(func() {
+		_, _ = conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", "cms_integration_test_shared_tables")
+		conn.Close()
+	})
+
+	for _, stmt := range []string{
+		"DROP TABLE IF EXISTS articles",
+		"DROP TABLE IF EXISTS cms_settings",
+	} {
+		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("reset schema (%s): %v", stmt, err)
+		}
+	}
+
+	if _, err := conn.ExecContext(ctx, `
+		CREATE TABLE articles (
+			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			title LONGTEXT,
+			slug VARCHAR(255) NOT NULL UNIQUE,
+			breaking_news BOOL,
+			pub_date DATETIME NULL,
+			scheduled_pub_date DATETIME NULL,
+			archived_at DATETIME NULL
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+	`); err != nil {
+		t.Fatalf("create articles table: %v", err)
+	}
+	if err := EnsureSettingsTable(ctx, conn); err != nil {
+		t.Fatalf("ensure settings table: %v", err)
+	}
+	if err := EnsureArticlesBreakingNewsIndex(ctx, conn); err != nil {
+		t.Fatalf("ensure breaking-news index: %v", err)
+	}
+
+	// The settings cache is per-process and outlives the table drop above.
+	ResetSettingsCache()
+
+	return conn
+}
+
+// insertArticle adds one article. pubExpr and schedExpr are SQL expressions so
+// times are relative to the server clock, which is what the query compares to.
+func insertArticle(t *testing.T, conn *sql.DB, slug, title string, breaking bool, pubExpr, schedExpr string) {
+	t.Helper()
+	flag := 0
+	if breaking {
+		flag = 1
+	}
+	_, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (slug, title, breaking_news, pub_date, scheduled_pub_date) VALUES (?, ?, ?, "+pubExpr+", "+schedExpr+")",
+		slug, title, flag)
+	if err != nil {
+		t.Fatalf("insert article %s: %v", slug, err)
+	}
+}
+
+func TestBreakingNewsState_FallsBackToTheManualBanner(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	if err := SetBreakingNews(ctx, conn, models.BreakingNewsSettings{Enabled: true, Text: "Campus closed"}, breakingNewsWindowUnlimited); err != nil {
+		t.Fatalf("set manual banner: %v", err)
+	}
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if !state.Enabled || state.Text != "Campus closed" {
+		t.Errorf("expected the manual banner, got %+v", state.BreakingNewsSettings)
+	}
+	if state.Source != models.BreakingNewsSourceManual {
+		t.Errorf("source = %q, want %q", state.Source, models.BreakingNewsSourceManual)
+	}
+	if state.WindowHours != breakingNewsWindowUnlimited {
+		t.Errorf("window_hours = %d, want no limit", state.WindowHours)
+	}
+}
+
+func TestBreakingNewsState_PublishedArticleOverridesTheManualBanner(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	if err := SetBreakingNews(ctx, conn, models.BreakingNewsSettings{Enabled: true, Text: "Campus closed"}, breakingNewsWindowUnlimited); err != nil {
+		t.Fatalf("set manual banner: %v", err)
+	}
+	insertArticle(t, conn, "dragonfly", "Dragonfly headliner", true, "UTC_TIMESTAMP() - INTERVAL 10 MINUTE", "NULL")
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if !state.Enabled || state.Text != "Dragonfly headliner" {
+		t.Errorf("expected the article to drive the banner, got %+v", state.BreakingNewsSettings)
+	}
+	if state.Source != models.BreakingNewsSourceArticle {
+		t.Errorf("source = %q, want %q", state.Source, models.BreakingNewsSourceArticle)
+	}
+	// The public site builds the banner's link from the slug.
+	if state.BreakingNewsSettings.ArticleSlug != "dragonfly" {
+		t.Errorf("article_slug = %q, want %q", state.BreakingNewsSettings.ArticleSlug, "dragonfly")
+	}
+	// The manual banner is preserved so the settings screen can still edit it.
+	if !state.Manual.Enabled || state.Manual.Text != "Campus closed" {
+		t.Errorf("manual banner was not preserved, got %+v", state.Manual)
+	}
+	// A hand-typed banner must not inherit the overriding article's link.
+	if state.Manual.ArticleSlug != "" {
+		t.Errorf("manual banner carried a slug: %q", state.Manual.ArticleSlug)
+	}
+}
+
+func TestBreakingNewsState_ScheduledArticleWaitsForItsPubDate(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	// A scheduled story: flagged, not yet published.
+	insertArticle(t, conn, "tomorrow", "Scheduled scoop", true, "NULL", "UTC_TIMESTAMP() + INTERVAL 1 HOUR")
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state.Enabled {
+		t.Fatalf("a scheduled article raised the banner early: %+v", state)
+	}
+
+	// Publish it the way the scheduler does; it takes the banner with no
+	// further action.
+	if _, err := conn.ExecContext(ctx,
+		"UPDATE articles SET pub_date = UTC_TIMESTAMP(), scheduled_pub_date = NULL WHERE slug = ?", "tomorrow"); err != nil {
+		t.Fatalf("publish article: %v", err)
+	}
+
+	state, err = GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state after publish: %v", err)
+	}
+	if !state.Enabled || state.Text != "Scheduled scoop" {
+		t.Errorf("expected the published article to take the banner, got %+v", state.BreakingNewsSettings)
+	}
+	if state.BreakingNewsSettings.ArticleSlug != "tomorrow" {
+		t.Errorf("article_slug = %q, want %q", state.BreakingNewsSettings.ArticleSlug, "tomorrow")
+	}
+}
+
+// The banner carries every flagged story, newest first, and Text still names
+// the newest so a reader that only knows the old single-story fields shows the
+// same headline it always would have.
+func TestBreakingNewsState_CarriesEveryFlaggedArticleNewestFirst(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	insertArticle(t, conn, "older", "Older breaking story", true, "UTC_TIMESTAMP() - INTERVAL 3 HOUR", "NULL")
+	insertArticle(t, conn, "newer", "Newer breaking story", true, "UTC_TIMESTAMP() - INTERVAL 1 HOUR", "NULL")
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state.Text != "Newer breaking story" || state.ArticleSlug != "newer" {
+		t.Errorf("single-story fields = %q/%q, want the newer story", state.Text, state.ArticleSlug)
+	}
+	if len(state.Items) != 2 {
+		t.Fatalf("items = %+v, want both stories", state.Items)
+	}
+	if state.Items[0].Text != "Newer breaking story" || state.Items[0].ArticleSlug != "newer" {
+		t.Errorf("items[0] = %+v, want the newer story", state.Items[0])
+	}
+	if state.Items[1].Text != "Older breaking story" || state.Items[1].ArticleSlug != "older" {
+		t.Errorf("items[1] = %+v, want the older story", state.Items[1])
+	}
+}
+
+// The banner scrolls, so a reader waits through everything ahead of the story
+// they came for. The cap is what bounds that wait.
+func TestBreakingNewsState_CapsTheNumberOfStories(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	for i, slug := range []string{"first", "second", "third", "fourth"} {
+		insertArticle(t, conn, slug, "Story "+slug, true,
+			fmt.Sprintf("UTC_TIMESTAMP() - INTERVAL %d HOUR", 10-i), "NULL")
+	}
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if len(state.Items) != maxBreakingNewsItems {
+		t.Fatalf("items = %d, want the cap of %d", len(state.Items), maxBreakingNewsItems)
+	}
+	// Newest first, so the one that falls off the end is the oldest.
+	if state.Items[0].ArticleSlug != "fourth" || state.Items[2].ArticleSlug != "second" {
+		t.Errorf("items = %+v, want the three newest stories", state.Items)
+	}
+}
+
+// The manual banner is one story like any other, so a reader can treat Items as
+// the whole banner rather than special-casing the hand-typed case.
+func TestBreakingNewsState_ManualBannerIsAnItemToo(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	if err := SetBreakingNews(ctx, conn, models.BreakingNewsSettings{Enabled: true, Text: "Campus closed"}, 0); err != nil {
+		t.Fatalf("set manual banner: %v", err)
+	}
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if len(state.Items) != 1 || state.Items[0].Text != "Campus closed" {
+		t.Fatalf("items = %+v, want just the manual banner", state.Items)
+	}
+	if state.Items[0].ArticleSlug != "" {
+		t.Errorf("manual item carried a slug: %q", state.Items[0].ArticleSlug)
+	}
+}
+
+// The default: an article flagged months ago and never unticked still holds
+// the banner.
+func TestBreakingNewsState_KeepsAnOldArticleWhenNoWindowIsSet(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	insertArticle(t, conn, "ancient", "Long-forgotten emergency", true, "UTC_TIMESTAMP() - INTERVAL 30 DAY", "NULL")
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if !state.Enabled || state.Text != "Long-forgotten emergency" {
+		t.Errorf("expected the article to still hold the banner, got %+v", state.BreakingNewsSettings)
+	}
+	if state.WindowHours != breakingNewsWindowUnlimited {
+		t.Errorf("window_hours = %d, want no limit by default", state.WindowHours)
+	}
+}
+
+func TestBreakingNewsState_IgnoresArticlesOutsideAnAdminSetWindow(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	if err := SetBreakingNews(ctx, conn, models.BreakingNewsSettings{}, 2); err != nil {
+		t.Fatalf("set window: %v", err)
+	}
+	insertArticle(t, conn, "stale", "Yesterday's emergency", true, "UTC_TIMESTAMP() - INTERVAL 5 HOUR", "NULL")
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state.Enabled {
+		t.Errorf("an article past the window still held the banner: %+v", state)
+	}
+	if state.Source != models.BreakingNewsSourceNone {
+		t.Errorf("source = %q, want %q", state.Source, models.BreakingNewsSourceNone)
+	}
+}
+
+func TestBreakingNewsState_IgnoresArchivedAndUnflaggedArticles(t *testing.T) {
+	conn := breakingNewsTestDB(t)
+	ctx := context.Background()
+
+	insertArticle(t, conn, "plain", "Not breaking", false, "UTC_TIMESTAMP() - INTERVAL 5 MINUTE", "NULL")
+	insertArticle(t, conn, "pulled", "Pulled story", true, "UTC_TIMESTAMP() - INTERVAL 5 MINUTE", "NULL")
+	if _, err := conn.ExecContext(ctx, "UPDATE articles SET archived_at = UTC_TIMESTAMP() WHERE slug = ?", "pulled"); err != nil {
+		t.Fatalf("archive article: %v", err)
+	}
+
+	state, err := GetBreakingNewsState(ctx, conn)
+	if err != nil {
+		t.Fatalf("get state: %v", err)
+	}
+	if state.Enabled {
+		t.Errorf("expected no banner, got %+v", state)
+	}
+}

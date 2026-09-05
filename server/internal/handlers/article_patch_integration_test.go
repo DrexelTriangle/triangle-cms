@@ -3,10 +3,13 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -68,10 +71,11 @@ func articlePatchTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE articles (
 			id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
 			title LONGTEXT,
-			slug VARCHAR(255) NOT NULL UNIQUE,
+			slug VARCHAR(255) NOT NULL,
 			description LONGTEXT,
 			excerpt LONGTEXT,
 			tags LONGTEXT,
+			metadata LONGTEXT,
 			`+"`text`"+` LONGTEXT,
 			categories LONGTEXT,
 			authors LONGTEXT,
@@ -139,6 +143,17 @@ func patchArticleRequest(slug, body string) *http.Request {
 	return req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Name: "Editor", Role: models.RoleEditor}))
 }
 
+func patchArticleRequestWithID(slug string, id int64, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPatch, "/v1/articles/"+slug+"?id="+strconv.FormatInt(id, 10), strings.NewReader(body))
+	req.SetPathValue("slug", slug)
+	return req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Name: "Editor", Role: models.RoleEditor}))
+}
+
+func postArticleRequest(body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/v1/articles", strings.NewReader(body))
+	return req.WithContext(middleware.ContextWithUser(req.Context(), &models.User{ID: 1, Name: "Editor", Role: models.RoleEditor}))
+}
+
 func articlePubDate(t *testing.T, conn *sql.DB, slug string) sql.NullTime {
 	t.Helper()
 	var pubDate sql.NullTime
@@ -146,6 +161,309 @@ func articlePubDate(t *testing.T, conn *sql.DB, slug string) sql.NullTime {
 		t.Fatalf("read pub_date: %v", err)
 	}
 	return pubDate
+}
+
+func TestPostArticleHTTP_DuplicateTitleGetsUniqueSlug(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories) VALUES (?, ?, ?, ?)",
+		"Letter from the editor", "letter-from-the-editor", "Old body", "News",
+	); err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	body := `{"title":"Letter from the editor","content":"New body","status":"draft",` +
+		`"comment_status":"open","photo_url":"","categories":["News"],"authors":[]}`
+	PostArticles(conn).ServeHTTP(rec, postArticleRequest(body))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("post status = %d, want 201; body = %s", rec.Code, rec.Body.String())
+	}
+	var created models.ArticleCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode created article: %v", err)
+	}
+	if created.Slug != "letter-from-the-editor-2" {
+		t.Fatalf("created slug = %q, want letter-from-the-editor-2", created.Slug)
+	}
+
+	var count int
+	if err := conn.QueryRowContext(context.Background(),
+		"SELECT COUNT(*) FROM articles WHERE title = ?",
+		"Letter from the editor",
+	).Scan(&count); err != nil {
+		t.Fatalf("count articles: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("matching title count = %d, want 2", count)
+	}
+}
+
+func TestArticlePatchHTTP_IDQualifiedPatchOnlyUpdatesThatRow(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	result, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
+		"Original", "letter-from-the-editor", "Old body", "News",
+		"Duplicate", "letter-from-the-editor", "New draft", "News",
+	)
+	if err != nil {
+		t.Fatalf("seed duplicated slug articles: %v", err)
+	}
+	firstID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("first insert id: %v", err)
+	}
+	secondID := firstID + 1
+
+	rec := httptest.NewRecorder()
+	body := `{"title":"Edited duplicate","excerpt":"","content":"Edited body",` +
+		`"comment_status":"open","photo_url":"","breaking_news":false,"categories":["News"],` +
+		`"tags":[],"authors":[],"focus_keyword":"","meta_description":"","seo_title":""}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequestWithID("letter-from-the-editor", secondID, body))
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var firstTitle, firstText, secondTitle, secondText string
+	if err := conn.QueryRowContext(context.Background(), "SELECT title, `text` FROM articles WHERE id = ?", firstID).Scan(&firstTitle, &firstText); err != nil {
+		t.Fatalf("read first article: %v", err)
+	}
+	if err := conn.QueryRowContext(context.Background(), "SELECT title, `text` FROM articles WHERE id = ?", secondID).Scan(&secondTitle, &secondText); err != nil {
+		t.Fatalf("read second article: %v", err)
+	}
+	if firstTitle != "Original" || firstText != "Old body" {
+		t.Fatalf("first article changed to title=%q text=%q", firstTitle, firstText)
+	}
+	if secondTitle != "Edited duplicate" || secondText != "Edited body" {
+		t.Fatalf("second article = title %q text %q, want edited row", secondTitle, secondText)
+	}
+}
+
+// The newsroom's report, end to end: an editor opens New Article, types a title
+// another article already carries, and leaves the slug field blank. Before the
+// id-qualified routes this filed a second row on the same slug, and every
+// screen that addressed the article by slug then showed the FIRST one, so the
+// new article "became" the old one.
+func TestArticleFlowHTTP_SecondArticleWithTheSameTitleStaysItsOwnArticle(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories, pub_date) VALUES (?, ?, ?, ?, ?)",
+		"Letter from the editor", "letter-from-the-editor", "Last term's letter.", "News", "2025-01-05 12:00:00",
+	); err != nil {
+		t.Fatalf("seed the existing letter: %v", err)
+	}
+
+	// The editor's New Article form sends an empty slug; the server derives it.
+	rec := httptest.NewRecorder()
+	body := `{"title":"Letter from the editor","slug":"","content":"This term's letter.",` +
+		`"status":"draft","comment_status":"open","photo_url":"","categories":["News"],"authors":[]}`
+	PostArticles(conn).ServeHTTP(rec, postArticleRequest(body))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("post status = %d, want 201; body = %s", rec.Code, rec.Body.String())
+	}
+	var created models.ArticleCreateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode created article: %v", err)
+	}
+	if created.Slug != "letter-from-the-editor-2" {
+		t.Fatalf("created slug = %q, want letter-from-the-editor-2", created.Slug)
+	}
+
+	// Opening it in the CMS must load the new letter, not the old one.
+	rec = httptest.NewRecorder()
+	getReq := httptest.NewRequest(http.MethodGet, "/v1/articles/"+created.Slug+"?id="+strconv.FormatInt(created.ID, 10), nil)
+	getReq.SetPathValue("slug", created.Slug)
+	getReq = getReq.WithContext(middleware.ContextWithUser(getReq.Context(), &models.User{ID: 1, Name: "Editor", Role: models.RoleEditor}))
+	GetArticle(conn).ServeHTTP(rec, getReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "This term's letter.") {
+		t.Fatalf("editor opened the wrong article: %s", rec.Body.String())
+	}
+
+	// And saving it must not write over the old one.
+	rec = httptest.NewRecorder()
+	patch := `{"title":"Letter from the editor","content":"This term's letter, edited.","comment_status":"open"}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequestWithID(created.Slug, created.ID, patch))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var oldText string
+	if err := conn.QueryRowContext(context.Background(),
+		"SELECT `text` FROM articles WHERE slug = ?", "letter-from-the-editor",
+	).Scan(&oldText); err != nil {
+		t.Fatalf("read the existing letter: %v", err)
+	}
+	if oldText != "Last term's letter." {
+		t.Fatalf("the existing letter was overwritten: %q", oldText)
+	}
+}
+
+// The duplicates already in production keep their shared slug until someone
+// renames one, so a slug-only read has to answer with the same row every time
+// rather than whichever the scan reached first.
+func TestGetArticleHTTP_DuplicateSlugResolvesToTheSameRowEveryTime(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories, pub_date) VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)",
+		"Original", "letter-from-the-editor", "The first letter.", "News", "2025-01-05 12:00:00",
+		"Duplicate", "letter-from-the-editor", "The second letter.", "News", "2025-02-05 12:00:00",
+	); err != nil {
+		t.Fatalf("seed duplicated slug articles: %v", err)
+	}
+
+	for attempt := 0; attempt < 3; attempt++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v1/articles/letter-from-the-editor", nil)
+		req.SetPathValue("slug", "letter-from-the-editor")
+		GetArticle(conn).ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("get status = %d, want 200; body = %s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "The first letter.") {
+			t.Fatalf("attempt %d resolved to a different row: %s", attempt, rec.Body.String())
+		}
+	}
+}
+
+func TestArticlePatchHTTP_ExcerptDerivesFromThePatchedRow(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	result, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
+		"Original", "letter-from-the-editor", "The body of the first letter.", "News",
+		"Duplicate", "letter-from-the-editor", "The body of the second letter.", "News",
+	)
+	if err != nil {
+		t.Fatalf("seed duplicated slug articles: %v", err)
+	}
+	firstID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("first insert id: %v", err)
+	}
+	secondID := firstID + 1
+
+	// A blank excerpt with no content in the patch is the editor's ordinary
+	// save, and the derived summary has to come from the row being written.
+	rec := httptest.NewRecorder()
+	body := `{"excerpt":"","comment_status":"open"}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequestWithID("letter-from-the-editor", secondID, body))
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var excerpt string
+	if err := conn.QueryRowContext(context.Background(), "SELECT excerpt FROM articles WHERE id = ?", secondID).Scan(&excerpt); err != nil {
+		t.Fatalf("read second article: %v", err)
+	}
+	if !strings.Contains(excerpt, "second letter") {
+		t.Fatalf("excerpt = %q, want it derived from the second article's body", excerpt)
+	}
+}
+
+func TestArticlePatchHTTP_RenameOntoTakenSlugConflicts(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	result, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories) VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
+		"Taken", "letter-from-the-editor", "Old body", "News",
+		"Renaming", "a-second-letter", "New body", "News",
+	)
+	if err != nil {
+		t.Fatalf("seed articles: %v", err)
+	}
+	firstID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("first insert id: %v", err)
+	}
+	secondID := firstID + 1
+
+	rec := httptest.NewRecorder()
+	body := `{"slug":"letter-from-the-editor","comment_status":"open"}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequestWithID("a-second-letter", secondID, body))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("patch status = %d, want 409; body = %s", rec.Code, rec.Body.String())
+	}
+
+	var slug string
+	if err := conn.QueryRowContext(context.Background(), "SELECT slug FROM articles WHERE id = ?", secondID).Scan(&slug); err != nil {
+		t.Fatalf("read renamed article: %v", err)
+	}
+	if slug != "a-second-letter" {
+		t.Fatalf("slug = %q, want the rename rejected", slug)
+	}
+}
+
+// A save that leaves the slug alone still sends it, so the collision check has
+// to ignore the row doing the saving.
+func TestArticlePatchHTTP_ResavingItsOwnSlugIsNotAConflict(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if _, err := conn.ExecContext(context.Background(),
+		"INSERT INTO articles (title, slug, `text`, categories) VALUES (?, ?, ?, ?)",
+		"Only", "letter-from-the-editor", "Old body", "News",
+	); err != nil {
+		t.Fatalf("seed article: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	body := `{"slug":"letter-from-the-editor","title":"Edited","comment_status":"open"}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("letter-from-the-editor", body))
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("patch status = %d, want 204; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A create that reuses a title also has to survive concurrently, which is the
+// case the per-candidate slug lock exists for.
+func TestPostArticleHTTP_ConcurrentDuplicateTitlesGetDistinctSlugs(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	// The shared test pool is a single connection; the create path needs one
+	// for its slug lock and the pool for everything after it.
+	conn.SetMaxOpenConns(4)
+	conn.SetMaxIdleConns(4)
+
+	body := `{"title":"Letter from the editor","content":"Body","status":"draft",` +
+		`"comment_status":"open","photo_url":"","categories":["News"],"authors":[]}`
+
+	const creates = 4
+	slugs := make(chan string, creates)
+	var wg sync.WaitGroup
+	for i := 0; i < creates; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			PostArticles(conn).ServeHTTP(rec, postArticleRequest(body))
+			if rec.Code != http.StatusCreated {
+				t.Errorf("post status = %d, want 201; body = %s", rec.Code, rec.Body.String())
+				return
+			}
+			var created models.ArticleCreateResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+				t.Errorf("decode created article: %v", err)
+				return
+			}
+			slugs <- created.Slug
+		}()
+	}
+	wg.Wait()
+	close(slugs)
+
+	seen := map[string]bool{}
+	for slug := range slugs {
+		if seen[slug] {
+			t.Fatalf("slug %q was handed out twice", slug)
+		}
+		seen[slug] = true
+	}
+	if len(seen) != creates {
+		t.Fatalf("got %d distinct slugs, want %d", len(seen), creates)
+	}
 }
 
 func TestArticlePatchHTTP_PublishedSaveKeepsOriginalPublishDate(t *testing.T) {
@@ -268,7 +586,7 @@ func TestArticlePatchHTTP_DraftSaveKeepsPublishDateForRepublish(t *testing.T) {
 }
 
 // The canonical URL override and the noindex flag have to survive a PATCH, and a
-// malformed canonical has to be refused rather than stored -- the public site
+// malformed canonical has to be refused rather than stored: the public site
 // emits whatever is in that column verbatim.
 func TestArticlePatchHTTP_CanonicalURLAndNoIndexRoundTrip(t *testing.T) {
 	conn := articlePatchTestDB(t)
@@ -319,7 +637,7 @@ func TestArticlePatchHTTP_CanonicalURLAndNoIndexRoundTrip(t *testing.T) {
 }
 
 // The featured image's alt text is article-scoped, so it has to survive a PATCH
-// on its own -- an author fixing only the description must not have to touch
+// on its own, since an author fixing only the description must not have to touch
 // anything else to make it stick.
 func TestArticlePatchHTTP_PhotoAltRoundTrip(t *testing.T) {
 	conn := articlePatchTestDB(t)
@@ -376,8 +694,8 @@ func TestArticlePatchHTTP_PhotoAltRoundTrip(t *testing.T) {
 
 // The excerpt box is optional, and the editor sends it on every save whether the
 // author filled it in or not. Storing the blank verbatim published articles with
-// no summary anywhere they are listed -- listings render `excerpt` and never the
-// body -- so a blank means "derive one", the same fallback a POST applies.
+// no summary anywhere they are listed (listings render `excerpt` and never the
+// body) so a blank means "derive one", the same fallback a POST applies.
 func TestArticlePatchHTTP_BlankExcerptIsDerivedFromBody(t *testing.T) {
 	conn := articlePatchTestDB(t)
 	if _, err := conn.ExecContext(context.Background(),
@@ -451,7 +769,7 @@ func TestArticlePatchHTTP_BlankExcerptIsDerivedFromBody(t *testing.T) {
 }
 
 // A save that changes nothing still matched its row, so it is a success. It used
-// to be answered 404 -- the UPDATE changed no values, MySQL reported zero rows
+// to be answered 404: the UPDATE changed no values, MySQL reported zero rows
 // affected, and the handler reads zero as "no such article". The editor sends the
 // whole form on every save and autosaves on a timer, so two saves inside the same
 // second are enough to hit it: mod_date is stamped to the second, so the second
@@ -475,7 +793,7 @@ func TestArticlePatchHTTP_NoOpSaveIsNotAMissingArticle(t *testing.T) {
 		}
 	}
 
-	// A slug that genuinely is not there must still be a 404 -- the fix must not
+	// A slug that genuinely is not there must still be a 404; the fix must not
 	// turn "no such article" into a silent success.
 	rec := httptest.NewRecorder()
 	PatchArticle(conn).ServeHTTP(rec, patchArticleRequest("no-such-story", body))

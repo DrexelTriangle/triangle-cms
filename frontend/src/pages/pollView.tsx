@@ -84,7 +84,7 @@ function toLocalInput(value?: string): string {
 }
 
 // The way back out. A zoneless "YYYY-MM-DDTHH:mm" reaching the API is read as
-// UTC, so a 9am start saved from Philadelphia comes back as 5am -- the browser
+// UTC, so a 9am start saved from Philadelphia comes back as 5am. The browser
 // is the only side that knows which zone the editor typed in, so it has to say.
 function localInputToISO(value: string): string {
   if (!value) return ""
@@ -168,14 +168,14 @@ function isPast(localValue: string): boolean {
 }
 
 // Whether publishing this poll would queue it rather than put it straight on
-// the site -- the difference between "this replaces what is running" and "this
+// the site: the difference between "this replaces what is running" and "this
 // waits its turn".
 function startsLater(poll: Poll): boolean {
   return !!poll.starts_at && new Date(poll.starts_at).getTime() > Date.now()
 }
 
 // Ordering only. Editing a poll that has already run must stay possible, so a
-// date in the past is not by itself an error -- the create form checks that
+// date in the past is not by itself an error; the create form checks that
 // separately, where it really would mean "publish something already over".
 function windowError(startsAt: string, endsAt: string): string {
   if (startsAt && endsAt && endsAt <= startsAt) return "The end date must come after the start date."
@@ -246,7 +246,7 @@ export default function PollView() {
   }, [loadPolls])
 
   // Every mutation funnels through here so a failure surfaces one way and the
-  // list is always refetched rather than patched optimistically -- activating a
+  // list is always refetched rather than patched optimistically: activating a
   // poll changes another poll's status server-side, which local state can't know.
   const mutate = useCallback(
     async (path: string, init: RequestInit, failure: string) => {
@@ -340,7 +340,7 @@ export default function PollView() {
     )
 
   // Publishing something that goes live immediately displaces the poll on the
-  // site, which is not recoverable from the editor -- so ask. A poll queued
+  // site, which is not recoverable from the editor, so ask. A poll queued
   // behind a start date displaces nothing yet, so it just publishes.
   const publishPoll = (poll: Poll) => {
     if (!startsLater(poll) && livePoll && livePoll.id !== poll.id) {

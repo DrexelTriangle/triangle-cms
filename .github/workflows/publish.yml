@@ -109,7 +109,7 @@ jobs:
         run: echo "value=$(git rev-parse HEAD:embeddings)" >> "$GITHUB_OUTPUT"
 
       # This image bakes in ~130MB of model weights, so building it is by far the
-      # slowest step here -- and it was rebuilt on every push to main, including
+      # slowest step here, and it was rebuilt on every push to main, including
       # the overwhelming majority that touch nothing but Go or TypeScript. A tag
       # that already exists is by definition built from identical content.
       - name: Check whether the embeddings image already exists

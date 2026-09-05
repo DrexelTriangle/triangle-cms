@@ -26,7 +26,7 @@ func isValidTaxonomyType(taxType string) bool {
 
 // taxonomySelectColumns is the column list every taxonomy read shares, kept in
 // one place so a new column cannot be added to some queries and missed by
-// others -- scanTaxonomyRow depends on this exact order.
+// others; scanTaxonomyRow depends on this exact order.
 const taxonomySelectColumns = "id, kind, slug, canonical_title, parent_slug, article_count, category_aliases, is_visible"
 
 func scanTaxonomyRow(row interface{ Scan(...any) error }) (models.TaxonomyItem, error) {
@@ -83,7 +83,7 @@ func normalizeCategoryAliases(aliases []string) (string, error) {
 // Both matter for the same reason. Matching updates the moment the cache
 // reloads, but article_count is a stored number, so without recounting an
 // editor who fixes a section sees it start working on the site while the screen
-// still shows 0 -- a successful fix that looks like a failed one. Only the
+// still shows 0: a successful fix that looks like a failed one. Only the
 // touched rows are recounted; see RebuildTaxonomyArticleCountsFor.
 //
 // Neither failure fails the request: the row is already saved, and both are
@@ -91,7 +91,7 @@ func normalizeCategoryAliases(aliases []string) (string, error) {
 // because the symptom otherwise is an edit that appears to do nothing.
 //
 // Callers pass every slug the write touched, INCLUDING a parent whose row is
-// about to disappear -- parents cannot be resolved once the child is deleted.
+// about to disappear, since parents cannot be resolved once the child is deleted.
 func refreshTaxonomyDerivedState(r *http.Request, conn *sql.DB, slugs ...string) {
 	if conn == nil {
 		return
@@ -102,6 +102,10 @@ func refreshTaxonomyDerivedState(r *http.Request, conn *sql.DB, slugs ...string)
 	if err := db.RebuildTaxonomyArticleCountsFor(r.Context(), conn, slugs...); err != nil {
 		slog.Error("failed to recount taxonomy articles after a write", "slugs", slugs, "error", err)
 	}
+	// The public footer's default is built from this same tree, so a renamed
+	// section or a toggled subsection has to drop those cached columns too --
+	// otherwise the sections screen and the footer disagree for up to a TTL.
+	db.InvalidateGeneratedFooter()
 }
 
 // parentSlugForRecount narrows validateTaxonomyParent's any-typed result to the
@@ -127,7 +131,7 @@ func taxonomyItemArticleCount(ctx context.Context, conn *sql.DB, taxType, slug s
 //
 // The stored count is only as fresh as the last rebuild, so it reads 0 both for
 // an item that is genuinely empty and for one whose articles simply have not
-// been counted yet -- after a reseed, or after an alias was just added. Deletion
+// been counted yet, after a reseed or after an alias was just added. Deletion
 // is guarded on "nothing uses this", so it has to ask the articles table, not a
 // cached number. Everything else can keep using the cheap stored value.
 func liveTaxonomyArticleCount(ctx context.Context, conn *sql.DB, slug string) (int64, error) {
@@ -175,7 +179,7 @@ func taxonomyHasChildren(ctx context.Context, conn *sql.DB, slug string) (bool, 
 //
 // A subsection may hang under a section or under another subsection: A&E wanted
 // a Food subsection with Beer Reviews, Wine Reviews and Restaurant Reviews under
-// THAT rather than beside it. Both levels are kind='subsection' -- depth is a
+// THAT rather than beside it. Both levels are kind='subsection': depth is a
 // property of the parent chain, not a third kind, which keeps every consumer
 // that switches on kind (the public site's slug router, the article filters, the
 // sections screen) working unchanged.
@@ -497,7 +501,7 @@ func PutTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 				// A section with children used to be blocked from becoming a
 				// subsection outright, because a subsection could not parent one.
 				// It can now, so the question is only whether the subtree still
-				// fits under the new parent -- checked below, once the parent is
+				// fits under the new parent, checked below once the parent is
 				// known, since that is what decides it.
 				//
 				// (kind, slug) is unique, so the conversion can collide with a
@@ -655,7 +659,7 @@ func DeleteTaxonomyItem(conn *sql.DB) http.HandlerFunc {
 		}
 
 		if conn != nil {
-			// Existence check only -- the count it returns is the cached one.
+			// Existence check only; the count it returns is the cached one.
 			if _, err := taxonomyItemArticleCount(r.Context(), conn, taxType, slug); err == sql.ErrNoRows {
 				writeError(w, http.StatusNotFound, "taxonomy item not found")
 				return

@@ -151,9 +151,7 @@ export default function ClassifiedsView() {
 
       {!slackConfigured && (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
-          Slack approvals are unavailable. The server is missing{" "}
-          <code>SLACK_WEBHOOK_URL</code>, <code>SLACK_SIGNING_SECRET</code>, or both, so submissions
-          may not post to Slack or Slack buttons may be refused. Moderate here instead.
+          Slack approvals are unavailable.
         </div>
       )}
 
