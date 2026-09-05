@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest"
 import { readErrorMessage } from "./apiError"
 
 describe("readErrorMessage", () => {
+  it("explains a bare permission error without assuming an admin-only action", async () => {
+    expect(await readErrorMessage(Response.json({ error: "forbidden" }, { status: 403 })))
+      .toBe("You don't have permission to perform this action.")
+    expect(await readErrorMessage(Response.json({ error: "Article is locked." }, { status: 403 })))
+      .toBe("Article is locked.")
+  })
   it("returns a trimmed server error", async () => {
     const response = Response.json({ error: "  Article is locked.  " }, { status: 409 })
     expect(await readErrorMessage(response, "Save failed")).toBe("Article is locked.")

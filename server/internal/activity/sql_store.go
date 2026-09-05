@@ -15,16 +15,12 @@ const (
 	activityTable    = "cms_activity"
 )
 
-// SQLStore persists activity/log entries in a shared MariaDB table. Unlike the
-// former embedded Badger store it holds no on-disk state and no directory lock,
-// so multiple CMS processes (e.g. blue/green deploy slots) can write to and read
-// from the same history concurrently.
+// SQLStore shares audit history across CMS instances.
 type SQLStore struct {
 	db *sql.DB
 }
 
-// NewSQLStore ensures the activity table exists and returns a store backed by
-// the provided connection. It does not take ownership of db; Close is a no-op.
+// NewSQLStore ensures the activity table exists without taking ownership of db.
 func NewSQLStore(ctx context.Context, db *sql.DB) (*SQLStore, error) {
 	if db == nil {
 		return nil, fmt.Errorf("activity: nil database connection")
@@ -58,9 +54,6 @@ func ensureActivityTable(ctx context.Context, db *sql.DB) error {
 	return err
 }
 
-// Close is a no-op: the store borrows a *sql.DB owned by the caller.
-func (s *SQLStore) Close() error { return nil }
-
 func (s *SQLStore) Write(ctx context.Context, entry Entry) error {
 	if s == nil || s.db == nil {
 		return ErrStoreUnavailable
@@ -88,8 +81,6 @@ func (s *SQLStore) Write(ctx context.Context, entry Entry) error {
 		attributes = string(payload)
 	}
 
-	// Note: do not log from this path — the default logger tees into this store,
-	// so logging here would recurse.
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO `+activityTable+`
 			(ts, level, message, kind, action, actor_id, actor_name, actor_role, target, method, path, status, attributes)

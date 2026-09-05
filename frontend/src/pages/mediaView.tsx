@@ -3,6 +3,7 @@ import { Copy, Check, ImageOff, Images, Search, Trash2, Upload, X } from "lucide
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 import { copyText } from "../lib/clipboard"
+import { readErrorMessage as errorMessage } from "../lib/apiError"
 
 type MediaItem = {
   id: number
@@ -50,15 +51,6 @@ function formatBytes(bytes?: number) {
     unit += 1
   }
   return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
-}
-
-async function errorMessage(response: Response, fallback: string) {
-  try {
-    const body = (await response.json()) as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
 }
 
 function MediaView() {

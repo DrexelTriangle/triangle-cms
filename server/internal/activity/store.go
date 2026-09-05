@@ -39,7 +39,6 @@ type ListResult struct {
 type Store interface {
 	Write(context.Context, Entry) error
 	List(context.Context, Query) (ListResult, error)
-	Close() error
 }
 
 var (

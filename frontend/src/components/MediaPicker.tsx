@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ImageOff, Pencil, Search, Upload, X } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { readErrorMessage as errorMessage } from "../lib/apiError"
 
 export type MediaPickerItem = {
   id: number
@@ -33,15 +34,6 @@ const PAGE_SIZE = 60
 // How far ahead of the sentinel to start fetching, so the next page is usually
 // already in place by the time the author scrolls to the bottom of the grid.
 const LOAD_MORE_MARGIN = "400px"
-
-async function errorMessage(response: Response, fallback: string) {
-  try {
-    const body = (await response.json()) as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
-}
 
 /**
  * Modal for choosing an image from the media library, plus an upload shortcut

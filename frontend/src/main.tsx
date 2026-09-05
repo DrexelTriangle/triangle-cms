@@ -3,7 +3,6 @@ import ReactDOM from "react-dom/client"
 import { BrowserRouter } from "react-router-dom"
 import App from "./App.tsx"
 import { SessionAuthProvider } from "./auth/sessionAuth.tsx"
-import { AdminOnlyNoticeProvider } from "./auth/adminOnlyNotice.tsx"
 import "./index.css"
 
 if (window.location.hostname === "127.0.0.1") {
@@ -14,11 +13,9 @@ if (window.location.hostname === "127.0.0.1") {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <SessionAuthProvider>
-      <AdminOnlyNoticeProvider>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </AdminOnlyNoticeProvider>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
     </SessionAuthProvider>
   </React.StrictMode>
 )

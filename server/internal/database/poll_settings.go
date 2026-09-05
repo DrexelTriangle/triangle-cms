@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-func EnsurePollSettings(ctx context.Context, conn *sql.DB) error {
-	return nil
-}
-
 func GetPollTitle(ctx context.Context, conn *sql.DB) (string, error) {
 	value, _, err := readSettingRaw(ctx, conn, "poll_title")
 	if err != nil {

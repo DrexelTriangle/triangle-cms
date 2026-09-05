@@ -108,13 +108,9 @@ func main() {
 		slog.Error("failed to initialize activity store", "error", err)
 		os.Exit(1)
 	}
-	defer activityStore.Close()
 	activity.SetDefaultStore(activityStore)
 
-	logger := slog.New(activity.NewTeeHandler(
-		slog.NewJSONHandler(os.Stdout, nil),
-		activity.NewStoreHandler(activityStore, nil),
-	)).With("service", "cms")
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "cms")
 	slog.SetDefault(logger)
 
 	if err := database.EnsureArticlesSchema(context.Background(), db); err != nil {
@@ -229,10 +225,6 @@ func main() {
 		if err := database.ReportOrphanedArticles(context.Background(), db); err != nil {
 			slog.Error("failed to check for articles matching no section", "error", err)
 		}
-	}
-	if err := database.EnsurePollSettings(context.Background(), db); err != nil {
-		slog.Error("failed to seed poll settings", "error", err)
-		os.Exit(1)
 	}
 	// Runs after the settings table exists, since the legacy poll question lives
 	// in cms_settings. No-op once cms_polls has any row.
