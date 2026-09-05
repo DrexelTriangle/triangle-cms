@@ -26,17 +26,8 @@ func EnsureArticlesSchema(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
-// EnsureArticlesPublishedIndex adds the index the public listing orders on.
-//
-// Every public read (homepage blocks, section pages, /v1/articles) is
-// "newest published first, LIMIT n". Without an index on pub_date that is a
-// filesort over the whole migrated corpus on each of those requests; with one
-// the optimizer walks the index backwards and stops at the limit. `id` rides
-// along as the tiebreak so a whole issue published on one timestamp is ordered
-// inside the index rather than sorted afterwards.
-//
-// Non-fatal for the caller, like the search indexes: it is a planner
-// optimization, and the ordering is correct without it.
+// EnsureArticlesPublishedIndex supports publication-date ordering with id as a
+// stable tiebreaker. Index creation failure does not change query correctness.
 func EnsureArticlesPublishedIndex(ctx context.Context, conn *sql.DB) error {
 	_, err := conn.ExecContext(ctx, `
 		ALTER TABLE articles
@@ -58,30 +49,10 @@ func EnsureArticlesBreakingNewsIndex(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
-// EnsureArticlesSlugIndex indexes the column every article is addressed by:
-// the detail endpoint, the comment thread, the permalink check, the
-// featured-article write. Without it each of those is a full scan of the
-// migrated corpus: ten thousand rows read to return one.
-//
-// It is a PREFIX index, and that detail is the whole design. The ETL ships
-// `slug` as LONGTEXT, which cannot be indexed whole; the obvious fix is to
-// narrow the column to VARCHAR first. Do not. Retyping a column rewrites the
-// table, and rewriting `articles` means re-tokenizing 44MB of article bodies
-// into the two FULLTEXT indexes, measured at over six minutes on a corpus
-// this size, holding a lock the newsroom's writes would queue behind, and on a
-// blue/green deploy the container doing it is not even the one serving. Adding
-// a secondary index is an in-place operation that does none of that.
-//
-// 191 characters is a prefix no slug in the corpus reaches (the longest is 154)
-// and stays under the 767-byte limit older row formats impose, so it is exact
-// in practice and safe on any table layout. Even where it were not, a prefix
-// index only narrows the candidates (InnoDB rechecks the full value) so
-// this can cost an extra row read but can never return a wrong article.
-//
-// The index is deliberately not UNIQUE. Uniqueness is a property of the data,
-// and the corpus belongs to the ETL, not the CMS: production already carries
-// one duplicated slug from an archived pair, which a UNIQUE index would turn
-// into a CMS that will not start.
+// EnsureArticlesSlugIndex adds a non-unique prefix index to the LONGTEXT slug.
+// The 191-character prefix fits older 767-byte limits; InnoDB checks the full value.
+// Retyping the column would rebuild the table and FULLTEXT indexes under a metadata
+// lock. Imported duplicate slugs rule out a unique index.
 func EnsureArticlesSlugIndex(ctx context.Context, conn *sql.DB) error {
 	_, err := conn.ExecContext(ctx, `
 		ALTER TABLE articles
@@ -90,16 +61,8 @@ func EnsureArticlesSlugIndex(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
-// EnsureArticleAuthorsIndex indexes the join column that every listing reads.
-//
-// LoadAuthorsByArticleIDs resolves a page of articles' bylines with one
-// `WHERE articles_id IN (...)`, but the ETL creates `articles_authors` with
-// only a primary key on its own id, so that lookup scanned the entire join
-// table on every listing request, including each of the homepage's six
-// section blocks. author_id rides along so the index covers the join.
-//
-// Cheap and safe to run at boot, unlike anything touching `articles`: the table
-// is a few hundred kilobytes and carries no FULLTEXT index to rebuild.
+// EnsureArticleAuthorsIndex covers byline lookups by articles_id and author_id.
+// The ETL otherwise supplies only the join table's primary key.
 func EnsureArticleAuthorsIndex(ctx context.Context, conn *sql.DB) error {
 	_, err := conn.ExecContext(ctx, `
 		ALTER TABLE articles_authors
@@ -108,19 +71,10 @@ func EnsureArticleAuthorsIndex(ctx context.Context, conn *sql.DB) error {
 	return err
 }
 
-// EnsureArticlesSearchIndex adds the FULLTEXT indexes public search ranks on.
-//
-// Two indexes, not one: the combined index answers "does this article match at
-// all", and the title-only index supplies the boost that keeps a headline hit
-// above a body mention. MATCH can only use an index whose column list it names
-// exactly, so the pair is the minimum that expresses that ranking.
-//
-// Callers must treat a failure here as non-fatal. Building the first FULLTEXT
-// index on `articles` forces InnoDB to rebuild the table (it adds a hidden
-// FTS_DOC_ID column), which on the migrated WordPress corpus takes long enough
-// to look like a stalled boot. SearchArticles falls back to LIKE whenever the
-// indexes are absent, so a slow or failed ALTER degrades search instead of
-// taking the CMS down with it.
+// EnsureArticlesSearchIndex creates combined and title-only FULLTEXT indexes
+// for matching and headline boosting. MATCH requires the exact indexed columns.
+// The first index rebuilds the table; failures are non-fatal because search falls
+// back to LIKE.
 func EnsureArticlesSearchIndex(ctx context.Context, conn *sql.DB) error {
 	_, err := conn.ExecContext(ctx, `
 		ALTER TABLE articles

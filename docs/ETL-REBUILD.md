@@ -4,7 +4,8 @@ Rebuilding the `triangle` database from a fresh WordPress export: `DROP
 DATABASE`, load six ETL-generated SQL files, restore what the ETL does not
 produce.
 
-Last verified end-to-end **2026-08-01** (9780 articles onto DB1).
+Last verified end-to-end **2026-08-01**. Confirm current host addresses,
+backup coverage, and CMS-owned tables before using this procedure.
 
 ---
 
@@ -37,9 +38,9 @@ empty at runtime**, so `DROP DATABASE` wipes real editorial state:
 | `media.in_gallery` | `/photo` goes empty. The gallery is a hand-curated 25-image set; nothing re-seeds it. |
 | `cms_users`, `cms_sessions` | Everyone is logged out. Auto-promote recreates the first user on next login. |
 | `cms_settings` | Resets to defaults; breaking-news banner text is gone. |
-| `cms_activity`, `cms_poll_counts` | Gone. |
+| `cms_activity`, `cms_poll_counts`, `cms_polls`, `cms_poll_options`, `classifieds` | Activity, polls, vote counts, and classified submissions are lost. |
 
-Take a dump first, always. DB1 is still the only live copy; there is no DB2.
+Take a complete dump and verify that it can be restored before proceeding.
 
 ```
 mariadb-dump --single-transaction --routines --events --databases triangle | gzip > pre-reset.sql.gz
@@ -69,16 +70,13 @@ Also confirm:
 
 ## 4. Run the ETL
 
-`--headless` is real as of ETL commit `2975d05`. Older notes describing a stub
-TUI driver are obsolete.
-
 ```
 cd wordpress-etl
 MEDIA_BASE_URL=https://delta.thetriangle.org \
   .venv/bin/python main.py --generate-embeddings --best-guess --headless
 ```
 
-Embeddings take about 65 seconds for ~10k articles. `--headless` requires
+`--headless` requires
 `--best-guess`. `triangle-cms/scripts/reseed_from_etl.py` does *not* pass
 `--headless`, so it still opens the TUI, and it is local-stack only.
 
@@ -94,13 +92,9 @@ articles.sql  authors.sql  articles_authors.sql  seo.sql  comments.sql  article_
 still hard-exit the run. Resolved conflicts are cached in
 `logs/auth_conflicts.json`.
 
-Both ID-keyed caches (`auth_conflicts.json` and
-`logs/article-sanitizer/article_author_resolution_cache.json`) used to rot
-between exports, because **WordPress renumbers *and reuses* author IDs**. A
-stale ID either orphaned the link or silently credited an article to the wrong
-person. Fixed in PRs #54/#56/#57: a cached decision records *which person* wins,
-and the ID is re-looked-up from the current export. Keep that invariant if you
-touch the code: never write a cached ID.
+Author decisions also live in
+`logs/article-sanitizer/article_author_resolution_cache.json`. Cache identities
+by name and resolve IDs from the current export; WordPress can reuse IDs.
 
 ## 5. Load into DB1
 
@@ -111,9 +105,9 @@ DB1 (host key unverified, and `triangle_user` is granted only from
 ```
 ssh tadmin@10.248.40.154 'sudo -n mariadb --default-character-set=utf8mb4 -e "DROP DATABASE triangle; CREATE DATABASE triangle;"'
 
-for f in authors articles articles_authors seo article_embeddings comments
+for f in authors articles articles_authors seo article_embeddings comments; do
   gzip -c logs/sql/$f.sql | ssh tadmin@10.248.40.154 'gunzip | sudo -n mariadb --default-character-set=utf8mb4 triangle'
-end
+done
 ```
 
 Load in that order: `articles_authors` has FK-shaped dependencies on the first
@@ -148,8 +142,8 @@ the other five carry: its PK is a bare `BIGINT`, not `AUTO_INCREMENT`, so the
 runtime by the Go code, so restoring into a freshly dropped database fails with
 `Table 'triangle.site_taxonomy' doesn't exist`.
 
-1. Restart **both** blue and green backends. Green serves; blue is the rollback
-   target and must see the new schema too.
+1. Restart both blue and green backends so each sees the new schema. Check the
+   active upstream configuration rather than assuming which slot is serving.
 2. Restore sections from the pre-reset dump, loading it the same way as above.
    Only 7 of the ~35 rows are `kind='section'`, but restore all of them.
 
@@ -199,7 +193,8 @@ runtime by the Go code, so restoring into a freshly dropped database fails with
    `https://cms.thetriangle.org/wp-json/triangle/v1/gallery` (which disappears
    when WordPress is retired); `scripts/backfill_gallery_flags.py` is the
    durable route but has never been run against the real WP DB.
-6. Log back in; re-enter any breaking-news text.
+6. Restore other CMS-owned data from the verified backup, including users,
+   settings, polls, votes, classifieds, and activity. Log back in afterward.
 
 ### Never re-slug a section to fix a count
 
@@ -211,8 +206,6 @@ homepage block). Changing `comics-puzzles` → `comics` on 2026-08-01 returned
 alone.
 
 ## 7. Post-load verification
-
-Run all of these. Each has produced a real defect at least once.
 
 **Media gap.** A fresh export references images added to WP after the last
 rsync. Test the filesystem, not curl; Cloudflare caches 404s:
@@ -266,16 +259,6 @@ WHERE ar.authors NOT LIKE CONCAT('%', au.display_name, '%');
 **Section pages.** Hit `/v1/taxonomy` and load a couple of section routes.
 `dev.thetriangle.org` sits behind Cloudflare Access, so page-level checks must
 happen in a browser, not from curl.
-
-### Expected residue
-
-- ~1200 `www.thetriangle.org` URLs: article cross-links in body text.
-- 2 `therectangle.org` URLs: also article links to the defunct predecessor
-  domain, not media.
-- `entertainment` counts far fewer than its 2543 `Arts & Entertainment`
-  articles. Listing resolves slug → canonical title; counting buckets by
-  `CanonicalizeSlug(category)`. Different keys, so a section can list correctly
-  while its count is wrong. Cosmetic.
 
 ## 8. Quick reference
 

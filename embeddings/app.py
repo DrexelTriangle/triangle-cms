@@ -1,15 +1,4 @@
-"""Embedding sidecar for the CMS.
-
-The CMS needs vectors in two places that must agree: article bodies, embedded in
-the background as they are published, and search queries, embedded on the
-request path. A distance between vectors from two different models is
-meaningless, so both go through this one service and it reports which model
-produced them.
-
-It is deliberately stateless. Nothing here is a source of truth (the vectors
-live in MariaDB) so it needs no volume, no backup, and no reconciliation. If
-it restarts, or is missing entirely, the CMS degrades to lexical search.
-"""
+"""Stateless embedding service shared by article indexing and search queries."""
 
 from __future__ import annotations
 
@@ -25,10 +14,7 @@ from pydantic import BaseModel, Field
 
 MODEL_NAME = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
-# BGE is an asymmetric retrieval model: it was trained with short queries
-# prefixed and documents bare. Embedding a query without this prefix quietly
-# costs a chunk of retrieval quality: it still returns vectors, just worse
-# ones, which is the kind of bug that never surfaces as an error.
+# BGE expects this prefix on queries, but not documents.
 QUERY_PREFIX = os.getenv(
     "EMBED_QUERY_PREFIX",
     "Represent this sentence for searching relevant passages: ",
@@ -46,9 +32,7 @@ _dimensions: int = 0
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Loading at startup rather than on first request means the container is
-    # unhealthy while the model downloads, instead of appearing ready and then
-    # timing out the first search that arrives.
+    # Load before accepting requests so health reflects model readiness.
     global _model, _dimensions
     logger.info("loading embedding model %s", MODEL_NAME)
     model = TextEmbedding(model_name=MODEL_NAME)
@@ -64,8 +48,6 @@ app = FastAPI(title="Triangle CMS embeddings", lifespan=lifespan)
 
 class EmbedRequest(BaseModel):
     texts: list[str] = Field(min_length=1)
-    # "query" applies the BGE prefix, "document" does not. The caller has to say
-    # which, because the service cannot tell a short article from a long query.
     kind: Literal["query", "document"] = "document"
 
 
@@ -94,10 +76,7 @@ def embed(request: EmbedRequest) -> EmbedResponse:
 
     vectors = np.asarray(list(_model.embed(texts)), dtype=np.float32)
 
-    # Normalize explicitly rather than trusting the model wrapper's default.
-    # MariaDB ranks these with euclidean distance, which only agrees with cosine
-    # similarity on unit vectors. The previous ETL skipped this, so magnitude
-    # leaked into every "related articles" ranking.
+    # Unit vectors make MariaDB's Euclidean ranking agree with cosine similarity.
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     vectors = vectors / np.clip(norms, 1e-12, None)
 

@@ -2,21 +2,14 @@ import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { publicSiteUrl } from "../auth/urls"
-import { useSessionAuth } from "../auth/sessionAuthContext"
 import {
   FileText,
   CheckCircle2,
   PenLine,
   Users,
-  TrendingUp,
   Plus,
-  ArrowUpRight,
-  ArrowDownRight,
-  AlertCircle,
   ExternalLink,
-  Activity,
   Zap,
-  Tag,
   Layers,
   Send,
   Server,
@@ -24,6 +17,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { articleStatusChipClass } from "../lib/articleStatus"
+import { readErrorMessage } from "../lib/apiError"
 
 interface RecentArticle {
   id: number
@@ -47,15 +41,7 @@ interface ApiStats {
   loading: boolean
 }
 
-function getHour() {
-  const h = new Date().getHours()
-  if (h < 12) return "Good morning"
-  if (h < 18) return "Good afternoon"
-  return "Good evening"
-}
-
-// Scheduled articles sit in the future, so the difference has to be read in
-// both directions — otherwise their date reads as "-429m ago".
+// Scheduled articles use future-relative dates.
 function timeAgo(dateStr: string | null) {
   if (!dateStr) return "—"
   const target = new Date(dateStr).getTime()
@@ -73,8 +59,6 @@ function timeAgo(dateStr: string | null) {
   return ahead ? `in ${label}` : `${label} ago`
 }
 
-// The articles page shows capitalized status labels ("Published", "Scheduled"),
-// so the dashboard badges match rather than showing the raw API value.
 function formatStatusLabel(status: string) {
   if (!status) return "—"
   return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase()
@@ -88,20 +72,8 @@ function toCanonicalSlug(value: string) {
     .replace(/^-+|-+$/g, "")
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
-async function slugExists(apiFetch: (url: string, init?: RequestInit) => Promise<Response>, slug: string) {
-  const response = await apiFetch(`/v1/articles/${encodeURIComponent(slug)}`)
-  return response.ok
-}
-
 export default function DashboardPage() {
   const navigate = useNavigate()
-  const { user } = useSessionAuth()
   const apiFetch = useApiFetch()
   const [recentArticles, setRecentArticles] = useState<RecentArticle[]>([])
   const [draftTitle, setDraftTitle] = useState("")
@@ -195,7 +167,6 @@ export default function DashboardPage() {
       .then((r) => (r.ok ? setApiHealth("ok") : setApiHealth("error")))
       .catch(() => setApiHealth("error"))
   }, [apiFetch])
-  const displayName = String(user?.name ?? user?.email ?? "Editor")
 
   const createQuickDraft = async () => {
     const title = draftTitle.trim()
@@ -204,25 +175,7 @@ export default function DashboardPage() {
     setIsSavingDraft(true)
     setDraftError(null)
 
-    const baseSlug = toCanonicalSlug(title) || "draft"
-    let slug = baseSlug
-    try {
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        const candidate = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`
-        // Prefer the cleanest slug first, and only suffix if it's already taken.
-        // If lookup errors, we still try creating with this candidate.
-        const exists = await slugExists(apiFetch, candidate).catch(() => false)
-        if (!exists) {
-          slug = candidate
-          break
-        }
-      }
-      if (!slug) {
-        slug = `${baseSlug}-${Date.now().toString(36)}`
-      }
-    } catch {
-      slug = `${baseSlug}-${Date.now().toString(36)}`
-    }
+    const slug = toCanonicalSlug(title) || "draft"
     const payload = {
       title,
       slug,
@@ -244,23 +197,11 @@ export default function DashboardPage() {
         body: JSON.stringify(payload),
       })
       if (!response.ok) {
-        throw new Error(`Save failed (${response.status})`)
+        throw new Error(await readErrorMessage(response, `Save failed (${response.status})`))
       }
 
       const created = (await response.json().catch(() => null)) as { id?: number | string; slug?: string } | null
       const createdSlug = created?.slug || slug
-      let confirmed = false
-      for (let attempt = 0; attempt < 5; attempt += 1) {
-        const verifyResponse = await apiFetch(`/v1/articles/${encodeURIComponent(createdSlug)}`)
-        if (verifyResponse.ok) {
-          confirmed = true
-          break
-        }
-        await delay(200)
-      }
-      if (!confirmed) {
-        throw new Error("Draft created but not yet available. Please try again.")
-      }
 
       if (typeof window !== "undefined") {
         const keysToDelete: string[] = []
@@ -290,14 +231,10 @@ export default function DashboardPage() {
 
   return (
     <div className="p-6 space-y-6 w-full">
-      {/* Page header */}
-      <div className="flex items-start justify-between">
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-1">Dashboard</p>
-          <h1 className="text-3xl font-extrabold tracking-tight">{getHour()}, {displayName}.</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Recent CMS activity and quick drafting tools.
-          </p>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
         </div>
         <div className="flex gap-2.5 shrink-0">
           <Button
@@ -316,7 +253,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Stat strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
         {[
           {
@@ -325,8 +261,6 @@ export default function DashboardPage() {
             icon: FileText,
             color: "text-primary",
             bg: "bg-primary/10",
-            delta: "",
-            up: true,
           },
           {
             label: "Published",
@@ -337,8 +271,6 @@ export default function DashboardPage() {
             icon: CheckCircle2,
             color: "text-success",
             bg: "bg-success/10",
-            delta: "",
-            up: true,
           },
           {
             label: "Drafts",
@@ -349,9 +281,6 @@ export default function DashboardPage() {
             icon: PenLine,
             color: "text-amber-500",
             bg: "bg-amber-50",
-            delta: "need review",
-            up: (stats.draftArticles ?? 0) === 0,
-            deltaIcon: AlertCircle,
           },
           {
             label: "Authors",
@@ -359,8 +288,6 @@ export default function DashboardPage() {
             icon: Users,
             color: "text-violet-500",
             bg: "bg-violet-50",
-            delta: "",
-            up: true,
           },
           {
             label: "Sections",
@@ -368,8 +295,6 @@ export default function DashboardPage() {
             icon: Layers,
             color: "text-sky-500",
             bg: "bg-sky-50",
-            delta: "",
-            up: true,
           },
           {
             label: "API Status",
@@ -377,45 +302,31 @@ export default function DashboardPage() {
             icon: Server,
             color: apiHealth === "ok" ? "text-success" : apiHealth === "error" ? "text-destructive" : "text-muted-foreground",
             bg: apiHealth === "ok" ? "bg-success/10" : apiHealth === "error" ? "bg-destructive/10" : "bg-muted",
-            delta: apiHealth === "ok" ? "up" : "down",
-            up: apiHealth === "ok",
           },
         ].map((card) => {
           const Icon = card.icon
-          const DeltaIcon = card.deltaIcon
           return (
-            <Card key={card.label} className="hover:shadow-md transition-shadow">
+            <Card key={card.label}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+                  <p className="text-[11px] font-semibold uppercase tracking-normal text-muted-foreground truncate">
                     {card.label}
                   </p>
                   <span className={`flex items-center justify-center w-7 h-7 rounded-lg shrink-0 ${card.bg}`}>
                     <Icon className={`w-3.5 h-3.5 ${card.color}`} />
                   </span>
                 </div>
-                <p className="text-2xl font-extrabold tracking-tight">{card.value}</p>
-                {card.delta ? (
-                  <p className={`text-xs mt-1 flex items-center gap-0.5 font-medium ${card.up ? "text-success" : "text-destructive"}`}>
-                    {DeltaIcon ? <DeltaIcon className="w-3 h-3" /> : card.up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                    {card.delta}
-                  </p>
-                ) : null}
+                <p className="text-2xl font-extrabold tracking-normal">{card.value}</p>
               </CardContent>
             </Card>
           )
         })}
       </div>
 
-      {/* Main 3-column grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
 
-        {/* LEFT: At a Glance + Activity */}
         <div className="xl:col-span-2 space-y-5">
 
-
-
-          {/* All recent articles full table */}
           <Card>
             <CardHeader className="pb-2 pt-4 px-5">
               <div className="flex items-center justify-between">
@@ -473,10 +384,8 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* RIGHT: Quick Draft + Quick Actions */}
         <div className="space-y-5">
 
-          {/* Quick Draft */}
           <Card>
             <CardHeader className="pb-2 pt-4 px-5">
               <CardTitle className="text-sm font-bold flex items-center gap-2">
@@ -516,43 +425,6 @@ export default function DashboardPage() {
               {draftError ? (
                 <p className="text-xs text-destructive">{draftError}</p>
               ) : null}
-            </CardContent>
-          </Card>
-
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5">
-              <CardTitle className="text-sm font-bold flex items-center gap-2">
-                <Activity className="w-4 h-4 text-primary" />
-                Quick Actions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3 space-y-1">
-              {[
-                { label: "New article", icon: PenLine, path: "/articles/new", badge: null },
-                { label: "Manage authors", icon: Users, path: "/authors", badge: null },
-                { label: "Developing stories", icon: TrendingUp, path: "/developing-stories", badge: "Live" },
-                { label: "Upload media", icon: FileText, path: "/media", badge: null },
-                { label: "Browse sections", icon: Layers, path: "/sections", badge: null },
-                { label: "SEO overview", icon: Tag, path: "/seo", badge: null },
-              ].map(({ label, icon: Icon, path, badge }) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => navigate(path)}
-                  className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium hover:bg-muted transition-colors text-left"
-                >
-                  <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-primary/10 shrink-0">
-                    <Icon className="w-3.5 h-3.5 text-primary" />
-                  </span>
-                  <span className="flex-1">{label}</span>
-                  {badge && (
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-success/10 text-success">
-                      {badge}
-                    </span>
-                  )}
-                </button>
-              ))}
             </CardContent>
           </Card>
 

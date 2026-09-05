@@ -258,7 +258,7 @@ function AuthorsView() {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Sort</span>
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Sort</span>
         <div className="flex gap-1.5">
           <button
             className={sortTagClass(sortMode === "alpha")}
@@ -293,7 +293,7 @@ function AuthorsView() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
@@ -496,7 +496,7 @@ function CreateAuthorModal({ onClose, onCreated }: { onClose: () => void; onCrea
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md rounded-lg border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-lg font-semibold text-foreground">New author</h2>
           <button className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" type="button" onClick={onClose} title="Close">
@@ -657,7 +657,7 @@ function EditAuthorModal({ author, onClose, onUpdated }: { author: Author; onClo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md rounded-lg border border-border bg-card shadow-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h2 className="text-lg font-semibold text-foreground">Edit author</h2>
           <button className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" type="button" onClick={onClose} title="Close">

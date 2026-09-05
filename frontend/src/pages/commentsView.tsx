@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Check, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, ExternalLink, MessageSquare, RotateCcw, Search, Trash2, X } from "lucide-react"
 import { Link } from "react-router-dom"
@@ -69,15 +70,6 @@ function initials(name: string) {
   return (letters || "?").slice(0, 2).toUpperCase()
 }
 
-async function readErrorMessage(response: Response, fallback: string) {
-  try {
-    const body = await response.json() as { error?: string }
-    return body.error ?? fallback
-  } catch {
-    return fallback
-  }
-}
-
 function sanitizeCommentHtml(raw: string) {
   if (typeof document === "undefined") {
     return raw
@@ -95,6 +87,8 @@ function sanitizeCommentHtml(raw: string) {
       }
 
       const element = child as HTMLElement
+      // Sanitize descendants before unwrapping an unsupported parent.
+      walk(element)
       if (!allowedTags.has(element.tagName)) {
         element.replaceWith(...Array.from(element.childNodes))
         continue
@@ -114,7 +108,6 @@ function sanitizeCommentHtml(raw: string) {
         element.setAttribute("rel", "noreferrer noopener")
       }
 
-      walk(element)
     }
   }
 
@@ -441,7 +434,7 @@ export default function CommentsView() {
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
         {isLoading ? (
           <div className="p-12 text-center text-sm text-muted-foreground">Loading comments...</div>
         ) : comments.length === 0 ? (
@@ -475,7 +468,7 @@ export default function CommentsView() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold text-sm text-foreground">{comment.author_name || "Anonymous"}</span>
                         {comment.author_email ? <span className="text-xs text-muted-foreground">{comment.author_email}</span> : null}
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLES[comment.status] ?? STATUS_STYLES.pending}`}>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-normal ${STATUS_STYLES[comment.status] ?? STATUS_STYLES.pending}`}>
                           {comment.status || "pending"}
                         </span>
                         {comment.parent_id > 0 ? <span className="text-xs text-muted-foreground">Reply to #{comment.parent_id}</span> : null}

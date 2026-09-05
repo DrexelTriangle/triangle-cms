@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import { useEffect, useState } from "react"
 import { Globe, Link2, AlertCircle, CheckCircle, RefreshCw, Info } from "lucide-react"
 import { useNavigate } from "react-router-dom"
@@ -34,15 +35,6 @@ const EMPTY_SETTINGS: SeoSettings = {
   og_description: "",
   sitemap_url: "",
   robots_url: "",
-}
-
-async function readErrorMessage(res: Response, fallback: string) {
-  try {
-    const body = await res.json() as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
 }
 
 export default function SeoView() {
@@ -152,16 +144,15 @@ export default function SeoView() {
         </button>
       </div>
 
-      {/* Stats row */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Issues</p>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Issues</p>
           <p className={`text-2xl font-bold mt-1 ${totalIssues > 0 ? "text-destructive" : "text-foreground"}`}>
             {auditLoading ? "—" : totalIssues.toLocaleString()}
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Articles Checked</p>
+        <div className="rounded-lg border border-border bg-card p-4">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Articles Checked</p>
           <p className="text-2xl font-bold text-foreground mt-1">
             {auditLoading ? "—" : publishedCount.toLocaleString()}
           </p>
@@ -177,7 +168,6 @@ export default function SeoView() {
         </p>
       </div>
 
-      {/* Issues */}
       <div className="flex flex-col gap-4">
         <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-destructive" />
@@ -195,14 +185,14 @@ export default function SeoView() {
         )}
         <div className="flex flex-col gap-2">
           {auditError ? (
-            <div className="flex items-center gap-2 p-3 rounded-xl border border-destructive/30 bg-destructive/5">
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-destructive/30 bg-destructive/5">
               <AlertCircle className="w-4 h-4 text-destructive shrink-0" />
               <p className="text-sm text-destructive">{auditError}</p>
             </div>
           ) : auditLoading ? (
             <p className="text-sm text-muted-foreground">Scanning published articles…</p>
           ) : issues.length === 0 ? (
-            <div className="flex items-center gap-2 p-3 rounded-xl border border-green-300/50 bg-green-50/50 dark:border-green-700/30 dark:bg-green-900/10">
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-green-300/50 bg-green-50/50 dark:border-green-700/30 dark:bg-green-900/10">
               <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
               <p className="text-sm text-muted-foreground">
                 All {publishedCount} published articles have valid SEO metadata.
@@ -214,7 +204,7 @@ export default function SeoView() {
                 key={`${issue.article_id}-${idx}`}
                 type="button"
                 onClick={() => navigate(`/articles/${encodeURIComponent(String(issue.article_id))}/${encodeURIComponent(issue.slug)}/edit`)}
-                className={`flex items-start gap-3 rounded-xl border p-4 text-left transition-colors ${
+                className={`flex items-start gap-3 rounded-lg border p-4 text-left transition-colors ${
                   issue.type === "error"
                     ? "border-destructive/30 bg-destructive/5 hover:bg-destructive/10"
                     : "border-yellow-300/50 bg-yellow-50/50 hover:bg-yellow-100/50 dark:border-yellow-700/30 dark:bg-yellow-900/10 dark:hover:bg-yellow-900/20"
@@ -242,15 +232,14 @@ export default function SeoView() {
         </div>
       </div>
 
-      {/* Site-wide SEO settings */}
-      <div className="rounded-xl border border-border bg-card p-5 flex flex-col gap-4">
+      <div className="rounded-lg border border-border bg-card p-5 flex flex-col gap-4">
         <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
           <Globe className="w-4 h-4" />
           Social Defaults
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Open Graph Title</label>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Open Graph Title</label>
             <input
               className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition disabled:opacity-60"
               value={settingsDraft.og_title}
@@ -259,7 +248,7 @@ export default function SeoView() {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Open Graph Description</label>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Open Graph Description</label>
             <input
               className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition disabled:opacity-60"
               value={settingsDraft.og_description}
@@ -268,7 +257,7 @@ export default function SeoView() {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Sitemap URL</label>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Sitemap URL</label>
             <div className="flex items-center gap-2">
               <input
                 className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition disabled:opacity-60"
@@ -288,7 +277,7 @@ export default function SeoView() {
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Robots.txt</label>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Robots.txt</label>
             <div className="flex items-center gap-2">
               <input
                 className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition disabled:opacity-60"

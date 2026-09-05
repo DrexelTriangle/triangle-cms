@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Search, FileText, Tag, Settings, UserPlus, Users, RefreshCcw, Newspaper, ListTodo, Image, Upload, Trash2, MessageSquare } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -79,15 +80,6 @@ function formatDate(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
-}
-
-async function readErrorMessage(response: Response, fallback: string) {
-  try {
-    const body = await response.json() as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
 }
 
 export default function ActivityView() {
@@ -184,11 +176,11 @@ export default function ActivityView() {
 
           <div className="flex flex-col gap-2">
             {isLoading ? (
-              <div className="rounded-xl border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
                 Loading activity...
               </div>
             ) : filtered.length === 0 ? (
-              <div className="rounded-xl border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border bg-card px-4 py-8 text-center text-sm text-muted-foreground">
                 {search ? "No activity matches the current search." : "No activity recorded yet."}
               </div>
             ) : (
@@ -197,7 +189,7 @@ export default function ActivityView() {
                 const Icon = meta.icon
                 const user = event.user || "System"
                 return (
-                  <div key={event.id} className="flex gap-4 rounded-xl border border-border bg-card px-4 py-3 hover:bg-muted/20 transition-colors">
+                  <div key={event.id} className="flex gap-4 rounded-lg border border-border bg-card px-4 py-3 hover:bg-muted/20 transition-colors">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${avatarColor(user)}`}>
                       <span className="text-white text-xs font-bold">{initials(user)}</span>
                     </div>
@@ -220,7 +212,7 @@ export default function ActivityView() {
         </div>
 
         <div className="flex flex-col gap-4">
-          <div className="rounded-xl border border-border bg-card p-4">
+          <div className="rounded-lg border border-border bg-card p-4">
             <h3 className="text-sm font-semibold text-foreground mb-3">Most Active Users</h3>
             <div className="flex flex-col gap-2">
               {topContributors.length === 0 ? (
@@ -239,7 +231,7 @@ export default function ActivityView() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-4">
+          <div className="rounded-lg border border-border bg-card p-4">
             <h3 className="text-sm font-semibold text-foreground mb-3">Action Counts</h3>
             <div className="flex flex-col gap-1.5">
               {actionEntries.length === 0 ? (

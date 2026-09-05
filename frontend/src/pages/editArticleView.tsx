@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
 import { ArrowLeft, Save, Image, Search, X, Copy, Check, RefreshCw, Plus } from "lucide-react"
@@ -11,15 +12,6 @@ import { DateTimeField } from "../components/ui/datetime-field"
 
 // Lazy-loaded so the heavy yoastseo bundle only loads when editing an article.
 const SeoAnalysis = lazy(() => import("../components/SeoAnalysis"))
-
-async function readErrorMessage(response: Response, fallback: string) {
-  try {
-    const body = await response.json() as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
-}
 
 type EditableStatus = "draft" | "published"
 type PublishTiming = "draft" | "now" | "schedule"
@@ -940,7 +932,7 @@ function EditArticleView() {
   const inputClass ="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const selectClass = "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
   const labelClass = "flex flex-col gap-1.5"
-  const labelTextClass = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+  const labelTextClass = "text-xs font-semibold text-muted-foreground uppercase tracking-normal"
   const commitSeoTagDraft = () => {
     if (!seoTagDraft.trim()) {
       setSeoTagDraft("")
@@ -1217,7 +1209,7 @@ function EditArticleView() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Header */}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="flex items-center gap-4">
           <button
@@ -1238,11 +1230,11 @@ function EditArticleView() {
       </div>
 
       {isLoading ? (
-        <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
+        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
           Loading article...
         </div>
       ) : lockedBy ? (
-        <div className="rounded-xl border border-border bg-card p-8 flex flex-col items-center gap-4 text-center">
+        <div className="rounded-lg border border-border bg-card p-8 flex flex-col items-center gap-4 text-center">
           <h2 className="text-lg font-semibold text-foreground">This article is being edited</h2>
           <p className="max-w-md text-sm text-muted-foreground">
             <span className="font-medium text-foreground">{lockedBy}</span> is currently editing this article.
@@ -1269,8 +1261,8 @@ function EditArticleView() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
-          {/* Main content */}
-          <div className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
+
+          <div className="flex flex-col gap-5 rounded-lg border border-border bg-card p-6">
             <label className={labelClass}>
               <span className={labelTextClass}>Title</span>
               <input className={inputClass} onChange={(e) => setTitle(e.target.value)} type="text" value={title} />
@@ -1360,9 +1352,8 @@ function EditArticleView() {
             </div>
           </div>
 
-          {/* Sidebar */}
           <aside className="flex flex-col gap-6">
-            <div className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
+            <div className="flex flex-col gap-5 rounded-lg border border-border bg-card p-6">
             <h2 className="text-base font-semibold text-foreground">Publish</h2>
 
             {/* The buttons under the field sit outside the label: inside it they
@@ -1807,7 +1798,7 @@ function EditArticleView() {
 
             <Suspense
               fallback={(
-                <div className="rounded-xl border border-border bg-card p-6 text-xs text-muted-foreground">
+                <div className="rounded-lg border border-border bg-card p-6 text-xs text-muted-foreground">
                   Loading SEO analysis…
                 </div>
               )}

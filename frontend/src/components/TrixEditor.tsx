@@ -96,17 +96,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
   const toolbarId = useId();
   const editorRef = useRef<TrixEditorElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  // Every HTML string we have emitted since the last load from outside, so we
-  // never call loadHTML on our own output, which would reset the document and
-  // drop the caret at the top of the article mid-edit.
-  //
-  // This has to be a set of everything emitted, not just the most recent one.
-  // The effect below is passive, so React can run it with a `value` several
-  // keystrokes behind what the editor already holds; a single "last emitted"
-  // string has by then moved on, the stale echo fails the comparison, and the
-  // editor is reloaded from it. That is the "type fast and your text jumps to
-  // the top" bug: each reload rewound the document and reset the caret to 0, so
-  // the following keystrokes landed at the start of the article.
+  // Track all emitted HTML to ignore delayed React echoes of our own edits.
+  // Reloading an older echo would reset the document and caret.
   const emittedRef = useRef<Set<string>>(new Set());
   // Bounded so a long editing session (one entry per keystroke) doesn't grow
   // without limit. Re-inserting keeps the set in least-recently-emitted order,
@@ -168,34 +159,11 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     };
   }, [onChange, rememberEmitted]);
 
-  // Let go of the attachment being edited as soon as focus leaves the editor.
-  //
-  // Trix decides an attachment is no longer being edited by watching the
-  // document's selection: on the first selectionchange whose range is not the
-  // attachment's own, it stops editing, tears the caption field down and
-  // re-renders, and that render puts the selection, and with it the browser's
-  // focus, back inside the article. While an image sat in that state the check
-  // was still armed after the author had clicked away, and Firefox raises
-  // selectionchange on the document for typing in a plain <input> (Chrome
-  // raises it on the input), so the first letter typed into the author or
-  // section search box fired it: the letter landed, then the editor took the
-  // focus back and the rest of the word went into the story.
-  //
-  // What disarms it is dropping the stale selection, not the editing state:
-  // asking Trix to stop editing the attachment runs the same teardown and steals
-  // the focus just as thoroughly. A selection left inside a contenteditable
-  // nobody is focused on has nothing to draw and nothing to move, so clearing it
-  // costs the author nothing (Trix remembers the caret separately and puts it
-  // back when the editor is focused again) and it leaves Trix reading no range
-  // at all rather than a stale one, which is what makes the check fall through.
-  //
-  // focusout rather than trix-blur: while a caption is open the focus is on the
-  // caption field, not on the editor element, so the editor never blurs and
-  // trix-blur never comes, and that is exactly the state this is here for.
-  // Where the focus went is read a tick later, since focusout fires before it
-  // has landed. Measured against the wrapper, not the editor, so that stepping
-  // into our own chrome (the alt-text dialog, the media picker) is not treated
-  // as leaving.
+  // Clear stale attachment selections after focus leaves the wrapper. Otherwise
+  // Firefox input selectionchange events let Trix steal focus back into the article.
+  // Use deferred focusout: caption fields do not trigger trix-blur, and our own
+  // controls must retain selection. Stopping attachment editing directly also steals
+  // focus, so clear the DOM selection instead.
   useEffect(() => {
     const editor = editorRef.current;
     const wrapper = wrapperRef.current;
@@ -232,16 +200,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
   // out to the author or section search box and typing put the first letter in
   // the search box and the rest back in the story.
 
-  // Handles every way an image enters the document. Trix fires
-  // trix-attachment-add for all of them, and which branch runs depends on what
-  // the attachment carries:
-  //
-  //   • a File — a dropped/chosen file, or an image pasted straight off the
-  //     clipboard (a screenshot). Uploaded via XHR, which unlike fetch exposes
-  //     progress events so Trix can draw its progress bar.
-  //   • a remote URL and no File — rich text pasted from another site. Copied
-  //     into our own library server-side so the article does not hotlink.
-  //   • one of our own URLs — inserted from the picker; nothing to do.
+  // Files upload via XHR for progress events; pasted remote URLs are copied into
+  // the media library. Picker URLs already belong to the library.
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -496,17 +456,9 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     setPickerOpen(true);
   }, []);
 
-  // Image selection and drag-to-rearrange. All overlay DOM lives in the wrapper
-  // *outside* Trix's contenteditable so Trix doesn't overwrite it via its
-  // MutationObserver.
-  //
-  // There is deliberately no resize or alignment gesture here. The public site
-  // sizes article images entirely in CSS (#article figure img { width: 100% }),
-  // which overrides anything an author sets, so both were controls that appeared
-  // to work in the editor and changed nothing on the published page. Reordering
-  // is kept because it does survive. Alignment already stored on legacy
-  // WordPress content is still preserved through a save; it just can no longer
-  // be set from here.
+  // Keep selection and drag overlays outside Trix's contenteditable so its
+  // MutationObserver does not replace them. Preserve imported alignment metadata;
+  // the public site's CSS controls image sizing.
   useEffect(() => {
     const editor = editorRef.current;
     const wrapper = wrapperRef.current;
@@ -572,17 +524,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       return null;
     };
 
-    // Where the dragged block would land, as a boundary index, or null if it
-    // cannot go anywhere from here.
-    //
-    // Only boundaries clear of the dragged block itself are candidates: the two
-    // touching it leave the document exactly as it was. They used to be offered,
-    // and since an image block is as tall as the image, the pointer spent the
-    // whole of a short drag inside them: the indicator appeared, tracked the
-    // pointer, and then the drop did nothing. Moving an image at all meant
-    // dragging clear past its own block and half of the next one, with the
-    // indicator claiming otherwise the entire way. That is the bug this shape
-    // exists to remove: every boundary drawn is now one that moves something.
+    // Return a destination boundary, excluding both edges of the dragged block:
+    // those placements would leave the document unchanged.
     const findDropIndex = (
       clientY: number,
       fromIndex: number,
@@ -676,20 +619,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       if (attachment) editor.editor.composition.editAttachment(attachment);
     };
 
-    // Move the figure's whole block to sit before or after the target block.
-    //
-    // This reorders Trix's serialized HTML and reloads it, rather than splicing
-    // the live document through Trix's mutation APIs. The obvious approach,
-    // removing the attachment then inserting it at a captured DOM Range, cannot
-    // work: the Attachment objects on editor.getDocument() are plain models
-    // with no remove() of their own (only the ManagedAttachment passed to
-    // trix-attachment-add has one), and any removal re-renders the blocks the
-    // captured Range was anchored to. Reordering the serialization sidesteps
-    // both problems and is order-of-blocks-in, order-of-blocks-out.
-    //
-    // A move is one undo step that restores the whole document rather than a
-    // fine-grained edit, which for a whole-block move is what the author would
-    // expect to get back anyway.
+    // Reorder serialized blocks and reload as one undo step. Live attachment removal
+    // invalidates captured DOM ranges, and document attachment models lack remove().
     const commitMove = (figure: HTMLElement, target: DropTarget) => {
       const liveBlocks = Array.from(editor.children) as HTMLElement[];
       const from = blockIndexOf(figure);
@@ -737,19 +668,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       editor.editor.recordUndoEntry("Move Image");
       editor.editor.composition.setDocument(movedDocument);
 
-      // Re-select the image at its new home. Without this every nudge costs the
-      // author the selection, and with it the toolbar they are clicking, so
-      // moving an image three blocks would mean three round trips to it.
-      //
-      // Two frames, not one. One frame is enough for the element to exist, but
-      // not for Trix to have finished rendering the reloaded document, and
-      // re-installing the attachment editor into that half-settled state leaves
-      // its element-to-attachment mapping stale: the next DOM mutation anywhere
-      // in the editor makes Trix re-parse into a document whose attachments no
-      // longer match the data-trix-id attributes still on the figures, and from
-      // then on every click on an image throws inside Trix. The alignment
-      // effect above mutates figure classes on each change, so this is a
-      // reachable state, not a theoretical one.
+      // Reselect after two animation frames so Trix finishes rendering the reloaded
+      // document. Earlier selection leaves its attachment-to-element mapping stale.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (!editor.isConnected) return;
@@ -836,18 +756,9 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       const enterDragMode = () => {
         dragging = true;
 
-        // Take ownership of the pointer stream for the rest of the gesture.
-        // This is the whole reason the gesture is on pointer events: with plain
-        // mouse events, anything that starts a native drag session mid-gesture
-        // (see the dragstart guard below) makes the browser stop delivering
-        // mousemove and, fatally, mouseup, so the release was never seen and
-        // nothing was ever committed. Capture is retargeted to the wrapper
-        // rather than the figure because Trix re-renders the figure during a
-        // drag; capturing on an element that then leaves the document drops the
-        // capture with it. Capture is taken here and not on pointerdown so that
-        // a plain click still reaches Trix untouched: capturing at pointerdown
-        // retargets the compatibility mousedown too, which is the event Trix
-        // selects the attachment from.
+        // Capture on the wrapper once dragging starts: Trix can replace the figure,
+        // which would lose capture. Capturing at pointerdown would also intercept the
+        // compatibility mousedown Trix needs for ordinary attachment selection.
         try {
           wrapper.setPointerCapture(pointerId);
           captured = true;
@@ -1129,33 +1040,10 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       toolbar.querySelector(".trix-button-row")?.appendChild(group);
     };
 
-    // With the pointerdown default no longer suppressed, the browser is free to
-    // start its own native drag, which would race our rearrange gesture and can
-    // drop the image into another window entirely. Once a native drag begins
-    // the browser stops sending pointer events, so our gesture goes dead and the
-    // image simply stays where it was.
-    //
-    // Keying this off the event target alone is not enough. Trix selects the
-    // attachment on the same mousedown that starts the gesture, so what the
-    // browser goes on to drag is the *selection*, and the dragstart it fires
-    // for that is targeted at whatever node the selection is anchored in --
-    // routinely the editor or a text block rather than anything inside the
-    // figure. So suppress unconditionally while our own gesture is in flight,
-    // and keep the target test for the rest of the time (a native image drag
-    // out of the article is never something we want). Capture phase on the
-    // document, because Trix has dragstart handlers of its own on the editor.
-    //
-    // This guard alone is not enough, and used not to be the only problem. In
-    // Firefox on Windows and macOS a native drag session was starting anyway and
-    // taking the event stream with it: the gesture began, the drop indicator
-    // appeared and tracked the pointer, and the release was then never delivered,
-    // so nothing was ever committed: an image that could be picked up and never
-    // put down. It went unnoticed for a while because Firefox on Linux keeps
-    // delivering input during a drag session, so the same build worked there.
-    // It is defended in three places now, and this is the last of them: the
-    // images are marked non-draggable when a gesture starts (onEditorPointerDown),
-    // the pointer is captured once the gesture is really a drag (enterDragMode),
-    // and any dragstart that still gets raised is cancelled here.
+    // Cancel native drags during our gesture, even when the target is a text selection.
+    // Native dragging can stop pointer delivery on Firefox for Windows and macOS.
+    // This complements non-draggable images and wrapper pointer capture. Listen on
+    // the document in capture phase, before Trix's handlers.
     const onDragStart = (event: DragEvent) => {
       if (
         gestureActive ||
@@ -1165,20 +1053,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       }
     };
 
-    // ── First click into a caption ─────────────────────────────────────────
-    // Trix opens an image's caption editor from the mousedown on the caption
-    // and focuses the field it builds a tick later. In between, the selection
-    // settles somewhere that is not the attachment's own location range, and
-    // Trix reads that as "the author has moved on": it stops editing the
-    // attachment, which tears the field back down before the deferred focus can
-    // land. The focus then goes to an element no longer in the document, so the
-    // click appeared to do nothing, the caption took a second click to enter,
-    // and the first click had quietly dropped focus out of the editor.
-    //
-    // So put it back, once, after the click has settled. Trix ignores a request
-    // to edit an attachment it is already editing, which is what makes this
-    // safe to fire unconditionally: in the case that did not break, it is a
-    // no-op, and in the case that did, it re-opens the caption and focuses it.
+    // Reopen the caption after the click settles: Trix can tear down the field
+    // before its deferred focus runs. Editing the already-active attachment is a no-op.
     let restoreCaption: number | undefined;
     // Only the static <figcaption>. A click on the textarea that replaces it
     // while editing is the author placing the caret in a caption field that is
@@ -1735,7 +1611,7 @@ function AltTextDialog({ alt, onSave, onCancel }: AltTextDialogProps) {
       <div
         aria-label="Alt text"
         aria-modal="true"
-        className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-background p-5"
+        className="flex w-full max-w-md flex-col gap-3 rounded-lg border border-border bg-background p-5"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
       >

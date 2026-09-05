@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import {
   ArrowDown,
   ArrowLeft,
@@ -38,15 +39,6 @@ const kindOptions: { kind: FooterEntryKind; label: string; icon: typeof Type }[]
 const inputClass =
   "w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
 const iconButtonClass = "p-1 rounded-md hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent"
-
-async function readErrorMessage(res: Response, fallback: string) {
-  try {
-    const body = await res.json() as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
-}
 
 function normalizeEntry(raw: unknown): FooterEntry {
   const entry = (raw ?? {}) as Partial<FooterEntry>
@@ -181,7 +173,6 @@ export default function FooterMenuEditor() {
           ? "Loading..."
           : `${columns.length} column${columns.length === 1 ? "" : "s"}`
       }
-      description="Links shown in the public site footer. Columns appear left to right; headings are bold entries; spacers split groups inside a column."
     >
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
@@ -207,7 +198,7 @@ export default function FooterMenuEditor() {
               className="rounded-lg border border-border bg-background/40 flex flex-col divide-y divide-border"
             >
               <div className="flex items-center justify-between gap-2 px-3 py-2">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">
                   Column {columnIndex + 1}
                 </span>
                 <div className="flex items-center gap-0.5">

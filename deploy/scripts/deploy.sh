@@ -19,19 +19,9 @@ if [[ ! "${CMS_IMAGE_TAG}" =~ ^[0-9a-fA-F]{40}$ ]]; then
 fi
 export CMS_IMAGE_TAG
 
-# The sidecar image is tagged by content: the git tree hash of embeddings/,
-# which changes only when something in that directory does. Publish skips the
-# build when that tag already exists, and Compose leaves the running container
-# alone when the tag is unchanged, so a Go-only commit no longer rebuilds a
-# ~130MB model image in CI, nor reloads the model on the host for ~60s.
-#
-# Derived from the trusted default-branch checkout rather than from
-# CMS_IMAGE_TAG, which the workflow treats strictly as data and never resolves
-# as a git ref. For automatic deployments the two are the same commit. A manual
-# rollback to an older SHA therefore keeps main's sidecar; that is safe because
-# the sidecar is stateless and its HTTP contract is stable, and a change that
-# broke it (a different vector width) would be a schema change needing its own
-# migration anyway.
+# Tag the sidecar by directory content to avoid model reloads on unrelated deploys.
+# Resolve from the trusted checkout, not the supplied CMS_IMAGE_TAG. Manual
+# rollback retains this sidecar and requires a compatible embedding contract.
 if embeddings_tag="$(git -C "${REPO_DIR}" rev-parse HEAD:embeddings 2>/dev/null)"; then
   CMS_EMBEDDINGS_TAG="${embeddings_tag}"
 else
@@ -52,21 +42,13 @@ next_slot="$(opposite_slot "${current_slot}")"
 echo "active slot: ${current_slot}"
 echo "deploying ${CMS_IMAGE_TAG} to inactive slot: ${next_slot}"
 
-# The embedding sidecar is shared by both slots rather than duplicated per slot:
-# it is stateless, so a second copy would only cost memory on a host that has
-# little to spare. That means it is not part of the blue/green swap and has to be
-# brought up separately; the slot services below are started with --no-deps.
-#
-# Deliberately never fatal. Search degrades to lexical-only when the sidecar is
-# missing or still loading its model, so a sidecar problem must not block or roll
-# back a deployment that is otherwise fine.
+# Both slots share the sidecar. Start it separately because slots use --no-deps.
+# Failure is non-fatal: search falls back to lexical results.
 if ! compose pull embeddings; then
   echo "warning: could not pull the embeddings sidecar; semantic search may be unavailable" >&2
 fi
 if compose up -d --no-deps embeddings; then
-  # Recreated on every deploy because its image tag is the commit SHA, so it
-  # reloads its model each time. Waiting here keeps the window where search is
-  # lexical-only from overlapping the slot switch.
+  # Wait for model readiness before switching slots when the sidecar changes.
   if ! wait_for_embeddings; then
     echo "warning: the embeddings sidecar did not become healthy; search will serve lexical results until it does" >&2
   fi

@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertTriangle, Columns3, Eye, EyeOff, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -21,16 +22,11 @@ type SectionRow = {
   childCount: number
   isChild: boolean
   isLast: boolean
-  // How far from a section this row sits: 0 for a section, 1 for a subsection,
-  // 2 for a subsection of a subsection. The tree is three levels deep now (A&E
-  // > Food > Beer Reviews), so indentation cannot be a boolean any more.
+  // Zero-based depth from the root section.
   depth: number
 }
 
-// How deep the tree may go, counting the section. Mirrors MaxTaxonomyDepth on
-// the server, which is the side that enforces it. This copy only decides which
-// rows the parent picker offers, so that the editor does not present a choice
-// the save would reject.
+// Match the server's MaxTaxonomyDepth when offering parent choices.
 const MAX_DEPTH = 3
 
 type FormState = {
@@ -38,9 +34,7 @@ type FormState = {
   canonicalTitle: string
   slug: string
   parentSlug: string
-  // One alias per line in the textarea; articles are matched on the whole
-  // category name, so this is how a section whose slug differs from its
-  // category ("entertainment" vs "Arts & Entertainment") finds its articles.
+  // One exact category name per line.
   categoryAliases: string
   isVisible: boolean
 }
@@ -68,16 +62,11 @@ const emptyForm: FormState = {
   isVisible: true,
 }
 
-// What hiding actually does, said in full, because two thirds of it is what it
-// does NOT do: a hidden item keeps its page and keeps feeding its section.
 const visibilityHint =
-  "Hidden items keep their own page and their articles still appear on the parent section, they just lose their link in the section's subsection list."
+  "Hides the navigation link. The page and its articles remain public."
 
-// Article matching is exact, so a slug that is not the category name resolves
-// to nothing and the section page renders empty, which reads as "no articles
-// yet" rather than as a misconfiguration. Say what it usually means.
 const emptyCountHint =
-  "No articles match this item. If it should have articles, add the exact category name they are filed under under Category Names."
+  "No matching articles. Check the exact category names."
 
 const slugify = (value: string) =>
   value
@@ -85,15 +74,6 @@ const slugify = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-
-async function readErrorMessage(response: Response) {
-  try {
-    const body = await response.json() as { error?: string }
-    return body.error?.trim() || `Could not complete request (${response.status})`
-  } catch {
-    return `Could not complete request (${response.status})`
-  }
-}
 
 function typeLabel(item: TaxonomyItem) {
   if (item.type === "section") return "Section"
@@ -533,7 +513,7 @@ export default function SectionsView() {
         />
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
         {error ? (
           <div className="px-4 py-3 border-b border-border text-sm text-destructive bg-destructive/5">
             {error}
@@ -661,7 +641,7 @@ export default function SectionsView() {
 
       {editor ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl">
+          <div className="w-full max-w-lg rounded-lg border border-border bg-card shadow-xl">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <h2 className="text-base font-semibold text-foreground">{editor.label}</h2>
               <button className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground" type="button" onClick={closeEditor}>
@@ -670,7 +650,7 @@ export default function SectionsView() {
             </div>
             <div className="flex flex-col gap-4 px-5 py-4">
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Type</span>
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Type</span>
                 <select
                   className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                   value={form.type}
@@ -689,7 +669,7 @@ export default function SectionsView() {
               </label>
 
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Name</span>
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Name</span>
                 <input
                   className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                   value={form.canonicalTitle}
@@ -698,7 +678,7 @@ export default function SectionsView() {
               </label>
 
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Slug</span>
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Slug</span>
                 <input
                   className="w-full px-3 py-2 rounded-lg border border-border bg-background font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                   value={form.slug}
@@ -711,7 +691,7 @@ export default function SectionsView() {
 
               {form.type === "subsection" ? (
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Parent</span>
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Parent</span>
                   <select
                     className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                     value={form.parentSlug}
@@ -736,7 +716,7 @@ export default function SectionsView() {
               ) : null}
 
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Category Names</span>
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Category Names</span>
                 <textarea
                   className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
                   rows={3}
@@ -789,7 +769,7 @@ export default function SectionsView() {
 
       {deleteTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl">
+          <div className="w-full max-w-md rounded-lg border border-border bg-card shadow-xl">
             <div className="border-b border-border px-5 py-4">
               <h2 className="text-base font-semibold text-foreground">Delete {typeLabel(deleteTarget)}</h2>
             </div>

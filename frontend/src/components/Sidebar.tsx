@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   FileText,
   TrendingUp,
-  // Mail, // used by the disabled Newsletter nav item
   Image,
   Users,
   Layers,
@@ -13,9 +12,7 @@ import {
   UserCog,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   LogOut,
-  PlusCircle,
   MessageSquare,
   Activity,
   BarChart3,
@@ -33,8 +30,6 @@ type NavItem = {
   icon: React.ElementType
   label: string
   path: string
-  badge?: number
-  children?: { label: string; path: string }[]
 }
 
 type NavGroup = {
@@ -54,9 +49,6 @@ const navGroups: NavGroup[] = [
       { icon: TrendingUp, label: "Developing Stories", path: "/developing-stories" },
       { icon: BarChart3, label: "Poll", path: "/poll" },
       { icon: Image, label: "Media", path: "/media" },
-      // Newsletter is temporarily disabled; re-enable this entry (and the Mail
-      // import above) to bring it back.
-      // { icon: Mail, label: "Newsletter", path: "/newsletter" },
     ],
   },
   {
@@ -83,24 +75,14 @@ export default function Sidebar() {
   const { isAdmin } = useCurrentUserRole()
   const { logout } = useSessionAuth()
   const apiFetch = useApiFetch()
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => window.matchMedia("(max-width: 767px)").matches)
   const [pendingCommentCount, setPendingCommentCount] = useState(0)
   const [pendingClassifiedCount, setPendingClassifiedCount] = useState(0)
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    "/articles": true,
-  })
   const { pathname } = useLocation()
   const navigate = useNavigate()
 
-  const toggleGroup = (path: string) => {
-    setOpenGroups((prev) => ({ ...prev, [path]: !prev[path] }))
-  }
-
   const isActive = (item: NavItem) => {
-    if (item.children) {
-      return item.children.some((c) => pathname === c.path) || pathname === item.path
-    }
-    return pathname === item.path
+    return pathname === item.path || (item.path !== "/" && pathname.startsWith(`${item.path}/`))
   }
 
   const visibleNavGroups = navGroups.filter((group) => group.label !== "Admin" || isAdmin)
@@ -152,7 +134,7 @@ export default function Sidebar() {
         collapsed ? "w-[60px]" : "w-[220px]",
       )}
     >
-      {/* Brand */}
+
       <Link
         to="/"
         aria-label="Dashboard"
@@ -166,45 +148,35 @@ export default function Sidebar() {
         ) : (
           <img src={logo} alt="Delta CMS" className="h-7 w-auto max-w-full object-contain" />
         )}
-        {/* {!collapsed && (
-          <span className="text-lg font-bold text-white tracking-tight truncate">Delta CMS</span>
-        )} */}
       </Link>
 
-      {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2">
         {visibleNavGroups.map((group, gi) => (
           <div key={gi} className="mb-1">
             {gi > 0 && <Separator className="my-2 bg-sidebar-border" />}
             {group.label && !collapsed && (
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-muted px-3 pb-1.5 pt-0.5">
+              <p className="text-[10px] font-semibold uppercase tracking-normal text-sidebar-muted px-3 pb-1.5 pt-0.5">
                 {group.label}
               </p>
             )}
             {group.items.map((item) => {
               const Icon = item.icon
               const active = isActive(item)
-              const hasChildren = item.children && item.children.length > 0
-              const open = openGroups[item.path]
               const badge =
                 item.path === "/comments"
                   ? pendingCommentCount
                   : item.path === "/classifieds"
                     ? pendingClassifiedCount
-                    : item.badge
+                    : 0
 
               return (
                 <div key={item.path}>
                   <button
                     type="button"
                     title={collapsed ? item.label : undefined}
-                    onClick={() => {
-                      if (hasChildren && !collapsed) {
-                        toggleGroup(item.path)
-                      } else {
-                        navigate(item.path)
-                      }
-                    }}
+                    aria-label={item.label}
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => navigate(item.path)}
                     className={cn(
                       "w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                       collapsed && "justify-center px-2",
@@ -222,39 +194,10 @@ export default function Sidebar() {
                             {badge}
                           </span>
                         ) : null}
-                        {hasChildren && (
-                          <ChevronDown
-                            className={cn(
-                              "w-3.5 h-3.5 shrink-0 transition-transform",
-                              open && "rotate-180",
-                            )}
-                          />
-                        )}
                       </>
                     )}
                   </button>
 
-                  {/* Sub-items */}
-                  {hasChildren && open && !collapsed && (
-                    <div className="ml-3 pl-3 border-l border-sidebar-border mt-0.5 mb-1 space-y-0.5">
-                      {item.children!.map((child) => (
-                        <button
-                          key={child.path}
-                          type="button"
-                          onClick={() => navigate(child.path)}
-                          className={cn(
-                            "w-full flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                            pathname === child.path
-                              ? "text-white bg-primary/80"
-                              : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                          )}
-                        >
-                          {child.label === "Add New" && <PlusCircle className="w-3 h-3 shrink-0" />}
-                          <span>{child.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )
             })}
@@ -262,7 +205,6 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer */}
       <div className={cn("px-2 py-3 border-t border-sidebar-border space-y-0.5 shrink-0")}>
         <button
           type="button"
@@ -282,6 +224,8 @@ export default function Sidebar() {
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className={cn(
             "w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors",
             collapsed && "justify-center px-2",

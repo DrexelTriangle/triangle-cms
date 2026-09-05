@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { FormEvent } from "react"
 import { Plus, Trash2, RefreshCw } from "lucide-react"
@@ -9,15 +10,6 @@ type DevelopingStoriesResponse = {
 
 async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T
-}
-
-async function readErrorMessage(res: Response, fallback: string) {
-  try {
-    const body = await readJson<{ error?: string }>(res)
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
 }
 
 function DevelopingStoriesView() {
@@ -155,7 +147,7 @@ function DevelopingStoriesView() {
         </div>
       )}
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">

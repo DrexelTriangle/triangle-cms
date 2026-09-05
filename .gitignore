@@ -3,8 +3,7 @@
 /server/certs/*.key
 /server/.env
 /server/**/*.sql
-# ...except the canonical table definitions, which are source, not generated
-# output: the CMS go:embeds them, so a checkout without them does not compile.
+# Embedded table definitions are source files.
 !/server/internal/database/schema/*.sql
 /report.json
 .vscode/settings.json
@@ -18,6 +17,7 @@ deploy/*.env
 !deploy/*.env.example
 ..env.un~
 
-# Local DB dumps (contain cms_users password hashes and cms_sessions).
-# Kept here so Borg backs them up; /var/lib/docker volumes are NOT backed up.
+# Local database dumps contain credentials and sessions.
 db-backups/
+__pycache__/
+*.py[cod]

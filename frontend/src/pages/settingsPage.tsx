@@ -1,12 +1,12 @@
-import { ArrowDown, ArrowUp, ImageOff, ImagePlus, LogOut, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { readErrorMessage } from "../lib/apiError"
+import { ArrowDown, ArrowUp, ImageOff, ImagePlus, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import FooterMenuEditor from "../components/FooterMenuEditor"
 import MediaPicker, { type MediaPickerItem } from "../components/MediaPicker"
 import SettingsSection from "../components/SettingsSection"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
-import { Link, useNavigate } from "react-router-dom"
-import { useSessionAuth } from "../auth/sessionAuthContext"
+import { Link } from "react-router-dom"
 
 type IndexStatus = {
   running: boolean
@@ -89,34 +89,9 @@ function readBreakingNews(body: BreakingNewsResponse) {
   }
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</label>
-      <div className="text-sm text-foreground">{children}</div>
-    </div>
-  )
-}
-
-async function readErrorMessage(res: Response, fallback: string) {
-  try {
-    const body = await res.json() as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
-}
-
 export default function SettingsPage() {
-  const { user, logout } = useSessionAuth()
   const { isAdmin } = useCurrentUserRole()
-  const navigate = useNavigate()
   const apiFetch = useApiFetch()
-  const name = user?.name ?? "—"
-  const email = user?.email ?? "—"
-  const username = user?.email ?? "—"
-  const groups: string[] = []
-  const initials = name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
   const [siteTitle, setSiteTitle] = useState("")
   const [siteTitleDraft, setSiteTitleDraft] = useState("")
   const [siteTitleSaving, setSiteTitleSaving] = useState(false)
@@ -449,62 +424,16 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Account and site controls</p>
-        </div>
-        <button
-          type="button"
-          onClick={async () => {
-            await logout()
-            navigate("/login", { replace: true })
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-destructive/40 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-          Sign out
-        </button>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center text-white text-xl font-bold shrink-0">
-            {initials}
-          </div>
-          <div>
-            <p className="text-base font-semibold text-foreground">{name}</p>
-            <p className="text-sm text-muted-foreground">{email}</p>
-          </div>
-        </div>
-
-        <div className="border-t border-border pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Field label="Full Name">{name}</Field>
-          <Field label="Username">{username}</Field>
-          <Field label="Email">{email}</Field>
-          <Field label="Groups">
-            {groups.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {groups.map((g) => (
-                  <span key={g} className="px-2.5 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
-                    {g}
-                  </span>
-                ))}
-              </div>
-            ) : "—"}
-          </Field>
-        </div>
-      </div>
+      <h1 className="text-2xl font-bold text-foreground">Settings</h1>
 
       <SettingsSection
         title="Site"
         storageKey="site"
         dirty={siteTitleDirty}
         summary={siteTitle || "Not set"}
-        description="Public site title used by the frontend."
       >
         <div className="flex flex-col gap-2 max-w-xl">
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Site Title</label>
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Site Title</label>
           <input
             value={siteTitleDraft}
             onChange={(e) => setSiteTitleDraft(e.target.value)}
@@ -530,7 +459,6 @@ export default function SettingsPage() {
         storageKey="carousel"
         dirty={carouselDirty}
         summary={`${carouselSlides.length} slide${carouselSlides.length === 1 ? "" : "s"}`}
-        description="Slides shown in the public homepage carousel."
       >
         <div className="flex justify-end">
           <button
@@ -593,7 +521,7 @@ export default function SettingsPage() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Title</label>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Title</label>
                     <input
                       value={slide.title}
                       onChange={(e) => updateCarouselSlide(index, { title: e.target.value })}
@@ -603,7 +531,7 @@ export default function SettingsPage() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Link URL</label>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Link URL</label>
                     <input
                       value={slide.link_url}
                       onChange={(e) => updateCarouselSlide(index, { link_url: e.target.value })}
@@ -612,7 +540,7 @@ export default function SettingsPage() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Image</label>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Image</label>
                     <div className="flex items-start gap-3">
                       {slide.image_url ? (
                         <img
@@ -656,7 +584,7 @@ export default function SettingsPage() {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="flex flex-col gap-2">
-                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Background</label>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Background</label>
                       <input
                         value={slide.background_color}
                         onChange={(e) => updateCarouselSlide(index, { background_color: e.target.value })}
@@ -665,7 +593,7 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Text Color</label>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Text Color</label>
                       <input
                         value={slide.text_color}
                         onChange={(e) => updateCarouselSlide(index, { text_color: e.target.value })}
@@ -716,7 +644,6 @@ export default function SettingsPage() {
               ? "Enabled"
               : "Off"
         }
-        description="Banner across the top of the public homepage. Editors can also raise one by ticking Breaking news on an article; the banner scrolls through all of them."
       >
         {breakingLive.source === "article" && (
           <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
@@ -757,7 +684,7 @@ export default function SettingsPage() {
           <span className="text-sm text-foreground">Enable banner</span>
         </label>
         <div className="flex flex-col gap-2 max-w-xl">
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Banner Text</label>
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Banner Text</label>
           <input
             value={breakingText}
             onChange={(e) => setBreakingText(e.target.value)}
@@ -812,7 +739,6 @@ export default function SettingsPage() {
       <SettingsSection
         title="Taxonomy"
         storageKey="taxonomy"
-        description="Recalculate taxonomy article counts from current article category assignments."
         summary={taxonomyRebuildRunning ? "Rebuilding…" : undefined}
       >
         <div className="flex items-center gap-3">
@@ -833,7 +759,7 @@ export default function SettingsPage() {
           title="Media Library"
           storageKey="media-library"
           summary={mediaIndexRunning ? "Reindexing..." : undefined}
-          description="Scan the media server for files missing from the library. This can take several minutes; existing entries are left untouched."
+          description="Import missing media files. This can take several minutes."
         >
           <div className="flex items-center gap-3">
             <button

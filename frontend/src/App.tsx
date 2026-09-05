@@ -5,16 +5,12 @@ import { useSessionAuth } from "./auth/sessionAuthContext"
 import Header from "./components/Header"
 import Sidebar from "./components/Sidebar"
 
-// The three screens a session can *start* on stay in the main bundle. Splitting
-// a landing route only moves its download from the bundle to a second round
-// trip the user waits through on a blank page.
+// Keep entry routes in the main bundle to avoid a second download on sign-in.
 import DashboardPage from "./pages/DashboardPage"
 import LoginPage from "./pages/LoginPage"
 import AuthCallback from "./pages/AuthCallback"
 
-// Everything else is reached by a click from one of those, so its chunk
-// downloads while the editor is already looking at a rendered page. The article
-// editor matters most: it pulls in Trix, which no other route touches.
+// Lazy-load feature routes, including the Trix article editor.
 const ArticleView = lazy(() => import("./pages/articleView"))
 const DevelopingStoriesView = lazy(() => import("./pages/developingStoriesView"))
 const EditArticleView = lazy(() => import("./pages/editArticleView"))
@@ -25,15 +21,12 @@ const UsersView = lazy(() => import("./pages/usersView"))
 const CommentsView = lazy(() => import("./pages/commentsView"))
 const ClassifiedsView = lazy(() => import("./pages/classifiedsView"))
 const ActivityView = lazy(() => import("./pages/activityView"))
-const NewsletterView = lazy(() => import("./pages/newsletterView"))
 const SeoView = lazy(() => import("./pages/seoView"))
 const SettingsPage = lazy(() => import("./pages/settingsPage"))
 const PollView = lazy(() => import("./pages/pollView"))
 
 const AUTH_ROUTES = ["/login"]
 
-// Rendered inside AppShell, so the sidebar and header stay put while a route
-// chunk loads and only the content area changes.
 function RouteFallback() {
   return (
     <div className="flex items-center justify-center h-full">
@@ -50,15 +43,6 @@ function AppShell({ children }: { children: React.ReactNode }) {
         <Header />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
-    </div>
-  )
-}
-
-function ComingSoon({ page }: { page: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-      <p className="font-semibold text-foreground">{page}</p>
-      <p className="text-sm">This screen is not available yet.</p>
     </div>
   )
 }
@@ -126,8 +110,7 @@ export default function App() {
           <Route path="/developing-stories/:id/:slug/edit" element={<EditArticleView />} />
           <Route path="/developing-stories/:slug/edit" element={<EditArticleView />} />
           <Route path="/articles/new" element={<EditArticleView />} />
-          <Route path="/developing-stories/new" element={<ComingSoon page="New developing story" />} />
-          <Route path="/newsletter" element={<NewsletterView />} />
+          <Route path="/developing-stories/new" element={<Navigate to="/developing-stories" replace />} />
           <Route path="/media" element={<MediaView />} />
           <Route path="/poll" element={<PollView />} />
           <Route path="/authors" element={<AuthorsView />} />
@@ -151,7 +134,6 @@ export default function App() {
               </AdminOnlyRoute>
             )}
           />
-          <Route path="/user-settings" element={<ComingSoon page="Profile Settings" />} />
           <Route
             path="/settings"
             element={(
@@ -160,6 +142,7 @@ export default function App() {
               </AdminOnlyRoute>
             )}
           />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
     </AppShell>

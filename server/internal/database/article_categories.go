@@ -7,49 +7,18 @@ import (
 	"strings"
 )
 
-// article_categories is a derived index of `articles`.`categories`: one row per
-// (article, category title), so "which articles are in this section" is an index
-// lookup instead of a scan.
-//
-// It replaces a `categories LIKE '%"news"%'` predicate. That predicate could
-// never use an index (a leading wildcard on a LONGTEXT column rules it out)
-// so every section page, every homepage block and every taxonomy count read the
-// whole articles table, twice per request once the paging COUNT(*) is included.
-//
-// The table is strictly derived, never authoritative. `articles`.`categories`
-// remains the source of truth, this is rebuilt from it at every startup, and
-// article writes keep it in step in between. That combination is deliberate:
-// the corpus is periodically reloaded wholesale by the WordPress ETL, which
-// knows nothing about this table, and a derived index that silently survives a
-// reseed would serve empty section pages with no indication why.
+// article_categories indexes articles.categories as (article, category title) rows.
+// The source column stays authoritative. Rebuild on startup to cover ETL reseeds;
+// article writes maintain the index between rebuilds.
 
 // maxCategoryLength matches the VARCHAR in schema/article_categories.sql. A
 // longer title is skipped rather than truncated, because a truncated key would
 // match a section it does not belong to.
 const maxCategoryLength = 191
 
-// A note for the next person who looks at the listing's paging COUNT(*), which
-// evaluates the artifact filter (see handlers.articleQueryFilters) over every
-// published row and is the largest remaining cost on /v1/articles.
-//
-// Two rewrites were measured against this corpus and both rejected:
-//
-//   - Two EXISTS over articles_authors and this table. Correct on today's data
-//     (zero disagreements across all 9,371 development and 10,113 production
-//     rows) and worth 13.1ms -> 9.4ms on the COUNT, but it also costs 0.1ms
-//     on the listing query, which materializes both subqueries to return 21
-//     rows. Under 4ms net, in exchange for moving the definition of "filed"
-//     onto indexes that match the columns by data rather than by construction.
-//   - A PERSISTENT generated column with an index, which would make the COUNT
-//     index-only. Adding one rewrites `articles`, and rewriting `articles`
-//     re-tokenizes the bodies into the two FULLTEXT indexes: 8m53s for a single
-//     ALTER here, during which the CMS's own startup migration sat in "Waiting
-//     for table metadata lock". In production that is the newsroom's writes
-//     queued behind a container that is not yet serving traffic.
-//
-// The cheap wins are already taken (see EnsureArticlesPublishedIndex and
-// EnsureArticleAuthorsIndex). What is left needs either a schema the ETL owns
-// or an approximate count, and neither is worth four milliseconds.
+// Keep the listing's artifact filter on source columns. Derived indexes need not
+// agree with them, and a generated column would rebuild FULLTEXT indexes
+// while holding a metadata lock.
 
 func EnsureArticleCategoriesTable(ctx context.Context, conn *sql.DB) error {
 	_, err := conn.ExecContext(ctx, TableSchema("article_categories"))

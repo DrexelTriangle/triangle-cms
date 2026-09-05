@@ -610,7 +610,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Header */}
+
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
         <button
@@ -623,7 +623,6 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         </button>
       </div>
 
-      {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
         <input
@@ -638,7 +637,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
 
       {sections.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Sections</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Sections</span>
           <div className="flex flex-wrap gap-1.5">
             <button
               aria-pressed={sectionFilterSlug === ""}
@@ -691,11 +690,10 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         </div>
       )}
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-6 items-start">
-        {/* Author filter */}
+
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" htmlFor="article-author-filter">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-normal" htmlFor="article-author-filter">
             Author
           </label>
           <div className="relative flex items-center">
@@ -727,9 +725,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           </datalist>
         </div>
 
-        {/* Date sort */}
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Date</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Date</span>
           <div className="flex gap-1.5">
             <button className={filterTagClass(dateSortDirection === "desc")} onClick={() => setDateSortDirection("desc")} type="button">
               Newest first
@@ -742,7 +739,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
 
         {activeTab !== "trash" && (
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-normal">Status</span>
             <div className="flex gap-1.5">
               <button className={filterTagClass(publishedFilter === "all")} onClick={() => setPublishedFilter("all")} type="button">All</button>
               <button className={filterTagClass(publishedFilter === "published")} onClick={() => setPublishedFilter("published")} type="button">Published</button>
@@ -753,7 +750,6 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         )}
       </div>
 
-      {/* Tabs */}
       <div className="flex border-b border-border">
         <button aria-pressed={activeTab === "all"} className={tabClass(activeTab === "all")} onClick={() => onChangeTab("all")} type="button">
           All
@@ -765,8 +761,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         </button>
       </div>
 
-      {/* Table */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
         {deleteError ? (
           <p className="px-4 py-3 text-sm text-destructive bg-destructive/10 border-b border-destructive/20">
             {deleteError}
@@ -908,7 +903,6 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         </table>
       </div>
 
-      {/* Pagination */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <div className="flex items-center gap-3">
           <span>{articles.length} article{articles.length === 1 ? "" : "s"} shown</span>

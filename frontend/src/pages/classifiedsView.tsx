@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import { Check, Clipboard, Mail, MessageSquare, Trash2, X } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -60,15 +61,6 @@ function isExpired(value: string) {
   if (!value) return false
   const parsed = new Date(`${value}T23:59:59`)
   return !Number.isNaN(parsed.getTime()) && parsed.getTime() < Date.now()
-}
-
-async function readErrorMessage(res: Response, fallback: string) {
-  try {
-    const body = await res.json() as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
 }
 
 export default function ClassifiedsView() {
@@ -142,11 +134,6 @@ export default function ClassifiedsView() {
     <div className="flex flex-col gap-6 p-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Classifieds</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          {slackConfigured
-            ? "Reader submissions awaiting review. Approving here matches the Slack Approve action."
-            : "Reader submissions awaiting review."}
-        </p>
       </div>
 
       {!slackConfigured && (
@@ -188,7 +175,7 @@ export default function ClassifiedsView() {
       ) : (
         <div className="flex flex-col gap-3">
           {items.map((item) => (
-            <div key={item.id} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+            <div key={item.id} className="rounded-lg border border-border bg-card p-4 flex flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_STYLES[item.status]}`}>

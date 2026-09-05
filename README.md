@@ -101,11 +101,9 @@ DB_USER=triangle_user
 DB_PASSWORD=triangle_password
 DB_HOST=127.0.0.1
 DB_PORT=3306
-ACTIVITY_DB_PATH=./data/activity
 ```
 
-Activity events go to BadgerDB at `server/data/activity` locally, and to the
-`cms_activity_data` volume under Compose.
+Activity events are stored in MariaDB's `cms_activity` table.
 
 ## Rebuild the local DB from the ETL
 
@@ -160,19 +158,8 @@ after changing handler annotations:
 cd server && swag init --parseDependency --parseInternal
 ```
 
-Document an endpoint with swaggo annotations above its handler in
-`server/internal/handlers/handlers.go`:
-
-```go
-// @Summary My endpoint
-// @Tags mytag
-// @Produce json
-// @Success 200 {object} map[string]string
-// @Router /v1/my-endpoint [get]
-func MyHandler(...) {
-```
-
-Tag order in the UI comes from the `@tag.name` lines in `main.go`.
+Endpoint annotations live above handlers in `server/internal/handlers/`.
+Tag order comes from the `@tag.name` lines in `main.go`.
 
 ## Testing
 
@@ -181,3 +168,15 @@ cd server
 go test ./...
 go test -coverprofile=cover.out ./...
 ```
+
+```bash
+cd frontend
+npm run lint
+npm test
+npm run build
+```
+
+Database integration tests require `CMS_TEST_DSN` pointing to a disposable
+MariaDB database. They create and drop tables; never use a production database.
+
+Deployment and rollback: [`deploy/README.md`](deploy/README.md).

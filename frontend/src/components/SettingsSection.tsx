@@ -3,13 +3,9 @@ import { useId, useState, type ReactNode } from "react"
 
 type SettingsSectionProps = {
   title: string
-  /** Shown only while expanded, so a collapsed section stays one compact row. */
   description?: ReactNode
-  /** Short right-aligned hint (e.g. "6 columns") that keeps the collapsed row informative. */
   summary?: ReactNode
-  /** Flags unsaved edits in the header so collapsing can't hide them. */
   dirty?: boolean
-  /** Distinguishes this section's remembered open state; must be stable. */
   storageKey: string
   defaultOpen?: boolean
   children: ReactNode
@@ -27,14 +23,7 @@ function readOpen(storageKey: string, fallback: boolean): boolean {
   }
 }
 
-/**
- * Collapsible card for one settings group. The settings page is a stack of
- * independent groups, most of which are only touched occasionally, so each one
- * collapses to a single row and remembers that choice across visits.
- *
- * The body is hidden with `hidden` rather than unmounted: sections own loaded
- * state and in-progress edits, and remounting would refetch and discard them.
- */
+// Keep collapsed children mounted to preserve loaded data and unsaved edits.
 export default function SettingsSection({
   title,
   description,
@@ -60,20 +49,20 @@ export default function SettingsSection({
   }
 
   return (
-    <section className="rounded-xl border border-border bg-card">
+    <section className="border-b border-border">
       <button
         type="button"
         onClick={toggle}
         aria-expanded={open}
         aria-controls={bodyId}
-        className="w-full flex items-center gap-3 px-6 py-4 text-left rounded-xl hover:bg-muted/30"
+        className="w-full flex flex-wrap items-center gap-3 px-3 sm:px-6 py-4 text-left hover:bg-muted/30"
       >
         <ChevronRight
           className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
           aria-hidden="true"
         />
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
           {open && description && (
             <p className="text-sm text-muted-foreground mt-0.5 max-w-3xl">{description}</p>
           )}

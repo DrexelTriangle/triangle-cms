@@ -258,7 +258,7 @@ function MediaView() {
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Header */}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Media</h1>
@@ -295,7 +295,6 @@ function MediaView() {
         </div>
       </div>
 
-      {/* Search, and the curated-gallery filter */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[16rem]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -341,7 +340,6 @@ function MediaView() {
         </div>
       )}
 
-      {/* Grid */}
       {isLoading ? (
         <div className="text-center text-muted-foreground py-16">Loading media...</div>
       ) : mediaItems.length === 0 ? (
@@ -370,7 +368,7 @@ function MediaView() {
             {mediaItems.map((item) => (
               <div
                 key={item.id}
-                className="group relative flex flex-col gap-1.5 rounded-xl border border-border bg-card overflow-hidden hover:border-primary transition-colors"
+                className="group relative flex flex-col gap-1.5 rounded-lg border border-border bg-card overflow-hidden hover:border-primary transition-colors"
               >
                 <button
                   className="relative aspect-square bg-muted overflow-hidden text-left"

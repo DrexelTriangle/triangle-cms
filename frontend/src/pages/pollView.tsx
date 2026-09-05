@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { FormEvent } from "react"
 import { Pencil, Plus, Trash2, RefreshCw, Check, X, Play, Archive } from "lucide-react"
@@ -39,15 +40,6 @@ type Poll = {
 
 type PollListResponse = {
   polls?: Poll[]
-}
-
-async function readErrorMessage(res: Response, fallback: string) {
-  try {
-    const body = await res.json() as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
 }
 
 type StateMeta = { label: string; className: string }
@@ -451,7 +443,7 @@ export default function PollView() {
       )}
 
       {isCreating && (
-        <form onSubmit={createPoll} className="rounded-xl border border-border bg-card p-4 flex flex-col gap-4">
+        <form onSubmit={createPoll} className="rounded-lg border border-border bg-card p-4 flex flex-col gap-4">
           <h2 className="font-semibold text-foreground">New poll</h2>
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-foreground">Question</label>
@@ -567,17 +559,17 @@ export default function PollView() {
       )}
 
       {isLoading ? (
-        <div className="rounded-xl border border-border bg-card px-4 py-12 text-center text-muted-foreground">
+        <div className="rounded-lg border border-border bg-card px-4 py-12 text-center text-muted-foreground">
           Loading polls...
         </div>
       ) : polls.length === 0 ? (
-        <div className="rounded-xl border border-border bg-card px-4 py-12 text-center text-muted-foreground">
+        <div className="rounded-lg border border-border bg-card px-4 py-12 text-center text-muted-foreground">
           No polls yet. Create one to get started.
         </div>
       ) : (
         <div className="flex flex-col gap-4">
           {polls.map((poll) => (
-            <div key={poll.id} className="rounded-xl border border-border bg-card overflow-hidden">
+            <div key={poll.id} className="rounded-lg border border-border bg-card overflow-hidden">
               <div className="flex items-start justify-between gap-4 px-4 py-3 border-b border-border">
                 <div className="min-w-0 flex-1">
                   {editingPollId === poll.id ? (
@@ -635,7 +627,7 @@ export default function PollView() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h2 className="font-semibold text-foreground">{poll.question}</h2>
                         <span
-                          className={`text-[11px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${stateMeta(poll.state).className}`}
+                          className={`text-[11px] uppercase tracking-normal px-2 py-0.5 rounded-full border ${stateMeta(poll.state).className}`}
                         >
                           {stateMeta(poll.state).label}
                         </span>

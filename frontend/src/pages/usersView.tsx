@@ -1,3 +1,4 @@
+import { readErrorMessage } from "../lib/apiError"
 import { useEffect, useState } from "react"
 import { Search, ShieldCheck, Shield } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -25,15 +26,6 @@ function RoleIcon({ role }: { role: Role }) {
 
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-}
-
-async function readErrorMessage(response: Response, fallback: string) {
-  try {
-    const body = await response.json() as { error?: string }
-    return body.error?.trim() || fallback
-  } catch {
-    return fallback
-  }
 }
 
 const AVATAR_COLORS = [
@@ -124,7 +116,7 @@ export default function UsersView() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">

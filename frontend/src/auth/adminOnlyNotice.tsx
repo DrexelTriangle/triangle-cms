@@ -40,7 +40,7 @@ export function AdminOnlyNoticeProvider({ children }: { children: React.ReactNod
           <div
             aria-labelledby="admin-only-title"
             aria-modal="true"
-            className="w-full max-w-sm rounded-xl border border-border bg-background p-6 shadow-lg flex flex-col gap-4"
+            className="w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-lg flex flex-col gap-4"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
           >

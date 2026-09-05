@@ -275,21 +275,10 @@ const publicReadCacheControl = "public, max-age=60, stale-while-revalidate=300"
 // uncacheableCacheControl is what an editor's copy of a public read gets.
 const uncacheableCacheControl = "private, no-store"
 
-// setPublicReadCache marks a GET cacheable, and is the only correct way to do
-// it on a route behind OptionalAuth.
-//
-// Those routes answer two different audiences at one URL: anonymously they are
-// the published, non-archived view, and to a signed-in editor they also carry
-// drafts and soft-deleted rows. Marking an editor's copy `public` would let a
-// shared cache hand unpublished headlines to a reader, so a request that
-// carries credentials is marked uncacheable instead.
-//
-// Vary names what distinguishes the two, since auth arrives either as the
-// `sid` cookie or as a bearer token. It is added rather than set so the
-// compression middleware's own Vary: Accept-Encoding survives. Note that
-// Cloudflare honours Vary only for Accept-Encoding, so the Vary here protects
-// standards-compliant caches and Scalene's fetch cache; a CDN rule that caches
-// this API must bypass on cookie rather than rely on it.
+// setPublicReadCache allows caching only for anonymous public reads.
+// Credentialed requests may include drafts and must remain uncacheable.
+// Append Vary to preserve Accept-Encoding. CDN rules must bypass credentialed
+// requests where Cookie and Authorization Vary values are unsupported.
 func setPublicReadCache(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Vary", "Cookie")
 	w.Header().Add("Vary", "Authorization")
@@ -396,22 +385,8 @@ func canonicalTitleForTaxonomy(ctx context.Context, conn *sql.DB, kind, slug str
 	return title, nil
 }
 
-// subsectionsForSection is the subsection strip on a section page: the links a
-// reader gets offered, not every subsection that exists.
-//
-// Hidden rows are left out on purpose. Most of the WordPress sub-categories are
-// subsections in every structural sense (their articles roll up to the
-// section, and /v1/subsections/{slug}/articles answers for them) but a strip
-// of 30 links is not navigation. The desk decides which ones are worth a link
-// on the sections screen; everything else stays reachable by URL and by the
-// category chip on an article.
-// visibleSubsectionsOf returns the link strip for a page: the DIRECT children of
-// a slug that the desk has left visible.
-//
-// Direct children only, at every level. On A&E that now means Food rather than
-// the three review categories folded underneath it, which is the point of the
-// nesting, since the strip existed to stay short. Food's own page gets its own
-// strip from the same call.
+// visibleSubsectionsOf returns visible direct children for page navigation.
+// Hidden descendants still have pages and contribute to section listings.
 func visibleSubsectionsOf(ctx context.Context, conn *sql.DB, parentSlug string) ([]models.TaxonomySummary, error) {
 	trimmedSection := strings.TrimSpace(parentSlug)
 	if trimmedSection == "" {
@@ -645,20 +620,8 @@ func listParams(r *http.Request, defaultLimit int) (page, limit, offset int) {
 	return page, limit, offset
 }
 
-// orderCategoriesForSection moves the categories belonging to the section being
-// rendered to the front, so the first one is the one that explains why this
-// article is in this list.
-//
-// The card shows a single category as its kicker and takes the first. Without
-// this it takes whichever the article happens to list first, which is how the
-// Columns block came to label a column "MEN'S LACROSSE": the article is
-// ["Men's Lacrosse", "From the Playbook", "Sports"], it is in Columns because
-// of From the Playbook, and it announced itself as a sport. Ordering here
-// rather than in the card fixes every surface at once, and it is the only place
-// that knows which section was asked for.
-//
-// A stable partition, so the article's own order still decides between two
-// categories that are both in the section.
+// orderCategoriesForSection stably moves matching categories first so the card's
+// single category label reflects the requested section.
 func orderCategoriesForSection(categories []models.CategorySummary, preferSlugs []string) {
 	if len(preferSlugs) == 0 || len(categories) < 2 {
 		return
@@ -1533,21 +1496,8 @@ func queryArticles(r *http.Request, conn *sql.DB, params ArticleParams, limit, o
 	return conn.QueryContext(r.Context(), query, args...)
 }
 
-// defaultArticleOrderBy is the ORDER BY for a listing that asked for no
-// particular sort, which is every public read: the homepage blocks, the section
-// pages and an unadorned /v1/articles.
-//
-// Public callers get newest-published-first. Ordering on `id` made placement
-// depend on insert order instead, so an article drafted before an ETL reseed --
-// which loads the legacy archive at ids far above anything the CMS has issued --
-// sorted below ten thousand archive rows and never reached the homepage despite
-// being published that morning. `id` stays on as the tiebreak, because a whole
-// issue is published on one timestamp and needs a stable order within it.
-//
-// Editors keep `id` DESC. Their listing includes drafts, whose `pub_date` is
-// NULL and would sort to the very end, burying a new draft on the last page of
-// a 10k-article list, the same reason articleOrderByClause exists for their
-// explicit date sorts.
+// defaultArticleOrderBy sorts public listings by publication date, then id.
+// Editors use id DESC so new drafts with NULL publication dates stay visible.
 func defaultArticleOrderBy(r *http.Request) string {
 	if _, isEditor := middleware.UserFromContext(r.Context()); isEditor {
 		return " ORDER BY `id` DESC"
@@ -1599,19 +1549,8 @@ func articleQueryFilters(r *http.Request, params ArticleParams) ([]string, []any
 
 	_, isEditor := middleware.UserFromContext(r.Context())
 
-	// Exclude media/import artifacts that have neither authors nor categories.
-	// A brand-new CMS draft looks exactly like one of those until an author or a
-	// category is attached, so editors keep unpublished rows regardless — without
-	// the exemption a draft is invisible in the CMS listing until it is filed.
-	//
-	// Kept as a predicate over the columns rather than over the derived
-	// article_categories / articles_authors indexes. Rewriting it as two EXISTS
-	// was measured: it saves 3.8ms on the paging COUNT and costs 0.1ms on the
-	// listing itself, and in exchange the definition of "filed" would move from
-	// the columns to two indexes that agree with them by data rather than by
-	// construction. Four milliseconds does not buy that: the failure mode is
-	// articles silently vanishing from every listing while still resolving by
-	// direct link.
+	// Exclude import artifacts with neither authors nor categories, but retain
+	// unpublished editor drafts. Test source columns, not potentially stale derived indexes.
 	artifactFilter := "((TRIM(COALESCE(`authors`, '')) <> '' AND TRIM(`authors`) <> '[]') OR (TRIM(COALESCE(`categories`, '')) <> '' AND TRIM(`categories`) <> '[]'))"
 	if isEditor {
 		artifactFilter = "(" + artifactFilter + " OR `pub_date` IS NULL)"
@@ -1866,20 +1805,9 @@ func scanOneArticle(rows *sql.Rows, queryErr error) (models.Article, bool, error
 	return a, true, rows.Close()
 }
 
-// articleDetailCondition builds the WHERE clause for a single-article lookup.
-// The endpoint is public and returns the FULL article body, so an anonymous
-// caller is restricted to live content: knowing or guessing a slug must not
-// hand out an unpublished draft or a soft-deleted article. A miss falls through
-// to the same 404 as a nonexistent slug, so the response never reveals that the
-// article exists. Editors are identified by OptionalAuth on the route and still
-// see everything.
-//
-// The ORDER BY is not decoration. Slugs are not unique, so without it a slug
-// carried by two published articles answers with whichever row the scan reached
-// first, which can differ between two requests for the same URL, and puts
-// whichever one won into a shared cache. Lowest id is the same rule the editor
-// paths resolve by, so the public page and the editor agree on which article a
-// duplicated slug means.
+// articleDetailCondition restricts anonymous reads to published, unarchived rows;
+// misses return the same 404 as unknown slugs. Editors can read all statuses.
+// Duplicate slugs resolve to the lowest id, matching editor route resolution.
 func articleDetailCondition(r *http.Request) string {
 	if _, isEditor := middleware.UserFromContext(r.Context()); isEditor {
 		return "`slug` = ? ORDER BY `id` LIMIT 1"

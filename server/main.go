@@ -102,9 +102,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Activity/audit log is stored in the shared MariaDB database (not an embedded
-	// on-disk store), so multiple CMS instances can record and read the same
-	// history without holding an exclusive directory lock.
+	// Share activity history across blue/green instances through MariaDB.
 	activityStore, err := activity.NewSQLStore(context.Background(), db)
 	if err != nil {
 		slog.Error("failed to initialize activity store", "error", err)
@@ -124,14 +122,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Non-fatal: the public listing sorts correctly without this index, it just
-	// filesorts the corpus to do it.
+	// Optional indexes improve performance without changing query results.
 	if err := database.EnsureArticlesPublishedIndex(context.Background(), db); err != nil {
 		slog.Error("failed to build article pub_date index; public listings filesort", "error", err)
 	}
 
-	// Non-fatal for the same reason as the pub_date index: the lookups are
-	// correct without it, only slower.
 	if err := database.EnsureArticlesSlugIndex(context.Background(), db); err != nil {
 		slog.Error("failed to index article slugs; article lookups scan the table", "error", err)
 	}
@@ -142,17 +137,12 @@ func main() {
 		slog.Error("failed to index breaking-news articles; the homepage banner lookup scans the table", "error", err)
 	}
 
-	// Deliberately not fatal, and deliberately after the column migration: the
-	// first FULLTEXT index on `articles` rebuilds the table, which on the
-	// migrated corpus is slow enough that failing the boot over it would trade a
-	// degraded search box for a down newsroom. SearchArticles falls back to LIKE
-	// until this succeeds.
+	// Search falls back to LIKE if FULLTEXT index creation fails.
 	if err := database.EnsureArticlesSearchIndex(context.Background(), db); err != nil {
 		slog.Error("failed to build article search index; search falls back to LIKE", "error", err)
 	}
 
-	// Also non-fatal: VECTOR columns need MariaDB 11.7+, and a CMS pointed at an
-	// older database should lose semantic search rather than refuse to boot.
+	// Semantic search is optional; VECTOR columns require MariaDB 11.7+.
 	if err := database.EnsureArticleEmbeddingsTable(context.Background(), db); err != nil {
 		slog.Error("failed to create article embeddings table; search stays lexical", "error", err)
 	}
@@ -170,10 +160,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Surface a missing media mount at boot rather than on the first failed
-	// upload. Deliberately not fatal: the rest of the CMS works fine without the
-	// media tree, and taking the whole newsroom down over it would be worse than
-	// refusing uploads (which the handlers do on their own).
+	// Warn on a missing media mount; upload handlers reject writes independently.
 	if err := handlers.CheckMediaStorage(); err != nil {
 		slog.Error("media storage check failed; uploads will be refused", "error", err)
 	}
@@ -199,18 +186,12 @@ func main() {
 		slog.Error("failed to create settings table", "error", err)
 		os.Exit(1)
 	}
-	// One-time backfill of the new SEO columns from the WordPress Yoast export so
-	// imported articles keep their original focus keyphrase / meta description /
-	// SEO title. No-op when the export table is absent or already applied.
+	// Preserve imported Yoast metadata once, when the export table exists.
 	if err := database.BackfillArticleSEOFromYoast(context.Background(), db); err != nil {
 		slog.Error("failed to backfill article SEO from Yoast export", "error", err)
 		os.Exit(1)
 	}
-	// What that backfill copies is a Yoast *template* ("%%title%% %%page%%"),
-	// which WordPress substituted at render time and nothing substitutes now, so
-	// the tokens reached the public site's <title> and og:title verbatim. Runs
-	// on every start rather than behind the backfill's one-time flag: a database
-	// seeded before this existed already holds the templates. Idempotent.
+	// Resolve Yoast templates on every startup to cover databases backfilled earlier.
 	if expanded, err := database.ExpandYoastTitleTemplates(context.Background(), db); err != nil {
 		slog.Error("failed to expand Yoast SEO title templates", "error", err)
 		os.Exit(1)
@@ -226,17 +207,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Fatal, unlike the index migrations above, because this one is not an
-	// optimization the queries can do without: every section page, homepage
-	// block and taxonomy count now reads article_categories, and a CMS that
-	// booted without it would serve empty sections rather than slow ones.
-	//
-	// Rebuilt unconditionally, and deliberately not behind
-	// CMS_REBUILD_TAXONOMY_COUNTS_ON_STARTUP. The table is derived from
-	// `articles`, which the WordPress ETL replaces wholesale and renumbers; a
-	// rebuild that an operator has to remember to ask for is one that will be
-	// forgotten on the reseed that needs it most. It costs a single scan of a
-	// ten-thousand-row table.
+	// Required for section queries. Rebuild every startup because ETL reseeds
+	// replace and renumber articles, invalidating the derived category table.
 	if err := database.EnsureArticleCategoriesTable(context.Background(), db); err != nil {
 		slog.Error("failed to create article categories index", "error", err)
 		os.Exit(1)
@@ -277,11 +249,7 @@ func main() {
 		slog.Info("cms startup", "event", "startup", "stage", "db_table_count", "table_count", tableCount)
 	}
 
-	// Migrate-and-exit. Everything above this point is schema work; everything
-	// below needs OIDC and TLS, which a provisioning run has no use for. Lets a
-	// build/seed tool point the real binary at a fresh database and get exactly
-	// the schema this version expects, instead of a second copy of the DDL that
-	// can drift from these Ensure* calls.
+	// Provision schema without requiring OIDC or TLS configuration.
 	if strings.TrimSpace(os.Getenv("CMS_MIGRATE_ONLY")) == "1" {
 		slog.Info("cms startup", "event", "startup", "stage", "migrate_only_complete", "table_count", tableCount)
 		return
@@ -389,11 +357,8 @@ func newDefaultServer(cert *tls.Certificate, mux *http.ServeMux, logger *slog.Lo
 	return &stdHTTPServer{
 		Server: &http.Server{
 			Addr: ":8080",
-			// Metrics is outermost: Chain applies in reverse, so it wraps
-			// Recovery and therefore records the 500 a panic turns into rather
-			// than losing the request entirely. Compression sits just inside
-			// Logging and just outside Recovery; see middleware.Compression
-			// for why that position is the only correct one.
+			// Chain wraps in reverse: metrics must record recovered 500s, and
+			// compression must wrap Recovery (see middleware.Compression).
 			Handler:   middleware.Chain(mux, middleware.Metrics, middleware.Logging, middleware.Compression, middleware.Recovery),
 			TLSConfig: tlsConfig,
 			ErrorLog:  slog.NewLogLogger(logger.Handler(), slog.LevelError),
@@ -438,10 +403,7 @@ func run(deps runDeps, conn *sql.DB) error {
 		cert = &loadedCert
 	}
 
-	// An unset EMBEDDINGS_URL yields a disabled client, which is the supported
-	// way to run without the sidecar: search stays lexical and the reconciler
-	// returns immediately. The timeout is short because this client sits on the
-	// public search path, where waiting is worse than a slightly worse ranking.
+	// An unset URL disables semantic search. Keep query embedding timeouts short.
 	embedder := embeddings.New(os.Getenv("EMBEDDINGS_URL"), 2*time.Second)
 
 	mux := http.NewServeMux()
@@ -452,9 +414,7 @@ func run(deps runDeps, conn *sql.DB) error {
 	defer stopScheduler()
 	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default())
 
-	// The reconciler embeds articles in the background. It gets its own client
-	// with a far longer timeout: batches of article bodies take much longer than
-	// a query, and unlike search it has no reason to give up quickly.
+	// Background article batches need a longer timeout than search queries.
 	go embeddings.NewReconciler(conn, embeddings.New(os.Getenv("EMBEDDINGS_URL"), 2*time.Minute)).Run(schedulerCtx)
 
 	serverErr := make(chan error, 1)
@@ -531,11 +491,7 @@ func akismetCheckerFromEnv() (akismet.Checker, error) {
 	})
 }
 
-// slackNotifierFromEnv builds the classified notifier, or returns nil when no
-// webhook is configured — which is a supported way to run: submissions still
-// land in the CMS queue, they just do not announce themselves. A webhook that
-// is set but malformed is an error, because it would fail silently on every
-// submission otherwise.
+// slackNotifierFromEnv returns nil for an unset webhook and rejects malformed URLs.
 func slackNotifierFromEnv() (slack.Notifier, error) {
 	webhookURL := strings.TrimSpace(os.Getenv(slackWebhookURLEnv))
 	if webhookURL == "" {
@@ -552,11 +508,7 @@ func slackNotifierFromEnv() (slack.Notifier, error) {
 	return client, nil
 }
 
-// The two halves of Slack moderation are configured separately and half of it
-// is worse than none: a webhook with no signing secret puts buttons in the
-// channel that the callback will refuse, and a signing secret with no webhook
-// means no message is ever posted for anyone to click. Both are worth a
-// startup line naming the missing variable.
+// Slack moderation needs both a notification webhook and a callback signing secret.
 func logSlackModerationState(notifier slack.Notifier) {
 	hasSecret := strings.TrimSpace(os.Getenv(slackSigningSecretEnv)) != ""
 

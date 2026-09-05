@@ -204,7 +204,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
       <div
         aria-label={title}
         aria-modal="true"
-        className="flex max-h-[85vh] w-full max-w-4xl flex-col gap-4 rounded-xl border border-border bg-background p-6"
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col gap-4 rounded-lg border border-border bg-background p-6"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
       >
