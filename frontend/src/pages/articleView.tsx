@@ -635,10 +635,6 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: item.title, description: item.excerpt ?? "" }),
       })
-      // useApiFetch already explains a 403 with the admin-only dialog.
-      if (response.status === 403) {
-        return
-      }
       if (response.status === 409) {
         throw new Error(`"${item.title}" is already a developing story.`)
       }
