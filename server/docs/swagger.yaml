@@ -645,11 +645,20 @@ definitions:
     properties:
       stories:
         items:
-          type: string
+          $ref: '#/definitions/models.DevelopingStory'
         type: array
+    type: object
+  models.DevelopingStory:
+    properties:
+      description:
+        type: string
+      title:
+        type: string
     type: object
   models.DevelopingStoryRequest:
     properties:
+      description:
+        type: string
       title:
         type: string
     type: object
@@ -2394,7 +2403,7 @@ paths:
       consumes:
       - application/json
       parameters:
-      - description: Story title
+      - description: Story title and description
         in: body
         name: body
         required: true
@@ -2418,6 +2427,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Add developing story
+      tags:
+      - developing-stories
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Story title and description
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.DevelopingStoryRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update developing story description
       tags:
       - developing-stories
   /v1/gallery:

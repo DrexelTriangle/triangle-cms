@@ -147,6 +147,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("PATCH /v1/polls/{id}/options/{option_id}", authMW(handlers.PatchPollRecordOption(conn)))
 	mux.Handle("DELETE /v1/polls/{id}/options/{option_id}", authMW(handlers.DeletePollRecordOption(conn)))
 	mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))
+	mux.Handle("PUT /v1/developing-stories", authMW(adminOnly(handlers.PutDevelopingStory(conn))))
 	mux.Handle("DELETE /v1/developing-stories", authMW(adminOnly(handlers.DeleteDevelopingStory(conn))))
 	mux.Handle("PATCH /v1/settings/site", authMW(adminOnly(handlers.PatchSiteSettings(conn))))
 	mux.Handle("PATCH /v1/settings/seo", authMW(adminOnly(handlers.PatchSEOSettings(conn))))

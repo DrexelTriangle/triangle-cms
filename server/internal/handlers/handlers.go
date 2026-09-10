@@ -3152,22 +3152,34 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		storyTitles, err := db.GetDevelopingStories(r.Context(), conn)
+		stories, err := db.GetDevelopingStories(r.Context(), conn)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		developingStories := make([]models.HomepageDevelopingStory, 0, len(storyTitles))
-		for idx, title := range storyTitles {
-			slug := db.CanonicalizeSlug(title)
+		developingStories := make([]models.HomepageDevelopingStory, 0, len(stories))
+		for idx, story := range stories {
+			slug := db.CanonicalizeSlug(story.Title)
 			if slug == "" {
 				slug = fmt.Sprintf("developing-story-%d", idx+1)
 			}
+			// A developing story is usually typed before the article exists, so
+			// only hand the site a link once an article actually answers to the
+			// slug; otherwise the rail links every headline straight to a 404.
+			link := ""
+			exists, err := db.ArticleExistsBySlug(r.Context(), conn, slug)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if exists {
+				link = slug
+			}
 			developingStories = append(developingStories, models.HomepageDevelopingStory{
 				Slug:       slug,
-				Link:       slug,
-				Title:      title,
-				Excerpt:    "",
+				Link:       link,
+				Title:      story.Title,
+				Excerpt:    story.Description,
 				ShowInNews: false,
 				Label:      []models.HomepageLabel{},
 			})

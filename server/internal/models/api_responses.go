@@ -519,12 +519,18 @@ type PollOptionNameRequest struct {
 	Option string `json:"option"`
 }
 
+type DevelopingStory struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
 type DevelopingStoryRequest struct {
-	Title string `json:"title"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type DevelopingStoriesResponse struct {
-	Stories []string `json:"stories"`
+	Stories []DevelopingStory `json:"stories"`
 }
 
 type ActivityEventResponse struct {

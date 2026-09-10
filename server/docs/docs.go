@@ -1676,6 +1676,54 @@ const docTemplate = `{
                     }
                 }
             },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "developing-stories"
+                ],
+                "summary": "Update developing story description",
+                "parameters": [
+                    {
+                        "description": "Story title and description",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.DevelopingStoryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -1691,7 +1739,7 @@ const docTemplate = `{
                 "summary": "Add developing story",
                 "parameters": [
                     {
-                        "description": "Story title",
+                        "description": "Story title and description",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -5251,14 +5299,28 @@ const docTemplate = `{
                 "stories": {
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/models.DevelopingStory"
                     }
+                }
+            }
+        },
+        "models.DevelopingStory": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },
         "models.DevelopingStoryRequest": {
             "type": "object",
             "properties": {
+                "description": {
+                    "type": "string"
+                },
                 "title": {
                     "type": "string"
                 }
