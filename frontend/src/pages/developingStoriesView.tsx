@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { FormEvent } from "react"
-import { Plus, Trash2, RefreshCw, Pencil, Check, X } from "lucide-react"
+import { Plus, Trash2, RefreshCw, Pencil, Check, X, FileText } from "lucide-react"
+import { useNavigate } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 
 type DevelopingStory = {
@@ -35,6 +36,7 @@ async function readErrorMessage(res: Response, fallback: string) {
 
 function DevelopingStoriesView() {
   const apiFetch = useApiFetch()
+  const navigate = useNavigate()
   const [stories, setStories] = useState<DevelopingStory[]>([])
   const [newStoryTitle, setNewStoryTitle] = useState("")
   const [newStoryDescription, setNewStoryDescription] = useState("")
@@ -119,6 +121,15 @@ function DevelopingStoriesView() {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  // Hands the story to the article editor as a starting point. Keeping the
+  // title identical is what later lets the homepage rail link the story to the
+  // article, since the rail matches on the slug derived from the title.
+  const writeArticle = (story: DevelopingStory) => {
+    const params = new URLSearchParams({ title: story.title })
+    if (story.description) params.set("excerpt", story.description)
+    navigate(`/articles/new?${params.toString()}`)
   }
 
   const deleteStory = async (title: string) => {
@@ -288,6 +299,15 @@ function DevelopingStoriesView() {
                           <Pencil className="w-4 h-4" />
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => writeArticle(story)}
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                        title="Write the article"
+                        disabled={isSaving}
+                      >
+                        <FileText className="w-4 h-4" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => deleteStory(story.title)}

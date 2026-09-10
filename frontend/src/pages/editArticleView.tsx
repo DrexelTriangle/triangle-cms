@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
 import { ArrowLeft, Save, Image, Search, X, Copy, Check, RefreshCw, Plus } from "lucide-react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { articleUrl } from "../auth/urls"
 import TrixEditor from "../components/TrixEditor"
@@ -270,6 +270,9 @@ function EditArticleView() {
   const navigate = useNavigate()
   const apiFetch = useApiFetch()
   const { id: rawID, slug: rawSlug } = useParams<{ id?: string; slug: string }>()
+  // Set when the editor arrived from a developing story, which hands over the
+  // headline and blurb it was already carrying.
+  const [searchParams] = useSearchParams()
   const slug = useMemo(() => (rawSlug ? decodeURIComponent(rawSlug) : ""), [rawSlug])
   const articleID = useMemo(() => (rawID && /^\d+$/.test(rawID) ? rawID : ""), [rawID])
   const articleQuery = articleID ? `?id=${encodeURIComponent(articleID)}` : ""
@@ -303,8 +306,8 @@ function EditArticleView() {
   const [lockedBy, setLockedBy] = useState<string | null>(null)
   const [lockChecking, setLockChecking] = useState(false)
 
-  const [title, setTitle] = useState("")
-  const [excerpt, setExcerpt] = useState("")
+  const [title, setTitle] = useState(() => (isNew ? searchParams.get("title") ?? "" : ""))
+  const [excerpt, setExcerpt] = useState(() => (isNew ? searchParams.get("excerpt") ?? "" : ""))
   const excerptRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
