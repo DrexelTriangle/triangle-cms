@@ -1,0 +1,320 @@
+name: Scheduled merge
+
+# Times a feature release: a pull request labelled `scheduled-merge` whose body
+# carries a `Merge-at:` line is merged automatically once that moment passes,
+# with nobody clicking anything at the time. Merging main is what starts the
+# existing CI -> deploy chain, so the scheduled merge time is effectively the
+# publish time (plus the length of a deploy).
+#
+# Why this needs RELEASE_BOT_TOKEN and not the built-in GITHUB_TOKEN: a push
+# made with GITHUB_TOKEN does not trigger further workflows. The deploy chain
+# hangs off `workflow_run` from a *push* to main, so a GITHUB_TOKEN merge would
+# land the commit and then silently deploy nothing -- the exact failure a timed
+# release must not have. RELEASE_BOT_TOKEN is a user/app token, so its merge
+# commit is a real push event and the chain runs as if a human had merged.
+on:
+  schedule:
+    # Every ten minutes. GitHub runs scheduled workflows on a best-effort queue
+    # and often several minutes late, so treat `Merge-at:` as "not before this
+    # time", typically landing within ~15 minutes after it. Never schedule a
+    # release for a moment that must be hit to the minute.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Only consider this PR number (blank = every labelled PR)
+        required: false
+      dry_run:
+        description: Report what would happen without merging
+        type: boolean
+        default: false
+
+# The built-in token is unused for anything that mutates; all writes go through
+# RELEASE_BOT_TOKEN below.
+permissions:
+  contents: read
+
+# One release lands at a time, and a late run never overlaps the next tick.
+concurrency:
+  group: scheduled-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require the release token
+        env:
+          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+        run: |
+          if [[ -z "$RELEASE_BOT_TOKEN" ]]; then
+            echo "::error::RELEASE_BOT_TOKEN is not set. A GITHUB_TOKEN merge would not trigger the deploy chain, so this workflow refuses to merge without it. See .github/workflows/README.md."
+            exit 1
+          fi
+
+      - name: Merge pull requests whose scheduled time has passed
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.RELEASE_BOT_TOKEN }}
+          script: |
+            const LABEL = 'scheduled-merge';
+            const BLOCKED_LABEL = 'scheduled-merge-blocked';
+            const DEFAULT_METHOD = 'squash';
+
+            const onlyPr = `${{ inputs.pr }}`.trim();
+            const dryRun = `${{ inputs.dry_run }}` === 'true';
+            const { owner, repo } = context.repo;
+            const now = Date.now();
+
+            // --- time parsing -------------------------------------------------
+            // Accepts either an absolute instant ("2026-09-12T00:01:00-04:00",
+            // "...Z") or a wall-clock time plus an IANA zone
+            // ("2026-09-12 00:01 America/New_York"), which is what an editor
+            // actually means and which stays correct across a DST boundary.
+
+            const offsetAt = (ts, zone) => {
+              const parts = Object.fromEntries(
+                new Intl.DateTimeFormat('en-US', {
+                  timeZone: zone,
+                  hour12: false,
+                  year: 'numeric', month: '2-digit', day: '2-digit',
+                  hour: '2-digit', minute: '2-digit', second: '2-digit',
+                }).formatToParts(new Date(ts)).map((p) => [p.type, p.value]),
+              );
+              // Intl can render midnight as hour "24" in some runtimes.
+              const hour = parts.hour === '24' ? '00' : parts.hour;
+              const asUtc = Date.UTC(
+                Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+                Number(hour), Number(parts.minute), Number(parts.second),
+              );
+              return asUtc - ts;
+            };
+
+            const parseWhen = (raw) => {
+              const value = raw.trim();
+
+              const absolute = value.match(
+                /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)\s*(Z|[+-]\d{2}:?\d{2})$/i,
+              );
+              if (absolute) {
+                const [, date, time, rawZone] = absolute;
+                const zone = rawZone.toUpperCase() === 'Z'
+                  ? 'Z'
+                  : (rawZone.includes(':') ? rawZone : `${rawZone.slice(0, 3)}:${rawZone.slice(3)}`);
+                const clock = time.length === 5 ? `${time}:00` : time;
+                const ts = Date.parse(`${date}T${clock}${zone}`);
+                if (Number.isNaN(ts)) throw new Error(`not a valid date: ${value}`);
+                return new Date(ts);
+              }
+
+              const zoned = value.match(
+                /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)\s+([A-Za-z]+(?:[_+-][A-Za-z0-9]+)*\/[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)?)$/,
+              );
+              if (zoned) {
+                const [, date, time, zone] = zoned;
+                const clock = time.length === 5 ? `${time}:00` : time;
+                const naive = Date.parse(`${date}T${clock}Z`);
+                if (Number.isNaN(naive)) throw new Error(`not a valid date: ${value}`);
+                try {
+                  new Intl.DateTimeFormat('en-US', { timeZone: zone });
+                } catch {
+                  throw new Error(`unknown time zone: ${zone}`);
+                }
+                // Two passes settle the case where the first guess lands on the
+                // other side of a DST transition from the real instant.
+                let ts = naive;
+                for (let i = 0; i < 2; i += 1) ts = naive - offsetAt(ts, zone);
+                // Round-trip: if rendering the result back into the zone does not
+                // reproduce the requested wall clock, that wall clock does not
+                // exist -- the spring-forward jump skips over it. Reject it rather
+                // than firing the release an hour off what anyone would expect.
+                if (ts + offsetAt(ts, zone) !== naive) {
+                  throw new Error(
+                    `${date} ${clock} never happens in ${zone}; the clocks jump forward over it. Pick a time outside the daylight-saving gap.`,
+                  );
+                }
+                // An *ambiguous* wall clock (the fall-back hour, which happens
+                // twice) resolves to the earlier of the two instants.
+                return new Date(ts);
+              }
+
+              throw new Error(
+                `could not read "${value}". Use "2026-09-12 00:01 America/New_York" or "2026-09-12T00:01:00-04:00".`,
+              );
+            };
+
+            // --- helpers ------------------------------------------------------
+
+            const comment = async (number, body) => {
+              if (dryRun) { core.info(`[dry-run] would comment on #${number}: ${body}`); return; }
+              await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+            };
+
+            const setLabels = async (number, { add = [], remove = [] }) => {
+              if (dryRun) { core.info(`[dry-run] would +${add} -${remove} on #${number}`); return; }
+              for (const name of remove) {
+                try {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name });
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+              }
+              if (add.length) {
+                await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: add });
+              }
+            };
+
+            // Stop a scheduled release and say why, exactly once: the label comes
+            // off so the next tick ignores the PR instead of re-commenting every
+            // ten minutes. Re-adding the label re-arms it.
+            const block = async (number, reason) => {
+              core.warning(`#${number} blocked: ${reason}`);
+              await comment(number, [
+                `### Scheduled merge cancelled`, '',
+                reason, '',
+                `The \`${LABEL}\` label has been removed, so nothing will merge on its own.`,
+                `Fix the problem above and add the label back to re-arm the release.`,
+              ].join('\n'));
+              await setLabels(number, { add: [BLOCKED_LABEL], remove: [LABEL] });
+            };
+
+            // Every check run and commit status on the head SHA must have
+            // finished and passed. Anything still running means "not yet", not
+            // "no": the PR is left alone and reconsidered on the next tick.
+            const checkState = async (sha) => {
+              const runs = await github.paginate(github.rest.checks.listForRef, {
+                owner, repo, ref: sha, per_page: 100,
+              });
+              const { data: combined } = await github.rest.repos.getCombinedStatusForRef({
+                owner, repo, ref: sha, per_page: 100,
+              });
+
+              // This workflow runs on a schedule, not on the PR head, so it
+              // never reports a check run here and cannot wait on itself.
+              const pending = runs.filter((run) => run.status !== 'completed');
+              const failed = runs.filter(
+                (run) => run.status === 'completed'
+                  && !['success', 'neutral', 'skipped'].includes(run.conclusion),
+              );
+
+              if (combined.state === 'pending' && combined.statuses.length) {
+                pending.push(...combined.statuses.map((s) => ({ name: s.context })));
+              }
+              if (['failure', 'error'].includes(combined.state)) {
+                failed.push(...combined.statuses
+                  .filter((s) => ['failure', 'error'].includes(s.state))
+                  .map((s) => ({ name: s.context })));
+              }
+
+              return {
+                total: runs.length + combined.statuses.length,
+                pending: pending.map((r) => r.name),
+                failed: failed.map((r) => r.name),
+              };
+            };
+
+            // --- main ---------------------------------------------------------
+
+            const labelled = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'open', per_page: 100,
+            });
+
+            const candidates = labelled.filter((pr) => {
+              if (onlyPr && String(pr.number) !== onlyPr) return false;
+              return pr.labels.some((label) => label.name === LABEL);
+            });
+
+            if (!candidates.length) {
+              core.info(`No open pull requests carry the "${LABEL}" label.`);
+              return;
+            }
+
+            for (const summary of candidates) {
+              const number = summary.number;
+
+              const directive = (summary.body || '').match(/^[ \t>*-]*merge-at[ \t]*:[ \t]*(.+?)[ \t]*$/im);
+              if (!directive) {
+                await block(number, `This pull request is labelled \`${LABEL}\` but its description has no \`Merge-at:\` line.`);
+                continue;
+              }
+
+              let when;
+              try {
+                when = parseWhen(directive[1]);
+              } catch (error) {
+                await block(number, `Could not read the \`Merge-at:\` line: ${error.message}`);
+                continue;
+              }
+
+              if (when.getTime() > now) {
+                const minutes = Math.round((when.getTime() - now) / 60000);
+                core.info(`#${number} is scheduled for ${when.toISOString()} (${minutes} min away). Skipping.`);
+                continue;
+              }
+
+              // Re-read the PR: the list payload is a snapshot, and `mergeable`
+              // is only computed on the individual endpoint.
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+
+              if (pr.state !== 'open' || pr.merged) {
+                core.info(`#${number} is no longer open. Skipping.`);
+                continue;
+              }
+              if (pr.draft) {
+                await block(number, 'The scheduled time has passed but this pull request is still a draft.');
+                continue;
+              }
+              if (pr.mergeable === null) {
+                core.info(`#${number}: GitHub is still computing mergeability. Retrying on the next run.`);
+                continue;
+              }
+              if (pr.mergeable === false) {
+                await block(number, `This pull request cannot be merged cleanly into \`${pr.base.ref}\` (\`mergeable_state: ${pr.mergeable_state}\`). It most likely has conflicts.`);
+                continue;
+              }
+              if (pr.mergeable_state === 'blocked') {
+                await block(number, 'Branch protection is blocking this merge (a required review or a required check is missing).');
+                continue;
+              }
+
+              const checks = await checkState(pr.head.sha);
+              if (checks.total === 0) {
+                await block(number, `No checks have reported on \`${pr.head.sha.slice(0, 7)}\`. Refusing to release code nothing has validated.`);
+                continue;
+              }
+              if (checks.failed.length) {
+                await block(number, `These checks failed on \`${pr.head.sha.slice(0, 7)}\`: ${checks.failed.map((n) => `\`${n}\``).join(', ')}.`);
+                continue;
+              }
+              if (checks.pending.length) {
+                core.info(`#${number}: waiting on ${checks.pending.join(', ')}. Retrying on the next run.`);
+                continue;
+              }
+
+              const methodLine = (pr.body || '').match(/^[ \t>*-]*merge-method[ \t]*:[ \t]*(merge|squash|rebase)[ \t]*$/im);
+              const method = methodLine ? methodLine[1].toLowerCase() : DEFAULT_METHOD;
+
+              if (dryRun) {
+                core.info(`[dry-run] would ${method}-merge #${number} (${pr.title}) into ${pr.base.ref}.`);
+                continue;
+              }
+
+              let merged;
+              try {
+                ({ data: merged } = await github.rest.pulls.merge({
+                  owner, repo, pull_number: number, merge_method: method,
+                }));
+              } catch (error) {
+                await block(number, `GitHub refused the ${method} merge: ${error.message}`);
+                continue;
+              }
+
+              core.notice(`Merged #${number} as ${merged.sha}.`);
+              await comment(number, [
+                '### Released on schedule', '',
+                `Merged into \`${pr.base.ref}\` as \`${merged.sha}\`, on the \`Merge-at:\` time of **${when.toISOString()}**.`,
+                'The usual deploy chain is running now.',
+              ].join('\n'));
+              await setLabels(number, { remove: [LABEL] });
+            }
