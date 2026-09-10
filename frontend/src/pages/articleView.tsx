@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2, Copy, Check } from "lucide-react"
+import { ExternalLink, Search, Pencil, Plus, Trash2, X, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Undo2, Copy, Check, TrendingUp } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { articleUrl } from "../auth/urls"
 import { useApiFetch } from "../hooks/useApiFetch"
@@ -11,6 +11,7 @@ type ArticleStatus = "Published" | "Scheduled" | "Draft" | "Archived"
 type ArticleItem = {
   id: string
   title: string
+  excerpt: string
   authors: string
   status: ArticleStatus
   date: string
@@ -23,6 +24,7 @@ type ArticleItem = {
 type ApiArticle = {
   id: number
   title: string
+  excerpt?: string
   slug: string
   status: string
   published_date?: string
@@ -211,6 +213,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deletingArticleId, setDeletingArticleId] = useState<string | null>(null)
   const [copiedArticleId, setCopiedArticleId] = useState<string | null>(null)
+  const [promotingArticleId, setPromotingArticleId] = useState<string | null>(null)
+  const [promotedArticleId, setPromotedArticleId] = useState<string | null>(null)
 
   useEffect(() => {
     writeSessionJSON(uiStateKey, {
@@ -483,6 +487,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
         const items = (payload.articles ?? []).map((item) => ({
           id: String(item.id),
           title: item.title,
+          excerpt: item.excerpt ?? "",
           authors: (item.authors ?? [])
             .map((author) => (author.name ?? "").trim())
             .filter((name) => name.length > 0)
@@ -614,6 +619,39 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
     }
     setCopiedArticleId(null)
     setDeleteError("Could not copy the link. Your browser blocked clipboard access.")
+  }
+
+  // The developing story is a copy, not a reference: the rail is keyed on the
+  // title, so it keeps saying what it said even if the article is retitled or
+  // never published.
+  const addToDevelopingStories = async (item: ArticleItem) => {
+    if (promotingArticleId) return
+
+    setDeleteError(null)
+    setPromotingArticleId(item.id)
+    try {
+      const response = await apiFetch("/v1/developing-stories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: item.title, description: item.excerpt ?? "" }),
+      })
+      // useApiFetch already explains a 403 with the admin-only dialog.
+      if (response.status === 403) {
+        return
+      }
+      if (response.status === 409) {
+        throw new Error(`"${item.title}" is already a developing story.`)
+      }
+      if (!response.ok) {
+        throw new Error(`Could not add to developing stories (${response.status})`)
+      }
+      setPromotedArticleId(item.id)
+      setTimeout(() => setPromotedArticleId((current) => (current === item.id ? null : current)), 1500)
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Could not add to developing stories.")
+    } finally {
+      setPromotingArticleId(null)
+    }
   }
 
   const deleteArticle = async (item: ArticleItem) => {
@@ -964,6 +1002,17 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                           type="button"
                         >
                           {copiedArticleId === item.id ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      )}
+                      {activeTab !== "trash" && (
+                        <button
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          disabled={promotingArticleId === item.id}
+                          onClick={() => void addToDevelopingStories(item)}
+                          title="Add to developing stories"
+                          type="button"
+                        >
+                          {promotedArticleId === item.id ? <Check className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
                         </button>
                       )}
                       <button
