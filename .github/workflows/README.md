@@ -92,25 +92,64 @@ genuinely hard deadline, merge by hand.
 setup or push a release out early. Its `pr` input narrows the run to one pull
 request and `dry_run` reports what would happen without merging anything.
 
-### Required setup: `RELEASE_BOT_TOKEN`
+### Required setup: the release App
 
-This is the one piece that cannot live in the repository. The workflow merges
-with a repository secret named `RELEASE_BOT_TOKEN` and **fails loudly if it is
-missing** rather than merging without it.
+This is the one piece that cannot live in the repository. The workflow merges as
+a **GitHub App** and fails loudly if the App credentials are missing, rather
+than merging without them. Two separate constraints force an App here, and
+neither has a workaround:
 
-The reason is a deliberate GitHub rule: a push made with the built-in
-`GITHUB_TOKEN` does not trigger further workflows. The deploy chain hangs off a
-`workflow_run` from a *push* to `main`, so a `GITHUB_TOKEN` merge would land the
-commit and then deploy nothing at all — which is the one failure a timed release
-must never have. A user or GitHub App token produces a real push event, so the
-chain runs exactly as if a person had clicked Merge.
+**It cannot use the built-in `GITHUB_TOKEN`.** A push made with `GITHUB_TOKEN`
+does not trigger further workflows. The deploy chain hangs off a `workflow_run`
+from a *push* to `main`, so a `GITHUB_TOKEN` merge would land the commit and
+then deploy nothing at all — the one failure mode a timed release must not have.
 
-Create a fine-grained personal access token (or a GitHub App installation token)
-scoped to this repository with **Contents: read and write** and **Pull requests:
-read and write**, and save it as the `RELEASE_BOT_TOKEN` repository secret.
-Whoever owns the token appears as the merge author, so prefer a machine account
-over a person where one is available. Note that a fine-grained PAT expires:
-put its expiry somewhere you will see it, because the failure mode is a release
-that silently does not go out.
+**It cannot use a personal access token either.** `main` requires an approving
+review, and a scheduled release merges without one, so the merging identity has
+to be a ruleset bypass actor. Rulesets can name a GitHub App as a bypass actor
+(`actor_type: Integration`) and nothing else of comparable narrowness — a PAT
+bypasses only by belonging to an organisation admin, which means leaving an
+org-admin-grade credential in a repository secret to merge one pull request.
+
+To set it up:
+
+1. Create a GitHub App in the organisation (Settings → Developer settings →
+   GitHub Apps → New). It needs no webhook and no user-facing callback.
+2. Give it these repository permissions, and no others:
+
+   | Permission | Level | Why |
+   | --- | --- | --- |
+   | Contents | Read and write | performs the merge |
+   | Pull requests | Read and write | reads the PR, comments, moves labels |
+   | Checks | Read-only | confirms check runs passed |
+   | Commit statuses | Read-only | confirms commit statuses passed |
+   | Metadata | Read-only | mandatory for any App |
+
+3. Install it on this repository only.
+4. Generate a private key and store the App's numeric ID and the `.pem`
+   contents as the repository secrets `RELEASE_BOT_APP_ID` and
+   `RELEASE_BOT_PRIVATE_KEY`.
+5. Add the App to the branch ruleset for `main` as a bypass actor. Without this
+   step everything else works and the merge is still refused by the review rule.
+
+The workflow mints a short-lived installation token per run with
+`actions/create-github-app-token`, so nothing long-lived sits in the secret
+except the private key, and the merge is attributable to the App rather than to
+a person.
+
+### Why `mergeable_state` is not used as a gate
+
+GitHub reports `mergeable_state: "blocked"` for any pull request missing a
+required approval, and that field is **not actor-aware** — it describes the
+state for an ordinary merger and knows nothing about bypass actors. Refusing on
+it would cancel every scheduled release, so the workflow only logs it and lets
+the merge proceed. The safety properties come from checks this workflow verifies
+itself (open, non-draft, conflict-free, every check finished and passing, at
+least one check present), and GitHub stays the final authority: if it genuinely
+refuses the merge, the error is reported rather than guessed at.
+
+What this does mean is that a scheduled release **skips code review by design**.
+The `scheduled-merge` label is the thing authorising that, so treat adding it as
+the approval.
 
 [tz]: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones

@@ -6,12 +6,21 @@ name: Scheduled merge
 # existing CI -> deploy chain, so the scheduled merge time is effectively the
 # publish time (plus the length of a deploy).
 #
-# Why this needs RELEASE_BOT_TOKEN and not the built-in GITHUB_TOKEN: a push
-# made with GITHUB_TOKEN does not trigger further workflows. The deploy chain
-# hangs off `workflow_run` from a *push* to main, so a GITHUB_TOKEN merge would
-# land the commit and then silently deploy nothing -- the exact failure a timed
-# release must not have. RELEASE_BOT_TOKEN is a user/app token, so its merge
-# commit is a real push event and the chain runs as if a human had merged.
+# This merges as a GitHub App rather than with the built-in GITHUB_TOKEN, for
+# two independent reasons:
+#
+#   1. A push made with GITHUB_TOKEN does not trigger further workflows. The
+#      deploy chain hangs off `workflow_run` from a *push* to main, so a
+#      GITHUB_TOKEN merge would land the commit and then silently deploy
+#      nothing -- the exact failure a timed release must not have. An App
+#      installation token produces a real push event, so the chain runs as if
+#      a human had merged.
+#
+#   2. `main` requires an approving review. A scheduled release merges without
+#      one, which means the merging identity has to be a ruleset bypass actor.
+#      An App can be named as one specifically (actor_type: Integration); a PAT
+#      cannot, and could only bypass by belonging to an org admin -- a far
+#      broader credential to leave in a repository secret.
 on:
   schedule:
     # Every ten minutes. GitHub runs scheduled workflows on a best-effort queue
@@ -30,7 +39,7 @@ on:
         default: false
 
 # The built-in token is unused for anything that mutates; all writes go through
-# RELEASE_BOT_TOKEN below.
+# the App installation token minted below.
 permissions:
   contents: read
 
@@ -44,19 +53,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Require the release token
+      - name: Require the release app credentials
         env:
-          RELEASE_BOT_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+          APP_ID: ${{ secrets.RELEASE_BOT_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
         run: |
-          if [[ -z "$RELEASE_BOT_TOKEN" ]]; then
-            echo "::error::RELEASE_BOT_TOKEN is not set. A GITHUB_TOKEN merge would not trigger the deploy chain, so this workflow refuses to merge without it. See .github/workflows/README.md."
+          if [[ -z "$APP_ID" || -z "$PRIVATE_KEY" ]]; then
+            echo "::error::RELEASE_BOT_APP_ID / RELEASE_BOT_PRIVATE_KEY are not set. Merging with GITHUB_TOKEN would neither trigger the deploy chain nor pass the review rule, so this workflow refuses to merge without the App. See .github/workflows/README.md."
             exit 1
           fi
+
+      - name: Mint an installation token for the release app
+        id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
 
       - name: Merge pull requests whose scheduled time has passed
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.RELEASE_BOT_TOKEN }}
+          github-token: ${{ steps.token.outputs.token }}
           script: |
             const LABEL = 'scheduled-merge';
             const BLOCKED_LABEL = 'scheduled-merge-blocked';
@@ -273,9 +290,18 @@ jobs:
                 await block(number, `This pull request cannot be merged cleanly into \`${pr.base.ref}\` (\`mergeable_state: ${pr.mergeable_state}\`). It most likely has conflicts.`);
                 continue;
               }
+              // Deliberately NOT refused on `mergeable_state === 'blocked'`.
+              // That field is not actor-aware: it reports the state for an
+              // ordinary merger, so a pull request with no approving review
+              // reads as blocked even though this App is a ruleset bypass actor
+              // and can merge it. Refusing here would cancel every scheduled
+              // release. The checks below are verified independently, so the
+              // remaining reason for `blocked` is the review rule -- exactly
+              // what a scheduled release is authorised to pass. GitHub remains
+              // the authority: if it really refuses, the merge call throws and
+              // that is reported instead of being guessed at here.
               if (pr.mergeable_state === 'blocked') {
-                await block(number, 'Branch protection is blocking this merge (a required review or a required check is missing).');
-                continue;
+                core.info(`#${number} reads as "blocked" (no approving review). Proceeding: the release app is a bypass actor.`);
               }
 
               const checks = await checkState(pr.head.sha);
