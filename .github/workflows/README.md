@@ -137,6 +137,42 @@ The workflow mints a short-lived installation token per run with
 except the private key, and the merge is attributable to the App rather than to
 a person.
 
+### The deploy gate
+
+Merging is only half of an unattended release. The `production` environment has
+required reviewers, so a deployment stops and waits for a human even after the
+merge has landed — which would leave a midnight release merged but unpublished
+until someone woke up and clicked Approve.
+
+Environments have no bypass-actor concept, so unlike the branch ruleset there is
+no way to exempt the release App from the reviewer gate. Instead the deploy
+workflow picks its environment from who pushed the commit:
+
+```yaml
+environment:
+  name: ${{ github.event.workflow_run.actor.login == 'tri-release-bot[bot]'
+        && 'production-auto' || 'production' }}
+```
+
+`production-auto` carries the same deployment branch policy as `production` but
+no required reviewers. Only the release App can push a scheduled merge, and only
+the scheduled-merge workflow holds its key, so that environment is reachable
+only by a pull request that carried the `scheduled-merge` label. Everything a
+person merges still lands on `production` and still waits for a reviewer, and a
+manual `workflow_dispatch` has no `workflow_run` actor at all, so it also falls
+through to the gated environment.
+
+Two things to keep in mind:
+
+- **The two environments must stay in step.** Any variable, secret or branch
+  policy added to `production` has to be added to `production-auto` as well, or
+  scheduled releases will deploy with different configuration from manual ones.
+  In `triangle-cms` that currently means the three `DELTA_*` variables.
+- **`triangle-cms` chains through two `workflow_run` hops** (CI → Publish Images
+  → Deploy Delta) where Scalene chains through one. This relies on the actor
+  propagating across both hops; if a scheduled CMS release ever stops at the
+  reviewer gate, that assumption is where to look first.
+
 ### Why `mergeable_state` is not used as a gate
 
 GitHub reports `mergeable_state: "blocked"` for any pull request missing a

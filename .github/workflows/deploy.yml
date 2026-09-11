@@ -37,7 +37,16 @@ jobs:
       - drexel-vpn
       - delta
       - triangle-cms
-    environment: production
+    # A scheduled release has to deploy without a human, but every other
+    # deployment should still stop at the reviewer gate. Environments have no
+    # bypass-actor concept, so the gate is chosen by who pushed the commit:
+    # only the release App can push a scheduled merge, and only the
+    # scheduled-merge workflow holds its key, so `production-auto` is
+    # reachable only by a pull request that carried the `scheduled-merge`
+    # label. Everything a person merges still lands on `production` and waits
+    # for a reviewer. Both environments carry the same branch policy, so
+    # neither can deploy anything but main.
+    environment: ${{ github.event.workflow_run.actor.login == 'tri-release-bot[bot]' && 'production-auto' || 'production' }}
     steps:
       - name: Resolve SHA
         id: sha
