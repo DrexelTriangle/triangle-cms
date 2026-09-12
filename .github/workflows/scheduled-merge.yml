@@ -21,13 +21,17 @@ name: Scheduled merge
 #      An App can be named as one specifically (actor_type: Integration); a PAT
 #      cannot, and could only bypass by belonging to an org admin -- a far
 #      broader credential to leave in a repository secret.
+#
+# Nothing here runs on GitHub's `schedule:` trigger. A `*/10` cron was measured
+# on Scalene, which carries the same workflow, over 577 minutes and delivered 2
+# of 58 expected runs (first fire 4h48m late), which is not a scheduler a
+# release can be timed against; worse, every no-op tick posted a check suite on
+# `main` and buried the channel that reports real merges. The ticks come from a
+# systemd timer on Delta (`roles/release_scheduler`) that polls once a minute
+# and dispatches this workflow when a `Merge-at:` has passed, so a run
+# happening at all now means there is something to consider. The timer holds no
+# merge logic: every rule below still applies to every run.
 on:
-  schedule:
-    # Every ten minutes. GitHub runs scheduled workflows on a best-effort queue
-    # and often several minutes late, so treat `Merge-at:` as "not before this
-    # time", typically landing within ~15 minutes after it. Never schedule a
-    # release for a moment that must be hit to the minute.
-    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       pr:
@@ -183,8 +187,8 @@ jobs:
             };
 
             // Stop a scheduled release and say why, exactly once: the label comes
-            // off so the next tick ignores the PR instead of re-commenting every
-            // ten minutes. Re-adding the label re-arms it.
+            // off so the next tick ignores the PR instead of re-commenting on
+            // every one. Re-adding the label re-arms it.
             const block = async (number, reason) => {
               core.warning(`#${number} blocked: ${reason}`);
               await comment(number, [
@@ -207,8 +211,9 @@ jobs:
                 owner, repo, ref: sha, per_page: 100,
               });
 
-              // This workflow runs on a schedule, not on the PR head, so it
-              // never reports a check run here and cannot wait on itself.
+              // This workflow runs against the default branch, not the PR
+              // head, so it never reports a check run here and cannot wait on
+              // itself.
               const pending = runs.filter((run) => run.status !== 'completed');
               const failed = runs.filter(
                 (run) => run.status === 'completed'

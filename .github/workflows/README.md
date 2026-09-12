@@ -66,31 +66,44 @@ default is `squash`.
 
 ### What it checks before merging
 
-The workflow wakes every ten minutes and, for each labelled pull request whose
-`Merge-at:` has passed, refuses to merge unless the pull request is open, not a
-draft, conflict-free, unblocked by branch protection, and every check run and
-commit status on its head commit has **finished and passed**. A pull request
+The workflow is woken once a minute by the release timer on Delta and, for each
+labelled pull request whose `Merge-at:` has passed, refuses to merge unless the
+pull request is open, not a draft, conflict-free, unblocked by branch
+protection, and every check run and commit status on its head commit has
+**finished and passed**. A pull request
 with checks still running is left alone and reconsidered on the next tick; one
 with no checks at all is refused outright, so nothing unvalidated ships.
 
 If something is actually wrong (failed checks, conflicts, still a draft), the
 workflow comments with the reason, swaps the `scheduled-merge` label for
 `scheduled-merge-blocked`, and stops. Dropping the label is deliberate: it
-means one explanatory comment instead of one every ten minutes, and it means a
-broken release never merges later "by surprise" once the problem clears. Fix the
+means one explanatory comment instead of one per tick, and it means a broken
+release never merges later "by surprise" once the problem clears. Fix the
 problem and re-add the label to re-arm it.
 
-### Timing accuracy
+### What drives it, and how close to `Merge-at:` it lands
 
-GitHub runs scheduled workflows on a best-effort queue and frequently several
-minutes late, occasionally dropping ticks entirely under load. Read `Merge-at:`
-as **not before** that time — in practice it lands within about fifteen minutes
-after. Don't schedule anything that has to be exact to the minute; for a
-genuinely hard deadline, merge by hand.
+The ticks come from a systemd timer on Delta (`roles/release_scheduler` in
+`triangle-infrastructure`) that polls once a minute and fires this workflow
+through `workflow_dispatch`. **It is not on GitHub's `schedule:` trigger**, and
+should not be put back on one: a `*/10` cron measured on Scalene over 577
+minutes delivered 2 of its 58 expected runs, the first 4h48m late, so a
+midnight release would have merged near 04:00. It also posted two check
+notifications on `main` per empty tick, which is most of what that trigger ever
+accomplished.
 
-`workflow_dispatch` runs the same pass immediately, which is the way to test a
-setup or push a release out early. Its `pr` input narrows the run to one pull
-request and `dry_run` reports what would happen without merging anything.
+Read `Merge-at:` as **not before** that time — with the timer it lands within
+about a minute of it, plus the length of the CI → publish → deploy chain before
+the change is live. For a genuinely hard deadline, merge by hand.
+
+If the timer is down, nothing merges on its own and nothing says so; the pull
+request simply sits labelled. A release that matters is worth checking after
+the fact.
+
+Dispatching the workflow by hand runs the same pass immediately, which is the
+way to test a setup or push a release out early. Its `pr` input narrows the run
+to one pull request and `dry_run` reports what would happen without merging
+anything.
 
 ### Required setup: the release App
 
