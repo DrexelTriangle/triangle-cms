@@ -423,3 +423,114 @@ func TestArticleSearchHybrid_Paginates(t *testing.T) {
 	}
 }
 
+// GetRelatedArticlesBySlug also loads authors, which the embeddings fixture
+// does not create.
+func relatedArticlesTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	conn := articleEmbeddingsTestDB(t)
+	for _, ddl := range []string{
+		"CREATE TABLE IF NOT EXISTS authors (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, display_name LONGTEXT, login VARCHAR(255))",
+		"CREATE TABLE IF NOT EXISTS articles_authors (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, articles_id BIGINT NOT NULL, author_id BIGINT NOT NULL)",
+	} {
+		if _, err := conn.ExecContext(context.Background(), ddl); err != nil {
+			t.Fatalf("create author tables: %v", err)
+		}
+	}
+	return conn
+}
+
+// nearVector points mostly along `lead` with a little of `tilt`, so tests can
+// order several neighbours by distance from testVector(lead).
+func nearVector(lead, tilt int, amount float32) []float32 {
+	vector := testVector(lead)
+	vector[tilt] = amount
+	return vector
+}
+
+func TestRelatedArticles_RanksNeighboursNearestFirstAndSkipsTheSource(t *testing.T) {
+	conn := relatedArticlesTestDB(t)
+	ctx := context.Background()
+
+	vectors := map[string][]float32{
+		"source":  testVector(0),
+		"nearest": nearVector(0, 1, 0.1),
+		"middle":  nearVector(0, 1, 0.5),
+		"far":     testVector(7),
+	}
+	for _, slug := range []string{"source", "nearest", "middle", "far"} {
+		id := seedEmbeddingArticle(t, conn, slug, slug, "Body.", "2026-01-01 12:00:00", "2026-01-01 12:00:00")
+		if err := SaveArticleEmbedding(ctx, conn, id, vectors[slug], "hash", "current-model"); err != nil {
+			t.Fatalf("save embedding: %v", err)
+		}
+	}
+
+	articles, err := GetRelatedArticlesBySlug(ctx, conn, "source", 2)
+	if err != nil {
+		t.Fatalf("related articles: %v", err)
+	}
+	slugs := make([]string, len(articles))
+	for i, article := range articles {
+		slugs[i] = article.Slug
+	}
+	if strings.Join(slugs, ",") != "nearest,middle" {
+		t.Errorf("related articles were %v, want [nearest middle]", slugs)
+	}
+}
+
+// Vectors for unpublished articles are deleted on an interval, so related
+// reading cannot rely on that having happened yet.
+func TestRelatedArticles_NeverSurfacesNonLiveArticles(t *testing.T) {
+	conn := relatedArticlesTestDB(t)
+	ctx := context.Background()
+
+	source := seedEmbeddingArticle(t, conn, "source", "Source", "Body.", "2026-01-01 12:00:00", "2026-01-01 12:00:00")
+	archived := seedEmbeddingArticle(t, conn, "archived", "Archived", "Body.", "2026-01-01 12:00:00", "2026-01-01 12:00:00")
+	draft := seedEmbeddingArticle(t, conn, "draft", "Draft", "Body.", "", "2026-01-01 12:00:00")
+	live := seedEmbeddingArticle(t, conn, "live", "Live", "Body.", "2026-01-01 12:00:00", "2026-01-01 12:00:00")
+
+	// The non-live articles sit closest to the source.
+	for id, vector := range map[int64][]float32{
+		source:   testVector(0),
+		archived: nearVector(0, 1, 0.1),
+		draft:    nearVector(0, 1, 0.2),
+		live:     nearVector(0, 1, 0.9),
+	} {
+		if err := SaveArticleEmbedding(ctx, conn, id, vector, "hash", "current-model"); err != nil {
+			t.Fatalf("save embedding: %v", err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "UPDATE articles SET archived_at = UTC_TIMESTAMP() WHERE id = ?", archived); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+
+	articles, err := GetRelatedArticlesBySlug(ctx, conn, "source", 3)
+	if err != nil {
+		t.Fatalf("related articles: %v", err)
+	}
+	if len(articles) != 1 || articles[0].Slug != "live" {
+		t.Errorf("related articles returned %d results, want only the live article", len(articles))
+	}
+}
+
+// An article the reconciler has not embedded yet, or a slug that does not
+// exist, has no neighbours rather than an error.
+func TestRelatedArticles_EmptyWithoutASourceVector(t *testing.T) {
+	conn := relatedArticlesTestDB(t)
+	ctx := context.Background()
+
+	seedEmbeddingArticle(t, conn, "unembedded", "Unembedded", "Body.", "2026-01-01 12:00:00", "2026-01-01 12:00:00")
+	other := seedEmbeddingArticle(t, conn, "other", "Other", "Body.", "2026-01-01 12:00:00", "2026-01-01 12:00:00")
+	if err := SaveArticleEmbedding(ctx, conn, other, testVector(0), "hash", "current-model"); err != nil {
+		t.Fatalf("save embedding: %v", err)
+	}
+
+	for _, slug := range []string{"unembedded", "missing"} {
+		articles, err := GetRelatedArticlesBySlug(ctx, conn, slug, 3)
+		if err != nil {
+			t.Fatalf("related articles for %s: %v", slug, err)
+		}
+		if articles == nil || len(articles) != 0 {
+			t.Errorf("related articles for %s were %v, want an empty list", slug, articles)
+		}
+	}
+}

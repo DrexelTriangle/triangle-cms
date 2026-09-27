@@ -234,11 +234,28 @@ func searchArticleIDsByFulltext(ctx context.Context, conn *sql.DB, booleanQuery 
 // the next reconciler pass.
 const vectorOverFetch = 3
 
-// buildVectorNeighbourQuery is split out so the query's shape can be asserted on
-// without a database. An EXPLAIN-based test cannot do that job: on a small table
-// the optimizer picks the vector index even for the join form, so the plan only
+// buildVectorNeighbourQuery ranks live articles against a query vector passed
+// as text. It is split out so the query's shape can be asserted on without a
+// database. An EXPLAIN-based test cannot do that job: on a small table the
+// optimizer picks the vector index even for the join form, so the plan only
 // diverges at a corpus size no unit test should have to build.
 func buildVectorNeighbourQuery(limit int) string {
+	return vectorNeighbourQuery("VEC_FromText(?)", limit, false)
+}
+
+// buildRelatedNeighbourQuery ranks live articles against a stored article's own
+// vector, and leaves that article out. It takes the article id twice: once to
+// read its vector, once to exclude it.
+//
+// The vector is read by a subquery rather than passed in: VEC_ToText is lossy
+// (no production vector survives a VEC_FromText round trip byte for byte), and
+// an uncorrelated subquery is still a constant to the optimizer, so the scan
+// stays index-eligible.
+func buildRelatedNeighbourQuery(limit int) string {
+	return vectorNeighbourQuery("(SELECT `embedding` FROM article_embeddings WHERE `article_id` = ?)", limit, true)
+}
+
+func vectorNeighbourQuery(target string, limit int, excludeSource bool) string {
 	// The nearest-neighbour scan has to stand alone in a derived table.
 	// MariaDB only uses the HNSW index for a bare ORDER BY VEC_DISTANCE ... LIMIT
 	// over the one table; joining articles in to filter by visibility, which is
@@ -256,12 +273,20 @@ func buildVectorNeighbourQuery(limit int) string {
 	// row order is not guaranteed to survive the join, and that order *is* the
 	// ranking that reciprocal rank fusion consumes. Re-sorting a few hundred
 	// already-ranked rows costs nothing.
+	//
+	// An article is its own nearest neighbour, so excluding it costs one extra
+	// row of over-fetch.
+	scan, exclude := limit*vectorOverFetch, ""
+	if excludeSource {
+		scan, exclude = scan+1, "AND a.`id` <> ? "
+	}
 	return "SELECT a.`id` FROM (" +
-		"SELECT `article_id`, VEC_DISTANCE_EUCLIDEAN(`embedding`, VEC_FromText(?)) AS `d` " +
-		"FROM article_embeddings ORDER BY `d` LIMIT " + strconv.Itoa(limit*vectorOverFetch) +
+		"SELECT `article_id`, VEC_DISTANCE_EUCLIDEAN(`embedding`, " + target + ") AS `d` " +
+		"FROM article_embeddings ORDER BY `d` LIMIT " + strconv.Itoa(scan) +
 		") AS nn " +
 		"JOIN articles AS a ON a.id = nn.article_id " +
 		"WHERE a.`pub_date` IS NOT NULL AND a.`pub_date` <= UTC_TIMESTAMP() AND a.`archived_at` IS NULL " +
+		exclude +
 		"ORDER BY nn.`d`, a.`id` DESC " +
 		"LIMIT " + strconv.Itoa(limit)
 }
