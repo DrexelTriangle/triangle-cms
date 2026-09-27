@@ -126,3 +126,28 @@ func TestBuildVectorNeighbourQueryKeepsTheScanIndexEligible(t *testing.T) {
 		t.Errorf("the inner scan does not over-fetch, so filtered rows shrink the result page:\n%s", query)
 	}
 }
+
+// Related reading runs on every article view, so it has to stay on the same
+// index-eligible shape as search. It used to be a single join that ranked every
+// stored vector per view.
+func TestBuildRelatedNeighbourQueryKeepsTheScanIndexEligible(t *testing.T) {
+	query := buildRelatedNeighbourQuery(3)
+
+	orderBy := strings.Index(query, "ORDER BY `d`")
+	if orderBy < 0 {
+		t.Fatalf("query no longer orders the inner scan by distance:\n%s", query)
+	}
+	if inner := query[:orderBy]; strings.Contains(strings.ToUpper(inner), "JOIN") {
+		t.Errorf("the vector scan joins another table before ordering by distance, which disqualifies the HNSW index:\n%s", query)
+	}
+	// The source article is its own nearest neighbour and takes one scan slot.
+	if !strings.Contains(query, "LIMIT "+strconv.Itoa(3*vectorOverFetch+1)) {
+		t.Errorf("the inner scan does not make room for the source article:\n%s", query)
+	}
+	if !strings.Contains(query, "a.`id` <> ?") {
+		t.Errorf("the source article is not excluded from its own related list:\n%s", query)
+	}
+	if got := strings.Count(query, "?"); got != 2 {
+		t.Errorf("query takes %d placeholders, want 2 (source vector, source exclusion):\n%s", got, query)
+	}
+}

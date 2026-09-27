@@ -499,26 +499,40 @@ func GetRelatedArticlesBySlug(ctx context.Context, conn *sql.DB, slug string, k 
 		return nil, fmt.Errorf("k must be greater than 0")
 	}
 
-	query := "SELECT " + articleSelectList(false, "a") + " " +
-		"FROM articles AS src " +
-		"JOIN article_embeddings AS src_vec ON src_vec.article_id = src.id " +
-		"JOIN article_embeddings AS cand_vec ON cand_vec.article_id <> src.id " +
-		"JOIN articles AS a ON a.id = cand_vec.article_id " +
-		// "Related reading" is surfaced on the public article page, so a
-		// candidate must be live content regardless of who is asking: an
-		// unpublished or soft-deleted article is not something to link to from
-		// anywhere, including the CMS preview.
-		"WHERE src.slug = ? AND a.pub_date IS NOT NULL AND a.pub_date <= UTC_TIMESTAMP() AND a.archived_at IS NULL " +
-		"ORDER BY VEC_DISTANCE_EUCLIDEAN(cand_vec.embedding, src_vec.embedding), a.id DESC " +
-		"LIMIT ?"
+	// An article with no stored vector has no neighbours to show.
+	var sourceID int64
+	err := conn.QueryRowContext(ctx,
+		"SELECT src.id FROM articles AS src "+
+			"JOIN article_embeddings AS v ON v.article_id = src.id "+
+			"WHERE src.slug = ? LIMIT 1",
+		trimmedSlug).Scan(&sourceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return []models.Article{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 
-	rows, err := conn.QueryContext(ctx, query, trimmedSlug, k)
+	// "Related reading" is surfaced on the public article page, so a candidate
+	// must be live content regardless of who is asking: an unpublished or
+	// soft-deleted article is not something to link to from anywhere, including
+	// the CMS preview. The neighbour query applies that filter.
+	//
+	// This runs on every article view, so it goes through the same
+	// index-eligible query as vector search. The single-statement join it
+	// replaced ranked every stored vector per view.
+	rows, err := conn.QueryContext(ctx, buildRelatedNeighbourQuery(k), sourceID, sourceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	articles, err := CollectArticles(rows)
+	ids, err := collectIDs(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	articles, err := LoadArticlesByIDsInOrder(ctx, conn, ids)
 	if err != nil {
 		return nil, err
 	}
