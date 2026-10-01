@@ -115,3 +115,27 @@ describe("MediaPicker alt text", () => {
     expect(field).toHaveValue("Students marching")
   })
 })
+
+describe("MediaPicker thumbnails", () => {
+  // The library is mostly camera originals, so a tile without its renditions
+  // downloads a full-size photo to draw a 150px square.
+  it("offers the renditions to the browser and keeps the original as src", async () => {
+    apiFetchStub.mockImplementationOnce(async () =>
+      jsonResponse({
+        media: [
+          {
+            ...GALLERY_ITEM,
+            alt_text: "Students marching",
+            variants: [{ url: "/media/variants/protest.jpg.480w.webp", width: 480, height: 320 }],
+          },
+        ],
+      }),
+    )
+    render(<MediaPicker onClose={vi.fn()} onSelect={vi.fn()} />)
+
+    const thumbnail = await screen.findByAltText("Students marching")
+    expect(thumbnail).toHaveAttribute("src", GALLERY_ITEM.url)
+    expect(thumbnail).toHaveAttribute("srcset", "/media/variants/protest.jpg.480w.webp 480w")
+    expect(thumbnail).toHaveAttribute("sizes")
+  })
+})

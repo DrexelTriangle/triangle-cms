@@ -3,6 +3,7 @@ import { Copy, Check, ImageOff, Images, Search, Trash2, Upload, X } from "lucide
 import { useApiFetch } from "../hooks/useApiFetch"
 import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 import { copyText } from "../lib/clipboard"
+import { srcSetFor, type ImageVariant } from "../lib/imageVariants"
 
 type MediaItem = {
   id: number
@@ -17,6 +18,7 @@ type MediaItem = {
   caption?: string
   in_gallery?: boolean
   created_at?: string
+  variants?: ImageVariant[]
 }
 
 // Only the fields the current user is allowed to change are sent, so an editor
@@ -382,6 +384,10 @@ function MediaView() {
                     alt={item.alt_text || item.file_name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                     src={item.url}
+                    srcSet={srcSetFor(item.variants)}
+                    // One tile of the 2-6 column grid above. Measured against
+                    // the whole viewport, ignoring the sidebar, so it errs large.
+                    sizes="(min-width: 1280px) 17vw, (min-width: 1024px) 20vw, (min-width: 768px) 25vw, (min-width: 640px) 33vw, 50vw"
                     referrerPolicy="no-referrer"
                     loading="lazy"
                   />
@@ -505,6 +511,9 @@ function MediaDetailPanel({ item, onClose, onSave }: MediaDetailPanelProps) {
           alt={item.alt_text || item.file_name}
           className="w-full rounded-lg border border-border bg-muted object-contain max-h-64"
           src={item.url}
+          srcSet={srcSetFor(item.variants)}
+          // The detail panel is max-w-md (448px) less its padding.
+          sizes="400px"
           referrerPolicy="no-referrer"
         />
 

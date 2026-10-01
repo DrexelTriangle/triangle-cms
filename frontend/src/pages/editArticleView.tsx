@@ -7,6 +7,7 @@ import { articleUrl } from "../auth/urls"
 import TrixEditor from "../components/TrixEditor"
 import MediaPicker from "../components/MediaPicker"
 import { copyText } from "../lib/clipboard"
+import { srcSetFor, type ImageVariant } from "../lib/imageVariants"
 import { DateTimeField } from "../components/ui/datetime-field"
 
 // Lazy-loaded so the heavy yoastseo bundle only loads when editing an article.
@@ -35,6 +36,7 @@ type ApiArticleDetail = {
   comment_status?: string
   featured_image?: string
   featured_image_alt?: string
+  featured_image_variants?: ImageVariant[]
   breaking_news?: boolean
   is_featured?: boolean
   categories?: Array<{
@@ -318,6 +320,10 @@ function EditArticleView() {
   const [publishedAt, setPublishedAt] = useState("")
   const [commentStatus, setCommentStatus] = useState("open")
   const [photoURL, setPhotoURL] = useState("")
+  // Renditions for the preview, kept with the URL they belong to: the URL can
+  // also be typed or pasted, and a stale set must never be shown against a
+  // different image. Not saved; only photo_url is.
+  const [photoVariants, setPhotoVariants] = useState<{ url: string; variants?: ImageVariant[] }>({ url: "" })
   const [photoAlt, setPhotoAlt] = useState("")
   const [breakingNews, setBreakingNews] = useState(false)
   const [isFeatured, setIsFeatured] = useState(false)
@@ -460,6 +466,7 @@ function EditArticleView() {
           savedPublishedAtRef.current = loadedTiming === "schedule" ? localPublishedAt : ""
           setCommentStatus(normalizeCommentStatus(payload.comment_status))
           setPhotoURL(payload.featured_image ?? "")
+          setPhotoVariants({ url: payload.featured_image ?? "", variants: payload.featured_image_variants })
           setPhotoAlt(payload.featured_image_alt ?? "")
           setBreakingNews(Boolean(payload.breaking_news))
           setIsFeatured(Boolean(payload.is_featured))
@@ -1281,7 +1288,14 @@ function EditArticleView() {
               {photoURL ? (
                 <div className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-muted/30">
                   <div className="flex items-start gap-3">
-                    <img alt={photoAlt || "Selected featured"} className="w-24 h-16 object-cover rounded-md flex-shrink-0" src={photoURL} referrerPolicy="no-referrer" />
+                    <img
+                      alt={photoAlt || "Selected featured"}
+                      className="w-24 h-16 object-cover rounded-md flex-shrink-0"
+                      src={photoURL}
+                      srcSet={photoVariants.url === photoURL ? srcSetFor(photoVariants.variants) : undefined}
+                      sizes="96px"
+                      referrerPolicy="no-referrer"
+                    />
                     <div className="flex flex-col gap-2">
                       <button
                         className="text-xs font-medium text-primary hover:underline text-left"
@@ -1840,6 +1854,7 @@ function EditArticleView() {
               setPhotoAlt(item.alt_text ?? "")
             }
             setPhotoURL(item.url)
+            setPhotoVariants({ url: item.url, variants: item.variants })
             setImagePickerOpen(false)
           }}
           onUseUrl={(url) => {
