@@ -248,3 +248,56 @@ func TestIndexForURL(t *testing.T) {
 		t.Errorf("nil index returned %v", got)
 	}
 }
+
+func TestIndexForContent(t *testing.T) {
+	ladder := []models.ImageVariant{
+		{URL: "a-480", Width: 480, Height: 320},
+		{URL: "a-2400", Width: 2400, Height: 1600},
+	}
+	index := NewIndex(nil, "https://delta.example")
+	index.byPath = map[string][]models.ImageVariant{
+		"wp-content/uploads/2026/08/lead.jpg":  ladder,
+		"wp-content/uploads/2026/07/photo.jpg": ladder,
+		"wp-content/uploads/2026/07/a&b.jpg":   ladder,
+	}
+
+	body := `
+		<p>intro</p>
+		<figure><img class="x" src="https://delta.example/wp-content/uploads/2026/08/lead.jpg?ver=1" alt=""></figure>
+		[caption]<img src='https://www.thetriangle.org/wp-content/uploads/2026/07/photo-1024x683.jpg' />[/caption]
+		<img src="https://delta.example/wp-content/uploads/2026/07/photo-150x150.jpg">
+		<img src="https://delta.example/wp-content/uploads/2026/07/a&amp;b.jpg">
+		<img src="https://delta.example/wp-content/uploads/2026/07/unrendered.jpg">
+		<img src="https://elsewhere.example/hotlinked.jpg">
+		<img src="https://delta.example/wp-content/uploads/2026/08/lead.jpg">`
+
+	got := index.ForContent(body)
+
+	for _, key := range []string{
+		"wp-content/uploads/2026/08/lead.jpg",
+		// A WordPress resized copy resolves to its original's renditions...
+		"wp-content/uploads/2026/07/photo-1024x683.jpg",
+		// ...and entity-encoded URLs are decoded before lookup.
+		"wp-content/uploads/2026/07/a&b.jpg",
+	} {
+		if len(got[key]) != len(ladder) {
+			t.Errorf("missing renditions for %q: %v", key, got[key])
+		}
+	}
+	// ...but a square crop of a 3:2 photo does not: substituting the full
+	// photo would change what the reader sees.
+	if _, ok := got["wp-content/uploads/2026/07/photo-150x150.jpg"]; ok {
+		t.Error("a cropped thumbnail was matched to its uncropped original")
+	}
+	if len(got) != 3 {
+		t.Errorf("got %d keys, want 3: %v", len(got), got)
+	}
+
+	if got := index.ForContent("<p>no images</p>"); got != nil {
+		t.Errorf("expected nil for a body without renditions, got %v", got)
+	}
+	var unset *Index
+	if got := unset.ForContent(body); got != nil {
+		t.Errorf("nil index returned %v", got)
+	}
+}

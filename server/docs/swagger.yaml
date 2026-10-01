@@ -186,6 +186,17 @@ definitions:
         type: string
       content:
         type: string
+      content_image_variants:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/models.ImageVariant'
+          type: array
+        description: |-
+          ContentImageVariants are resized copies of the images inside Content,
+          keyed by each image's wp-content path as Content references it
+          ("wp-content/uploads/2026/08/photo-1024x683.jpg": URL-decoded, no host,
+          no query). Images with no renditions are absent.
+        type: object
       excerpt:
         type: string
       featured_image:

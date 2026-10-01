@@ -4616,6 +4616,16 @@
                 "content": {
                     "type": "string"
                 },
+                "content_image_variants": {
+                    "description": "ContentImageVariants are resized copies of the images inside Content,\nkeyed by each image's wp-content path as Content references it\n(\"wp-content/uploads/2026/08/photo-1024x683.jpg\": URL-decoded, no host,\nno query). Images with no renditions are absent.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/models.ImageVariant"
+                        }
+                    }
+                },
                 "excerpt": {
                     "type": "string"
                 },

@@ -142,11 +142,16 @@ type ArticleDetailResponse struct {
 	FeaturedImageAlt string `json:"featured_image_alt"`
 	// FeaturedImageVariants are resized copies of FeaturedImage, narrowest
 	// first, for a srcset. Absent until they have been rendered.
-	FeaturedImageVariants []ImageVariant    `json:"featured_image_variants,omitempty"`
-	Authors               []AuthorSummary   `json:"authors"`
-	SEO                   SEOResponse       `json:"seo"`
-	Related               []ArticleListItem `json:"related"`
-	PublishedDate         *time.Time        `json:"published_date,omitempty"`
+	FeaturedImageVariants []ImageVariant `json:"featured_image_variants,omitempty"`
+	// ContentImageVariants are resized copies of the images inside Content,
+	// keyed by each image's wp-content path as Content references it
+	// ("wp-content/uploads/2026/08/photo-1024x683.jpg": URL-decoded, no host,
+	// no query). Images with no renditions are absent.
+	ContentImageVariants map[string][]ImageVariant `json:"content_image_variants,omitempty"`
+	Authors              []AuthorSummary           `json:"authors"`
+	SEO                  SEOResponse               `json:"seo"`
+	Related              []ArticleListItem         `json:"related"`
+	PublishedDate        *time.Time                `json:"published_date,omitempty"`
 	// ModifiedDate is the article's last-edited time (the `mod_date` column the
 	// public sitemap already reports as <lastmod>). Exposed so the public site's
 	// NewsArticle dateModified agrees with the sitemap instead of silently

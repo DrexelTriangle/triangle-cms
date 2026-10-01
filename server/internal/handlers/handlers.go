@@ -2060,6 +2060,7 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 			FeaturedImage:         a.PhotoURL,
 			FeaturedImageAlt:      a.PhotoAlt,
 			FeaturedImageVariants: imageVariants.ForURL(a.PhotoURL),
+			ContentImageVariants:  imageVariants.ForContent(a.Content),
 			Authors:               authors,
 			SEO: models.SEOResponse{
 				SEOTitle:        a.SEOTitle,
