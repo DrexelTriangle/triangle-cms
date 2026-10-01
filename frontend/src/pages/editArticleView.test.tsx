@@ -147,6 +147,16 @@ describe("EditArticleView autosave", () => {
     vi.useRealTimers()
   })
 
+  it("seeds a new article from the developing story that sent the editor here", async () => {
+    await renderEditor(
+      "/articles/new?title=Title%20IX%20Coordinator%20departs%20suddenly&excerpt=Blaze%20Bowers%20departs%20the%20office.",
+      "/articles/new",
+    )
+
+    expect(screen.getByLabelText("Title")).toHaveValue("Title IX Coordinator departs suddenly")
+    expect(screen.getByLabelText("Excerpt")).toHaveValue("Blaze Bowers departs the office.")
+  })
+
   it("does not publish a draft when the editor only selects Publish now", async () => {
     const user = await renderEditor()
 
