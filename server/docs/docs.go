@@ -5709,6 +5709,13 @@ const docTemplate = `{
                 "url": {
                     "type": "string"
                 },
+                "variants": {
+                    "description": "Variants are resized WebP copies, narrowest first. A gallery grid is\nthe worst place to send originals: every tile is a full camera file.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ImageVariant"
+                    }
+                },
                 "width": {
                     "type": "integer"
                 }

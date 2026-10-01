@@ -252,6 +252,9 @@ type MediaOverview struct {
 	Width     *int   `json:"width,omitempty"`
 	Height    *int   `json:"height,omitempty"`
 	AltText   string `json:"alt_text,omitempty"`
+	// Variants are resized WebP copies, narrowest first. A gallery grid is
+	// the worst place to send originals: every tile is a full camera file.
+	Variants []ImageVariant `json:"variants,omitempty"`
 }
 
 type MediaInput struct {
