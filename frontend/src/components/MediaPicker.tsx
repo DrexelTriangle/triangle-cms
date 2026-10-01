@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ImageOff, Pencil, Search, Upload, X } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { srcSetFor, type ImageVariant } from "../lib/imageVariants"
 
 export type MediaPickerItem = {
   id: number
@@ -10,6 +11,7 @@ export type MediaPickerItem = {
   width?: number
   height?: number
   alt_text?: string
+  variants?: ImageVariant[]
 }
 
 type GalleryResponse = {
@@ -285,6 +287,9 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
                         loading="lazy"
                         referrerPolicy="no-referrer"
                         src={item.url}
+                        srcSet={srcSetFor(item.variants)}
+                        // One square of the 2-5 column grid; errs large.
+                        sizes="(min-width: 1024px) 20vw, (min-width: 768px) 25vw, (min-width: 640px) 33vw, 50vw"
                       />
                     </span>
                     <span className="truncate px-2 py-1.5 text-xs text-foreground">{item.file_name}</span>

@@ -5,6 +5,7 @@ import { articleUrl } from "../auth/urls"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { copyText } from "../lib/clipboard"
 import { articleStatusChipClass } from "../lib/articleStatus"
+import { srcSetFor, type ImageVariant } from "../lib/imageVariants"
 
 type ArticleStatus = "Published" | "Scheduled" | "Draft" | "Archived"
 
@@ -16,6 +17,7 @@ type ArticleItem = {
   date: string
   slug?: string
   featuredImage?: string
+  featuredImageVariants?: ImageVariant[]
   breakingNews: boolean
   isFeatured: boolean
 }
@@ -28,6 +30,7 @@ type ApiArticle = {
   published_date?: string
   creation_date?: string
   featured_image?: string
+  featured_image_variants?: ImageVariant[]
   breaking_news?: boolean
   is_featured?: boolean
   authors?: Array<{
@@ -492,6 +495,7 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
           date: formatArticleDate(item.published_date ?? item.creation_date),
           slug: item.slug,
           featuredImage: item.featured_image,
+          featuredImageVariants: item.featured_image_variants,
           breakingNews: Boolean(item.breaking_news),
           isFeatured: Boolean(item.is_featured),
         }))
@@ -894,6 +898,8 @@ function ArticleView({ pageTitle = "Articles", fixedType, excludeType }: Article
                         alt=""
                         className="w-12 min-w-[3rem] h-10 object-cover rounded-md bg-muted flex-shrink-0"
                         src={item.featuredImage}
+                        srcSet={srcSetFor(item.featuredImageVariants)}
+                        sizes="48px"
                         // The image proxy blocks cross-origin referers (returns 403),
                         // so suppress the Referer header to let the thumbnail load.
                         referrerPolicy="no-referrer"
