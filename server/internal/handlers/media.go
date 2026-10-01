@@ -691,6 +691,7 @@ func randomHex(n int) (string, error) {
 // response rather than persisted.
 func withMediaURL(item models.Media) models.Media {
 	item.URL = uploadURL(item.Path)
+	item.Variants = imageVariants.ForPath(item.Path)
 	return item
 }
 

@@ -710,17 +710,18 @@ func articleListItems(articles []models.Article, excerptWords int, preferSlugs .
 		}
 
 		item := models.ArticleListItem{
-			Title:         article.Title,
-			ID:            article.ID,
-			Authors:       authors,
-			Categories:    categories,
-			Excerpt:       truncateWords(article.Excerpt, excerptWords),
-			Slug:          article.Slug,
-			Status:        article.Status,
-			CommentStatus: article.CommentStatus,
-			FeaturedImage: article.PhotoURL,
-			IsFeatured:    article.IsFeatured,
-			BreakingNews:  article.BreakingNews,
+			Title:                 article.Title,
+			ID:                    article.ID,
+			Authors:               authors,
+			Categories:            categories,
+			Excerpt:               truncateWords(article.Excerpt, excerptWords),
+			Slug:                  article.Slug,
+			Status:                article.Status,
+			CommentStatus:         article.CommentStatus,
+			FeaturedImage:         article.PhotoURL,
+			FeaturedImageVariants: imageVariants.ForURL(article.PhotoURL),
+			IsFeatured:            article.IsFeatured,
+			BreakingNews:          article.BreakingNews,
 		}
 		item.PublishedDate = article.PublishedAt
 		item.CreationDate = article.CreatedAt
@@ -1860,17 +1861,18 @@ func GetSearch(conn *sql.DB, embedder QueryEmbedder) http.HandlerFunc {
 			}
 
 			item := models.ArticleListItem{
-				Title:         article.Title,
-				ID:            article.ID,
-				Authors:       authors,
-				Categories:    categories,
-				Excerpt:       article.Excerpt,
-				Slug:          article.Slug,
-				Status:        article.Status,
-				CommentStatus: article.CommentStatus,
-				FeaturedImage: article.PhotoURL,
-				IsFeatured:    article.IsFeatured,
-				BreakingNews:  article.BreakingNews,
+				Title:                 article.Title,
+				ID:                    article.ID,
+				Authors:               authors,
+				Categories:            categories,
+				Excerpt:               article.Excerpt,
+				Slug:                  article.Slug,
+				Status:                article.Status,
+				CommentStatus:         article.CommentStatus,
+				FeaturedImage:         article.PhotoURL,
+				FeaturedImageVariants: imageVariants.ForURL(article.PhotoURL),
+				IsFeatured:            article.IsFeatured,
+				BreakingNews:          article.BreakingNews,
 			}
 			item.PublishedDate = article.PublishedAt
 			resp = append(resp, item)
@@ -2027,36 +2029,38 @@ func GetArticle(conn *sql.DB) http.HandlerFunc {
 			}
 
 			relatedItem := models.ArticleListItem{
-				Title:         relatedArticle.Title,
-				ID:            relatedArticle.ID,
-				Authors:       relatedAuthors,
-				Categories:    relatedCategories,
-				Excerpt:       relatedArticle.Excerpt,
-				Slug:          relatedArticle.Slug,
-				Status:        relatedArticle.Status,
-				CommentStatus: relatedArticle.CommentStatus,
-				FeaturedImage: relatedArticle.PhotoURL,
-				IsFeatured:    relatedArticle.IsFeatured,
-				BreakingNews:  relatedArticle.BreakingNews,
+				Title:                 relatedArticle.Title,
+				ID:                    relatedArticle.ID,
+				Authors:               relatedAuthors,
+				Categories:            relatedCategories,
+				Excerpt:               relatedArticle.Excerpt,
+				Slug:                  relatedArticle.Slug,
+				Status:                relatedArticle.Status,
+				CommentStatus:         relatedArticle.CommentStatus,
+				FeaturedImage:         relatedArticle.PhotoURL,
+				FeaturedImageVariants: imageVariants.ForURL(relatedArticle.PhotoURL),
+				IsFeatured:            relatedArticle.IsFeatured,
+				BreakingNews:          relatedArticle.BreakingNews,
 			}
 			relatedItem.PublishedDate = relatedArticle.PublishedAt
 			related = append(related, relatedItem)
 		}
 
 		resp := models.ArticleDetailResponse{
-			ID:               a.ID,
-			Title:            a.Title,
-			Slug:             a.Slug,
-			Content:          a.Content,
-			Excerpt:          a.Excerpt,
-			Categories:       categories,
-			CommentStatus:    a.CommentStatus,
-			IsFeatured:       a.IsFeatured,
-			BreakingNews:     a.BreakingNews,
-			Status:           a.Status,
-			FeaturedImage:    a.PhotoURL,
-			FeaturedImageAlt: a.PhotoAlt,
-			Authors:          authors,
+			ID:                    a.ID,
+			Title:                 a.Title,
+			Slug:                  a.Slug,
+			Content:               a.Content,
+			Excerpt:               a.Excerpt,
+			Categories:            categories,
+			CommentStatus:         a.CommentStatus,
+			IsFeatured:            a.IsFeatured,
+			BreakingNews:          a.BreakingNews,
+			Status:                a.Status,
+			FeaturedImage:         a.PhotoURL,
+			FeaturedImageAlt:      a.PhotoAlt,
+			FeaturedImageVariants: imageVariants.ForURL(a.PhotoURL),
+			Authors:               authors,
 			SEO: models.SEOResponse{
 				SEOTitle:        a.SEOTitle,
 				MetaDescription: a.MetaDescription,

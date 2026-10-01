@@ -4629,6 +4629,13 @@ const docTemplate = `{
                     "description": "FeaturedImageAlt is the article's own description of its featured image.\nEmpty means the public site has nothing to render, which is a defect worth\nsurfacing rather than papering over with the headline: an alt that repeats\nthe adjacent headline tells a screen-reader user nothing new.",
                     "type": "string"
                 },
+                "featured_image_variants": {
+                    "description": "FeaturedImageVariants are resized copies of FeaturedImage, narrowest\nfirst, for a srcset. Absent until they have been rendered.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ImageVariant"
+                    }
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -4763,6 +4770,13 @@ const docTemplate = `{
                 },
                 "featured_image": {
                     "type": "string"
+                },
+                "featured_image_variants": {
+                    "description": "FeaturedImageVariants are resized copies of FeaturedImage, narrowest\nfirst, for a srcset. Absent until they have been rendered; keep\nFeaturedImage as the src fallback either way.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ImageVariant"
+                    }
                 },
                 "id": {
                     "type": "integer"
@@ -5536,6 +5550,20 @@ const docTemplate = `{
                 }
             }
         },
+        "models.ImageVariant": {
+            "type": "object",
+            "properties": {
+                "height": {
+                    "type": "integer"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "width": {
+                    "type": "integer"
+                }
+            }
+        },
         "models.Media": {
             "type": "object",
             "properties": {
@@ -5575,6 +5603,13 @@ const docTemplate = `{
                 },
                 "url": {
                     "type": "string"
+                },
+                "variants": {
+                    "description": "Variants are resized WebP copies of the original, narrowest first. Empty\nuntil the imaging sidecar has rendered this item, and always empty for\nformats it does not render (GIF, SVG).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ImageVariant"
+                    }
                 },
                 "width": {
                     "type": "integer"

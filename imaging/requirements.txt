@@ -1,0 +1,8 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+# pyvips-binary ships a current libvips (with libwebp, libjpeg-turbo, lcms) as
+# a wheel. Debian's libvips42 is several releases older and splits format
+# support across optional packages, which is how a container ends up healthy but
+# unable to write WebP.
+pyvips==3.0.0
+pyvips-binary==8.18.7

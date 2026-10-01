@@ -197,6 +197,13 @@ definitions:
           surfacing rather than papering over with the headline: an alt that repeats
           the adjacent headline tells a screen-reader user nothing new.
         type: string
+      featured_image_variants:
+        description: |-
+          FeaturedImageVariants are resized copies of FeaturedImage, narrowest
+          first, for a srcset. Absent until they have been rendered.
+        items:
+          $ref: '#/definitions/models.ImageVariant'
+        type: array
       id:
         type: integer
       is_featured:
@@ -293,6 +300,14 @@ definitions:
         type: string
       featured_image:
         type: string
+      featured_image_variants:
+        description: |-
+          FeaturedImageVariants are resized copies of FeaturedImage, narrowest
+          first, for a srcset. Absent until they have been rendered; keep
+          FeaturedImage as the src fallback either way.
+        items:
+          $ref: '#/definitions/models.ImageVariant'
+        type: array
       id:
         type: integer
       is_featured:
@@ -798,6 +813,15 @@ definitions:
           $ref: '#/definitions/models.ArticleListItem'
         type: array
     type: object
+  models.ImageVariant:
+    properties:
+      height:
+        type: integer
+      url:
+        type: string
+      width:
+        type: integer
+    type: object
   models.Media:
     properties:
       alt_text:
@@ -828,6 +852,14 @@ definitions:
         type: string
       url:
         type: string
+      variants:
+        description: |-
+          Variants are resized WebP copies of the original, narrowest first. Empty
+          until the imaging sidecar has rendered this item, and always empty for
+          formats it does not render (GIF, SVG).
+        items:
+          $ref: '#/definitions/models.ImageVariant'
+        type: array
       width:
         type: integer
     type: object

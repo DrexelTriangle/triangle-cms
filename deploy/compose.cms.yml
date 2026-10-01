@@ -51,6 +51,11 @@ x-backend-base: &backend-base
     # is no reason to run one per slot. Leave empty to run lexical-only search:
     # the backend then skips query embedding and its reconciler exits at start.
     EMBEDDINGS_URL: ${EMBEDDINGS_URL-http://embeddings:8000}
+    # Resized image renditions. Shared by both slots like the embeddings
+    # sidecar; the reconciler that drives it takes a database lock so only one
+    # slot renders at a time. Leave empty to stop rendering; images already
+    # rendered keep being served.
+    IMAGING_URL: ${IMAGING_URL-http://imaging:8000}
   volumes:
     # CephFS media tree (host). rw so the upload endpoint can store new files;
     # host Nginx serves the same tree read-only (that site is in triangle-infrastructure).
@@ -115,6 +120,37 @@ services:
       timeout: 5s
       retries: 8
       start_period: 60s
+    networks:
+      - triangle_net
+
+  # Renders resized WebP copies of library images. Stateless: the backend reads
+  # the original from the media mount, sends the bytes, and writes what comes
+  # back, so this container needs no volume and never touches CephFS itself.
+  imaging:
+    # Tagged by content, like embeddings: CMS_IMAGING_TAG is the git tree hash
+    # of imaging/. deploy.sh derives the value.
+    image: ${CMS_IMAGING_IMAGE:-ghcr.io/drexeltriangle/triangle-cms-imaging}:${CMS_IMAGING_TAG:?CMS_IMAGING_TAG is required}
+    restart: unless-stopped
+    stop_grace_period: 10s
+    # The backfill of the existing library (~13k originals, about 1.5s each)
+    # runs for hours, so it gets less of Delta's 6 cores than the embeddings
+    # sidecar does. libvips sizes its thread pool from VIPS_CONCURRENCY, not
+    # from the cgroup, so the two must match for the same reason
+    # OMP_NUM_THREADS does above.
+    cpus: ${IMAGE_CPUS:-2}
+    # Decoding is the memory peak: a 120MP original (the sidecar's ceiling)
+    # is ~480MB of pixels. A ceiling here turns a pathological file into one
+    # OOM-killed render, which the reconciler gives up on after three tries,
+    # rather than pressure on the backends.
+    mem_limit: ${IMAGE_MEM_LIMIT:-1536m}
+    environment:
+      VIPS_CONCURRENCY: ${IMAGE_CPUS:-2}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
     networks:
       - triangle_net
 
