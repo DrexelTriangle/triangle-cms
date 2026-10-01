@@ -928,6 +928,13 @@ definitions:
         type: integer
       url:
         type: string
+      variants:
+        description: |-
+          Variants are resized WebP copies, narrowest first. A gallery grid is
+          the worst place to send originals: every tile is a full camera file.
+        items:
+          $ref: '#/definitions/models.ImageVariant'
+        type: array
       width:
         type: integer
     type: object

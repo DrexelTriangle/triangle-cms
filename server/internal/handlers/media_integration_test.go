@@ -491,3 +491,47 @@ func TestMediaHTTP_IndexRunsInBackground(t *testing.T) {
 		t.Fatalf("media rows = %d, want 2", total)
 	}
 }
+
+// fakeVariants answers ForPath from a fixed map, standing in for the imaging
+// index so the handler wiring can be tested without the sidecar.
+type fakeVariants map[string][]models.ImageVariant
+
+func (f fakeVariants) ForURL(string) []models.ImageVariant                { return nil }
+func (f fakeVariants) ForPath(p string) []models.ImageVariant             { return f[p] }
+func (f fakeVariants) ForContent(string) map[string][]models.ImageVariant { return nil }
+
+func TestMediaHTTP_PublicGalleryCarriesVariants(t *testing.T) {
+	conn := mediaHTTPTestDB(t)
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+	t.Setenv("MEDIA_BASE_URL", "https://media.example.org")
+
+	rec := httptest.NewRecorder()
+	PostMedia(conn).ServeHTTP(rec, uploadRequest(t, "crowd.png", pngBytes(t, 4, 4)))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var photo models.MediaUploadResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &photo); err != nil {
+		t.Fatalf("decode upload: %v", err)
+	}
+	markRec := httptest.NewRecorder()
+	PatchMediaItem(conn).ServeHTTP(markRec,
+		mediaIDRequest(t, http.MethodPatch, "/v1/media/1", photo.ID, `{"in_gallery":true}`))
+	if markRec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, body = %s", markRec.Code, markRec.Body.String())
+	}
+
+	want := []models.ImageVariant{{URL: "https://media.example.org/v-480.webp", Width: 480, Height: 320}}
+	SetImageVariants(fakeVariants{photo.Path: want})
+	t.Cleanup(func() { SetImageVariants(nil) })
+
+	galleryRec := httptest.NewRecorder()
+	GetPublicGallery(conn).ServeHTTP(galleryRec, httptest.NewRequest(http.MethodGet, "/v1/gallery", nil))
+	var gallery models.MediaGalleryResponse
+	if err := json.Unmarshal(galleryRec.Body.Bytes(), &gallery); err != nil {
+		t.Fatalf("decode gallery: %v", err)
+	}
+	if len(gallery.Media) != 1 || len(gallery.Media[0].Variants) != 1 || gallery.Media[0].Variants[0] != want[0] {
+		t.Fatalf("gallery = %+v, want the item with its variants", gallery.Media)
+	}
+}
