@@ -8,6 +8,7 @@ import "server/internal/models"
 type ImageVariantLookup interface {
 	ForURL(imageURL string) []models.ImageVariant
 	ForPath(mediaPath string) []models.ImageVariant
+	ForContent(body string) map[string][]models.ImageVariant
 }
 
 // imageVariants is package state rather than a handler argument because
@@ -40,4 +41,11 @@ func (v variantLookup) ForPath(mediaPath string) []models.ImageVariant {
 		return nil
 	}
 	return v.lookup.ForPath(mediaPath)
+}
+
+func (v variantLookup) ForContent(body string) map[string][]models.ImageVariant {
+	if v.lookup == nil {
+		return nil
+	}
+	return v.lookup.ForContent(body)
 }
