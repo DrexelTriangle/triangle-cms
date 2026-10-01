@@ -91,6 +91,7 @@ jobs:
           echo "backend=ghcr.io/${repo}-backend" >> "$GITHUB_OUTPUT"
           echo "frontend=ghcr.io/${repo}-frontend" >> "$GITHUB_OUTPUT"
           echo "embeddings=ghcr.io/${repo}-embeddings" >> "$GITHUB_OUTPUT"
+          echo "imaging=ghcr.io/${repo}-imaging" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -117,6 +118,21 @@ jobs:
         run: |
           if docker manifest inspect "${{ steps.image.outputs.embeddings }}:${{ steps.embeddings_tag.outputs.value }}" >/dev/null 2>&1; then
             echo "skipping the embeddings build: ${{ steps.embeddings_tag.outputs.value }} is already published"
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Same content tagging for the imaging sidecar, from imaging/.
+      - name: Compute the imaging tag
+        id: imaging_tag
+        run: echo "value=$(git rev-parse HEAD:imaging)" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether the imaging image already exists
+        id: imaging_exists
+        run: |
+          if docker manifest inspect "${{ steps.image.outputs.imaging }}:${{ steps.imaging_tag.outputs.value }}" >/dev/null 2>&1; then
+            echo "skipping the imaging build: ${{ steps.imaging_tag.outputs.value }} is already published"
             echo "value=true" >> "$GITHUB_OUTPUT"
           else
             echo "value=false" >> "$GITHUB_OUTPUT"
@@ -161,3 +177,17 @@ jobs:
             org.opencontainers.image.revision=${{ steps.sha.outputs.value }}
           cache-from: type=gha,scope=embeddings
           cache-to: type=gha,mode=max,scope=embeddings
+
+      - name: Build and publish imaging sidecar
+        if: steps.imaging_exists.outputs.value != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./imaging
+          file: ./imaging/Dockerfile
+          push: true
+          tags: ${{ steps.image.outputs.imaging }}:${{ steps.imaging_tag.outputs.value }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.sha.outputs.value }}
+          cache-from: type=gha,scope=imaging
+          cache-to: type=gha,mode=max,scope=imaging

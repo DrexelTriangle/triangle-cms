@@ -41,6 +41,17 @@ fi
 export CMS_EMBEDDINGS_TAG
 echo "embeddings image tag: ${CMS_EMBEDDINGS_TAG}"
 
+# The imaging sidecar is tagged the same way, from imaging/, and for the same
+# reason: it should only be rebuilt and recreated when it changes.
+if imaging_tag="$(git -C "${REPO_DIR}" rev-parse HEAD:imaging 2>/dev/null)"; then
+  CMS_IMAGING_TAG="${imaging_tag}"
+else
+  echo "warning: could not derive the imaging tag from git; falling back to the commit tag" >&2
+  CMS_IMAGING_TAG="${CMS_IMAGE_TAG}"
+fi
+export CMS_IMAGING_TAG
+echo "imaging image tag: ${CMS_IMAGING_TAG}"
+
 require_file "${COMPOSE_FILE}"
 acquire_deploy_lock
 deployment_preflight
@@ -72,6 +83,20 @@ if compose up -d --no-deps embeddings; then
   fi
 else
   echo "warning: could not start the embeddings sidecar; search will serve lexical results" >&2
+fi
+
+# Same arrangement for the imaging sidecar, and just as non-fatal: without it
+# the backends stop producing resized images, and the site serves the originals
+# it served before this sidecar existed.
+if ! compose pull imaging; then
+  echo "warning: could not pull the imaging sidecar; new uploads will not be resized" >&2
+fi
+if compose up -d --no-deps imaging; then
+  if ! wait_for_imaging; then
+    echo "warning: the imaging sidecar did not become healthy; new uploads will not be resized until it does" >&2
+  fi
+else
+  echo "warning: could not start the imaging sidecar; new uploads will not be resized" >&2
 fi
 
 compose pull "backend-${next_slot}" "frontend-${next_slot}"

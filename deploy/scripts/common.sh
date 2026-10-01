@@ -17,6 +17,8 @@ PUBLIC_HEALTH_TIMEOUT="${PUBLIC_HEALTH_TIMEOUT:-30}"
 # Generous: this covers pulling the image and loading the ONNX model on a host
 # with no GPU. Exceeding it only costs semantic search, never the deployment.
 EMBEDDINGS_HEALTH_TIMEOUT="${EMBEDDINGS_HEALTH_TIMEOUT:-240}"
+# No model to load: the imaging sidecar is healthy as soon as uvicorn is up.
+IMAGING_HEALTH_TIMEOUT="${IMAGING_HEALTH_TIMEOUT:-60}"
 
 compose() {
 	docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" "$@"
@@ -245,16 +247,19 @@ wait_for_url() {
   done
 }
 
-# wait_for_embeddings polls the container's health state rather than an HTTP
-# endpoint, because the sidecar is deliberately not published to the host: only
-# the backends reach it, over the compose network. Its healthcheck 503s until the
-# model has finished loading, so "healthy" here means it can actually answer.
-wait_for_embeddings() {
-	local deadline=$((SECONDS + EMBEDDINGS_HEALTH_TIMEOUT))
+# wait_for_sidecar polls a shared sidecar's container health rather than an
+# HTTP endpoint, because the sidecars are deliberately not published to the
+# host: only the backends reach them, over the compose network. The embeddings
+# healthcheck 503s until the model has finished loading, so "healthy" here means
+# it can actually answer.
+wait_for_sidecar() {
+	local service="$1"
+	local timeout="$2"
+	local deadline=$((SECONDS + timeout))
 	local container status=""
 
 	while true; do
-		container="$(compose ps -q embeddings 2>/dev/null || true)"
+		container="$(compose ps -q "${service}" 2>/dev/null || true)"
 		if [[ -n "${container}" ]]; then
 			status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container}" 2>/dev/null || true)"
 			if [[ "${status}" == "healthy" ]]; then
@@ -262,11 +267,19 @@ wait_for_embeddings() {
 			fi
 		fi
 		if (( SECONDS >= deadline )); then
-			echo "timed out waiting for the embeddings sidecar (last status: ${status:-unknown})" >&2
+			echo "timed out waiting for the ${service} sidecar (last status: ${status:-unknown})" >&2
 			return 1
 		fi
 		sleep 3
 	done
+}
+
+wait_for_embeddings() {
+	wait_for_sidecar embeddings "${EMBEDDINGS_HEALTH_TIMEOUT}"
+}
+
+wait_for_imaging() {
+	wait_for_sidecar imaging "${IMAGING_HEALTH_TIMEOUT}"
 }
 
 wait_for_slot() {

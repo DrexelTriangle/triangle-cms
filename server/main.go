@@ -16,6 +16,7 @@ import (
 	"server/internal/database"
 	"server/internal/embeddings"
 	"server/internal/handlers"
+	"server/internal/imaging"
 	"server/internal/middleware"
 	"server/internal/routes"
 	"server/internal/slack"
@@ -168,6 +169,10 @@ func main() {
 	if err := database.EnsureMediaTable(context.Background(), db); err != nil {
 		slog.Error("failed to create media table", "error", err)
 		os.Exit(1)
+	}
+	// Non-fatal: without it the site serves original images, as it always has.
+	if err := database.EnsureMediaRenditionsTable(context.Background(), db); err != nil {
+		slog.Error("failed to create media renditions table; images are served unresized", "error", err)
 	}
 
 	// Surface a missing media mount at boot rather than on the first failed
@@ -444,6 +449,9 @@ func run(deps runDeps, conn *sql.DB) error {
 	// public search path, where waiting is worse than a slightly worse ranking.
 	embedder := embeddings.New(os.Getenv("EMBEDDINGS_URL"), 2*time.Second)
 
+	variantIndex := imaging.NewIndex(conn, os.Getenv("MEDIA_BASE_URL"))
+	handlers.SetImageVariants(variantIndex)
+
 	mux := http.NewServeMux()
 	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder)
 	server := deps.newServer(cert, mux, slog.Default())
@@ -456,6 +464,14 @@ func run(deps runDeps, conn *sql.DB) error {
 	// with a far longer timeout: batches of article bodies take much longer than
 	// a query, and unlike search it has no reason to give up quickly.
 	go embeddings.NewReconciler(conn, embeddings.New(os.Getenv("EMBEDDINGS_URL"), 2*time.Minute)).Run(schedulerCtx)
+
+	// Resized copies of library images. The reconciler renders them in the
+	// background through the imaging sidecar; the index tells article responses
+	// which ones exist. Its long timeout covers one large original, not a batch.
+	// An unset IMAGING_URL disables rendering, and responses carry whatever
+	// renditions were made before, which is none on a fresh install.
+	go variantIndex.Run(schedulerCtx)
+	go imaging.NewReconciler(conn, imaging.New(os.Getenv("IMAGING_URL"), 2*time.Minute), os.Getenv("MEDIA_ROOT"), handlers.CheckMediaStorage).Run(schedulerCtx)
 
 	serverErr := make(chan error, 1)
 	go func() {

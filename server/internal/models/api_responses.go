@@ -45,9 +45,13 @@ type ArticleListItem struct {
 	Status        ArticleStatus     `json:"status"`
 	CommentStatus string            `json:"comment_status"`
 	FeaturedImage string            `json:"featured_image"`
-	IsFeatured    bool              `json:"is_featured"`
-	BreakingNews  bool              `json:"breaking_news"`
-	PublishedDate *time.Time        `json:"published_date,omitempty"`
+	// FeaturedImageVariants are resized copies of FeaturedImage, narrowest
+	// first, for a srcset. Absent until they have been rendered; keep
+	// FeaturedImage as the src fallback either way.
+	FeaturedImageVariants []ImageVariant `json:"featured_image_variants,omitempty"`
+	IsFeatured            bool           `json:"is_featured"`
+	BreakingNews          bool           `json:"breaking_news"`
+	PublishedDate         *time.Time     `json:"published_date,omitempty"`
 	// Drafts have no published_date; the CMS listing falls back to this so an
 	// unpublished row still shows a date.
 	CreationDate *time.Time `json:"creation_date,omitempty"`
@@ -135,11 +139,14 @@ type ArticleDetailResponse struct {
 	// Empty means the public site has nothing to render, which is a defect worth
 	// surfacing rather than papering over with the headline: an alt that repeats
 	// the adjacent headline tells a screen-reader user nothing new.
-	FeaturedImageAlt string            `json:"featured_image_alt"`
-	Authors          []AuthorSummary   `json:"authors"`
-	SEO              SEOResponse       `json:"seo"`
-	Related          []ArticleListItem `json:"related"`
-	PublishedDate    *time.Time        `json:"published_date,omitempty"`
+	FeaturedImageAlt string `json:"featured_image_alt"`
+	// FeaturedImageVariants are resized copies of FeaturedImage, narrowest
+	// first, for a srcset. Absent until they have been rendered.
+	FeaturedImageVariants []ImageVariant    `json:"featured_image_variants,omitempty"`
+	Authors               []AuthorSummary   `json:"authors"`
+	SEO                   SEOResponse       `json:"seo"`
+	Related               []ArticleListItem `json:"related"`
+	PublishedDate         *time.Time        `json:"published_date,omitempty"`
 	// ModifiedDate is the article's last-edited time (the `mod_date` column the
 	// public sitemap already reports as <lastmod>). Exposed so the public site's
 	// NewsArticle dateModified agrees with the sitemap instead of silently

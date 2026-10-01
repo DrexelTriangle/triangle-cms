@@ -224,9 +224,22 @@ type Media struct {
 	// InGallery is the editor's "show this on the public photo gallery" flag.
 	// It is off by default: the library is every file on the media mount, house
 	// ads and comics included, and the gallery is a curated selection of it.
-	InGallery bool       `json:"in_gallery"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	InGallery bool `json:"in_gallery"`
+	// Variants are resized WebP copies of the original, narrowest first. Empty
+	// until the imaging sidecar has rendered this item, and always empty for
+	// formats it does not render (GIF, SVG).
+	Variants  []ImageVariant `json:"variants,omitempty"`
+	CreatedAt *time.Time     `json:"created_at,omitempty"`
+	UpdatedAt *time.Time     `json:"updated_at,omitempty"`
+}
+
+// ImageVariant is one resized rendition of a library image. A client builds a
+// srcset from these ("<url> <width>w", ...) and keeps the original as the src
+// fallback.
+type ImageVariant struct {
+	URL    string `json:"url"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
 }
 
 type MediaOverview struct {

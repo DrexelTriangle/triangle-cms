@@ -54,6 +54,19 @@ services:
     networks:
       - triangle_net
 
+  imaging:
+    build:
+      context: ./imaging
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    cpus: ${IMAGE_CPUS:-2}
+    environment:
+      VIPS_CONCURRENCY: ${IMAGE_CPUS:-2}
+    # Stateless and internal-only, like embeddings. Locally the CMS has no
+    # MEDIA_ROOT, so its reconciler stays idle unless you mount one.
+    networks:
+      - triangle_net
+
   cms:
     build:
       context: ./server
@@ -61,6 +74,7 @@ services:
     restart: unless-stopped
     environment:
       EMBEDDINGS_URL: ${EMBEDDINGS_URL:-http://embeddings:8000}
+      IMAGING_URL: ${IMAGING_URL:-http://imaging:8000}
       DB_NAME: ${MARIADB_DATABASE:-triangle}
       DB_USER: ${MARIADB_USER:-triangle_user}
       DB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
