@@ -149,6 +149,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	// Wordangle. The public read serves only today and earlier, so the queue
 	// can't be read ahead; scheduling is editorial work, like the poll.
 	mux.Handle("GET /v1/wordangle/days/{date}", handlers.GetWordangleDay(conn))
+	mux.Handle("GET /v1/wordangle/lists/{file}", handlers.GetWordangleList())
 	mux.Handle("PUT /v1/wordangle/days/{date}", authMW(handlers.PutWordangleDay(conn)))
 	mux.Handle("GET /v1/wordangle/manage", authMW(handlers.GetWordangleManage(conn)))
 	mux.Handle("POST /v1/wordangle/generate", authMW(handlers.PostWordangleGenerate(conn)))

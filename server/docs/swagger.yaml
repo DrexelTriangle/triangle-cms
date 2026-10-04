@@ -4292,6 +4292,30 @@ paths:
       summary: Fill empty Wordangle days with generated words
       tags:
       - wordangle
+  /v1/wordangle/lists/{file}:
+    get:
+      description: Public. targets.txt (answer pool), allowed-2.txt through allowed-6.txt
+        (guess dictionaries) and SCOWL-Copyright.txt, one lowercase word per line.
+      parameters:
+      - description: List file name
+        in: path
+        name: file
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get a Wordangle word list
+      tags:
+      - wordangle
   /v1/wordangle/manage:
     get:
       produces:

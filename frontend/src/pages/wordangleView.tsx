@@ -50,7 +50,7 @@ function formatDay(date: string) {
   })
 }
 
-// Matches Scalene's dailyNumber: #1 is 2026-01-01.
+// Matches the server's wordangle.PuzzleNumber: #1 is 2026-01-01.
 function puzzleNumber(date: string) {
   return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.UTC(2026, 0, 1)) / 86400000) + 1
 }

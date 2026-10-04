@@ -4517,6 +4517,41 @@
                 }
             }
         },
+        "/v1/wordangle/lists/{file}": {
+            "get": {
+                "description": "Public. targets.txt (answer pool), allowed-2.txt through allowed-6.txt (guess dictionaries) and SCOWL-Copyright.txt, one lowercase word per line.",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "wordangle"
+                ],
+                "summary": "Get a Wordangle word list",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "List file name",
+                        "name": "file",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/wordangle/manage": {
             "get": {
                 "security": [

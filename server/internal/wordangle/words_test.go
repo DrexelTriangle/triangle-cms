@@ -35,9 +35,22 @@ func TestTodayRollsOverAtMidnightInPhiladelphia(t *testing.T) {
 	}
 }
 
-func TestPuzzleNumberMatchesScalene(t *testing.T) {
-	// Scalene's dailyNumber shows #277 for 2026-10-04.
+func TestPuzzleNumberKeepsExistingNumbering(t *testing.T) {
+	// The game showed #277 for 2026-10-04 before the numbering moved here.
 	if got := PuzzleNumber(time.Date(2026, time.October, 4, 0, 0, 0, 0, time.UTC)); got != 277 {
 		t.Fatalf("PuzzleNumber = %d, want 277", got)
+	}
+}
+
+func TestListFileServesOnlyPublishedLists(t *testing.T) {
+	for _, name := range []string{"targets.txt", "allowed-2.txt", "allowed-6.txt", "SCOWL-Copyright.txt"} {
+		if body, ok := ListFile(name); !ok || len(body) == 0 {
+			t.Fatalf("ListFile(%q) missing", name)
+		}
+	}
+	for _, name := range []string{"words.go", "../wordangle/targets.txt", "allowed-7.txt", ""} {
+		if _, ok := ListFile(name); ok {
+			t.Fatalf("ListFile(%q) should not be served", name)
+		}
 	}
 }

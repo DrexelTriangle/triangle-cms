@@ -1,14 +1,15 @@
 // Package wordangle holds the word lists and calendar rules behind the
 // Wordangle queue that editors manage in the CMS.
 //
-// targets.txt, allowed-6.txt and SCOWL-Copyright.txt are copies of the files
-// Scalene serves from public/wordangle/. Scalene's copies are canonical (its
-// scripts/build-wordangle-wordlists.py writes them); refresh these alongside
-// them so the CMS never queues a word the game would reject.
+// This directory is the only copy of Wordangle's word lists: the CMS checks
+// and generates answers against them, and serves them to the public site's
+// game through /v1/wordangle/lists/<file>. scripts/build-wordangle-wordlists.py
+// rebuilds the allowed-N lists; targets.txt is hand-maintained.
 package wordangle
 
 import (
-	_ "embed"
+	"embed"
+	"io/fs"
 	"strings"
 	"time"
 	_ "time/tzdata" // the container image ships no zoneinfo
@@ -17,19 +18,34 @@ import (
 // WordLength is the length of every Wordangle answer.
 const WordLength = 6
 
-//go:embed targets.txt
-var targetsFile string
-
-//go:embed allowed-6.txt
-var allowedFile string
+//go:embed targets.txt allowed-*.txt SCOWL-Copyright.txt
+var listFS embed.FS
 
 var (
-	targets    = parseWords(targetsFile)
-	dictionary = toSet(append(parseWords(allowedFile), targets...))
+	targets    = parseWords(mustRead("targets.txt"))
+	dictionary = toSet(append(parseWords(mustRead("allowed-6.txt")), targets...))
 )
 
-// puzzleZone is where puzzles roll over at midnight, matching DAILY_TZ in
-// Scalene's src/utils/wordangle/game.ts.
+// ListFile returns one of the published word-list files by name, or false for
+// anything else.
+func ListFile(name string) ([]byte, bool) {
+	if strings.Contains(name, "/") || !strings.HasSuffix(name, ".txt") {
+		return nil, false
+	}
+	body, err := fs.ReadFile(listFS, name)
+	return body, err == nil
+}
+
+func mustRead(name string) string {
+	body, err := fs.ReadFile(listFS, name)
+	if err != nil {
+		panic(err)
+	}
+	return string(body)
+}
+
+// puzzleZone is where puzzles roll over at midnight. Scalene asks for the day
+// by its own clock in the same zone (DAILY_TZ in src/utils/wordangle/game.ts).
 var puzzleZone = mustLoadLocation("America/New_York")
 
 // Targets returns the hand-picked answer pool that generated words come from.
@@ -61,8 +77,8 @@ func ParseDate(value string) (time.Time, error) {
 	return time.Parse(time.DateOnly, strings.TrimSpace(value))
 }
 
-// PuzzleNumber is the "Wordangle #N" shown for a date; #1 is 2026-01-01, as in
-// Scalene's dailyNumber.
+// PuzzleNumber is the "Wordangle #N" shown for a date. #1 is 2026-01-01, the
+// numbering the game used before it moved here.
 func PuzzleNumber(date time.Time) int {
 	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	return int(date.Sub(start).Hours()/24) + 1

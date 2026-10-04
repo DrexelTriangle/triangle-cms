@@ -89,6 +89,30 @@ func GetWordangleDay(conn *sql.DB) http.Handler {
 	})
 }
 
+// wordangleListCacheControl: the lists change only when the CMS is redeployed.
+const wordangleListCacheControl = "public, max-age=3600, stale-while-revalidate=86400"
+
+// @Summary Get a Wordangle word list
+// @Description Public. targets.txt (answer pool), allowed-2.txt through allowed-6.txt (guess dictionaries) and SCOWL-Copyright.txt, one lowercase word per line.
+// @Tags wordangle
+// @Produce plain
+// @Param file path string true "List file name"
+// @Success 200 {string} string
+// @Failure 404 {object} models.ErrorResponse
+// @Router /v1/wordangle/lists/{file} [get]
+func GetWordangleList() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := wordangle.ListFile(r.PathValue("file"))
+		if !ok {
+			writeError(w, http.StatusNotFound, "no such list")
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", wordangleListCacheControl)
+		w.Write(body)
+	})
+}
+
 // @Summary Wordangle queue and seen-before list
 // @Tags wordangle
 // @Produce json
