@@ -334,3 +334,21 @@ type TaxonomyPut struct {
 	// explicit [] clears them.
 	CategoryAliases *[]string `json:"category_aliases,omitempty"`
 }
+
+// WordangleWord is one row of the Wordangle queue. A word with a date is that
+// day's answer; a word with retired_on instead was pulled from its day after
+// readers could already have played it, so it stays on the seen-before list.
+type WordangleWord struct {
+	Date      string    `json:"date,omitempty"`
+	Number    int       `json:"number,omitempty"`
+	Word      string    `json:"word"`
+	Source    string    `json:"source"`
+	SetBy     string    `json:"set_by,omitempty"`
+	RetiredOn string    `json:"retired_on,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+const (
+	WordangleSourceGenerated = "generated"
+	WordangleSourceCustom    = "custom"
+)
