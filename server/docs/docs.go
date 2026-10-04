@@ -4339,6 +4339,210 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/v1/wordangle/check": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wordangle"
+                ],
+                "summary": "Check a word against the Wordangle dictionary and seen-before list",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Word to check",
+                        "name": "word",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.wordangleCheckResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/wordangle/days/{date}": {
+            "get": {
+                "description": "Public. Only today and past days are served; a future day reads as 404 so the queue cannot be spoiled. An empty today is filled with a generated word on first read, so every played word lands on the seen-before list.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wordangle"
+                ],
+                "summary": "Get a day's Wordangle answer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Puzzle date (YYYY-MM-DD)",
+                        "name": "date",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.WordangleWord"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "An empty word draws a new random one. Past days cannot change, and a word that is queued or on the seen-before list is refused.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wordangle"
+                ],
+                "summary": "Set or regenerate one day's Wordangle word",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Puzzle date (YYYY-MM-DD)",
+                        "name": "date",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "word, or empty to regenerate",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.wordangleSetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.WordangleWord"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/wordangle/generate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wordangle"
+                ],
+                "summary": "Fill empty Wordangle days with generated words",
+                "parameters": [
+                    {
+                        "description": "span: day, week or month",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.wordangleGenerateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.wordangleManageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/wordangle/manage": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wordangle"
+                ],
+                "summary": "Wordangle queue and seen-before list",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.wordangleManageResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -4369,6 +4573,61 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.wordangleCheckResponse": {
+            "type": "object",
+            "properties": {
+                "entry": {
+                    "$ref": "#/definitions/models.WordangleWord"
+                },
+                "is_word": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "description": "\"unused\", \"queued\" or \"seen\"",
+                    "type": "string"
+                },
+                "word": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.wordangleGenerateRequest": {
+            "type": "object",
+            "properties": {
+                "span": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.wordangleManageResponse": {
+            "type": "object",
+            "properties": {
+                "queue": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.WordangleWord"
+                    }
+                },
+                "seen": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.WordangleWord"
+                    }
+                },
+                "today": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.wordangleSetRequest": {
+            "type": "object",
+            "properties": {
+                "word": {
+                    "description": "Empty means regenerate: draw a random unused word from the pool.",
                     "type": "string"
                 }
             }
@@ -6289,6 +6548,32 @@ const docTemplate = `{
             "properties": {
                 "role": {
                     "$ref": "#/definitions/models.Role"
+                }
+            }
+        },
+        "models.WordangleWord": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer"
+                },
+                "retired_on": {
+                    "type": "string"
+                },
+                "set_by": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "word": {
+                    "type": "string"
                 }
             }
         }
