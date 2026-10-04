@@ -20,6 +20,42 @@ definitions:
       slug:
         type: string
     type: object
+  handlers.wordangleCheckResponse:
+    properties:
+      entry:
+        $ref: '#/definitions/models.WordangleWord'
+      is_word:
+        type: boolean
+      status:
+        description: '"unused", "queued" or "seen"'
+        type: string
+      word:
+        type: string
+    type: object
+  handlers.wordangleGenerateRequest:
+    properties:
+      span:
+        type: string
+    type: object
+  handlers.wordangleManageResponse:
+    properties:
+      queue:
+        items:
+          $ref: '#/definitions/models.WordangleWord'
+        type: array
+      seen:
+        items:
+          $ref: '#/definitions/models.WordangleWord'
+        type: array
+      today:
+        type: string
+    type: object
+  handlers.wordangleSetRequest:
+    properties:
+      word:
+        description: 'Empty means regenerate: draw a random unused word from the pool.'
+        type: string
+    type: object
   models.ActivityEventResponse:
     properties:
       action:
@@ -1331,6 +1367,23 @@ definitions:
     properties:
       role:
         $ref: '#/definitions/models.Role'
+    type: object
+  models.WordangleWord:
+    properties:
+      date:
+        type: string
+      number:
+        type: integer
+      retired_on:
+        type: string
+      set_by:
+        type: string
+      source:
+        type: string
+      updated_at:
+        type: string
+      word:
+        type: string
     type: object
 host: localhost:8080
 info:
@@ -4122,6 +4175,161 @@ paths:
       summary: Get current user
       tags:
       - users
+  /v1/wordangle/check:
+    get:
+      parameters:
+      - description: Word to check
+        in: query
+        name: word
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.wordangleCheckResponse'
+      security:
+      - BearerAuth: []
+      summary: Check a word against the Wordangle dictionary and seen-before list
+      tags:
+      - wordangle
+  /v1/wordangle/days/{date}:
+    get:
+      description: Public. Only today and past days are served; a future day reads
+        as 404 so the queue cannot be spoiled. An empty today is filled with a generated
+        word on first read, so every played word lands on the seen-before list.
+      parameters:
+      - description: Puzzle date (YYYY-MM-DD)
+        in: path
+        name: date
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.WordangleWord'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get a day's Wordangle answer
+      tags:
+      - wordangle
+    put:
+      consumes:
+      - application/json
+      description: An empty word draws a new random one. Past days cannot change,
+        and a word that is queued or on the seen-before list is refused.
+      parameters:
+      - description: Puzzle date (YYYY-MM-DD)
+        in: path
+        name: date
+        required: true
+        type: string
+      - description: word, or empty to regenerate
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.wordangleSetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.WordangleWord'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Set or regenerate one day's Wordangle word
+      tags:
+      - wordangle
+  /v1/wordangle/generate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 'span: day, week or month'
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.wordangleGenerateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.wordangleManageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Fill empty Wordangle days with generated words
+      tags:
+      - wordangle
+  /v1/wordangle/lists/{file}:
+    get:
+      description: Public. targets.txt (answer pool), allowed-2.txt through allowed-6.txt
+        (guess dictionaries) and SCOWL-Copyright.txt, one lowercase word per line.
+      parameters:
+      - description: List file name
+        in: path
+        name: file
+        required: true
+        type: string
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get a Wordangle word list
+      tags:
+      - wordangle
+  /v1/wordangle/manage:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.wordangleManageResponse'
+      security:
+      - BearerAuth: []
+      summary: Wordangle queue and seen-before list
+      tags:
+      - wordangle
 schemes:
 - https
 securityDefinitions:

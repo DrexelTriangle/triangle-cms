@@ -146,6 +146,14 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("POST /v1/polls/{id}/options", authMW(handlers.PostPollRecordOption(conn)))
 	mux.Handle("PATCH /v1/polls/{id}/options/{option_id}", authMW(handlers.PatchPollRecordOption(conn)))
 	mux.Handle("DELETE /v1/polls/{id}/options/{option_id}", authMW(handlers.DeletePollRecordOption(conn)))
+	// Wordangle. The public read serves only today and earlier, so the queue
+	// can't be read ahead; scheduling is editorial work, like the poll.
+	mux.Handle("GET /v1/wordangle/days/{date}", handlers.GetWordangleDay(conn))
+	mux.Handle("GET /v1/wordangle/lists/{file}", handlers.GetWordangleList())
+	mux.Handle("PUT /v1/wordangle/days/{date}", authMW(handlers.PutWordangleDay(conn)))
+	mux.Handle("GET /v1/wordangle/manage", authMW(handlers.GetWordangleManage(conn)))
+	mux.Handle("POST /v1/wordangle/generate", authMW(handlers.PostWordangleGenerate(conn)))
+	mux.Handle("GET /v1/wordangle/check", authMW(handlers.GetWordangleCheck(conn)))
 	mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))
 	mux.Handle("PUT /v1/developing-stories", authMW(adminOnly(handlers.PutDevelopingStory(conn))))
 	mux.Handle("DELETE /v1/developing-stories", authMW(adminOnly(handlers.DeleteDevelopingStory(conn))))
