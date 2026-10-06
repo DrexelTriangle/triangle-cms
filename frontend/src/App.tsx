@@ -25,7 +25,6 @@ const UsersView = lazy(() => import("./pages/usersView"))
 const CommentsView = lazy(() => import("./pages/commentsView"))
 const ClassifiedsView = lazy(() => import("./pages/classifiedsView"))
 const ActivityView = lazy(() => import("./pages/activityView"))
-const NewsletterView = lazy(() => import("./pages/newsletterView"))
 const SeoView = lazy(() => import("./pages/seoView"))
 const SettingsPage = lazy(() => import("./pages/settingsPage"))
 const PollView = lazy(() => import("./pages/pollView"))
@@ -128,7 +127,6 @@ export default function App() {
           <Route path="/developing-stories/:slug/edit" element={<EditArticleView />} />
           <Route path="/articles/new" element={<EditArticleView />} />
           <Route path="/developing-stories/new" element={<ComingSoon page="New developing story" />} />
-          <Route path="/newsletter" element={<NewsletterView />} />
           <Route path="/media" element={<MediaView />} />
           <Route path="/poll" element={<PollView />} />
           <Route path="/wordangle" element={<WordangleView />} />
