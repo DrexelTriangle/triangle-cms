@@ -52,10 +52,10 @@ next to the classifieds/wordangle ensures. All tables `ENGINE=InnoDB DEFAULT CHA
 | is_public | TINYINT(1) NOT NULL DEFAULT 1 | Whether the public form may subscribe to it. |
 | created_at, updated_at | DATETIME | standard defaults |
 
-Unique index on `name`.
-
-Port caveat: lists created by hand before the port take ids 1..7. The port must
-check for that, or lists should be created only via the port on prod.
+Unique index on `name`. Created with `AUTO_INCREMENT=1000`: ids 1..999 are reserved for
+the WordPress port, which inserts its lists with explicit ids 1..7 so Scalene's checkbox
+values map 1:1. A list created in the CMS before or after the port gets an id ≥1000 and
+can never collide. (InnoDB persists the counter across restarts on MariaDB ≥10.2.)
 
 ### `newsletter_subscribers`
 | column | type | notes |
@@ -226,6 +226,7 @@ Go (`server/internal/...`; integration tests use `CMS_TEST_DSN` → local `tax_t
   whitespace and control characters, 255+ byte addresses, Unicode lookalikes, no TLD,
   multiple `@`, list ids that are 0/negative/duplicated/non-public/unknown/21+, an oversized name, a body over 4 KB (400, nothing stored).
 - **DB integration:**
+  - a list created through the API gets id ≥1000; an explicit-id insert of 1..7 succeeds alongside it
   - the token is set on insert, unique, and unchanged across unsubscribe and resubscribe
   - unsubscribe keeps the row and memberships
   - resubscribe replaces lists and clears `unsubscribed_at`
