@@ -196,7 +196,7 @@ arrives through a trusted proxy and no CORS is needed. That is part of the cutov
 | `GET /v1/newsletter/campaigns` | `?status=&q=&page=&limit=`. List rows omit `body_html`. Includes `list_ids` and `counts`. |
 | `GET /v1/newsletter/campaigns/{id}` | Full campaign. |
 | `POST /v1/newsletter/campaigns` | `{subject, preview_text?, body_html, list_ids}`. Always created as `draft`. |
-| `PATCH /v1/newsletter/campaigns/{id}` | Partial update of content, `list_ids` and `scheduled_at`. **409** if the campaign is `sent`. **409** "sending isn't available yet" if `status` is set to anything but `draft`. |
+| `PATCH /v1/newsletter/campaigns/{id}` | Partial update of subject, preview text, body and `list_ids`. **409** if the campaign is `sent`. **409** "sending isn't available yet" if `status` is set to anything but `draft`. (`scheduled_at` stays NULL until sending exists.) |
 | `DELETE /v1/newsletter/campaigns/{id}` | **admin**. Drafts only; a `sent` campaign is a permanent record (409). |
 | `GET /v1/newsletter/campaigns/{id}/recipients/count` | `{count}`: distinct `subscribed` members of the campaign's lists. Same query the send step will use. |
 
