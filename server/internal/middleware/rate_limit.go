@@ -14,6 +14,51 @@ type ipWindowCounter struct {
 	count       int
 }
 
+// rateLimitNow is the limiters' clock; tests pin it.
+var rateLimitNow = time.Now
+
+func writeRateLimited(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error": "rate limit exceeded",
+	})
+}
+
+// RateLimitGlobal caps requests to a route across all callers in a fixed
+// window. It backs up the per-IP limits on public write endpoints: an attacker
+// rotating source addresses gets past RateLimitByIP, not past this.
+func RateLimitGlobal(limit int, window time.Duration) Middleware {
+	if limit <= 0 {
+		limit = 1
+	}
+	if window <= 0 {
+		window = time.Minute
+	}
+	var (
+		mu          sync.Mutex
+		windowStart time.Time
+		count       int
+	)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			now := rateLimitNow()
+			mu.Lock()
+			if windowStart.IsZero() || now.Sub(windowStart) >= window {
+				windowStart, count = now, 0
+			}
+			count++
+			allowed := count <= limit
+			mu.Unlock()
+			if !allowed {
+				writeRateLimited(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // RateLimitByIP limits requests by client IP within a fixed time window.
 func RateLimitByIP(limit int, window time.Duration) Middleware {
 	if limit <= 0 {
@@ -29,7 +74,7 @@ func RateLimitByIP(limit int, window time.Duration) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := clientIP(r)
-			now := time.Now()
+			now := rateLimitNow()
 
 			mu.Lock()
 			entry := counters[ip]
@@ -55,11 +100,7 @@ func RateLimitByIP(limit int, window time.Duration) Middleware {
 			mu.Unlock()
 
 			if !allowed {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				_ = json.NewEncoder(w).Encode(map[string]string{
-					"error": "rate limit exceeded",
-				})
+				writeRateLimited(w)
 				return
 			}
 
