@@ -83,6 +83,7 @@ type runDeps struct {
 // @tag.name authors
 // @tag.name articles
 // @tag.name activity
+// @tag.name newsletter
 // @securityDefinitions.apikey BearerAuth
 // @in header
 // @name Authorization

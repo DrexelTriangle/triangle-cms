@@ -190,6 +190,56 @@ func TestRegister_NewsletterSubscribeIsPublicAndRateLimited(t *testing.T) {
 	}
 }
 
+// TestRegister_NewsletterAdminRoutesGated: every newsletter route except the
+// public subscribe answers 401 without a session (401 = registered and gated;
+// 404 would mean missing).
+func TestRegister_NewsletterAdminRoutesGated(t *testing.T) {
+	verifier := oidc.NewVerifier("https://issuer.example", nil, &oidc.Config{
+		ClientID:          "test",
+		SkipClientIDCheck: true,
+	})
+	mux := http.NewServeMux()
+	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil, nil)
+
+	for _, tt := range []struct{ method, path string }{
+		{http.MethodGet, "/v1/newsletter/stats"},
+		{http.MethodGet, "/v1/newsletter/lists"},
+		{http.MethodPost, "/v1/newsletter/lists"},
+		{http.MethodPatch, "/v1/newsletter/lists/1"},
+		{http.MethodGet, "/v1/newsletter/subscribers"},
+		{http.MethodPost, "/v1/newsletter/subscribers"},
+		{http.MethodPatch, "/v1/newsletter/subscribers/1"},
+		{http.MethodDelete, "/v1/newsletter/subscribers/1"},
+		{http.MethodGet, "/v1/newsletter/campaigns"},
+		{http.MethodPost, "/v1/newsletter/campaigns"},
+		{http.MethodGet, "/v1/newsletter/campaigns/1"},
+		{http.MethodPatch, "/v1/newsletter/campaigns/1"},
+		{http.MethodDelete, "/v1/newsletter/campaigns/1"},
+		{http.MethodGet, "/v1/newsletter/campaigns/1/recipients/count"},
+		{http.MethodGet, "/v1/newsletter/campaigns/1/preview"},
+		{http.MethodPost, "/v1/newsletter/render"},
+	} {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("got %d, want 401", rec.Code)
+			}
+		})
+	}
+}
+
+func TestNewsletterSiteURL(t *testing.T) {
+	t.Setenv("PUBLIC_SITE_URL", "")
+	if got := newsletterSiteURL(); got != "https://www.thetriangle.org" {
+		t.Errorf("default = %q", got)
+	}
+	t.Setenv("PUBLIC_SITE_URL", " https://dev.thetriangle.org/ ")
+	if got := newsletterSiteURL(); got != "https://dev.thetriangle.org" {
+		t.Errorf("override = %q", got)
+	}
+}
+
 // TestRegister_MediaEndpointsGated proves the media library routes are wired and
 // sit behind authentication. A request with no session cookie and no bearer
 // token makes RequireAuth answer 401 before the handler (and therefore the DB)

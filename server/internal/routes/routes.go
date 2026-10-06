@@ -82,6 +82,28 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 		middleware.RateLimitByIP(20, time.Hour),
 		middleware.RateLimitByIP(5, time.Minute),
 		middleware.RateLimitGlobal(300, 10*time.Minute)))
+	// Newsletter administration. Campaigns, subscribers and stats are editorial
+	// work; managing lists and erasing a subscriber are admin-only, as is
+	// deleting a draft (classifieds pattern). There is deliberately no send
+	// route until delivery exists. "render", "stats" and the {id}/... suffixes
+	// are literal segments the mux prefers over {id}.
+	siteURL := newsletterSiteURL()
+	mux.Handle("GET /v1/newsletter/stats", authMW(handlers.GetNewsletterStats(conn)))
+	mux.Handle("GET /v1/newsletter/lists", authMW(handlers.GetNewsletterLists(conn)))
+	mux.Handle("POST /v1/newsletter/lists", authMW(adminOnly(handlers.PostNewsletterList(conn))))
+	mux.Handle("PATCH /v1/newsletter/lists/{id}", authMW(adminOnly(handlers.PatchNewsletterList(conn))))
+	mux.Handle("GET /v1/newsletter/subscribers", authMW(handlers.GetNewsletterSubscribers(conn)))
+	mux.Handle("POST /v1/newsletter/subscribers", authMW(handlers.PostNewsletterSubscriber(conn)))
+	mux.Handle("PATCH /v1/newsletter/subscribers/{id}", authMW(handlers.PatchNewsletterSubscriber(conn)))
+	mux.Handle("DELETE /v1/newsletter/subscribers/{id}", authMW(adminOnly(handlers.DeleteNewsletterSubscriber(conn))))
+	mux.Handle("GET /v1/newsletter/campaigns", authMW(handlers.GetNewsletterCampaigns(conn)))
+	mux.Handle("POST /v1/newsletter/campaigns", authMW(handlers.PostNewsletterCampaign(conn, siteURL)))
+	mux.Handle("GET /v1/newsletter/campaigns/{id}", authMW(handlers.GetNewsletterCampaign(conn)))
+	mux.Handle("PATCH /v1/newsletter/campaigns/{id}", authMW(handlers.PatchNewsletterCampaign(conn, siteURL)))
+	mux.Handle("DELETE /v1/newsletter/campaigns/{id}", authMW(adminOnly(handlers.DeleteNewsletterCampaign(conn))))
+	mux.Handle("GET /v1/newsletter/campaigns/{id}/recipients/count", authMW(handlers.GetNewsletterRecipientCount(conn)))
+	mux.Handle("GET /v1/newsletter/campaigns/{id}/preview", authMW(handlers.GetNewsletterCampaignPreview(conn, siteURL)))
+	mux.Handle("POST /v1/newsletter/render", authMW(handlers.PostNewsletterRender(conn, siteURL)))
 	// The public photo gallery. The editor-facing catalogue at
 	// /v1/media/gallery stays authenticated; this one is images-only.
 	mux.Handle("GET /v1/gallery", handlers.GetPublicGallery(conn))
