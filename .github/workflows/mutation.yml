@@ -6,8 +6,6 @@ on:
   schedule:
     - cron: "17 7 * * 1" # Mondays 07:17 UTC
   workflow_dispatch:
-  push:
-    branches: [ci/mutation-testing] # TEMP: verify the workflow before merge
 
 concurrency:
   group: mutation-${{ github.ref }}
