@@ -234,6 +234,10 @@ func main() {
 		slog.Error("failed to create wordangle table", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsureNewsletterTables(context.Background(), db); err != nil {
+		slog.Error("failed to create newsletter tables", "error", err)
+		os.Exit(1)
+	}
 
 	// Fatal, unlike the index migrations above, because this one is not an
 	// optimization the queries can do without: every section page, homepage
