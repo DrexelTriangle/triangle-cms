@@ -33,7 +33,8 @@ Success:
 | Live subscribe path | Scalene keeps posting to WordPress. The new endpoint is built and tested but has no caller until a deliberate cutover. |
 | `/newsletter` mock route | Pulled separately in PR #245; this branch re-adds it with the real page. |
 | Spoofable client IP | Fixed in a separate PR (rightmost untrusted `X-Forwarded-For` hop + `TRUSTED_PROXIES`). Newsletter uses `middleware.RateLimitByIP` and inherits the fix. |
-| Renderer prior art | Dead. The HTML template is ported from WordPress with the send work. |
+| Renderer prior art | Dead. The block snippets are ported from the WordPress "To The Point" export into a Go renderer (see "Campaign body"). |
+| Article links | Lock to the article **id** on save; the live URL is resolved from the current slug at render/send time. |
 
 ## Schema
 
@@ -83,7 +84,7 @@ Index on `(status)`.
 | id | BIGINT UNSIGNED PK | |
 | subject | VARCHAR(255) NOT NULL | |
 | preview_text | VARCHAR(255) NULL | Email preheader. |
-| body_html | LONGTEXT NOT NULL | Content only. The ported WP template wraps it at send time. |
+| body_blocks | LONGTEXT NOT NULL | Versioned block JSON (see "Campaign body"). The template's fixed header/footer wrap it at render time. |
 | status | VARCHAR(16) NOT NULL DEFAULT 'draft' | `draft` \| `scheduled` \| `sent`. The send work adds `sending`. |
 | scheduled_at | DATETIME NULL | |
 | sent_at | DATETIME NULL | |
@@ -193,24 +194,72 @@ arrives through a trusted proxy and no CORS is needed. That is part of the cutov
 | `POST /v1/newsletter/subscribers` | `{email, name?, list_ids}`. Same validation as public, `source=admin`. 409 if the email exists (the caller should PATCH instead). |
 | `PATCH /v1/newsletter/subscribers/{id}` | `{name?, status?, list_ids?}`. Status changes follow the state rules (timestamps). |
 | `DELETE /v1/newsletter/subscribers/{id}` | **admin**. Hard delete for erasure. 204. |
-| `GET /v1/newsletter/campaigns` | `?status=&q=&page=&limit=`. List rows omit `body_html`. Includes `list_ids` and `counts`. |
+| `GET /v1/newsletter/campaigns` | `?status=&q=&page=&limit=`. List rows omit `body_blocks`. Includes `list_ids` and `counts`. |
 | `GET /v1/newsletter/campaigns/{id}` | Full campaign. |
-| `POST /v1/newsletter/campaigns` | `{subject, preview_text?, body_html, list_ids}`. Always created as `draft`. |
+| `POST /v1/newsletter/campaigns` | `{subject, preview_text?, body_blocks, list_ids}`. Always created as `draft`. The body is normalized before storage (see "Campaign body"). |
 | `PATCH /v1/newsletter/campaigns/{id}` | Partial update of subject, preview text, body and `list_ids`. **409** if the campaign is `sent`. **409** "sending isn't available yet" if `status` is set to anything but `draft`. (`scheduled_at` stays NULL until sending exists.) |
 | `DELETE /v1/newsletter/campaigns/{id}` | **admin**. Drafts only; a `sent` campaign is a permanent record (409). |
 | `GET /v1/newsletter/campaigns/{id}/recipients/count` | `{count}`: distinct `subscribed` members of the campaign's lists. Same query the send step will use. |
+| `POST /v1/newsletter/render` | `{subject?, preview_text?, body_blocks}` → `{html, warnings, articles}`. Normalizes and renders **unsaved** blocks for the editor preview. Writes nothing. |
+| `GET /v1/newsletter/campaigns/{id}/preview` | Same response for a saved campaign. |
 
-Validation limits: subject 1–255; preview ≤255; `body_html` ≤ 1 MB; `list_ids` must exist.
-`body_html` is stored as given; it is editor-authored and is not rendered by the dashboard
-except inside a sandboxed preview, if one is added.
+Validation limits: subject 1–255; preview ≤255; serialized `body_blocks` ≤ 512 KB; `list_ids` must exist.
 
 No send endpoint exists.
+
+## Campaign body: blocks, locked article links, render-time URLs
+
+The body is a versioned list of blocks whose HTML snippets are ported from the WordPress
+"To The Point" composer export (`Scalene/public/tothepoint.html`), with every
+`admin-ajax.php?action=tnptr` tracking wrapper removed.
+
+```json
+{"version": 1, "blocks": [
+  {"type": "text",    "html": "<p>Happy week 5! …</p>"},
+  {"type": "button",  "label": "Read the latest", "href": "https://www.thetriangle.org"},
+  {"type": "heading", "text": "More From News"},
+  {"type": "article", "article_id": 4821, "show_image": true, "show_excerpt": true},
+  {"type": "image",   "src": "https://…", "alt": "…", "href": "https://…"},
+  {"type": "divider"}
+]}
+```
+
+- **Fixed chrome.** The logo header and the footer (tagline, unsubscribe / manage / view
+  online, social icons) are part of the template, not blocks, so the unsubscribe link
+  cannot be removed. Unknown block types are rejected.
+- **Limits.** At most 100 blocks; text `html` ≤ 20 KB per block; heading/label ≤ 200
+  chars; `href`/`src` ≤ 2048. URLs must be `http(s)`, plus `mailto:` and `cms-article:{id}`
+  in `href`. `src` must be `https`.
+- **Sanitizing.** Text-block HTML is re-serialized through an allowlist (`golang.org/x/net/html`):
+  `p, div, br, strong, b, em, i, a[href], ul, ol, li`. Everything else is unwrapped (text
+  kept), and `script`/`style` are dropped with their content. All attributes except `a[href]`
+  are dropped.
+- **Article links lock to the id.** On every save and every render request, any `href` (text
+  links and buttons) that points at a public article URL (`http(s)://[www.]thetriangle.org/article/{slug}`,
+  the configured `PUBLIC_SITE_URL`'s host, or a bare `/article/{slug}`, ignoring query and
+  fragment) is rewritten to `cms-article:{id}` by looking the slug up in `articles`.
+  An unknown slug → `400 {"error":"no article at <url>"}`. The article block stores only
+  `article_id`; an unknown id → 400.
+- **Render-time resolution.** `newsletter.Render` resolves every `cms-article:{id}` and article
+  block against the *current* row: the URL is `{PUBLIC_SITE_URL}/article/{slug}` (env
+  `PUBLIC_SITE_URL`, default `https://www.thetriangle.org`, matching the dashboard). Article
+  blocks pull the current title, excerpt (falling back to description) and `photo_url`/`photo_alt`.
+  A renamed slug therefore always yields the live URL.
+- **Warnings.** An id that is archived, unpublished (`pub_date` NULL or in the future) or missing
+  renders as plain text (link) or is omitted (block). The render returns
+  `warnings: ["Article 4821 (\"Title\") is not published"]`. The preview shows them; the
+  send work must refuse to send while any remain.
+- **Per-recipient values.** `Render` takes `UnsubscribeURL`, `ManageURL` and `ViewOnlineURL`;
+  preview passes `#`. The send work passes the per-recipient token URLs and should store the
+  rendered HTML as the record of what went out.
+- Rendering uses `html/template`; block values are never concatenated as raw HTML except the
+  sanitized text `html`.
 
 ## Dashboard page (`frontend/src/pages/newsletterView.tsx`)
 
 - All data comes through `useApiFetch`. The `CAMPAIGNS`/`SUBSCRIBERS` constants are deleted.
 - Tiles: **Subscribed**, **Unsubscribed**, **Drafts**, **Sent**, all from `/stats`. No open-rate or "recipients reached" tile.
-- Campaigns tab: table (subject, preview, status, target lists, recipients = `recipient_count` or "—", updated date). New/Edit opens a form: subject, preview text, HTML body (textarea for now; the editor is scaffolded later), and list multi-select. Delete is admin-only, drafts only, with a confirm step.
+- Campaigns tab: table (subject, preview, status, target lists, recipients = `recipient_count` or "—", updated date). New/Edit opens the **block editor**: subject, preview text, list multi-select, and a block list (add any block type, move up/down, delete). Text blocks use the existing `TrixEditor`; article blocks use a picker that searches `GET /v1/articles?title=`; each text/button block lists the articles its links are locked to ("🔒 *Title*"). A live preview renders `POST /v1/newsletter/render` output in an `<iframe sandbox srcdoc>` (no scripts, no same-origin) with warnings above it. Delete is admin-only, drafts only, with a confirm step.
 - **Send**: opens a confirmation dialog that fetches `/recipients/count` and says
   "Would reach **N** subscribers in *List A, List B*". The confirm button is disabled
   with "Delivery isn't built yet." No request is made beyond the count.
@@ -255,4 +304,4 @@ Run frontend tests with `NODE_ENV=test` (the shell exports `production`).
 ## Out of scope
 
 Delivery, the confirmation email, the public unsubscribe/confirm endpoints (tokens exist for them),
-the WP list/subscriber/template port, the Scalene cutover, the rich editor, tracking, and the XFF fix (separate PR).
+the WP list/subscriber port (the template snippets *are* ported here), the Scalene cutover, tracking, and the XFF fix (separate PR).

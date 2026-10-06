@@ -67,15 +67,16 @@
   - Constants: `NewsletterStatusSubscribed = "subscribed"`, `NewsletterStatusUnsubscribed = "unsubscribed"`, `CampaignStatusDraft = "draft"`, `CampaignStatusScheduled = "scheduled"`, `CampaignStatusSent = "sent"`, `SubscriberSourcePublicForm = "public_form"`, `SubscriberSourceAdmin = "admin"`.
   - `NewsletterList{ID int64; Name, Description string; IsPublic bool; SubscribedCount int; CreatedAt *time.Time}`
   - `NewsletterSubscriber{ID int64; Email, Name, Status, Source string; ListIDs []int64; SubscribedAt, UnsubscribedAt, CreatedAt *time.Time}`. No token field.
-  - `NewsletterCampaign{ID int64; Subject, PreviewText string; BodyHTML string \`json:"body_html,omitempty"\`; Status string; ListIDs []int64; ScheduledAt, SentAt *time.Time; RecipientCount *int; CreatedBy, UpdatedBy string; CreatedAt, UpdatedAt *time.Time}`
+  - `NewsletterCampaign{ID int64; Subject, PreviewText string; BodyBlocks json.RawMessage \`json:"body_blocks,omitempty"\`; Status string; ListIDs []int64; ScheduledAt, SentAt *time.Time; RecipientCount *int; CreatedBy, UpdatedBy string; CreatedAt, UpdatedAt *time.Time}`
   - Requests:
     - `NewsletterSubscribeRequest{Email, Name string; Lists []int64; Website string}`
     - `NewsletterListCreateRequest{Name, Description string; IsPublic *bool}`
     - `NewsletterListPatchRequest{Name, Description *string; IsPublic *bool}`
     - `NewsletterSubscriberCreateRequest{Email, Name string; ListIDs []int64}`
     - `NewsletterSubscriberPatchRequest{Name, Status *string; ListIDs *[]int64}`
-    - `NewsletterCampaignCreateRequest{Subject, PreviewText, BodyHTML string; ListIDs []int64}`
-    - `NewsletterCampaignPatchRequest{Subject, PreviewText, BodyHTML, Status *string; ListIDs *[]int64}`
+    - `NewsletterCampaignCreateRequest{Subject, PreviewText string; BodyBlocks json.RawMessage; ListIDs []int64}`
+    - `NewsletterCampaignPatchRequest{Subject, PreviewText, Status *string; BodyBlocks json.RawMessage /* nil = unchanged */; ListIDs *[]int64}`
+    - `NewsletterRenderRequest{Subject, PreviewText string; BodyBlocks json.RawMessage}`; `NewsletterRenderResponse{HTML string; Warnings []string; Articles []NewsletterLinkedArticle}`; `NewsletterLinkedArticle{ID int64; Title string; Published bool}`
   - Responses:
     - `NewsletterSubscribeResponse{OK bool}`
     - `NewsletterListsResponse{Lists []NewsletterList}`
@@ -154,7 +155,7 @@
   - `var ErrCampaignNotDraft = errors.New("newsletter: campaign is not a draft")`
   - `func CreateNewsletterCampaign(ctx, conn, req models.NewsletterCampaignCreateRequest, actor string) (models.NewsletterCampaign, error)`: always `draft`; `created_by=updated_by=actor`.
   - `func GetNewsletterCampaign(ctx, conn, id int64) (models.NewsletterCampaign, error)`: includes the body.
-  - `func ListNewsletterCampaigns(ctx, conn, status, q string, limit, offset int) ([]models.NewsletterCampaign, int, error)`: `BodyHTML` is empty in list rows; newest `updated_at` first.
+  - `func ListNewsletterCampaigns(ctx, conn, status, q string, limit, offset int) ([]models.NewsletterCampaign, int, error)`: `BodyBlocks` is nil in list rows; newest `updated_at` first.
   - `func CountNewsletterCampaignsByStatus(ctx, conn) (map[string]int, error)`: keys `draft`, `scheduled`, `sent`, `all`, always present.
   - `func UpdateNewsletterCampaign(ctx, conn, id int64, req models.NewsletterCampaignPatchRequest, actor string) (models.NewsletterCampaign, error)`: ignores `req.Status` (the handler enforces it); returns `ErrCampaignSent` if the row's status is `sent` (checked under `FOR UPDATE`).
   - `func DeleteNewsletterCampaign(ctx, conn, id int64) (bool, error)`: returns `ErrCampaignNotDraft` for non-drafts.
@@ -168,11 +169,102 @@
   - `TestRecipientCount_DistinctAcrossListsExcludesUnsubscribed`: lists A and B; s1 in A+B, s2 in A, s3 in B (unsubscribed), s4 in no list; campaign targets A+B → 2.
   - `TestRecipientCount_IgnoresListPublicFlag` (Review Focus 4): make list A non-public → the count is unchanged.
   - `TestGetNewsletterStats`: the counts match seeded data; per-list subscribed counts match.
-  - `TestListNewsletterCampaigns_OmitsBody`: `BodyHTML == ""` in list results; `Get` returns it.
+  - `TestListNewsletterCampaigns_OmitsBody`: `BodyBlocks == nil` in list results; `Get` returns it byte-equal (JSON-equal) to what was stored.
 - [ ] **Step 2: Run** them and expect FAIL.
 - [ ] **Step 3: Implement.** Do updates in a transaction with `SELECT status … FOR UPDATE` before writing.
 - [ ] **Step 4: Run** them and expect PASS.
 - [ ] **Step 5: Commit** `feat(newsletter): campaign and stats data layer`.
+
+### Task 4a: Block document, sanitizer, article-link locking
+
+**Files:**
+- Create: `server/internal/newsletter/blocks.go`, `server/internal/newsletter/sanitize.go`, `server/internal/newsletter/links.go`
+- Test: `server/internal/newsletter/blocks_test.go`, `sanitize_test.go`, `links_test.go` (pure unit tests with a fake lookup)
+
+**Interfaces:**
+- Produces (package `newsletter`):
+  - `type Document struct{ Version int \`json:"version"\`; Blocks []Block \`json:"blocks"\` }`
+  - `type Block struct{ Type string; HTML, Text, Label, Href, Src, Alt string; ArticleID int64; ShowImage, ShowExcerpt *bool }`. JSON tags are snake_case with `omitempty`.
+  - Constants: `BlockText = "text"`, `BlockHeading = "heading"`, `BlockButton = "button"`, `BlockArticle = "article"`, `BlockImage = "image"`, `BlockDivider = "divider"`; `MaxBlocks = 100`; `MaxTextHTMLBytes = 20 << 10`; `MaxShortText = 200`; `MaxURL = 2048`; `MaxDocumentBytes = 512 << 10`.
+  - `type ValidationError struct{ Msg string }` (implements `error`; handlers map it to 400 with `Msg`).
+  - `type ArticleRef struct{ ID int64; Slug, Title, Excerpt, ImageURL, ImageAlt string; Published bool }`
+  - `type ArticleLookup interface { ArticleIDsBySlug(ctx context.Context, slugs []string) (map[string]int64, error); ArticlesByID(ctx context.Context, ids []int64) (map[int64]ArticleRef, error) }`
+  - `func Parse(raw []byte) (Document, error)`: strict JSON (`DisallowUnknownFields`); version must be 1; known types only; limits per the spec. A `nil`/empty input → `Document{Version:1}` with no blocks.
+  - `func SanitizeHTML(in string) string`: allowlist per the spec.
+  - `func Normalize(ctx context.Context, doc Document, lookup ArticleLookup, siteURL string) (Document, error)`: sanitizes text blocks, rewrites article URLs in text `a[href]` and button `href` to `cms-article:{id}`, validates the URL schemes, and checks that article-block ids exist. Unknown slug → `*ValidationError{"no article at <url>"}`; unknown article id → `*ValidationError{"article <id> does not exist"}`. Idempotent.
+  - `func ArticleIDFromHref(href string) (int64, bool)`: parses `cms-article:{id}`.
+
+- [ ] **Step 1: Write failing tests:**
+  - `TestParse_RejectsBadDocuments`, table-driven, each → error:
+    - version 2
+    - unknown type `"script"`
+    - unknown field
+    - 101 blocks
+    - heading 201 chars
+    - text html > 20 KB
+    - button with `javascript:alert(1)` href
+    - image with `http://` src
+    - doc > 512 KB
+  - `TestSanitizeHTML`:
+    - `<p onclick="x">Hi <script>alert(1)</script><b>there</b></p>` → `<p>Hi <b>there</b></p>`
+    - `<a href="javascript:x">t</a>` → `t`
+    - `<a href="https://a.io" target="_blank" style="x">t</a>` → `<a href="https://a.io">t</a>`
+    - `<img src=x onerror=y>` → `` (dropped)
+    - `<div><style>p{}</style>Ok</div>` → `<div>Ok</div>`
+    - `<p>&lt;b&gt;</p>` stays escaped
+    - nested `<table><tr><td>Cell</td></tr></table>` → `Cell`
+  - `TestNormalize_LocksArticleLinks`, with a fake lookup `{"denim-day": 11, "mob": 12}`:
+    - a text block containing `https://www.thetriangle.org/article/denim-day?utm=x#top`, `https://thetriangle.org/article/mob`, `/article/denim-day` and `https://example.com/article/denim-day`: the first three become `cms-article:11` / `cms-article:12` / `cms-article:11`, and the example.com link is unchanged
+    - a button with `https://www.thetriangle.org/article/mob` → `cms-article:12`
+    - `siteURL="https://dev.thetriangle.org"` also locks `https://dev.thetriangle.org/article/mob`
+  - `TestNormalize_UnknownSlugIsValidationError`: `https://www.thetriangle.org/article/nope` → `*ValidationError` whose message contains the URL.
+  - `TestNormalize_UnknownArticleBlockID` → `*ValidationError`.
+  - `TestNormalize_Idempotent`: `Normalize(Normalize(d)) == Normalize(d)`.
+  - `TestNormalize_KeepsExistingLockedLinks`: an existing `cms-article:11` survives without a slug lookup (the fake records zero `ArticleIDsBySlug` calls for it).
+- [ ] **Step 2: Run** `go test ./internal/newsletter/ -v` and expect FAIL (package missing).
+- [ ] **Step 3: Implement.** The sanitizer walks the `golang.org/x/net/html` tokenizer and emits allowed tags with only the `a[href]` attribute, escaping text via `html.EscapeString`. Run `go mod tidy` to promote `x/net` to a direct dependency. Article URL match: parse with `net/url`; the host is in `{thetriangle.org, www.thetriangle.org, host(siteURL)}` or empty with a path starting with `/article/`; the slug is the single path segment after `/article/` (trailing slash allowed). Collect all slugs first and call `ArticleIDsBySlug` once.
+- [ ] **Step 4: Run** them and expect PASS.
+- [ ] **Step 5: Commit** `feat(newsletter): block document, sanitizer, article link locking`.
+
+### Task 4b: Renderer (ported WP snippets) and DB article lookup
+
+**Files:**
+- Create: `server/internal/newsletter/render.go`, `server/internal/newsletter/templates/{layout,text,heading,button,article,image,divider}.html` (embedded with `//go:embed templates/*.html`)
+- Create: `server/internal/database/newsletter_articles.go` (DB `ArticleLookup`)
+- Test: `server/internal/newsletter/render_test.go`; append `TestNewsletterArticleLookup_*` to `server/internal/database/newsletter_integration_test.go`
+
+**Interfaces:**
+- Consumes: Task 4a.
+- Produces:
+  - `type RenderOptions struct{ SiteURL, Subject, PreviewText, UnsubscribeURL, ManageURL, ViewOnlineURL string }`
+  - `type LinkedArticle struct{ ID int64; Title string; Published bool }`
+  - `type Rendered struct{ HTML string; Warnings []string; Articles []LinkedArticle }`
+  - `func Render(ctx context.Context, doc Document, lookup ArticleLookup, opts RenderOptions) (Rendered, error)`
+  - `func ArticleURL(siteURL, slug string) string` → `strings.TrimRight(siteURL,"/") + "/article/" + url.PathEscape(slug)`
+  - database: `type NewsletterArticleLookup struct{ Conn *sql.DB }` implementing `newsletter.ArticleLookup`. `Published` = `pub_date IS NOT NULL AND pub_date <= UTC_TIMESTAMP() AND archived_at IS NULL`. `Excerpt` = `excerpt`, falling back to `description` when empty. `ImageURL`/`ImageAlt` come from `photo_url`/`photo_alt`. `ArticleIDsBySlug` ignores archived rows.
+
+- [ ] **Step 1: Port the snippets.** From `~/Documents/Coding/triangle/Scalene/public/tothepoint.html`, copy one `tnpc-row` of each kind into its template file:
+  - row 1 → layout header
+  - row 2 → text
+  - row 3 → button
+  - row 7 → heading
+  - rows 4+5+6 → article (title + image + excerpt + read-more)
+  - row 10 → image
+  - row 11 → divider
+  - rows 29+30 → layout footer
+
+  Replace the literal content with template fields. Delete every `admin-ajax.php` URL: the read-more/title links use the resolved article URL, and the footer uses `{{.UnsubscribeURL}}` / `{{.ManageURL}}` / `{{.ViewOnlineURL}}`. Remove the doubleclick ad pixel/link. Keep the inline styles and the head `<style>` verbatim. The layout adds a hidden preheader `<div style="display:none">{{.PreviewText}}</div>`.
+- [ ] **Step 2: Write failing tests** (fake lookup: 11 → published "Denim Day" slug `denim-day-renamed`; 12 → unpublished "Draft piece"; 13 missing):
+  - `TestRender_ResolvesLockedLinksToCurrentSlug`: a text link `cms-article:11` renders `href="https://www.thetriangle.org/article/denim-day-renamed"`; the output contains no `cms-article:`.
+  - `TestRender_ArticleBlockUsesLiveData`: an article block for 11 contains the title, excerpt, image URL and live URL; `show_image:false` omits the `<img`.
+  - `TestRender_UnpublishedAndMissingWarn`: a link to 12 renders its text with no `<a`; an article block for 13 is omitted; `Warnings` has exactly 2 entries naming 12 ("Draft piece") and 13.
+  - `TestRender_EscapesBlockText`: a heading `<script>x</script>` appears escaped (`&lt;script&gt;`).
+  - `TestRender_NoWordPressTracking`: the output contains none of `admin-ajax`, `tnptr`, `doubleclick`, `nltr=`.
+  - `TestRender_FooterHasUnsubscribe`: `opts.UnsubscribeURL="https://u.example/x"` appears in an `href`, even for a doc with zero blocks.
+  - `TestRender_LinkedArticlesListed`: `Articles` lists 11 and 12 with their `Published` flags, de-duplicated.
+  - DB: `TestNewsletterArticleLookup_PublishedAndFallbacks`. Insert into the test `articles` table (create a minimal `articles` table in the helper if absent, with just the columns used: `id, slug, title, excerpt, description, photo_url, photo_alt, pub_date, archived_at`). Published/future/archived rows map to the right `Published`; empty `excerpt` falls back to `description`; an archived slug is not returned by `ArticleIDsBySlug`.
+- [ ] **Step 3: Run** them and expect FAIL. **Step 4: Implement** with `html/template`, passing sanitized text HTML as `template.HTML` only after `SanitizeHTML` and link resolution (resolution rewrites `href` values through the tokenizer, not regex). **Step 5: Run** them and expect PASS. Write a sample render to `$TMPDIR/newsletter-sample.html` and view it with `ui-check` once in Task 9.
+- [ ] **Step 6: Commit** `feat(newsletter): renderer from the WordPress template, live article URLs`.
 
 ### Task 5: Input validation (pure unit tests)
 
@@ -185,7 +277,7 @@
   - `func normalizeNewsletterEmail(raw string) (string, bool)`: rules per the spec's handler step 3; returns the lowercased address.
   - `func normalizeNewsletterName(raw string) (string, bool)`: trims; empty is OK (`"", true`); ≤100 runes; no `unicode.IsControl`; `utf8.ValidString`.
   - `func normalizeListIDs(ids []int64, min, max int) ([]int64, bool)`: de-duplicates, sorts ascending, rejects ≤0, and checks `min ≤ len ≤ max` after de-duplication.
-  - Constants: `maxNewsletterSubscribeBody = 4 << 10`, `maxCampaignBodyBytes = 1 << 20`, `maxSubjectLen = 255`, `maxPreviewLen = 255`.
+  - Constants: `maxNewsletterSubscribeBody = 4 << 10`, `maxSubjectLen = 255`, `maxPreviewLen = 255` (campaign body size comes from `newsletter.MaxDocumentBytes`).
 
 - [ ] **Step 1: Write table tests.**
   - `TestNormalizeNewsletterEmail`. Accept:
@@ -279,6 +371,8 @@
   - `GetNewsletterSubscribers`, `PostNewsletterSubscriber`, `PatchNewsletterSubscriber`, `DeleteNewsletterSubscriber`
   - `GetNewsletterCampaigns`, `GetNewsletterCampaign`, `PostNewsletterCampaign`, `PatchNewsletterCampaign`, `DeleteNewsletterCampaign`
   - `GetNewsletterRecipientCount`
+  - `PostNewsletterRender(conn *sql.DB, siteURL string)`, `GetNewsletterCampaignPreview(conn *sql.DB, siteURL string)`; the campaign POST/PATCH handlers also take `siteURL` because they call `newsletter.Parse` + `Normalize` (with `database.NewsletterArticleLookup{Conn: conn}`) before storing.
+  - `main.go`: read `PUBLIC_SITE_URL` (default `https://www.thetriangle.org`, trailing slash trimmed). Pass it through `routes.Register` as a new trailing `siteURL string` parameter, and update the existing call sites and `routes_test.go`.
 
   Literal segments (`/recipients/count`) sit below `{id}`, so there's no mux conflict. The actor is `middleware.UserFromContext(r.Context()).Email`, else `"unknown"`. Each mutation calls `activity.LogRequest(r, "newsletter_<noun>_<verb>", …)` without email addresses in the message.
 
@@ -292,7 +386,8 @@
   | `status` ∉ {"", "draft"} on campaign patch | 409 `sending isn't available yet`, checked **before** any write |
   | validation | 400 with a specific message (admin routes may be specific) |
   | unknown list ids in `list_ids` (`CountExistingNewsletterLists(…, false)` mismatch) | 400 |
-  | campaign body > `maxCampaignBodyBytes` | 400 (`MaxBytesReader` 1 MB + 4 KB) |
+  | campaign body > `newsletter.MaxDocumentBytes` | 400 (`MaxBytesReader` 512 KB + 8 KB) |
+  | `*newsletter.ValidationError` from `Parse`/`Normalize` | 400 with its `Msg` |
   | subscriber PATCH status ∉ {subscribed, unsubscribed} | 400 |
 
 - [ ] **Step 1: Write failing tests.** Call handlers directly with `middleware.ContextWithUser`, using editor and admin users. Role-gating tests go through `routes.Register`-style wrapping with `middleware.RequireAdmin`.
@@ -305,6 +400,9 @@
   - `TestPostNewsletterSubscriber_Duplicate`: → 409.
   - `TestGetNewsletterRecipientCount`: matches a seeded scenario (2).
   - `TestGetNewsletterStats_Shape`: keys present with zero values on an empty DB.
+  - `TestPostNewsletterCampaign_LocksArticleLinks`: with a seeded published article `denim-day` (id N), POST a body containing a text link `https://www.thetriangle.org/article/denim-day` → stored `body_blocks` (re-read from DB) contains `cms-article:N` and not the URL. Then rename the article's slug in SQL; `GET …/preview` HTML contains `/article/<new-slug>`.
+  - `TestPostNewsletterCampaign_UnknownArticleURL`: → 400 whose body names the URL; no row.
+  - `TestPostNewsletterRender_WritesNothing`: → 200 `{html, warnings, articles}`; the campaign row count is unchanged; a script tag in a text block is absent from `html`.
 - [ ] **Step 2: Routes test** `TestRegister_NewsletterAdminRoutesGated`: every admin path/method in the spec's table → 401 without a session.
 - [ ] **Step 3: Run** them and expect FAIL. **Step 4: Implement** and register the routes. **Step 5: Run** them and expect PASS.
 - [ ] **Step 6: Swagger.** Run `cd server && swag init --parseDependency --parseInternal`, then `git diff --stat server/docs` shows the newsletter paths. Then `go build ./... && go vet ./... && go test -race ./...`.
@@ -315,7 +413,7 @@
 **Files:**
 - Create: `frontend/src/lib/newsletterApi.ts` (types mirroring the Go models plus fetch helpers)
 - Rewrite: `frontend/src/pages/newsletterView.tsx`
-- Create: `frontend/src/components/newsletter/CampaignFormDialog.tsx`, `SendCampaignDialog.tsx`, `SubscribersTab.tsx`, `ListsPanel.tsx`
+- Create: `frontend/src/components/newsletter/CampaignEditor.tsx`, `BlockFields.tsx`, `ArticlePicker.tsx`, `SendCampaignDialog.tsx`, `SubscribersTab.tsx`, `ListsPanel.tsx`
 - Modify: `frontend/src/App.tsx` (re-add the lazy import and `/newsletter` route), `frontend/src/components/Sidebar.tsx` (uncomment the `Mail` import and the entry; delete the "temporarily disabled" comment)
 - Test: `frontend/src/pages/newsletterView.test.tsx`
 
@@ -334,13 +432,15 @@
 - [ ] **Step 1: Write failing Vitest tests** (`vi.mock("../hooks/useApiFetch")` and `vi.mock("../hooks/useCurrentUserRole")` with a stub router like `editArticleView.test.tsx`; record calls):
   - `renders stat tiles from the API and no open-rate`: the stats stub `{subscribers:{subscribed:1234,unsubscribed:56,all:1290},campaigns:{draft:2,scheduled:0,sent:0,all:2},lists:[…]}` → shows `1,234`, `56`, `2`, `0`; `queryByText(/open rate/i)` is null; none of the old mock addresses (`jsmith@drexel.edu`) appear.
   - `send dialog shows recipient count and cannot send`: click Send on a draft → shows `Would reach 1,234 subscribers in Drexel Students, Alumni.`; the dialog's Send button `toBeDisabled()`; after clicking it no request has method POST/PATCH and nothing hit any `/send` URL.
-  - `creating a campaign posts the form`: fill in the subject/body, tick list "Alumni", save → exactly one POST to `/v1/newsletter/campaigns` with body `{subject, preview_text:"", body_html, list_ids:[2]}`.
+  - `creating a campaign posts the blocks`: fill in the subject, add a Heading block "More From News", add an Article block via the picker (stub `/v1/articles?title=den` → `[{id:11,title:"Denim Day",slug:"denim-day"}]`), tick list "Alumni", save → exactly one POST to `/v1/newsletter/campaigns` with body `{subject, preview_text:"", body_blocks:{version:1,blocks:[{type:"heading",text:"More From News"},{type:"article",article_id:11,show_image:true,show_excerpt:true}]}, list_ids:[2]}`.
+  - `block editor reorders and deletes`: three blocks; "Move up" on the third, then delete the first → the POSTed `blocks` order matches.
+  - `preview renders server html in a sandboxed iframe with warnings`: the render stub returns `{html:"<p>X</p>", warnings:["Article 12 (\"Draft piece\") is not published"], articles:[{id:11,title:"Denim Day",published:true}]}` → `iframe` with `sandbox=""` and `srcdoc` containing `<p>X</p>`; the warning text is visible; `🔒 Denim Day` is visible.
   - `unsubscribe toggles via PATCH and updates the row`: Subscribers tab → click Unsubscribe → PATCH `/v1/newsletter/subscribers/5` body `{status:"unsubscribed"}`; the row shows `Unsubscribed`.
   - `editor sees no delete controls`: with `isAdmin:false` there are no `Delete` buttons on the subscriber rows or draft campaigns; with an admin they are present.
   - `api error shows error state`: stats 500 `{error:"boom"}` → an alert with `boom`; no table rows.
   - `renders empty states with no lists` (Review Focus 5): empty everything → `No campaigns yet`, `No subscribers yet`; the New campaign button is disabled with the hint `Create a list first`.
 - [ ] **Step 2: Run** `cd frontend && NODE_ENV=test npx vitest run src/pages/newsletterView.test.tsx`. Expected: FAIL.
-- [ ] **Step 3: Implement** the API module, page and components. Delete the `CAMPAIGNS`/`SUBSCRIBERS` constants entirely. Subscriber search is server-side (`q`, debounced 300 ms). The campaign body uses a plain `<textarea>`; the editor gets scaffolded later.
+- [ ] **Step 3: Implement** the API module, page and components. Delete the `CAMPAIGNS`/`SUBSCRIBERS` constants entirely. Subscriber search is server-side (`q`, debounced 300 ms). The campaign editor is `components/newsletter/CampaignEditor.tsx` (block list + per-type fields) with `BlockFields.tsx` and `ArticlePicker.tsx`; text blocks use `TrixEditor` (mocked in tests as a textarea, as `editArticleView.test.tsx` does). The preview calls `POST /v1/newsletter/render` debounced 500 ms after edits and shows `warnings` and the locked-article chips.
 - [ ] **Step 4: Run** the tests and expect PASS. Then `npm run lint` (0 errors), `npm run build`, and `NODE_ENV=test npm test`.
 - [ ] **Step 5: UI check.** Load the `ui-check` skill. Run the local stack (`docker start` the containers, `go run ./main.go`, `npm run dev -- --port 5173`) and view `/newsletter` signed in: tiles, both tabs, the send dialog, and the empty state.
 - [ ] **Step 6: Commit** `feat(newsletter): real dashboard page, restore sidebar entry`.
