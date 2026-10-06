@@ -6,6 +6,8 @@ on:
   schedule:
     - cron: "17 7 * * 1" # Mondays 07:17 UTC
   workflow_dispatch:
+  push:
+    branches: [ci/mutation-testing] # TEMP: verify the workflow before merge
 
 concurrency:
   group: mutation-${{ github.ref }}
@@ -22,6 +24,7 @@ jobs:
     defaults:
       run:
         working-directory: server
+        shell: bash # -eo pipefail, so `| tee` can't hide a failure
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -58,11 +61,12 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+        shell: bash # -eo pipefail, so `| tee` can't hide a failure
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # Stryker 10 requires Node >= 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
