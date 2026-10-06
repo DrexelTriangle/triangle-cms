@@ -1,0 +1,82 @@
+name: Mutation testing
+
+# Weekly report on whether the tests actually catch bugs (a mutant that
+# "lives" is a code change no test noticed). Report-only: never blocks merges.
+on:
+  schedule:
+    - cron: "17 7 * * 1" # Mondays 07:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Go (gremlins)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Install gremlins
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+      - name: Run mutation tests
+        run: |
+          gremlins unleash --timeout-coefficient 30 --workers 2 -o gremlins.json | tee gremlins.txt
+          {
+            echo '## Go mutation testing'
+            echo '```'
+            tail -6 gremlins.txt
+            echo '```'
+            echo '<details><summary>Surviving mutants (tests did not notice)</summary>'
+            echo
+            echo '```'
+            grep ' LIVED ' gremlins.txt | head -200 || true
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gremlins-report
+          path: server/gremlins.*
+
+  frontend:
+    name: Frontend (Stryker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Run mutation tests
+        run: |
+          npm run test:mutation -- --concurrency 2 | tee stryker.txt
+          {
+            echo '## Frontend mutation testing'
+            echo '```'
+            grep -A40 'All files' stryker.txt | head -45 || tail -30 stryker.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stryker-report
+          path: frontend/reports/mutation/
