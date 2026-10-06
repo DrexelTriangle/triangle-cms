@@ -75,6 +75,13 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("PATCH /v1/classifieds/{id}", authMW(handlers.PatchClassified(conn)))
 	mux.Handle("DELETE /v1/classifieds/{id}", authMW(adminOnly(handlers.DeleteClassified(conn))))
 	mux.Handle("POST /v1/integrations/slack/classifieds", middleware.RateLimitByIP(30, time.Minute)(handlers.PostSlackClassifiedAction(conn)))
+	// Newsletter subscribe is the one newsletter route open to the internet.
+	// Per-IP limits stop a single client; the global cap stops one rotating
+	// through addresses. Every accepted submission gets the same answer.
+	mux.Handle("POST /v1/newsletter/subscribe", middleware.Chain(handlers.PostNewsletterSubscribe(conn, spamChecker),
+		middleware.RateLimitByIP(20, time.Hour),
+		middleware.RateLimitByIP(5, time.Minute),
+		middleware.RateLimitGlobal(300, 10*time.Minute)))
 	// The public photo gallery. The editor-facing catalogue at
 	// /v1/media/gallery stays authenticated; this one is images-only.
 	mux.Handle("GET /v1/gallery", handlers.GetPublicGallery(conn))

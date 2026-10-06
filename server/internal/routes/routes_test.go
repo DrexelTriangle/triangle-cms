@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"server/internal/auth"
+	"strings"
 	"testing"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -157,6 +158,35 @@ func TestRegister_PublicRoute(t *testing.T) {
 				t.Fatalf("expected %d, got %d", tt.wantStatus, rec.Code)
 			}
 		})
+	}
+}
+
+// TestRegister_NewsletterSubscribeIsPublicAndRateLimited: the subscribe form
+// needs no session, and a burst from one address hits the per-IP limit. The
+// bodies are invalid on purpose, so the handler answers 400 without touching
+// the (nil) database: 400 means "reached the handler", 429 means "limited".
+func TestRegister_NewsletterSubscribeIsPublicAndRateLimited(t *testing.T) {
+	verifier := oidc.NewVerifier("https://issuer.example", nil, &oidc.Config{
+		ClientID:          "test",
+		SkipClientIDCheck: true,
+	})
+	mux := http.NewServeMux()
+	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil, nil)
+
+	post := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/v1/newsletter/subscribe", strings.NewReader(`{"email":"not-an-address","lists":[1]}`))
+		req.RemoteAddr = "203.0.113.9:1234"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i := 1; i <= 5; i++ {
+		if code := post(); code != http.StatusBadRequest {
+			t.Fatalf("request %d: got %d, want 400 from the handler (public, not 401)", i, code)
+		}
+	}
+	if code := post(); code != http.StatusTooManyRequests {
+		t.Fatalf("6th request in a minute: got %d, want 429", code)
 	}
 }
 
