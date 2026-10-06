@@ -1,23 +1,14 @@
-import { useState } from "react"
-import { Search, Plus, Send, Trash2, Eye, Clock, CheckCircle } from "lucide-react"
+import { Pencil, Plus, Send, Trash2 } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import CampaignEditor from "../components/newsletter/CampaignEditor"
+import ListsPanel from "../components/newsletter/ListsPanel"
+import SendCampaignDialog from "../components/newsletter/SendCampaignDialog"
+import SubscribersTab from "../components/newsletter/SubscribersTab"
+import { formatDate, listNames, readErrorMessage, type Campaign, type CampaignStatus, type NewsletterStats } from "../components/newsletter/types"
+import { useApiFetch } from "../hooks/useApiFetch"
+import { useCurrentUserRole } from "../hooks/useCurrentUserRole"
 
-type CampaignStatus = "draft" | "scheduled" | "sent"
-
-const CAMPAIGNS = [
-  { id: 1, subject: "The Triangle Weekly Digest — April 28, 2025", preview: "This week: Engineering building approved, basketball season recap, and your co-op spotlight...", status: "sent" as CampaignStatus, recipients: 4821, opens: 1923, date: "2025-04-28" },
-  { id: 2, subject: "The Triangle Weekly Digest — April 21, 2025", preview: "Spring events, new student center groundbreaking, and an interview with the new provost...", status: "sent" as CampaignStatus, recipients: 4791, opens: 1876, date: "2025-04-21" },
-  { id: 3, subject: "The Triangle Weekly Digest — April 14, 2025", preview: "Campus construction update, arts week preview, and top stories from last week...", status: "sent" as CampaignStatus, recipients: 4754, opens: 1802, date: "2025-04-14" },
-  { id: 4, subject: "The Triangle Weekly Digest — May 5, 2025", preview: "Finals week coverage, end of year awards, and summer co-op previews...", status: "scheduled" as CampaignStatus, recipients: 0, opens: 0, date: "2025-05-05" },
-  { id: 5, subject: "Special Edition: Commencement 2025", preview: "Everything you need to know about graduation weekend, speaker announcement, and alumni stories...", status: "draft" as CampaignStatus, recipients: 0, opens: 0, date: "" },
-]
-
-const SUBSCRIBERS = [
-  { id: 1, email: "jsmith@drexel.edu", name: "John Smith", date: "2024-09-03" },
-  { id: 2, email: "mgarcia@drexel.edu", name: "Maria Garcia", date: "2024-09-05" },
-  { id: 3, email: "t.kowalski@gmail.com", name: "Tyler Kowalski", date: "2024-10-12" },
-  { id: 4, email: "rkim2025@drexel.edu", name: "Rachel Kim", date: "2024-10-20" },
-  { id: 5, email: "dev.p@gmail.com", name: "Dev P", date: "2025-01-08" },
-]
+type Tab = "campaigns" | "subscribers"
 
 const STATUS_STYLES: Record<CampaignStatus, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -25,161 +16,215 @@ const STATUS_STYLES: Record<CampaignStatus, string> = {
   sent: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
 }
 
-const StatusIcon = ({ status }: { status: CampaignStatus }) => {
-  if (status === "sent") return <CheckCircle className="w-3 h-3" />
-  if (status === "scheduled") return <Clock className="w-3 h-3" />
-  return <Eye className="w-3 h-3" />
+// Only numbers the server actually has. There is no open-rate or reach tile:
+// nothing tracks opens, and nothing has been sent from here yet.
+function StatTile({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-foreground">{value.toLocaleString("en-US")}</p>
+    </div>
+  )
 }
 
 export default function NewsletterView() {
-  const [tab, setTab] = useState<"campaigns" | "subscribers">("campaigns")
-  const [search, setSearch] = useState("")
+  const apiFetch = useApiFetch()
+  const { isAdmin } = useCurrentUserRole()
+  const [tab, setTab] = useState<Tab>("campaigns")
+  const [stats, setStats] = useState<NewsletterStats | null>(null)
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Campaign | "new" | null>(null)
+  const [sending, setSending] = useState<Campaign | null>(null)
 
-  const filteredCampaigns = CAMPAIGNS.filter((c) =>
-    c.subject.toLowerCase().includes(search.toLowerCase())
-  )
-  const filteredSubscribers = SUBSCRIBERS.filter((s) =>
-    s.name.toLowerCase().includes(search.toLowerCase()) ||
-    s.email.toLowerCase().includes(search.toLowerCase())
-  )
+  const loadStats = useCallback(async () => {
+    const res = await apiFetch("/v1/newsletter/stats")
+    if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load the newsletter (${res.status})`))
+    setStats((await res.json()) as NewsletterStats)
+  }, [apiFetch])
 
-  const totalSent = CAMPAIGNS.filter((c) => c.status === "sent").reduce((sum, c) => sum + c.recipients, 0)
-  const avgOpenRate = Math.round(CAMPAIGNS.filter((c) => c.status === "sent" && c.recipients > 0).reduce((sum, c) => sum + c.opens / c.recipients, 0) / CAMPAIGNS.filter((c) => c.status === "sent").length * 100)
+  const loadCampaigns = useCallback(async () => {
+    const res = await apiFetch("/v1/newsletter/campaigns?status=all&limit=100")
+    if (!res.ok) throw new Error(await readErrorMessage(res, `Could not load campaigns (${res.status})`))
+    const body = (await res.json()) as { campaigns?: Campaign[] }
+    setCampaigns(body.campaigns ?? [])
+  }, [apiFetch])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      await Promise.all([loadStats(), loadCampaigns()])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load the newsletter.")
+    } finally {
+      setLoading(false)
+    }
+  }, [loadCampaigns, loadStats])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const refreshStats = useCallback(() => {
+    loadStats().catch((err: unknown) => setActionError(err instanceof Error ? err.message : "Could not refresh stats."))
+  }, [loadStats])
+
+  async function openEditor(campaign: Campaign) {
+    setActionError(null)
+    try {
+      // The list endpoint omits bodies; fetch the full draft.
+      const res = await apiFetch(`/v1/newsletter/campaigns/${campaign.id}`)
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not open the campaign (${res.status})`))
+      setEditing((await res.json()) as Campaign)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not open the campaign.")
+    }
+  }
+
+  async function deleteCampaign(campaign: Campaign) {
+    if (!window.confirm(`Delete the draft "${campaign.subject}"?`)) return
+    setActionError(null)
+    try {
+      const res = await apiFetch(`/v1/newsletter/campaigns/${campaign.id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not delete the campaign (${res.status})`))
+      await load()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not delete the campaign.")
+    }
+  }
+
+  const lists = stats?.lists ?? []
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Newsletter</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{SUBSCRIBERS.length.toLocaleString()} subscribers · {avgOpenRate}% avg open rate</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Draft campaigns and manage subscribers. Sending still happens in WordPress.</p>
         </div>
-        <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors" type="button">
-          <Plus className="w-4 h-4" />
-          New Campaign
-        </button>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: "Total Subscribers", value: SUBSCRIBERS.length.toLocaleString() },
-          { label: "Campaigns Sent", value: CAMPAIGNS.filter((c) => c.status === "sent").length.toString() },
-          { label: "Avg Open Rate", value: `${avgOpenRate}%` },
-          { label: "Recipients Reached", value: totalSent.toLocaleString() },
-        ].map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-border bg-card p-4">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{stat.label}</p>
-            <p className="text-2xl font-bold text-foreground mt-1">{stat.value}</p>
+        {!error && !loading && (
+          <div className="flex flex-col items-end gap-1">
+            <button
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              disabled={lists.length === 0}
+              onClick={() => setEditing("new")}
+              type="button"
+            >
+              <Plus className="h-4 w-4" />
+              New campaign
+            </button>
+            {lists.length === 0 && <p className="text-xs text-muted-foreground">Create a list first</p>}
           </div>
-        ))}
+        )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-border">
-        {(["campaigns", "subscribers"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      {error ? (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">{error}</div>
+      ) : loading || !stats ? (
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      ) : (
+        <>
+          <section aria-label="Newsletter stats" className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StatTile label="Subscribed" value={stats.subscribers.subscribed ?? 0} />
+            <StatTile label="Unsubscribed" value={stats.subscribers.unsubscribed ?? 0} />
+            <StatTile label="Drafts" value={stats.campaigns.draft ?? 0} />
+            <StatTile label="Sent" value={stats.campaigns.sent ?? 0} />
+          </section>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-        <input
-          className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-          placeholder={tab === "campaigns" ? "Search campaigns" : "Search subscribers"}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          {actionError && (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{actionError}</div>
+          )}
+
+          <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-1 border-b border-border">
+                {(["campaigns", "subscribers"] as Tab[]).map((t) => (
+                  <button
+                    className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                    key={t}
+                    onClick={() => setTab(t)}
+                    type="button"
+                  >
+                    {t === "campaigns" ? "Campaigns" : "Subscribers"}
+                  </button>
+                ))}
+              </div>
+
+              {tab === "subscribers" ? (
+                <SubscribersTab isAdmin={isAdmin} lists={lists} onChanged={refreshStats} />
+              ) : campaigns.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No campaigns yet</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-border bg-card">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/40 text-left text-muted-foreground">
+                        <th className="px-4 py-3 font-semibold" scope="col">Subject</th>
+                        <th className="hidden px-4 py-3 font-semibold md:table-cell" scope="col">Lists</th>
+                        <th className="px-4 py-3 font-semibold" scope="col">Status</th>
+                        <th className="hidden px-4 py-3 font-semibold md:table-cell" scope="col">Date</th>
+                        <th className="px-4 py-3 text-right font-semibold" scope="col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {campaigns.map((c) => (
+                        <tr className="border-b border-border last:border-0 hover:bg-muted/30" key={c.id}>
+                          <td className="px-4 py-3">
+                            <p className="max-w-[300px] truncate font-medium text-foreground">{c.subject}</p>
+                            {c.preview_text && <p className="mt-0.5 max-w-[300px] truncate text-xs text-muted-foreground">{c.preview_text}</p>}
+                          </td>
+                          <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">{listNames(c.list_ids ?? [], lists).join(", ") || "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[c.status]}`}>{c.status}</span>
+                            {c.status === "sent" && c.recipient_count !== undefined && (
+                              <span className="ml-2 text-xs text-muted-foreground">to {c.recipient_count.toLocaleString("en-US")}</span>
+                            )}
+                          </td>
+                          <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">{formatDate(c.status === "sent" ? c.sent_at : c.updated_at)}</td>
+                          <td className="px-4 py-3">
+                            {c.status === "draft" && (
+                              <div className="flex items-center justify-end gap-1">
+                                <button aria-label={`Edit ${c.subject}`} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => void openEditor(c)} type="button">
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                                <button aria-label={`Send ${c.subject}`} className="rounded-lg p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary" onClick={() => setSending(c)} type="button">
+                                  <Send className="h-4 w-4" />
+                                </button>
+                                {isAdmin && (
+                                  <button aria-label={`Delete ${c.subject}`} className="rounded-lg p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => void deleteCampaign(c)} type="button">
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <ListsPanel isAdmin={isAdmin} lists={lists} onChanged={refreshStats} />
+          </div>
+        </>
+      )}
+
+      {editing && (
+        <CampaignEditor
+          campaign={editing === "new" ? null : editing}
+          lists={lists}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null)
+            void load()
+          }}
         />
-      </div>
-
-      {tab === "campaigns" && (
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Subject</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Status</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden md:table-cell" scope="col">Recipients</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden lg:table-cell" scope="col">Opens</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden md:table-cell" scope="col">Date</th>
-                <th className="text-right px-4 py-3 font-semibold text-muted-foreground" scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCampaigns.map((c) => (
-                <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-foreground truncate max-w-[300px]">{c.subject}</p>
-                    <p className="text-xs text-muted-foreground truncate max-w-[300px] mt-0.5">{c.preview}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_STYLES[c.status]}`}>
-                      <StatusIcon status={c.status} />
-                      {c.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{c.recipients > 0 ? c.recipients.toLocaleString() : "—"}</td>
-                  <td className="px-4 py-3 hidden lg:table-cell">
-                    {c.opens > 0 ? (
-                      <span className="text-muted-foreground">{c.opens.toLocaleString()} <span className="text-xs">({Math.round(c.opens / c.recipients * 100)}%)</span></span>
-                    ) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{c.date || "—"}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
-                      {c.status === "draft" && (
-                        <button className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" type="button" title="Send">
-                          <Send className="w-4 h-4" />
-                        </button>
-                      )}
-                      <button className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" type="button" title="Delete">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       )}
-
-      {tab === "subscribers" && (
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Name</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Email</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden md:table-cell" scope="col">Subscribed</th>
-                <th className="text-right px-4 py-3 font-semibold text-muted-foreground" scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredSubscribers.map((s) => (
-                <tr key={s.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                  <td className="px-4 py-3 font-medium text-foreground">{s.name}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{s.email}</td>
-                  <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{s.date}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end">
-                      <button className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" type="button" title="Remove">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {sending && <SendCampaignDialog campaign={sending} lists={lists} onClose={() => setSending(null)} />}
     </div>
   )
 }
