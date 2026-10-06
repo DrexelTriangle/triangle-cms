@@ -1,0 +1,71 @@
+{{- /*
+  Layout ported from the WordPress Newsletter plugin's "To The Point" export
+  (Scalene/public/tothepoint.html). The head <style> block is verbatim. Every
+  admin-ajax.php tracking redirect and the 1x1 open-tracking pixel were removed:
+  the CMS does no open or click tracking. The header and footer are fixed here,
+  not blocks, so the unsubscribe link cannot be deleted from a campaign.
+*/ -}}
+{{define "layout"}}<!DOCTYPE html>
+<html>
+<head>
+<title>{{.Subject}}</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="format-detection" content="address=no">
+<meta name="format-detection" content="telephone=no">
+<meta name="format-detection" content="email=no">
+<meta name="x-apple-disable-message-reformatting">
+<style type="text/css">
+#outlook a{padding:0;}
+.ReadMsgBody{width:100%;} .ExternalClass{width:100%;}
+.ExternalClass, .ExternalClass p, .ExternalClass span, .ExternalClass font, .ExternalClass td, .ExternalClass div {line-height: 100%;}
+body { margin: 0; padding: 0; height: 100%!important; width: 100%!important; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; mso-line-height-rule: exactly;}
+table,td { border-collapse: collapse !important; mso-table-lspace: 0pt; mso-table-rspace: 0pt;}
+img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; max-width: 100%!important; -ms-interpolation-mode: bicubic;}
+img.aligncenter { display: block; margin: 0 auto;}
+.alignleft { float: left; margin: 7px 15px 7px 0px; }
+.alignright { float: right; margin: 7px 0px 7px 15px; }
+.aligncenter { display: block; margin-left: auto; margin-right: auto; }
+.screen-reader-text { display: none }
+figcaption { display: block; }
+@media screen and (max-width: 525px) {
+ .m-d-block {display: block}
+ .m-d-none {display: none; visibility: hidden; color: transparent;}
+ .m-pb-1 { padding-bottom: 16px!important; }
+ .p-0 { padding: 0 !important; }
+ .pt-1, .padding-top-15 { padding-top: 15px!important; }
+ .pb-1, .padding-bottom-15 { padding-bottom: 15px!important; }
+ .fs-90 { font-size: 90%; }
+ .responsive { width:100%!important; }
+ table.responsive { width:100%!important; float: none; display: table; padding-left: 0; padding-right: 0; }
+ table[class="responsive"] { width:100%!important; float: none; display: table; padding-left: 0; padding-right: 0; }
+ img { max-width: 100%!important }
+ img[class="responsive"] { max-width: 100%!important; }
+ .fluid { max-width: 100%!important; width: auto; }
+ img[class="fluid"] { max-width: 100%!important; width: auto; }
+ .block { display: block; }
+ td[class="responsive"]{width:100%!important; max-width: 100%!important; display: block; padding-left: 0 !important; padding-right: 0!important; float: none; }
+ td.responsive { width:100%!important; max-width: 100%!important; display: block; padding-left: 0 !important; padding-right: 0!important; float: none; }
+ .max-width-100 { max-width: 100%!important; }
+}
+ul { list-style: none; }
+.text p { margin: 0 0 15px 0 !important; }
+.text a { color: #007bff; text-decoration: none; }
+</style>
+</head>
+<body style="margin:0;padding:0;line-height:normal;word-spacing:normal" dir="ltr">
+<div style="display:none;font-size:1px;color:#ffffff;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden">{{.PreviewText}}</div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" width="100%" style="border-collapse:collapse;width:100%"><tr><td align="center" style="padding:0">
+{{template "row-open" "15px 0px 15px 0px"}}<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"><tbody><tr><td align="center"><a href="{{.SiteURL}}" style="display:block;font-size:0;text-decoration:none;line-height:normal!important"><img src="{{.LogoURL}}" width="600" height="156" alt="The Triangle" border="0" style="display: block;height: auto;max-width: 600px !important;width: 100%;padding: 0;border: 0;font-size: 12px"></a></td></tr></tbody></table>{{template "row-close"}}
+{{range .Blocks}}{{.}}
+{{end}}
+{{template "row-open" "0px 16px 24px 16px"}}<table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation"><tbody><tr><td width="100%" align="center" style="padding-top:24px"><div style="font-size:16px;font-family:Verdana,Geneva,sans-serif;font-weight:normal;color:#222222;text-decoration:none;line-height:normal">The Independent Student Newspaper at Drexel University</div></td></tr><tr><td align="center" valign="middle" style="padding-top:24px"><a href="https://twitter.com/drexeltriangle" style="line-height:normal;text-decoration:none" target="_blank"><img src="{{.TwitterIconURL}}" width="32" height="32" alt="twitter"></a><a href="https://www.instagram.com/drexeltriangle/" style="line-height:normal;text-decoration:none" target="_blank"><img src="{{.InstagramIconURL}}" width="32" height="32" alt="instagram"></a></td></tr><tr><td width="100%" align="center" dir="ltr" style="padding-top:24px"><a style="font-size:13px;font-family:Verdana,Geneva,sans-serif;font-weight:normal;color:#222222;text-decoration:none;line-height:normal" href="{{.UnsubscribeURL}}" target="_blank" class="m-d-block m-pb-1">Unsubscribe</a><span style="font-size:13px;font-family:Verdana,Geneva,sans-serif;font-weight:normal;color:#222222;text-decoration:none;line-height:normal" class="m-d-none">&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;</span><a style="font-size:13px;font-family:Verdana,Geneva,sans-serif;font-weight:normal;color:#222222;text-decoration:none;line-height:normal" href="{{.ManageURL}}" target="_blank" class="m-d-block m-pb-1">Manage your subscription</a><span style="font-size:13px;font-family:Verdana,Geneva,sans-serif;font-weight:normal;color:#222222;text-decoration:none;line-height:normal" class="m-d-none">&nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;</span><a style="font-size:13px;font-family:Verdana,Geneva,sans-serif;font-weight:normal;color:#222222;text-decoration:none;line-height:normal" href="{{.ViewOnlineURL}}" target="_blank" class="m-d-block m-pb-1">View online</a></td></tr></tbody></table>{{template "row-close"}}
+</td></tr></table>
+</body>
+</html>
+{{end}}
+
+{{- /* The row wrapper every composer block sits in. The argument is the cell padding. */ -}}
+{{define "row-open"}}<table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" width="100%" style="border-collapse:collapse;width:100%" class="tnpc-row"><tbody><tr><td align="center" style="padding:0"><table role="presentation" border="0" cellpadding="0" align="center" cellspacing="0" width="100%" style="border-collapse:separate!important;width:100%!important;max-width:600px!important"><tbody><tr><td align="center" style="text-align:center;line-height:normal!important;letter-spacing:normal;padding:{{.}};background-color:#ffffff" bgcolor="#ffffff">{{end}}
+{{define "row-close"}}</td></tr></tbody></table></td></tr></tbody></table>{{end}}
