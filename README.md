@@ -144,13 +144,32 @@ one is a `triangle-snapshot-<timestamp>.sql.gz` plus a matching
 python ./scripts/import_snapshot.py path/to/triangle-snapshot-<timestamp>.sql.gz
 python ./scripts/import_snapshot.py --manifest path/to/triangle-snapshot-<timestamp>.manifest.json
 python ./scripts/import_snapshot.py <snapshot> --yes    # no confirmation prompt
+python ./scripts/import_snapshot.py <snapshot> --no-backup   # skip the pre-import backup
 ```
+
+It refuses to run at all on a Triangle fleet machine: the Delta, DB1, MaxScale
+and WordPress hosts by hostname, or any machine with an address in
+`10.248.40.0/24`, `10.248.41.0/24` or the legacy WordPress DB host. There is no
+override. If neither `ip` nor `ifconfig` can list addresses it warns and goes on.
 
 Before touching anything it checks the manifest and sha256, then scans the SQL
 and refuses anything but plain table data for one database (`USE`, `GRANT`,
 database-qualified names, `LOAD DATA`, client commands like `\!` or `source`,
 foreign `DEFINER`s). It only runs against the local Docker socket and refuses a
 remote `DOCKER_HOST` or docker context.
+
+**It backs up first.** After you confirm, and before anything is dropped, the
+current database is dumped with `mariadb-dump` inside the container to
+`db-backups/<db>-pre-snapshot-<UTC timestamp>.sql.gz` (directory mode 700, file
+600; gitignored). The dump only gets its name once `gzip -t` passes and it ends
+with mariadb-dump's completion line; if the backup fails, nothing is dropped.
+A database that is missing or has no tables is not backed up. `--no-backup`
+skips it (you still have to confirm). To put the old database back (the dump
+drops and recreates it whole):
+
+```bash
+gunzip -c db-backups/triangle-pre-snapshot-<timestamp>.sql.gz | docker compose exec -T mariadb sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot --default-character-set=utf8mb4 --max-allowed-packet=1G'
+```
 
 **This is destructive**, like a reseed: it drops and recreates the app database
 inside the compose `mariadb` container, so local users, sessions, settings,
@@ -200,6 +219,26 @@ Environment is read at container creation, so recreate the cms container (or
 put `MEDIA_BASE_URL` in `server/.env` when running the backend with `go run`).
 Leave it unset if you test uploads: a local upload would get a production URL
 for a file that only exists on your machine.
+
+**If the CMS won't come up after the import** (the importer exits 3: data
+loaded and verified, CMS unhealthy), `docker compose logs cms` usually shows one
+of these:
+
+- `failed to initialize OIDC provider`: `OIDC_ISSUER_URL` in `.env` points at an
+  issuer you can't reach. Blank it (or set `OIDC_ISSUER_URL: ""` under
+  `cms.environment` in the override) to run read-only.
+- `bind: address already in use` on 8080: something else owns the port. Publish
+  the CMS elsewhere, loopback-only, in the override (`!override` replaces the
+  base port list instead of appending to it):
+
+  ```yaml
+  services:
+    cms:
+      ports: !override
+        - "127.0.0.1:28080:8080"
+  ```
+
+Recreate the container after editing the override: `docker compose up -d --no-deps cms`.
 
 ## ETL SQL generator
 

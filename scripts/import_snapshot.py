@@ -4,11 +4,13 @@
 The alternative to reseed_from_etl.py for contributors without the WordPress
 ETL. Maintainers produce the snapshot elsewhere; this only consumes it:
 
+  0. refuse outright on a Triangle fleet host (by hostname or fleet address)
   1. validate the manifest and the SQL's sha256, and scan the SQL for anything
      that is not plain table data (USE, GRANT, cross-database names, client
      commands such as \\! or source, LOAD DATA, foreign DEFINERs)
-  2. after confirmation, DROP and recreate the local database inside the
-     compose mariadb container and load the dump as the app user
+  2. after confirmation, dump the current database to db-backups/ (unless it
+     is empty or --no-backup), then DROP and recreate it inside the compose
+     mariadb container and load the dump as the app user
   3. check the anonymization guarantees and the row counts against the manifest
   4. start the CMS so its startup migrations run, and check again
 
@@ -24,6 +26,7 @@ table, and the CMS is left stopped on any failure.
   python ./scripts/import_snapshot.py triangle-snapshot-20261001T040000Z.sql.gz
   python ./scripts/import_snapshot.py --manifest path/to/triangle-snapshot-<ts>.manifest.json
   python ./scripts/import_snapshot.py <snapshot> --yes     # no confirmation prompt
+  python ./scripts/import_snapshot.py <snapshot> --no-backup  # skip the pre-import dump
 """
 
 from __future__ import annotations
@@ -32,13 +35,15 @@ import argparse
 import gzip
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, NamedTuple
 
@@ -103,6 +108,39 @@ IMPORT_SHELL = (
 
 LOCAL_DOCKER_SCHEMES = ("unix://", "npipe://")
 
+# The fleet, from docs/HANDOVER.md ("What runs where") and deploy/README.md.
+# This importer is for contributor machines; on any of these it refuses, with
+# no override. Hostnames compare case-insensitively, without the domain.
+FLEET_HOSTNAMES = frozenset({
+    "thetriangle-delta",      # VM 105, CMS app host and deploy runner
+    "thetriangle-db1-lxc",    # CT 108, MariaDB primary
+    "thetriangle-maxscale",   # CT 109, MaxScale proxy
+    "thetriangle-wordpress",  # VM 100, legacy WordPress
+})
+FLEET_NETWORKS = tuple(
+    ipaddress.ip_network(net)
+    for net in (
+        "10.248.40.0/24",
+        "10.248.41.0/24",
+        "10.248.42.122/32",  # CT 106, legacy WordPress database
+    )
+)
+# `ip` on Linux, `ifconfig` where there is no iproute2 (macOS, BSD).
+ADDRESS_COMMANDS = (["ip", "-o", "-4", "addr", "show"], ["ifconfig"])
+_INET_RE = re.compile(r"\binet (?:addr:)?(\d{1,3}(?:\.\d{1,3}){3})")
+
+# Pre-import backup, as root (it needs the routines, triggers and events too).
+# --add-drop-database --databases makes the dump restore the database whole,
+# replacing whatever the snapshot left there.
+BACKUP_DIR = ROOT_DIR / "db-backups"
+DUMP_SHELL = (
+    'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb-dump -uroot --single-transaction '
+    "--routines --triggers --events --hex-blob --add-drop-database "
+    '--default-character-set=utf8mb4 --max-allowed-packet=1G --databases "$MARIADB_DATABASE"'
+)
+DUMP_COMPLETE = b"-- Dump completed"
+RESTORE_SHELL = 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot --default-character-set=utf8mb4 --max-allowed-packet=1G'
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -123,6 +161,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-y",
         action="store_true",
         help="skip the destructive-action confirmation prompt",
+    )
+    parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="do not dump the current database to db-backups/ before dropping it",
     )
     args = parser.parse_args(argv)
     if not args.snapshot and not args.manifest:
@@ -599,6 +642,46 @@ def scan_snapshot(path: Path) -> int:
 # --------------------------------------------------------------------------
 
 
+def _command_output(cmd: list[str]) -> str | None:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def local_ipv4_addresses(output: Callable[[list[str]], str | None] = _command_output) -> list[str] | None:
+    """This machine's IPv4 addresses, or None if no tool could list them."""
+    for cmd in ADDRESS_COMMANDS:
+        text = output(cmd)
+        if text is None:
+            continue
+        found = _INET_RE.findall(text)
+        if found:
+            return found
+    return None
+
+
+def check_not_fleet_host(hostname: str, addresses: Iterable[str] | None) -> None:
+    """Refuse on a Triangle production/fleet machine. There is no override."""
+    short = hostname.strip().lower().split(".")[0]
+    if short in FLEET_HOSTNAMES:
+        raise Fail(f"this machine is {hostname}, a Triangle fleet host; this importer only runs on a dev machine.")
+    if addresses is None:
+        warn("could not list this machine's IPv4 addresses (no `ip` or `ifconfig`); "
+             "skipping the fleet-address check.")
+        return
+    for address in addresses:
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        for network in FLEET_NETWORKS:
+            if ip in network:
+                raise Fail(f"this machine has address {address}, inside the Triangle fleet network {network}; "
+                           "this importer only runs on a dev machine.")
+
+
 def docker_context_host() -> str | None:
     probe = run(
         ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
@@ -649,8 +732,8 @@ def container_database(compose: list[str]) -> str:
     return name
 
 
-def root_exec(compose: list[str], sql: str) -> None:
-    """Run SQL as root with no default database (it may be about to not exist)."""
+def root_query(compose: list[str], sql: str) -> str:
+    """Run SQL as root with no default database (it may not exist, or be about to not)."""
     result = run(
         [*compose, "exec", "-T", "mariadb", "sh", "-c",
          f'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot -N -B -e {shell_quote(sql)}'],
@@ -660,6 +743,11 @@ def root_exec(compose: list[str], sql: str) -> None:
     )
     if result.returncode != 0:
         raise Fail(f"MariaDB rejected the statement: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def root_exec(compose: list[str], sql: str) -> None:
+    root_query(compose, sql)
 
 
 def sql_string(value: str) -> str:
@@ -667,11 +755,144 @@ def sql_string(value: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# Pre-import backup
+# --------------------------------------------------------------------------
+
+
+def database_tables(compose: list[str], database: str) -> int | None:
+    """How many tables the database has, or None if it does not exist."""
+    name = sql_string(database)
+    out = root_query(
+        compose,
+        f"SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = {name}; "
+        f"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = {name};",
+    )
+    values = out.split()
+    if len(values) != 2 or not all(v.isdigit() for v in values):
+        raise Fail(f"could not tell whether `{database}` has any tables ({out[:80]!r}); "
+                   "refusing to drop it without a backup.")
+    return int(values[1]) if values[0] != "0" else None
+
+
+def plan_backup(args: argparse.Namespace, compose: list[str], database: str,
+                backup_dir: Path = BACKUP_DIR, now: datetime | None = None) -> Path | None:
+    """Where the pre-import backup goes, or None when there is nothing to keep."""
+    if args.no_backup:
+        warn(f"--no-backup given: `{database}` will be dropped WITHOUT a backup.")
+        return None
+    tables = database_tables(compose, database)
+    if tables is None:
+        info(f"`{database}` does not exist yet; nothing to back up.")
+        return None
+    if tables == 0:
+        info(f"`{database}` has no tables; nothing to back up.")
+        return None
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    return backup_dir / f"{database}-pre-snapshot-{stamp}.sql.gz"
+
+
+def display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT_DIR))
+    except ValueError:
+        return str(path)
+
+
+def human_size(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    value = float(size)
+    for unit in ("KiB", "MiB", "GiB"):
+        value /= 1024
+        if value < 1024 or unit == "GiB":
+            break
+    return f"{value:.1f} {unit}"
+
+
+def restore_command(compose: list[str], path: Path) -> str:
+    return (f"gunzip -c {shell_quote(display_path(path))} | "
+            f"{' '.join(compose)} exec -T mariadb sh -c {shell_quote(RESTORE_SHELL)}")
+
+
+def verify_backup(path: Path) -> None:
+    """The gzip is intact and mariadb-dump wrote its completion line."""
+    try:
+        test = subprocess.run(["gzip", "-t", str(path)], capture_output=True, text=True, check=False)
+    except OSError:
+        test = None  # no gzip binary; the read below still checks every CRC
+    if test is not None and test.returncode != 0:
+        raise Fail(f"gzip -t rejected the backup: {test.stderr.strip()[:200]}")
+    tail = b""
+    try:
+        with gzip.open(path, "rb") as gz:
+            while chunk := gz.read(1 << 20):
+                tail = (tail + chunk)[-4096:]
+    except (OSError, EOFError) as exc:
+        raise Fail(f"the backup is not a readable gzip file: {exc}") from None
+    lines = [line for line in tail.splitlines() if line.strip()]
+    if not lines or not lines[-1].startswith(DUMP_COMPLETE):
+        raise Fail("the backup does not end with mariadb-dump's '-- Dump completed' line; the dump stopped early.")
+
+
+def backup_database(compose: list[str], path: Path) -> int:
+    """Dump the app database to path (gzipped); returns its size. Raises Fail and leaves nothing behind."""
+    directory = path.parent
+    if not directory.is_dir():
+        directory.mkdir(mode=0o700)
+        os.chmod(directory, 0o700)
+    if path.exists():
+        raise Fail(f"{display_path(path)} already exists; re-run in a second.")
+
+    # mkstemp creates the file 0600. It only takes the real name once verified.
+    fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".partial")
+    tmp = Path(tmp_name)
+    proc = None
+    try:
+        with tempfile.TemporaryFile() as errlog:
+            with os.fdopen(fd, "wb") as out:
+                with gzip.GzipFile(filename="", mode="wb", fileobj=out) as gz:
+                    proc = subprocess.Popen(
+                        [*compose, "exec", "-T", "mariadb", "sh", "-c", DUMP_SHELL],
+                        cwd=ROOT_DIR,
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=errlog,
+                    )
+                    assert proc.stdout is not None
+                    while chunk := proc.stdout.read(1 << 20):
+                        gz.write(chunk)
+                    code = proc.wait()
+                out.flush()
+                os.fsync(out.fileno())
+            errlog.seek(0)
+            stderr = errlog.read().decode("utf-8", "replace").strip()
+        if code != 0:
+            raise Fail(f"mariadb-dump exited {code}: {stderr[:300] or 'no error output'}")
+        verify_backup(tmp)
+        os.replace(tmp, path)
+    except BaseException as exc:
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        tmp.unlink(missing_ok=True)
+        if isinstance(exc, Fail):
+            raise Fail(f"the backup failed, so nothing was dropped: {exc}") from None
+        if isinstance(exc, OSError):
+            raise Fail(f"could not write the backup, so nothing was dropped: {exc}") from None
+        raise
+    finally:
+        if proc is not None and proc.stdout is not None:
+            proc.stdout.close()
+    return path.stat().st_size
+
+
+# --------------------------------------------------------------------------
 # Confirmation
 # --------------------------------------------------------------------------
 
 
-def confirm(args: argparse.Namespace, compose: list[str], manifest: dict, database: str, sql_path: Path) -> None:
+def confirm(args: argparse.Namespace, compose: list[str], manifest: dict, database: str, sql_path: Path,
+            backup: Path | None) -> None:
     print("\n" + "=" * 72)
     print("  DESTRUCTIVE: this replaces the local dev database with a snapshot.")
     print("=" * 72)
@@ -683,6 +904,13 @@ def confirm(args: argparse.Namespace, compose: list[str], manifest: dict, databa
     print("    - cms_users and cms_sessions   -> nobody can sign in until you log in again")
     print("    - cms_settings, polls and votes, the media catalogue, anything made by hand")
     print("  The docker volume, other databases in it, and files on disk are kept.")
+    if backup is not None:
+        print(f"\n  Backup first: the current database is dumped to {display_path(backup)}")
+        print("  and the drop only happens once that dump is complete (restore: see README).")
+    elif args.no_backup:
+        print("\n  NO BACKUP (--no-backup): what is listed below is gone for good.")
+    else:
+        print("\n  No backup: the database is missing or has no tables.")
 
     counts = {}
     for table in CONFIRM_TABLES:
@@ -858,7 +1086,14 @@ def fail_unusable(compose: list[str], database: str, problems: list[str], when: 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    restore_hint = None
     try:
+        try:
+            hostname = socket.gethostname()
+        except OSError as exc:
+            raise Fail(f"could not determine this machine's hostname for the fleet-host check: {exc}") from None
+        check_not_fleet_host(hostname, local_ipv4_addresses())
+
         step("Validating the snapshot")
         sql_path, manifest_path = resolve_paths(args)
         manifest = load_manifest(manifest_path)
@@ -875,7 +1110,15 @@ def main(argv: list[str] | None = None) -> int:
         database = container_database(compose)
         info(f"target: database `{database}` in the local compose mariadb container")
 
-        confirm(args, compose, manifest, database, sql_path)
+        backup = plan_backup(args, compose, database)
+        confirm(args, compose, manifest, database, sql_path, backup)
+
+        if backup is not None:
+            step("Backing up the current database")
+            size = backup_database(compose, backup)
+            restore_hint = restore_command(compose, backup)
+            info(f"backup: {display_path(backup)} ({human_size(size)})")
+            info(f"restore: {restore_hint}")
 
         step("Recreating the database")
         run([*compose, "stop", "cms"], cwd=ROOT_DIR, check=False)
@@ -900,8 +1143,9 @@ def main(argv: list[str] | None = None) -> int:
 
         step("Starting the CMS (runs the startup schema migrations)")
         started = run([*compose, "start", "cms"], cwd=ROOT_DIR, check=False).returncode == 0
+        healthy = False
         if started:
-            wait_cms_healthy(compose)
+            healthy = wait_cms_healthy(compose)
         else:
             warn("could not start the cms container; create it with ./scripts/setup_containers.py, then re-run.")
 
@@ -912,18 +1156,36 @@ def main(argv: list[str] | None = None) -> int:
 
         root_exec(compose, f"DROP TABLE `{database}`.`{MARKER_TABLE}`")
 
+        if not healthy:
+            print(
+                "\nThe snapshot is loaded and verified, but the CMS is not healthy, so its startup"
+                "\nmigrations may not have run. Check `docker compose logs cms`; the usual causes are an"
+                "\nunreachable OIDC_ISSUER_URL in .env (blank it to run read-only) or unreadable"
+                "\nserver/certs. Once it is healthy the data is ready; no re-import is needed.",
+                file=sys.stderr,
+            )
+            if restore_hint:
+                print(f"  Previous database: {restore_hint}", file=sys.stderr)
+            return 3
+
         print("\nDone. The local database now holds the anonymized snapshot.")
         print("  API:   curl -k https://localhost:8080/v1/health/db")
         print("  Login: cms_users is empty, so the first account to sign in through OIDC becomes admin.")
         print("         Without OIDC_* in .env the CMS runs read-only (AUTH DISABLED). See README.")
         print("  Media: images are not included; see README for the read-only fallback.")
+        if restore_hint:
+            print(f"  Previous database: {restore_hint}")
         return 0
 
     except Fail as exc:
         print(f"\nERROR: {exc}", file=sys.stderr)
+        if restore_hint:
+            print(f"  To put the previous database back: {restore_hint}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
+        if restore_hint:
+            print(f"  To put the previous database back: {restore_hint}", file=sys.stderr)
         return 130
 
 
