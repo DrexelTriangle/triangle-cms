@@ -5677,6 +5677,11 @@ const docTemplate = `{
                 },
                 "new_tab": {
                     "type": "boolean"
+                },
+                "visible_from": {
+                    "type": "string",
+                    "format": "date-time",
+                    "example": "2026-10-10T13:00:00Z"
                 }
             }
         },

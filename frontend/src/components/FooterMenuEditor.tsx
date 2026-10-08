@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Clock,
   ExternalLink,
   Link2,
   Minus,
@@ -12,7 +13,9 @@ import {
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useApiFetch } from "../hooks/useApiFetch"
+import { defaultVisibleFrom, isoToLocalInput, localInputToISO } from "../lib/footerSchedule"
 import SettingsSection from "./SettingsSection"
+import { DateTimeField } from "./ui/datetime-field"
 
 type FooterEntryKind = "link" | "heading" | "spacer"
 
@@ -21,7 +24,11 @@ type FooterEntry = {
   label: string
   href: string
   new_tab: boolean
+  /** RFC3339; the public site hides the entry until then. Absent = always shown. */
+  visible_from?: string
 }
+
+const viewerTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 type FooterColumn = {
   entries: FooterEntry[]
@@ -52,12 +59,24 @@ function normalizeEntry(raw: unknown): FooterEntry {
   const entry = (raw ?? {}) as Partial<FooterEntry>
   const kind: FooterEntryKind =
     entry.kind === "heading" || entry.kind === "spacer" ? entry.kind : "link"
-  return {
+  const normalized: FooterEntry = {
     kind,
     label: String(entry.label ?? ""),
     href: String(entry.href ?? ""),
     new_tab: Boolean(entry.new_tab),
   }
+  // Kept verbatim: the server already stores it canonically, and rewriting it
+  // here would mark a freshly loaded footer as having unsaved changes.
+  if (kind !== "spacer" && typeof entry.visible_from === "string" && entry.visible_from.trim()) {
+    normalized.visible_from = entry.visible_from
+  }
+  return normalized
+}
+
+// Whether a scheduled entry is still waiting to appear, for the hint under it.
+function isUpcoming(visibleFrom: string) {
+  const at = new Date(visibleFrom).getTime()
+  return !Number.isNaN(at) && at > Date.now()
 }
 
 function normalizeColumns(raw: unknown): FooterColumn[] {
@@ -121,6 +140,21 @@ export default function FooterMenuEditor() {
     })
   }
 
+  // Clearing deletes the key rather than leaving "", so an entry scheduled and
+  // then unscheduled compares equal to the saved one and the editor is clean.
+  function setVisibleFrom(columnIndex: number, entryIndex: number, visibleFrom: string) {
+    const column = columns[columnIndex]
+    updateColumn(columnIndex, {
+      entries: column.entries.map((entry, i) => {
+        if (i !== entryIndex) return entry
+        const next = { ...entry }
+        if (visibleFrom) next.visible_from = visibleFrom
+        else delete next.visible_from
+        return next
+      }),
+    })
+  }
+
   function moveEntry(columnIndex: number, entryIndex: number, delta: number) {
     const column = columns[columnIndex]
     const target = entryIndex + delta
@@ -181,7 +215,7 @@ export default function FooterMenuEditor() {
           ? "Loading..."
           : `${columns.length} column${columns.length === 1 ? "" : "s"}`
       }
-      description="Links shown in the public site footer. Columns appear left to right; headings are bold entries; spacers split groups inside a column."
+      description="Links shown in the public site footer. Columns appear left to right; headings are bold entries; spacers split groups inside a column. Use the clock on an entry to keep it hidden until a set time."
     >
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
@@ -285,6 +319,25 @@ export default function FooterMenuEditor() {
                             <ExternalLink className="w-4 h-4" aria-hidden="true" />
                           </button>
                         )}
+                        {/* Same idea: a scheduled entry keeps its clock lit. */}
+                        {entry.kind !== "spacer" && (
+                          <button
+                            type="button"
+                            title={entry.visible_from ? "Remove schedule" : "Schedule"}
+                            aria-label={entry.visible_from ? "Remove schedule" : "Schedule"}
+                            aria-pressed={Boolean(entry.visible_from)}
+                            onClick={() =>
+                              setVisibleFrom(columnIndex, entryIndex, entry.visible_from ? "" : defaultVisibleFrom())
+                            }
+                            className={`p-1 rounded-md ${
+                              entry.visible_from
+                                ? "bg-primary/10 text-primary"
+                                : "text-muted-foreground hover:bg-muted opacity-0 group-hover/entry:opacity-100 focus-visible:opacity-100 transition-opacity"
+                            }`}
+                          >
+                            <Clock className="w-4 h-4" aria-hidden="true" />
+                          </button>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-0.5 opacity-0 group-hover/entry:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -346,6 +399,22 @@ export default function FooterMenuEditor() {
                           placeholder="/section or https://..."
                           className={`${inputClass} text-muted-foreground`}
                         />
+                        {entry.visible_from && (
+                          <DateTimeField
+                            aria-label="Show from"
+                            clearable
+                            value={isoToLocalInput(entry.visible_from)}
+                            onChange={(value) =>
+                              setVisibleFrom(columnIndex, entryIndex, localInputToISO(value))
+                            }
+                            className="h-8"
+                            hint={
+                              isUpcoming(entry.visible_from)
+                                ? `Hidden on the public site until this time (${viewerTimeZone}), then it appears on its own.`
+                                : "This time has passed, so the link is showing. Clear it to drop the schedule."
+                            }
+                          />
+                        )}
                       </>
                     )}
                   </div>

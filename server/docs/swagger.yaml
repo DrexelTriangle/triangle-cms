@@ -746,6 +746,10 @@ definitions:
         type: string
       new_tab:
         type: boolean
+      visible_from:
+        example: "2026-10-10T13:00:00Z"
+        format: date-time
+        type: string
     type: object
   models.FooterSettingsPatchRequest:
     properties:

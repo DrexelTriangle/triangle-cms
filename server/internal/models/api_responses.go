@@ -399,11 +399,17 @@ const (
 // FooterEntry is one line in a footer column. NewTab drives target="_blank",
 // which the external links (application form, print archive, The Rectangle)
 // need and the internal ones must not have. Spacers carry no label or href.
+//
+// VisibleFrom schedules a link: an RFC3339 instant before which the public
+// site should not render the entry. The CMS stores and serves scheduled
+// entries unchanged, future ones included; the public site decides whether to
+// render them, so a launch needs no CMS edit at the moment it happens.
 type FooterEntry struct {
-	Kind   string `json:"kind"`
-	Label  string `json:"label"`
-	Href   string `json:"href"`
-	NewTab bool   `json:"new_tab"`
+	Kind        string `json:"kind"`
+	Label       string `json:"label"`
+	Href        string `json:"href"`
+	NewTab      bool   `json:"new_tab"`
+	VisibleFrom string `json:"visible_from,omitempty" format:"date-time" example:"2026-10-10T13:00:00Z"`
 }
 
 // FooterColumn is one column of the public-site footer.
