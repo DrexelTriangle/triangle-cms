@@ -5677,6 +5677,11 @@ const docTemplate = `{
                 },
                 "new_tab": {
                     "type": "boolean"
+                },
+                "visible_from": {
+                    "type": "string",
+                    "format": "date-time",
+                    "example": "2026-10-10T13:00:00Z"
                 }
             }
         },
@@ -6593,6 +6598,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "number": {
+                    "description": "Wordangle #N; #0 is launch day, 2026-10-09",
                     "type": "integer"
                 },
                 "retired_on": {
