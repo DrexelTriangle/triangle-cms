@@ -150,6 +150,9 @@ jobs:
       - name: Reseed script help
         run: python ./scripts/reseed_from_etl.py --help
 
+      - name: Script unit tests
+        run: python -m unittest discover -s scripts/tests -v
+
       # The non-TTY guard is the only thing standing between an automated
       # context and a destroyed database, so assert it stays a guard: this must
       # FAIL to proceed. Without a Docker daemon the run would abort in
