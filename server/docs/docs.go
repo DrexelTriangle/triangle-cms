@@ -6593,6 +6593,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "number": {
+                    "description": "Wordangle #N; #0 is launch day, 2026-10-09",
                     "type": "integer"
                 },
                 "retired_on": {
