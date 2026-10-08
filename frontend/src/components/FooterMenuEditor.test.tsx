@@ -54,11 +54,20 @@ vi.mock("../hooks/useApiFetch", () => ({
 const renderEditor = async () => {
   const user = userEvent.setup()
   render(<FooterMenuEditor />)
-  // The collapsible section starts closed; open it the way an editor would.
-  await user.click(screen.getByRole("button", { expanded: false }))
+  // Open the collapsible section the way an editor would, but only if it is
+  // closed: SettingsSection remembers its open state, so whether it starts
+  // closed depends on the storage the environment provides.
+  const toggle = screen.getAllByRole("button").find((button) => button.hasAttribute("aria-expanded"))
+  if (!toggle) throw new Error("no section toggle")
+  if (toggle.getAttribute("aria-expanded") === "false") await user.click(toggle)
+  expect(toggle).toHaveAttribute("aria-expanded", "true")
   await screen.findByDisplayValue("Games")
   return user
 }
+
+// jsdom's localStorage persists across tests in a file; under some Node
+// versions the global is Node's own and absent, hence the optional chaining.
+const SECTION_STORAGE_KEY = "cms.settings.section.footer"
 
 // Each entry is the group around its Label input.
 const entryFor = (label: string) => {
@@ -75,6 +84,7 @@ describe("FooterMenuEditor scheduling", () => {
   beforeEach(() => {
     patches = []
     apiFetchStub.mockClear()
+    globalThis.localStorage?.removeItem(SECTION_STORAGE_KEY)
   })
 
   it("preserves a loaded schedule through an unrelated save", async () => {
