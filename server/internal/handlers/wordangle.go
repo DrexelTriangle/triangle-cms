@@ -50,7 +50,7 @@ type wordangleCheckResponse struct {
 }
 
 // @Summary Get a day's Wordangle answer
-// @Description Public. Only today and past days are served; a future day reads as 404 so the queue cannot be spoiled. An empty today is filled with a generated word on first read, so every played word lands on the seen-before list.
+// @Description Public. Only days from launch (#0, 2026-10-09) through today are served. A future day reads as 404 so the queue cannot be spoiled, and a day before launch reads as 404 because its pre-launch word was never a public puzzle (the row is kept only to block reuse). An empty today is filled with a generated word on first read, so every played word lands on the seen-before list.
 // @Tags wordangle
 // @Produce json
 // @Param date path string true "Puzzle date (YYYY-MM-DD)"
@@ -65,8 +65,10 @@ func GetWordangleDay(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusBadRequest, "invalid date")
 			return
 		}
+		// Pre-launch days are refused before the database is read: their rows
+		// stay in the table as used words but were never public puzzles.
 		today := wordangle.Today(time.Now())
-		if date.After(today) {
+		if date.After(today) || wordangle.PuzzleNumber(date) < 0 {
 			writeError(w, http.StatusNotFound, "no word for that day")
 			return
 		}
@@ -259,16 +261,24 @@ func writeWordangleManage(w http.ResponseWriter, r *http.Request, conn *sql.DB, 
 		writeError(w, http.StatusInternalServerError, "Failed to load Wordangle words")
 		return
 	}
-	today := wordangle.Today(time.Now())
+	writeJSON(w, status, splitWordangleManage(words, wordangle.Today(time.Now())))
+}
+
+// splitWordangleManage sorts rows into the queue and the seen-before list.
+// Rows from before launch (a negative puzzle number) are left out of the list
+// but stay in the table, where they still block the word from being reused.
+func splitWordangleManage(words []models.WordangleWord, today time.Time) wordangleManageResponse {
 	resp := wordangleManageResponse{
 		Today: today.Format(time.DateOnly),
 		Queue: []models.WordangleWord{},
 		Seen:  []models.WordangleWord{},
 	}
 	for _, word := range words {
-		if wordangleStatus(word, today) == "queued" {
+		switch {
+		case wordangleStatus(word, today) == "queued":
 			resp.Queue = append(resp.Queue, word)
-		} else {
+		case word.Number != nil && *word.Number < 0:
+		default:
 			resp.Seen = append(resp.Seen, word)
 		}
 	}
@@ -276,7 +286,7 @@ func writeWordangleManage(w http.ResponseWriter, r *http.Request, conn *sql.DB, 
 	for i, j := 0, len(resp.Seen)-1; i < j; i, j = i+1, j-1 {
 		resp.Seen[i], resp.Seen[j] = resp.Seen[j], resp.Seen[i]
 	}
-	writeJSON(w, status, resp)
+	return resp
 }
 
 // wordangleStatus places a row: today's and future words are still queued
