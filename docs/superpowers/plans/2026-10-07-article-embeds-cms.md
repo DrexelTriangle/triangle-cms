@@ -2149,6 +2149,7 @@ Expected: all green.
 Run these against the deployed media origin and record the output. If any fails, the result goes to Sachin as a question before this branch deploys.
 
 ```bash
+# 0. The CMS MEDIA_BASE_URL is set, uses https, and has the same origin as Scalene's MEDIA_BASE_URL.
 # 1. Production media host for Scalene's build is not a legacy host.
 #    (ask Sachin for the value of MEDIA_BASE_URL in the Scalene build env; it must not be cms.thetriangle.org or www.thetriangle.org)
 

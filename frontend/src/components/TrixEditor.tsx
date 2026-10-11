@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type MutableRefObject } from "react";
 import "trix";
 import "trix/dist/trix.css";
 import "./TrixEditor.css";
@@ -6,10 +6,14 @@ import { apiBaseUrl } from "../auth/urls";
 import { copyText } from "../lib/clipboard";
 import MediaPicker, { type MediaPickerItem } from "./MediaPicker";
 import {
+  EMBED_CONTENT_TYPE,
   articleHtmlToTrix,
+  buildAudioCardHtml,
+  buildEmbedCardHtml,
   contentTypeForUrl,
   trixHtmlToArticle,
-} from "./trixImageHtml";
+} from "./trixArticleHtml";
+import { parseEmbedUrl } from "../lib/embedUrl";
 
 // Leave the caption area of an image empty until it has a real caption. Trix's
 // default is to fill it with the filename and file size, which reads as a
@@ -37,9 +41,13 @@ if (typeof window !== "undefined" && window.Trix) {
   // figure as a class our own effect re-applied. That class was enough to make
   // alignment look preserved until Trix re-rendered the figure from the piece,
   // which editing a caption does, at which point the alignment silently
-  // vanished from both the editor and the saved article.
-  if (!window.Trix.AttachmentPiece.permittedAttributes.includes("align")) {
-    window.Trix.AttachmentPiece.permittedAttributes.push("align");
+  // vanished from both the editor and the saved article. The embed attributes
+  // need the same treatment, or a re-render would strip the link an embed card
+  // is rebuilt from and the shortcode it saves back to.
+  for (const name of ["align", "embedProvider", "embedUrl", "embedOriginal"]) {
+    if (!window.Trix.AttachmentPiece.permittedAttributes.includes(name)) {
+      window.Trix.AttachmentPiece.permittedAttributes.push(name);
+    }
   }
 }
 
@@ -87,12 +95,38 @@ const isOwnMediaUrl = (url: string): boolean => {
   }
 };
 
+const ACCEPTED_HOSTS_MESSAGE =
+  "That link is not supported. Paste a link from YouTube, SoundCloud, Spotify, TikTok or Instagram.";
+const SHORT_LINK_MESSAGE =
+  "That is a short link. Open the link in a browser and paste the full URL.";
+const FILE_TYPE_MESSAGE = "Only images and MP3 audio can be added to an article.";
+
+const isAcceptedUploadFile = (file: File): boolean => {
+  const type = file.type.toLowerCase();
+  if (type.startsWith("image/")) return true;
+  if (type === "audio/mpeg" || type === "audio/mp3" || type === "audio/mpeg3") return true;
+  return type === "" && /\.mp3$/i.test(file.name);
+};
+
+// Only accepted files reach the attachment handler, so anything not an image is the MP3.
+const isAudioFile = (file: File): boolean => !file.type.toLowerCase().startsWith("image/");
+
+export type TrixEditorApi = {
+  // True while any attachment has a File and no URL yet, which is Trix's own
+  // definition of an upload in flight (Attachment#isPending).
+  hasPendingUploads(): boolean;
+};
+
 type TrixEditorProps = {
   value: string;
   onChange: (html: string) => void;
+  // Lets the page ask about upload state synchronously at save time.
+  apiRef?: MutableRefObject<TrixEditorApi | null>;
+  // Fired on every change so the page can disable its save button as a cue.
+  onPendingChange?: (pending: boolean) => void;
 };
 
-function TrixEditor({ value, onChange }: TrixEditorProps) {
+function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProps) {
   const toolbarId = useId();
   const editorRef = useRef<TrixEditorElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -125,7 +159,16 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
   // where the author was typing rather than at the top of the document.
   const savedRangeRef = useRef<[number, number] | null>(null);
 
+  // True while the editor itself is adding attachments: a loadHTML of the
+  // stored article, or an insert from the media library. Trix reports those
+  // through trix-attachment-add exactly like a paste, but they were validated
+  // on the way in (articleHtmlToTrix, the library), and the paste guard would
+  // strip a legacy block's embedOriginal and delete audio served from a media
+  // origin that is neither the CMS nor the API origin.
+  const ownInsertRef = useRef(false);
+
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [embedOpen, setEmbedOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // The image whose alt text is being edited, identified by attachment id
   // because the attachment object itself is replaced whenever Trix re-renders.
@@ -133,6 +176,20 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     attachmentId: number;
     alt: string;
   } | null>(null);
+
+  const hasPendingUploads = useCallback((): boolean => {
+    const editor = editorRef.current;
+    if (!editor) return false;
+    return editor.editor.getDocument().getAttachments().some((a) => a.isPending());
+  }, []);
+
+  useEffect(() => {
+    if (!apiRef) return;
+    apiRef.current = { hasPendingUploads };
+    return () => {
+      apiRef.current = null;
+    };
+  }, [apiRef, hasPendingUploads]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -144,7 +201,12 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     // nothing emitted before it can still be worth honouring.
     emittedRef.current.clear();
     emittedRef.current.add(value);
-    editor.editor.loadHTML(articleHtmlToTrix(value));
+    ownInsertRef.current = true;
+    try {
+      editor.editor.loadHTML(articleHtmlToTrix(value));
+    } finally {
+      ownInsertRef.current = false;
+    }
   }, [value]);
 
   useEffect(() => {
@@ -160,13 +222,14 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       const html = trixHtmlToArticle(editor.value);
       rememberEmitted(html);
       onChange(html);
+      onPendingChange?.(hasPendingUploads());
     };
 
     editor.addEventListener("trix-change", handleChange);
     return () => {
       editor.removeEventListener("trix-change", handleChange);
     };
-  }, [onChange, rememberEmitted]);
+  }, [onChange, onPendingChange, hasPendingUploads, rememberEmitted]);
 
   // Let go of the attachment being edited as soon as focus leaves the editor.
   //
@@ -285,13 +348,30 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
           return;
         }
         try {
-          const { url } = JSON.parse(xhr.responseText) as { url: string };
+          const { url, content_type: contentType } = JSON.parse(xhr.responseText) as {
+            url: string;
+            content_type?: string;
+          };
+          // The server's sniffed type, not the browser's: browsers report MP3s
+          // as audio/mpeg, audio/mp3, audio/mpeg3 or nothing at all, and the
+          // save branch keys on the real type.
+          const isImage = (contentType ?? file.type).startsWith("image/");
           // href only for non-images. Trix wraps an attachment carrying an href
           // in an <a>, which for a previewable image swallows every click on the
           // figure, including the caption field. A file stub, by contrast, has
           // nothing to edit and a download link is the whole point of it.
+          // Trix renders a file attachment as a bare chip, so audio carries its
+          // own card as content.
+          const isAudio = (contentType ?? file.type).startsWith("audio/");
           attachment.setAttributes(
-            file.type.startsWith("image/") ? { url } : { url, href: url },
+            isImage
+              ? { url, ...(contentType ? { contentType } : {}) }
+              : {
+                  url,
+                  href: url,
+                  ...(contentType ? { contentType } : {}),
+                  ...(isAudio ? { content: buildAudioCardHtml(file.name) } : {}),
+                },
           );
           attachment.setUploadProgress(100);
         } catch {
@@ -311,6 +391,11 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
 
       const formData = new FormData();
       formData.append("file", attachment.file ?? file);
+      // A hung upload must not hold the save guard forever.
+      xhr.timeout = 10 * 60 * 1000;
+      xhr.ontimeout = () => {
+        failAttachment(attachment, `Could not add ${file.name}: the upload timed out.`);
+      };
       xhr.send(formData);
     };
 
@@ -356,8 +441,46 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
 
     const handleAttachmentAdd = (event: Event) => {
       const { attachment } = event as TrixAttachmentAddEvent;
+      if (ownInsertRef.current) return;
+
+      const contentType = String(attachment.getAttribute("contentType") ?? "");
+      if (contentType === EMBED_CONTENT_TYPE) {
+        // Pasted from another tab or article. Rebuild the card from validated
+        // attributes; stored content is never rendered.
+        const parsed = parseEmbedUrl(String(attachment.getAttribute("embedUrl") ?? ""));
+        if (!parsed.ok || parsed.embed.provider !== attachment.getAttribute("embedProvider")) {
+          attachment.remove();
+          setNotice("A pasted embed was removed because its link is not valid.");
+          return;
+        }
+        attachment.setAttributes({
+          embedUrl: parsed.embed.url,
+          content: buildEmbedCardHtml(parsed.embed.provider, parsed.embed.url),
+          // A pasted card is no longer the unedited legacy block it came from.
+          embedOriginal: undefined,
+        });
+        return;
+      }
+      if (contentType.startsWith("audio/") && !attachment.file) {
+        // A pasted audio chip. Anything not on our media infrastructure goes.
+        const url = String(attachment.getAttribute("url") ?? "");
+        if (!isOwnMediaUrl(url)) {
+          attachment.remove();
+          setNotice("A pasted audio file was removed because it is not in the media library.");
+        } else {
+          const filename = String(attachment.getAttribute("filename") ?? "") || (url.split("/").pop() ?? "audio.mp3");
+          attachment.setAttributes({ content: buildAudioCardHtml(filename) });
+        }
+        return;
+      }
 
       if (attachment.file) {
+        // The card goes on before the upload, not only after it: a pending
+        // file attachment is a bare chip whose only text is the caption our
+        // CSS hides, so a slow upload showed an empty box.
+        if (isAudioFile(attachment.file)) {
+          attachment.setAttributes({ content: buildAudioCardHtml(attachment.file.name) });
+        }
         uploadFile(attachment, attachment.file);
         return;
       }
@@ -424,24 +547,75 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       // Deliberately no href; see uploadFile. The saved article is a plain
       // <figure><img> either way, so the link would only ever have existed inside
       // the editor, where it fights with selecting and captioning the image.
-      const attachment = new Trix.Attachment({
-        url: item.url,
-        contentType: item.mime_type || contentTypeForUrl(item.url),
-        filename: item.alt_text || item.file_name,
-        alt: item.alt_text ?? "",
-        ...(item.width ? { width: item.width } : {}),
-        ...(item.height ? { height: item.height } : {}),
-        // Trix's previewablePattern excludes extension-less URLs, which would
-        // render a library image as a file stub instead of a preview.
-        previewable: true,
-      });
-      editor.editor.insertAttachment(attachment);
+      const mimeType = item.mime_type || contentTypeForUrl(item.url);
+      const attachment = mimeType.startsWith("audio/")
+        ? new Trix.Attachment({
+            url: item.url,
+            href: item.url,
+            contentType: mimeType,
+            filename: item.file_name,
+            content: buildAudioCardHtml(item.file_name),
+          })
+        : new Trix.Attachment({
+            url: item.url,
+            contentType: mimeType,
+            filename: item.alt_text || item.file_name,
+            alt: item.alt_text ?? "",
+            ...(item.width ? { width: item.width } : {}),
+            ...(item.height ? { height: item.height } : {}),
+            // Trix's previewablePattern excludes extension-less URLs, which would
+            // render a library image as a file stub instead of a preview.
+            previewable: true,
+          });
+      ownInsertRef.current = true;
+      try {
+        editor.editor.insertAttachment(attachment);
+      } finally {
+        ownInsertRef.current = false;
+      }
 
-      if (!item.alt_text) {
+      if (!mimeType.startsWith("audio/") && !item.alt_text) {
         setNotice(
           `Inserted ${item.file_name}, which has no alt text. Click the image and use “Alt” to describe it.`,
         );
       }
+    },
+    [openBlockForImage],
+  );
+
+  const openEmbed = useCallback(() => {
+    const editor = editorRef.current;
+    savedRangeRef.current = editor ? editor.editor.getSelectedRange() : null;
+    setEmbedOpen(true);
+  }, []);
+
+  // Returns an error message, or null after a successful insert.
+  const insertEmbed = useCallback(
+    (input: string): string | null => {
+      const parsed = parseEmbedUrl(input);
+      if (!parsed.ok) return parsed.reason === "short-link" ? SHORT_LINK_MESSAGE : ACCEPTED_HOSTS_MESSAGE;
+      const editor = editorRef.current;
+      const Trix = window.Trix;
+      if (!editor || !Trix) return "The editor is not ready.";
+
+      editor.focus();
+      if (savedRangeRef.current) {
+        editor.editor.setSelectedRange(savedRangeRef.current);
+        savedRangeRef.current = null;
+      }
+      openBlockForImage();
+      const { provider, url } = parsed.embed;
+      // A content attachment has no url, but trix.d.ts types url as required
+      // for the file and image attachments everything else builds.
+      editor.editor.insertAttachment(
+        new Trix.Attachment({
+          contentType: EMBED_CONTENT_TYPE,
+          embedProvider: provider,
+          embedUrl: url,
+          content: buildEmbedCardHtml(provider, url),
+        } as TrixAttachmentAttributes),
+      );
+      return null;
     },
     [openBlockForImage],
   );
@@ -454,10 +628,13 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
       const Trix = window.Trix;
       if (!Trix) return;
       event.preventDefault();
+      const { file } = event as TrixFileAcceptEvent;
+      if (!isAcceptedUploadFile(file)) {
+        setNotice(FILE_TYPE_MESSAGE);
+        return;
+      }
       openBlockForImage();
-      editor.editor.insertAttachment(
-        Trix.Attachment.attachmentForFile((event as TrixFileAcceptEvent).file),
-      );
+      editor.editor.insertAttachment(Trix.Attachment.attachmentForFile(file));
     };
 
     editor.addEventListener("trix-file-accept", handleFileAccept);
@@ -1435,6 +1612,10 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
           <circle cx="8.5" cy="8.5" r="1.5" />
           <path d="M21 15l-5-5L5 21" />
         </symbol>
+        <symbol id={`${toolbarId}-embed`} viewBox="0 0 24 24">
+          <path d="M4 6h16v12H4z" fill="none" stroke="currentColor" strokeWidth="2" />
+          <path d="m10 9 5 3-5 3z" fill="currentColor" />
+        </symbol>
       </svg>
 
       <trix-toolbar id={toolbarId}>
@@ -1583,6 +1764,17 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
             </button>
             <button
               type="button"
+              className="trix-button trix-button--icon-embed"
+              onClick={openEmbed}
+              title="Embed a link (YouTube, SoundCloud, Spotify, TikTok, Instagram)"
+              tabIndex={-1}
+            >
+              <svg className="trix-icon" aria-hidden="true">
+                <use href={`#${toolbarId}-embed`} />
+              </svg>
+            </button>
+            <button
+              type="button"
               className="trix-button trix-button--icon-attach"
               data-trix-action="attachFiles"
               title="Attach files"
@@ -1695,6 +1887,16 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
           onSelect={insertFromLibrary}
         />
       )}
+
+      {embedOpen && (
+        <EmbedDialog
+          onClose={() => {
+            setEmbedOpen(false);
+            savedRangeRef.current = null;
+          }}
+          onInsert={insertEmbed}
+        />
+      )}
     </div>
   );
 }
@@ -1774,6 +1976,85 @@ function AltTextDialog({ alt, onSave, onCancel }: AltTextDialogProps) {
             type="button"
           >
             Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type EmbedDialogProps = {
+  // Returns an error message, or null once the embed is in the article.
+  onInsert: (url: string) => string | null;
+  onClose: () => void;
+};
+
+// Same modal shell as AltTextDialog, for the same reason: an input inside the
+// toolbar or the contenteditable would fight Trix for focus and keystrokes.
+function EmbedDialog({ onInsert, onClose }: EmbedDialogProps) {
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const inputId = useId();
+
+  const submit = () => {
+    const message = onInsert(draft);
+    if (message) {
+      setError(message);
+      return;
+    }
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        aria-label="Embed a link"
+        aria-modal="true"
+        className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-background p-5"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+      >
+        <label className="text-base font-semibold text-foreground" htmlFor={inputId}>
+          Link to embed
+        </label>
+        <input
+          autoFocus
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+          id={inputId}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+            if (e.key === "Escape") onClose();
+          }}
+          placeholder="https://www.youtube.com/watch?v=..."
+          type="url"
+          value={draft}
+        />
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button
+            className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground"
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            onClick={submit}
+            type="button"
+          >
+            Insert
           </button>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ImageOff, Pencil, Search, Upload, X } from "lucide-react"
+import { ImageOff, Music, Pencil, Search, Upload, X } from "lucide-react"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { srcSetFor, type ImageVariant } from "../lib/imageVariants"
 
@@ -28,9 +28,14 @@ type MediaPickerProps = {
   // escape hatch by design: they get sideloaded so articles never hotlink.
   onUseUrl?: (url: string) => void
   initialUrl?: string
+  // Hide audio rows and refuse audio uploads. The featured-image and settings
+  // pickers need an image; only the body editor takes audio.
+  imagesOnly?: boolean
 }
 
 const PAGE_SIZE = 60
+
+const isAudio = (item: MediaPickerItem) => item.mime_type?.startsWith("audio/") ?? false
 
 // How far ahead of the sentinel to start fetching, so the next page is usually
 // already in place by the time the author scrolls to the bottom of the grid.
@@ -53,7 +58,7 @@ async function errorMessage(response: Response, fallback: string) {
  * notably including alt_text, so a chosen image arrives with its description
  * already written rather than needing it retyped per article.
  */
-function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, initialUrl = "" }: MediaPickerProps) {
+function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, initialUrl = "", imagesOnly = false }: MediaPickerProps) {
   const apiFetch = useApiFetch()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -106,6 +111,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
           offset: String(request.offset),
         })
         if (request.search) params.set("search", request.search)
+        if (imagesOnly) params.set("mime_type", "image/")
         const response = await apiFetch(`/v1/media/gallery?${params.toString()}`, {
           signal: controller.signal,
         })
@@ -133,7 +139,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
 
     void load()
     return () => controller.abort()
-  }, [apiFetch, request])
+  }, [apiFetch, request, imagesOnly])
 
   useEffect(() => {
     if (!sentinel || !hasMore || isLoading || isLoadingMore) return
@@ -236,7 +242,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
             />
           </div>
           <input
-            accept="image/jpeg,image/png,image/gif,image/webp"
+            accept={imagesOnly ? "image/jpeg,image/png,image/gif,image/webp" : "image/jpeg,image/png,image/gif,image/webp,audio/mpeg,.mp3"}
             className="hidden"
             onChange={(e) => void handleUpload(e.target.files)}
             ref={fileInputRef}
@@ -281,16 +287,22 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
                     type="button"
                   >
                     <span className="relative block aspect-square overflow-hidden bg-muted">
-                      <img
-                        alt={item.alt_text || item.file_name}
-                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        src={item.url}
-                        srcSet={srcSetFor(item.variants)}
-                        // One square of the 2-5 column grid; errs large.
-                        sizes="(min-width: 1024px) 20vw, (min-width: 768px) 25vw, (min-width: 640px) 33vw, 50vw"
-                      />
+                      {isAudio(item) ? (
+                        <span aria-label="Audio file" className="flex h-full w-full items-center justify-center text-muted-foreground" role="img">
+                          <Music className="h-10 w-10" />
+                        </span>
+                      ) : (
+                        <img
+                          alt={item.alt_text || item.file_name}
+                          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          src={item.url}
+                          srcSet={srcSetFor(item.variants)}
+                          // One square of the 2-5 column grid; errs large.
+                          sizes="(min-width: 1024px) 20vw, (min-width: 768px) 25vw, (min-width: 640px) 33vw, 50vw"
+                        />
+                      )}
                     </span>
                     <span className="truncate px-2 py-1.5 text-xs text-foreground">{item.file_name}</span>
                   </button>
@@ -298,7 +310,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
                       the moment the choice is made: an image with no alt text
                       publishes without any, and sending the author to the Media
                       library to fix that loses the article they were writing. */}
-                  <AltTextField item={item} onSaved={updateItem} />
+                  {!isAudio(item) && <AltTextField item={item} onSaved={updateItem} />}
                 </div>
               ))}
             </div>

@@ -1,3 +1,4 @@
+import { useEffect, type MutableRefObject } from "react"
 import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
@@ -16,6 +17,9 @@ type ApiCall = { url: string; method: string; body: Record<string, unknown> | nu
 
 let apiCalls: ApiCall[] = []
 let articleStatus: string
+let articleContent: string
+// What the mocked editor reports through apiRef and onPendingChange.
+let pendingFlag = false
 let articlePublishedDate: string | undefined
 // Slugs belonging to other articles, so a GET for them answers 200 the way the
 // API would rather than the 404 that means "free".
@@ -56,7 +60,7 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       id: 1,
       title: "Live story",
       slug: ARTICLE_SLUG,
-      content: "<p>Body</p>",
+      content: articleContent,
       excerpt: "Excerpt",
       status: articleStatus,
       published_date: articlePublishedDate,
@@ -95,11 +99,26 @@ vi.mock("../hooks/useApiFetch", () => ({
 
 // Trix and the Yoast analysis both drag in browser-only machinery that has
 // nothing to do with publish timing.
-vi.mock("../components/TrixEditor", () => ({
-  default: ({ value, onChange }: { value: string; onChange: (next: string) => void }) => (
-    <textarea data-testid="article-body" value={value} onChange={(e) => onChange(e.target.value)} />
-  ),
-}))
+vi.mock("../components/TrixEditor", () => {
+  const MockTrixEditor = ({
+    value,
+    onChange,
+    apiRef,
+    onPendingChange,
+  }: {
+    value: string
+    onChange: (next: string) => void
+    apiRef?: MutableRefObject<{ hasPendingUploads: () => boolean } | null>
+    onPendingChange?: (pending: boolean) => void
+  }) => {
+    useEffect(() => {
+      if (apiRef) apiRef.current = { hasPendingUploads: () => pendingFlag }
+      onPendingChange?.(pendingFlag)
+    }, [apiRef, onPendingChange])
+    return <textarea data-testid="article-body" value={value} onChange={(e) => onChange(e.target.value)} />
+  }
+  return { default: MockTrixEditor }
+})
 vi.mock("../components/MediaPicker", () => ({ default: () => null }))
 vi.mock("../components/SeoAnalysis", () => ({ default: () => null }))
 
@@ -132,6 +151,8 @@ describe("EditArticleView autosave", () => {
   beforeEach(() => {
     apiCalls = []
     articleStatus = "draft"
+    articleContent = "<p>Body</p>"
+    pendingFlag = false
     articlePublishedDate = undefined
     takenSlugs = new Set()
     articleTags = []
@@ -408,5 +429,52 @@ describe("EditArticleView SEO tag suggestions", () => {
     })
 
     expect(screen.getByText(/No existing tag matches/)).toBeInTheDocument()
+  })
+})
+
+describe("save guard for embeds and uploads", () => {
+  // The edit-lock heartbeat is a PUT the page sends on load; it is not a save.
+  const nonGetCalls = () =>
+    apiCalls.filter((c) => c.method !== "GET" && !c.url.includes("/edit-lock")).length
+
+  beforeEach(() => {
+    apiCalls = []
+    articleStatus = "draft"
+    articleContent = "<p>Body</p>"
+    pendingFlag = false
+    takenSlugs = new Set()
+    articleTags = []
+    popularTagsPayload = []
+    archiveTagsPayload = []
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("disables Save while an upload is pending", async () => {
+    pendingFlag = true
+    await renderEditor()
+    await waitFor(() => expect(screen.getByRole("button", { name: /^save draft$/i })).toBeDisabled())
+  })
+
+  it("refuses an autosave while an upload is pending, sending nothing", async () => {
+    pendingFlag = true
+    const user = await renderEditor()
+    await user.type(screen.getByTestId("article-body"), " more")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(await screen.findByText(/waiting for upload to finish/i)).toBeInTheDocument()
+    expect(nonGetCalls()).toBe(0)
+  })
+
+  it("refuses to save an article with an invalid embed and names the block", async () => {
+    articleContent = `<div><figure data-trix-attachment='${JSON.stringify({ contentType: "application/x-triangle-embed", embedProvider: "spotify", embedUrl: "nope" })}' data-trix-attributes='{}'></figure></div>`
+    const user = await renderEditor()
+    await user.click(screen.getByRole("button", { name: /^save draft$/i }))
+    expect(await screen.findByText(/embed 1 has an invalid url/i)).toBeInTheDocument()
+    expect(nonGetCalls()).toBe(0)
   })
 })

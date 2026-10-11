@@ -181,3 +181,7 @@ cd server
 go test ./...
 go test -coverprofile=cover.out ./...
 ```
+
+## Media and embeds
+
+The editor supports audio and embedded media. The editor's Embed button accepts YouTube, SoundCloud, Spotify, TikTok and Instagram links and stores them as shortcodes ([youtube URL], [spotify url="..." /] and so on) that the public site expands. MP3 files upload through the same media endpoint as images and are stored as [audio src="..." /]. The URL rules live in frontend/src/lib/embedUrl.ts and must stay identical to Scalene's copy; frontend/src/lib/embed-vectors.json is the shared test set. MP3 uploads require MEDIA_BASE_URL to be set to an https origin; the editor refuses to save an article whose audio URL is not https.
