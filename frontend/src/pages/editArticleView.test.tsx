@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import type { MediaPickerItem, MediaPickerSource } from "../components/MediaPicker"
 import EditArticleView from "./editArticleView"
 
 // The publish-timing radios are intent, not action: only the publish button may
@@ -25,6 +26,26 @@ let takenSlugs: Set<string>
 let articleTags: string[]
 let popularTagsPayload: Array<{ name: string; uses: number }>
 let archiveTagsPayload: Array<{ name: string; uses: number }>
+// The featured image's article-specific alt text as loaded.
+let featuredImageAlt = ""
+
+const ORIGINAL_FEATURED_URL = "https://example.com/a.jpg"
+// A fresh upload: a new content-addressed asset with no library alt text yet.
+const REPLACEMENT_UPLOAD: MediaPickerItem = {
+  id: 77,
+  url: "/wp-content/uploads/2026/10/a-0f3a9c2b7d1e4f5a6b7c8d9e0f1a2b3c.jpg",
+  file_name: "a-0f3a9c2b7d1e4f5a6b7c8d9e0f1a2b3c.jpg",
+  mime_type: "image/jpeg",
+  width: 1200,
+  height: 800,
+}
+const LIBRARY_IMAGE: MediaPickerItem = {
+  id: 12,
+  url: "/wp-content/uploads/2024/02/quad.jpg",
+  file_name: "quad.jpg",
+  mime_type: "image/jpeg",
+  alt_text: "Students on the quad",
+}
 
 const jsonResponse = (payload: unknown, status = 200) =>
   new Response(JSON.stringify(payload), {
@@ -61,8 +82,8 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       status: articleStatus,
       published_date: articlePublishedDate,
       comment_status: "open",
-      featured_image: "https://example.com/a.jpg",
-      featured_image_alt: "",
+      featured_image: ORIGINAL_FEATURED_URL,
+      featured_image_alt: featuredImageAlt,
       categories: [{ name: "News", slug: "news" }],
       authors: [{ id: 7, name: "Reporter" }],
       seo: { tags: articleTags.map((name) => ({ name, slug: name })) },
@@ -100,7 +121,21 @@ vi.mock("../components/TrixEditor", () => ({
     <textarea data-testid="article-body" value={value} onChange={(e) => onChange(e.target.value)} />
   ),
 }))
-vi.mock("../components/MediaPicker", () => ({ default: () => null }))
+// Stands in for the library picker with the two ways it can hand back an image:
+// a file the author just uploaded (how an image is replaced), or a tile from
+// the library.
+vi.mock("../components/MediaPicker", () => ({
+  default: ({ onSelect }: { onSelect: (item: MediaPickerItem, source: MediaPickerSource) => void }) => (
+    <div>
+      <button onClick={() => onSelect(REPLACEMENT_UPLOAD, "upload")} type="button">
+        Upload replacement
+      </button>
+      <button onClick={() => onSelect(LIBRARY_IMAGE, "library")} type="button">
+        Pick library image
+      </button>
+    </div>
+  ),
+}))
 vi.mock("../components/SeoAnalysis", () => ({ default: () => null }))
 
 const patchCalls = () => apiCalls.filter((call) => call.method === "PATCH")
@@ -283,6 +318,63 @@ describe("EditArticleView autosave", () => {
     // Once the transition is on file, later autosaves stop warning about it.
     await waitOutAutosave()
     expect(screen.queryByText(/Publish timing is not autosaved/)).not.toBeInTheDocument()
+  })
+})
+
+// Replacing the featured image is an upload plus this article's own save: the
+// new asset's URL goes into this article's photo_url and nowhere else, and the
+// old asset is left alone for whatever else uses it.
+describe("EditArticleView featured image replacement", () => {
+  beforeEach(() => {
+    apiCalls = []
+    articleStatus = "draft"
+    articlePublishedDate = undefined
+    takenSlugs = new Set()
+    articleTags = []
+    popularTagsPayload = []
+    archiveTagsPayload = []
+    featuredImageAlt = "Riot police at the barricade"
+    apiFetchStub.mockClear()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    featuredImageAlt = ""
+    vi.useRealTimers()
+  })
+
+  it("saves the uploaded replacement to this article and keeps its alt text", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(screen.getByLabelText("Alt text")).toHaveValue("Riot police at the barricade"))
+
+    await user.click(screen.getByRole("button", { name: "Change image" }))
+    await user.click(screen.getByRole("button", { name: "Upload replacement" }))
+    await waitOutAutosave()
+
+    // The description was written for this article's image and a replacement
+    // is the same picture, re-shot or re-cropped: wiping it would publish the
+    // new image with nothing for screen readers.
+    expect(screen.getByLabelText("Alt text")).toHaveValue("Riot police at the barricade")
+    const patches = patchCalls()
+    expect(patches).toHaveLength(1)
+    expect(patches[0].url).toBe(`/v1/articles/${ARTICLE_SLUG}`)
+    expect(patches[0].body?.photo_url).toBe(REPLACEMENT_UPLOAD.url)
+    expect(patches[0].body?.photo_alt).toBe("Riot police at the barricade")
+    // Nothing touches the media library or any other article: no global
+    // rewrite of the old asset and no delete of it.
+    expect(apiCalls.filter((call) => call.method !== "GET" && !call.url.startsWith(`/v1/articles/${ARTICLE_SLUG}`))).toEqual([])
+  })
+
+  it("adopts the library's description when a different library image is chosen", async () => {
+    const user = await renderEditor()
+    await waitFor(() => expect(screen.getByLabelText("Alt text")).toHaveValue("Riot police at the barricade"))
+
+    await user.click(screen.getByRole("button", { name: "Change image" }))
+    await user.click(screen.getByRole("button", { name: "Pick library image" }))
+    await waitOutAutosave()
+
+    expect(patchCalls()[0].body?.photo_url).toBe(LIBRARY_IMAGE.url)
+    expect(patchCalls()[0].body?.photo_alt).toBe("Students on the quad")
   })
 })
 
