@@ -109,6 +109,9 @@ declare global {
     file: File | null;
     getAttribute(name: string): unknown;
     getAttributes(): Partial<TrixAttachmentAttributes>;
+    // 0 until an upload reports progress (so also for an image that was simply
+    // loaded), 100 once it has finished.
+    getUploadProgress(): number;
     setUploadProgress(value: number): void;
     setAttributes(attrs: Partial<TrixAttachmentAttributes>): void;
     remove(): void;

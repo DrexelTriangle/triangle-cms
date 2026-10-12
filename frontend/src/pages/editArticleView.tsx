@@ -1845,12 +1845,17 @@ function EditArticleView() {
         <MediaPicker
           initialUrl={photoURL}
           onClose={() => setImagePickerOpen(false)}
-          onSelect={(item) => {
+          onSelect={(item, source) => {
             // Adopt the library's description, so an image described once
             // arrives already described. Only on an actual change of image: the
             // alt belongs to whichever photo is in the slot, so re-picking the
             // same one must not overwrite a description written here.
-            if (item.url !== photoURL) {
+            //
+            // An upload is how an image gets replaced (a new immutable asset;
+            // the old one stays for anything else using it), and it has no
+            // library description yet, so adopting one would wipe the alt
+            // already written for this spot.
+            if (item.url !== photoURL && source === "library") {
               setPhotoAlt(item.alt_text ?? "")
             }
             setPhotoURL(item.url)

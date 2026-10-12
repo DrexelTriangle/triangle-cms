@@ -106,6 +106,51 @@ const parseDocument = (html: string): Document | null => {
   return new DOMParser().parseFromString(html, "text/html")
 }
 
+/** The library image an existing attachment is being replaced with. */
+export type ReplacementImage = {
+  url: string
+  file_name: string
+  mime_type?: string
+  width?: number
+  height?: number
+  alt_text?: string
+}
+
+/**
+ * The attachment attributes that point one image in the article at a
+ * replacement, for Attachment#setAttributes.
+ *
+ * Only the image changes. The caption is a piece attribute, which this never
+ * touches, so it stays where it is. The alt text was written for this spot in
+ * this article, and a replacement is usually the same picture re-shot or
+ * re-cropped, so it is kept too; the exception is a library image that comes
+ * with a description of its own, which describes what is now actually there.
+ * An upload never does: it is a brand-new asset.
+ *
+ * width and height are set explicitly, to undefined when unknown, because
+ * setAttributes merges: the old image's dimensions would otherwise stick to
+ * the new one. Left unset, Trix measures the new image when it loads.
+ */
+export const replacementAttachmentAttributes = (
+  currentAlt: string,
+  image: ReplacementImage,
+  source: "library" | "upload",
+): Partial<AttachmentData> => {
+  const libraryAlt = source === "library" ? (image.alt_text?.trim() ?? "") : ""
+  const alt = libraryAlt || currentAlt.trim()
+  return {
+    url: image.url,
+    contentType: image.mime_type || contentTypeForUrl(image.url),
+    filename: alt || image.file_name,
+    alt,
+    width: image.width || undefined,
+    height: image.height || undefined,
+    // Same reason as on insert: Trix's previewablePattern excludes
+    // extension-less URLs.
+    previewable: true,
+  }
+}
+
 // ── Load: article HTML → Trix attachment markup ──────────────────────────────
 
 /**

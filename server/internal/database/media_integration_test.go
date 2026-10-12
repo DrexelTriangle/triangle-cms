@@ -306,6 +306,55 @@ func TestUpdateMediaMeta(t *testing.T) {
 	})
 }
 
+// Uploads are named by content, so uploading the same bytes again lands on a
+// path the library already has. That has to answer with the existing row, alt
+// text and all, rather than a duplicate-key failure.
+func TestInsertOrGetMedia_ReturnsTheExistingRowForAPath(t *testing.T) {
+	conn := mediaTestDB(t)
+	ctx := context.Background()
+	const rel = "wp-content/uploads/2026/10/pic-b8b2e4c22a5eb45563ec92b92d704bbf.png"
+
+	first, err := InsertOrGetMedia(ctx, conn, rel, "image/png", 10, 4, 4)
+	if err != nil {
+		t.Fatalf("first insert: %v", err)
+	}
+	alt := "Students marching"
+	if _, err := UpdateMediaMeta(ctx, conn, first, models.MediaPatch{AltText: &alt}); err != nil {
+		t.Fatalf("set alt: %v", err)
+	}
+
+	second, err := InsertOrGetMedia(ctx, conn, rel, "image/png", 10, 4, 4)
+	if err != nil {
+		t.Fatalf("second insert: %v", err)
+	}
+	if second != first {
+		t.Fatalf("second insert id = %d, want the existing row %d", second, first)
+	}
+
+	var rows int
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM media WHERE path = ?", rel).Scan(&rows); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("%d rows for the path, want 1", rows)
+	}
+	item, err := GetMediaByID(ctx, conn, first)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if item.AltText != alt {
+		t.Fatalf("alt text = %q, want the existing %q kept", item.AltText, alt)
+	}
+
+	other, err := InsertOrGetMedia(ctx, conn, "wp-content/uploads/2026/10/other.png", "image/png", 10, 0, 0)
+	if err != nil {
+		t.Fatalf("insert other: %v", err)
+	}
+	if other == first {
+		t.Fatal("a different path reused the first row's id")
+	}
+}
+
 func TestDeleteMediaRow(t *testing.T) {
 	conn := mediaTestDB(t)
 	ctx := context.Background()
