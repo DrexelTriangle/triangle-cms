@@ -272,6 +272,14 @@ func rejectTakenSlug(w http.ResponseWriter, r *http.Request, conn *sql.DB, targe
 // still served from cache while one request refreshes it behind the scenes.
 const publicReadCacheControl = "public, max-age=60, stale-while-revalidate=300"
 
+// The two lifetimes in publicReadCacheControl, for homepageCacheControl to
+// shorten. TestHomepageCacheControl_NeverExtendsTheOriginBound fails if they
+// stop matching the string.
+const (
+	publicReadMaxAge               = 60
+	publicReadStaleWhileRevalidate = 300
+)
+
 // uncacheableCacheControl is what an editor's copy of a public read gets.
 const uncacheableCacheControl = "private, no-store"
 
@@ -3124,6 +3132,13 @@ func spliceFeaturedLeads(news []models.ArticleListItem, featured []models.Articl
 	return out
 }
 
+// The homepage carries the editor's live decisions (the featured lead, the
+// breaking-news banner, the carousel) so it needs the shortest freshness bound
+// of anything here, which is why publicReadCacheControl is set to one that
+// suits it. The rest of the public reads inherited the same bound rather than
+// each picking one. A response served from the in-process cache has that
+// bound shortened by its age; see homepageCacheControl.
+
 // @Summary Get homepage data
 // @Tags homepage
 // @Produce json
@@ -3132,150 +3147,144 @@ func spliceFeaturedLeads(news []models.ArticleListItem, featured []models.Articl
 // @Failure 500 {object} models.ErrorResponse
 // @Router /v1/homepage [get]
 func GetHomepage(conn *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sections := [...]struct {
+	return newHomepageHandler(func(r *http.Request) (models.HomepageResponse, error) {
+		return assembleHomepage(r, conn)
+	}, homepageCacheConfig)
+}
+
+// assembleHomepage reads every block of the homepage for r. It returns either
+// the whole response or an error, never a partial one, which is what lets the
+// cache treat any nil error as a complete homepage.
+func assembleHomepage(r *http.Request, conn *sql.DB) (models.HomepageResponse, error) {
+	sections := [...]struct {
+		slug  string
+		key   string
+		limit int
+	}{
+		{slug: "news", key: "news", limit: 13},
+		{slug: "opinion", key: "opinion", limit: 5},
+		{slug: "sports", key: "sports", limit: 6},
+		{slug: "entertainment", key: "entertainment", limit: 8},
+		{slug: "comics-puzzles", key: "candp", limit: 6},
+		{slug: "columns", key: "columns", limit: 5},
+	}
+	_, _, offset := listParams(r, 20)
+	excerptWords := excerptWordLimit(r, 50)
+	breakingNews, err := db.GetBreakingNews(r.Context(), conn)
+	if err != nil {
+		return models.HomepageResponse{}, err
+	}
+	carousel, err := db.GetHomepageCarousel(r.Context(), conn)
+	if err != nil {
+		return models.HomepageResponse{}, err
+	}
+	stories, err := db.GetDevelopingStories(r.Context(), conn)
+	if err != nil {
+		return models.HomepageResponse{}, err
+	}
+	developingStories := make([]models.HomepageDevelopingStory, 0, len(stories))
+	for idx, story := range stories {
+		slug := db.CanonicalizeSlug(story.Title)
+		if slug == "" {
+			slug = fmt.Sprintf("developing-story-%d", idx+1)
+		}
+		// A developing story is usually typed before the article exists, so
+		// only hand the site a link once an article actually answers to the
+		// slug; otherwise the rail links every headline straight to a 404.
+		link := ""
+		exists, err := db.ArticleExistsBySlug(r.Context(), conn, slug)
+		if err != nil {
+			return models.HomepageResponse{}, err
+		}
+		if exists {
+			link = slug
+		}
+		developingStories = append(developingStories, models.HomepageDevelopingStory{
+			Slug:       slug,
+			Link:       link,
+			Title:      story.Title,
+			Excerpt:    story.Description,
+			ShowInNews: false,
+			Label:      []models.HomepageLabel{},
+		})
+	}
+
+	sectionArticles := models.HomepageResponse{
+		BreakingNews:      breakingNews,
+		Carousel:          db.PublishedHomepageCarousel(carousel),
+		DevelopingStories: developingStories,
+	}
+
+	// Captured from the news pass so the featured article, which may come
+	// from any section, gets the same category ordering as the block it is
+	// being spliced into.
+	var newsMatchSlugs []string
+	newsLimit := 0
+
+	for _, section := range sections {
+		if err := func(section struct {
 			slug  string
 			key   string
 			limit int
-		}{
-			{slug: "news", key: "news", limit: 13},
-			{slug: "opinion", key: "opinion", limit: 5},
-			{slug: "sports", key: "sports", limit: 6},
-			{slug: "entertainment", key: "entertainment", limit: 8},
-			{slug: "comics-puzzles", key: "candp", limit: 6},
-			{slug: "columns", key: "columns", limit: 5},
-		}
-		_, _, offset := listParams(r, 20)
-		excerptWords := excerptWordLimit(r, 50)
-		breakingNews, err := db.GetBreakingNews(r.Context(), conn)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		carousel, err := db.GetHomepageCarousel(r.Context(), conn)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		stories, err := db.GetDevelopingStories(r.Context(), conn)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		developingStories := make([]models.HomepageDevelopingStory, 0, len(stories))
-		for idx, story := range stories {
-			slug := db.CanonicalizeSlug(story.Title)
-			if slug == "" {
-				slug = fmt.Sprintf("developing-story-%d", idx+1)
-			}
-			// A developing story is usually typed before the article exists, so
-			// only hand the site a link once an article actually answers to the
-			// slug; otherwise the rail links every headline straight to a 404.
-			link := ""
-			exists, err := db.ArticleExistsBySlug(r.Context(), conn, slug)
+		}) error {
+			// Resolved rather than literal so a homepage block for a
+			// container section (one with no category of its own) still
+			// shows its subsections' articles.
+			matchSlugs, err := sectionMatchSlugs(r.Context(), conn, section.slug)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
+				return err
 			}
-			if exists {
-				link = slug
+			params := ArticleParams{Section: section.slug, SectionMatchSlugs: matchSlugs}
+			limit := section.limit
+			rows, err := queryArticles(r, conn, params, limit+1, offset)
+			if err != nil {
+				return err
 			}
-			developingStories = append(developingStories, models.HomepageDevelopingStory{
-				Slug:       slug,
-				Link:       link,
-				Title:      story.Title,
-				Excerpt:    story.Description,
-				ShowInNews: false,
-				Label:      []models.HomepageLabel{},
-			})
-		}
+			defer rows.Close()
 
-		sectionArticles := models.HomepageResponse{
-			BreakingNews:      breakingNews,
-			Carousel:          db.PublishedHomepageCarousel(carousel),
-			DevelopingStories: developingStories,
-		}
-
-		// Captured from the news pass so the featured article, which may come
-		// from any section, gets the same category ordering as the block it is
-		// being spliced into.
-		var newsMatchSlugs []string
-		newsLimit := 0
-
-		for _, section := range sections {
-			if err := func(section struct {
-				slug  string
-				key   string
-				limit int
-			}) error {
-				// Resolved rather than literal so a homepage block for a
-				// container section (one with no category of its own) still
-				// shows its subsections' articles.
-				matchSlugs, err := sectionMatchSlugs(r.Context(), conn, section.slug)
-				if err != nil {
-					return err
-				}
-				params := ArticleParams{Section: section.slug, SectionMatchSlugs: matchSlugs}
-				limit := section.limit
-				rows, err := queryArticles(r, conn, params, limit+1, offset)
-				if err != nil {
-					return err
-				}
-				defer rows.Close()
-
-				articles, err := db.CollectArticles(rows)
-				if err != nil {
-					return err
-				}
-				if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
-					return err
-				}
-				hasMore := len(articles) > limit
-				if hasMore {
-					articles = articles[:limit]
-				}
-				switch section.key {
-				case "news":
-					newsMatchSlugs = matchSlugs
-					newsLimit = limit
-					sectionArticles.News = articleListItems(articles, excerptWords, matchSlugs...)
-				case "opinion":
-					sectionArticles.Opinion = articleListItems(articles, excerptWords, matchSlugs...)
-				case "sports":
-					sectionArticles.Sports = articleListItems(articles, excerptWords, matchSlugs...)
-				case "entertainment":
-					sectionArticles.Entertainment = articleListItems(articles, excerptWords, matchSlugs...)
-				case "candp":
-					sectionArticles.CAndP = articleListItems(articles, excerptWords, matchSlugs...)
-				case "columns":
-					sectionArticles.Columns = articleListItems(articles, excerptWords, matchSlugs...)
-				}
-				return nil
-			}(section); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
+			articles, err := db.CollectArticles(rows)
+			if err != nil {
+				return err
 			}
-		}
-
-		// The homepage lead is the first entry of the news block (Scalene's
-		// "3-6-3" layout renders news[0] as the big centre card), so pinning an
-		// article means moving it to the front of that list. Pins are spliced in
-		// rather than sorted into the news query because a pinned article may be
-		// filed under any section: a pinned sports story still takes the lead
-		// card, which a news-scoped ORDER BY could never do.
-		if offset == 0 {
-			if err := leadWithFeaturedArticles(r, conn, &sectionArticles, excerptWords, newsLimit, newsMatchSlugs); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
+			if err := db.PopulateArticleAuthors(r.Context(), conn, articles); err != nil {
+				return err
 			}
+			hasMore := len(articles) > limit
+			if hasMore {
+				articles = articles[:limit]
+			}
+			switch section.key {
+			case "news":
+				newsMatchSlugs = matchSlugs
+				newsLimit = limit
+				sectionArticles.News = articleListItems(articles, excerptWords, matchSlugs...)
+			case "opinion":
+				sectionArticles.Opinion = articleListItems(articles, excerptWords, matchSlugs...)
+			case "sports":
+				sectionArticles.Sports = articleListItems(articles, excerptWords, matchSlugs...)
+			case "entertainment":
+				sectionArticles.Entertainment = articleListItems(articles, excerptWords, matchSlugs...)
+			case "candp":
+				sectionArticles.CAndP = articleListItems(articles, excerptWords, matchSlugs...)
+			case "columns":
+				sectionArticles.Columns = articleListItems(articles, excerptWords, matchSlugs...)
+			}
+			return nil
+		}(section); err != nil {
+			return models.HomepageResponse{}, err
 		}
-
-		// The homepage carries the editor's live decisions (the featured lead,
-		// the breaking-news banner, the carousel) so it needs the shortest
-		// freshness bound of anything here, which is why publicReadCacheControl
-		// is set to one that suits it. The rest of the public reads inherited
-		// the same bound rather than each picking one.
-		setAlwaysPublicCache(w)
-		writeJSON(w, http.StatusOK, sectionArticles)
 	}
+
+	// The homepage lead is the first entry of the news block (Scalene's
+	// "3-6-3" layout renders news[0] as the big centre card), so pinning an
+	// article means moving it to the front of that list. Pins are spliced in
+	// rather than sorted into the news query because a pinned article may be
+	// filed under any section: a pinned sports story still takes the lead
+	// card, which a news-scoped ORDER BY could never do.
+	if offset == 0 {
+		if err := leadWithFeaturedArticles(r, conn, &sectionArticles, excerptWords, newsLimit, newsMatchSlugs); err != nil {
+			return models.HomepageResponse{}, err
+		}
+	}
+	return sectionArticles, nil
 }
