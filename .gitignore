@@ -7,6 +7,10 @@
 # output: the CMS go:embeds them, so a checkout without them does not compile.
 !/server/internal/database/schema/*.sql
 /report.json
+# Mutation testing scratch/output
+frontend/.stryker-tmp/
+frontend/reports/
+/server/gremlins.*
 .vscode/settings.json
 .codex
 **/.codex
