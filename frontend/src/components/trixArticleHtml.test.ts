@@ -4,10 +4,14 @@ import { shortcodeToEmbed } from "../lib/embedUrl"
 import legacy from "./__fixtures__/legacy-shortcodes.json"
 import {
   EMBED_CONTENT_TYPE,
+  QUIZ_CONTENT_TYPE,
   articleHtmlToTrix,
   buildEmbedCardHtml,
+  buildQuizCardHtml,
+  findDeadQuizCards,
   findInvalidEmbeds,
   isAcceptableAudioUrl,
+  quizCardLabel,
   trixHtmlToArticle,
 } from "./trixArticleHtml"
 
@@ -344,5 +348,113 @@ describe("buildEmbedCardHtml", () => {
     const card = new DOMParser().parseFromString(html, "text/html")
     expect(card.querySelector("b")).toBeNull()
     expect(card.querySelector("a")?.textContent).toBe("https://www.youtube.com/watch?v=<b>")
+  })
+})
+
+describe("quiz cards", () => {
+  const quizFigure = (data: Record<string, unknown>) =>
+    `<div><figure data-trix-attachment='${JSON.stringify({ contentType: QUIZ_CONTENT_TYPE, ...data })}'></figure></div>`
+
+  it("loads a quiz shortcode block as a quiz card", () => {
+    const out = articleHtmlToTrix('<p>[quiz id="7"]</p>')
+    const doc = new DOMParser().parseFromString(out, "text/html")
+    const figure = doc.querySelector("figure[data-trix-attachment]")
+    const data = JSON.parse(figure?.getAttribute("data-trix-attachment") ?? "{}")
+    expect(data.contentType).toBe(QUIZ_CONTENT_TYPE)
+    expect(data.quizId).toBe(7)
+    expect(data.quizOriginal).toBeUndefined()
+    expect(figure?.textContent).toContain("Quiz #7")
+  })
+
+  it("saves a loaded canonical block back to the same block", () => {
+    expect(trixHtmlToArticle(articleHtmlToTrix('<p>[quiz id="7"]</p>'))).toBe('<p>[quiz id="7"]</p>')
+  })
+
+  it("saves a loaded legacy block back byte for byte", () => {
+    const legacy = '<div class="media-box">[QUIZ id="7" /]</div>'
+    expect(trixHtmlToArticle(articleHtmlToTrix(legacy))).toBe(legacy)
+  })
+
+  it("saves a card with no original as the canonical paragraph", () => {
+    const html = quizFigure({ quizId: 7, quizTitle: "Campus trivia", content: "<b>stored</b>" })
+    expect(trixHtmlToArticle(html)).toBe('<p>[quiz id="7"]</p>')
+  })
+
+  it("ignores an original that points at another quiz", () => {
+    const html = quizFigure({ quizId: 7, quizTitle: "", quizOriginal: '<p>[quiz id="8"]</p>' })
+    expect(trixHtmlToArticle(html)).toBe('<p>[quiz id="7"]</p>')
+  })
+
+  it("rebuilds the card from quizId and never renders stored content", () => {
+    const html = `<figure data-trix-attachment='${JSON.stringify({ contentType: QUIZ_CONTENT_TYPE, quizId: 7, quizTitle: "T", content: "<img src=x onerror=alert(1)>" })}'></figure>`
+    const out = articleHtmlToTrix(html)
+    expect(out).not.toContain("onerror")
+    expect(out).toContain("Quiz: T")
+  })
+
+  it("keeps a title with markup as text", () => {
+    const out = articleHtmlToTrix(quizFigure({ quizId: 7, quizTitle: "<img src=x onerror=alert(1)>" }))
+    const doc = new DOMParser().parseFromString(out, "text/html")
+    expect(doc.querySelector("figure img")).toBeNull()
+  })
+
+  it("turns a quiz card without a positive integer id into the invalid card the save guard refuses", () => {
+    const html = `<figure data-trix-attachment='${JSON.stringify({ contentType: QUIZ_CONTENT_TYPE, quizId: "x" })}'></figure>`
+    const loaded = articleHtmlToTrix(html)
+    expect(loaded).toContain("embed-card--invalid")
+    expect(findInvalidEmbeds(trixHtmlToArticle(loaded))[0]).toMatch(/Embed 1 has an invalid URL/)
+  })
+
+  it("labels a card by its lookup state", () => {
+    expect(quizCardLabel(7, null, "pending")).toBe("Quiz #7")
+    expect(quizCardLabel(7, "T", "published")).toBe("Quiz: T")
+    expect(quizCardLabel(7, "T", "unpublished")).toBe("Quiz: T (unpublished)")
+    expect(quizCardLabel(7, null, "deleted")).toBe("Quiz #7 (deleted)")
+    expect(quizCardLabel(7, null, "unknown")).toBe("Quiz #7 (could not check)")
+  })
+
+  it("marks a flagged card with the highlight class", () => {
+    expect(buildQuizCardHtml("Quiz #7", true)).toContain("embed-card--flagged")
+    expect(buildQuizCardHtml("Quiz #7")).not.toContain("embed-card--flagged")
+  })
+})
+
+describe("findDeadQuizCards", () => {
+  const editorHtml = (...ids: unknown[]) =>
+    ids.map((id) => `<div><figure data-trix-attachment='${JSON.stringify({ contentType: QUIZ_CONTENT_TYPE, quizId: id, quizTitle: "" })}'></figure></div>`).join("")
+
+  it("passes a published quiz", () => {
+    expect(findDeadQuizCards(editorHtml(7), new Map([[7, "published"]]))).toEqual({ blocking: [], warnings: [], flaggedIds: [] })
+  })
+
+  it("blocks an unpublished quiz and flags its card", () => {
+    expect(findDeadQuizCards(editorHtml(7), new Map([[7, "unpublished"]]))).toEqual({
+      blocking: ["Quiz #7 is unpublished. Remove it or publish the quiz first."],
+      warnings: [],
+      flaggedIds: [7],
+    })
+  })
+
+  it("blocks a deleted quiz", () => {
+    expect(findDeadQuizCards(editorHtml(7), new Map([[7, "deleted"]])).blocking).toEqual(["Quiz #7 was deleted. Remove it from the article."])
+  })
+
+  it("warns, without blocking, on a pending, failed or unknown lookup", () => {
+    const problems = findDeadQuizCards(editorHtml(7, 8, 9), new Map([[7, "pending"], [8, "unknown"]]))
+    expect(problems.blocking).toEqual([])
+    expect(problems.warnings).toEqual([
+      "Quiz #7 could not be checked yet. The server checks it again when you publish.",
+      "Quiz #8 could not be checked yet. The server checks it again when you publish.",
+      "Quiz #9 could not be checked yet. The server checks it again when you publish.",
+    ])
+    expect(problems.flaggedIds).toEqual([7, 8, 9])
+  })
+
+  it("reports a card without a valid id", () => {
+    expect(findDeadQuizCards(editorHtml("x"), new Map()).blocking).toEqual(["A quiz card is invalid. Remove it and insert it again."])
+  })
+
+  it("finds nothing in converted article HTML, which is why it reads the editor document", () => {
+    expect(findDeadQuizCards('<p>[quiz id="7"]</p>', new Map([[7, "unpublished"]])).blocking).toEqual([])
   })
 })
