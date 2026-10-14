@@ -10,13 +10,21 @@ import MediaPicker, {
 } from "./MediaPicker";
 import {
   EMBED_CONTENT_TYPE,
+  QUIZ_CONTENT_TYPE,
   articleHtmlToTrix,
   buildAudioCardHtml,
   buildEmbedCardHtml,
+  buildQuizCardHtml,
   contentTypeForUrl,
+  findDeadQuizCards,
+  pastedQuizAttributes,
+  quizCardLabel,
   replacementAttachmentAttributes,
   trixHtmlToArticle,
+  type QuizCardProblems,
+  type QuizCardState,
 } from "./trixArticleHtml";
+import { useApiFetch } from "../hooks/useApiFetch";
 import { parseEmbedUrl } from "../lib/embedUrl";
 
 // Leave the caption area of an image empty until it has a real caption. Trix's
@@ -48,7 +56,7 @@ if (typeof window !== "undefined" && window.Trix) {
   // vanished from both the editor and the saved article. The embed attributes
   // need the same treatment, or a re-render would strip the link an embed card
   // is rebuilt from and the shortcode it saves back to.
-  for (const name of ["align", "embedProvider", "embedUrl", "embedOriginal"]) {
+  for (const name of ["align", "embedProvider", "embedUrl", "embedOriginal", "quizId", "quizTitle", "quizOriginal"]) {
     if (!window.Trix.AttachmentPiece.permittedAttributes.includes(name)) {
       window.Trix.AttachmentPiece.permittedAttributes.push(name);
     }
@@ -119,6 +127,9 @@ export type TrixEditorApi = {
   // True while any attachment has a File and no URL yet, which is Trix's own
   // definition of an upload in flight (Attachment#isPending).
   hasPendingUploads(): boolean;
+  // Runs the quiz publish check on the editor's own document and highlights
+  // every card it flags. states is the map onQuizStatesChange last reported.
+  checkQuizCards(states: Map<number, QuizCardState>): QuizCardProblems;
 };
 
 type TrixEditorProps = {
@@ -128,9 +139,11 @@ type TrixEditorProps = {
   apiRef?: MutableRefObject<TrixEditorApi | null>;
   // Fired on every change so the page can disable its save button as a cue.
   onPendingChange?: (pending: boolean) => void;
+  // Fired whenever a quiz card's lookup state changes, with a fresh copy.
+  onQuizStatesChange?: (states: Map<number, QuizCardState>) => void;
 };
 
-function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProps) {
+function TrixEditor({ value, onChange, apiRef, onPendingChange, onQuizStatesChange }: TrixEditorProps) {
   const toolbarId = useId();
   const editorRef = useRef<TrixEditorElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -173,6 +186,16 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [embedOpen, setEmbedOpen] = useState(false);
+  const [quizOpen, setQuizOpen] = useState(false);
+  const quizStatesRef = useRef<Map<number, QuizCardState>>(new Map());
+  // useApiFetch returns a new function whenever its notice context object
+  // changes, which is every render; read it through refs so the lookup effect
+  // runs on the document's quiz ids alone.
+  const apiFetch = useApiFetch();
+  const apiFetchRef = useRef(apiFetch);
+  apiFetchRef.current = apiFetch;
+  const onQuizStatesChangeRef = useRef(onQuizStatesChange);
+  onQuizStatesChangeRef.current = onQuizStatesChange;
   const [notice, setNotice] = useState<string | null>(null);
   // The image whose alt text is being edited, identified by attachment id
   // because the attachment object itself is replaced whenever Trix re-renders.
@@ -189,13 +212,34 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
     return editor.editor.getDocument().getAttachments().some((a) => a.isPending());
   }, []);
 
+  const checkQuizCards = useCallback((states: Map<number, QuizCardState>): QuizCardProblems => {
+    const editor = editorRef.current;
+    if (!editor) return { blocking: [], warnings: [], flaggedIds: [] };
+    const problems = findDeadQuizCards(editor.value, states);
+    const flagged = new Set(problems.flaggedIds);
+    ownInsertRef.current = true;
+    try {
+      for (const attachment of editor.editor.getDocument().getAttachments()) {
+        if (attachment.getAttribute("contentType") !== QUIZ_CONTENT_TYPE) continue;
+        const id = Number(attachment.getAttribute("quizId"));
+        const title = String(attachment.getAttribute("quizTitle") ?? "") || null;
+        attachment.setAttributes({
+          content: buildQuizCardHtml(quizCardLabel(id, title, states.get(id) ?? "pending"), flagged.has(id)),
+        });
+      }
+    } finally {
+      ownInsertRef.current = false;
+    }
+    return problems;
+  }, []);
+
   useEffect(() => {
     if (!apiRef) return;
-    apiRef.current = { hasPendingUploads };
+    apiRef.current = { hasPendingUploads, checkQuizCards };
     return () => {
       apiRef.current = null;
     };
-  }, [apiRef, hasPendingUploads]);
+  }, [apiRef, hasPendingUploads, checkQuizCards]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -214,6 +258,65 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
       ownInsertRef.current = false;
     }
   }, [value]);
+
+  // Resolve the title and status of every quiz card once per distinct id, so
+  // the card can say what it points at and the page can refuse to publish an
+  // article whose quiz is gone. A failed lookup is "unknown", which warns but
+  // never blocks: the server re-checks on publish.
+  const quizIdsKey = Array.from(new Set(Array.from(value.matchAll(/\[quiz\s+id="(\d+)"/gi), (m) => Number(m[1]))))
+    .filter((id) => Number.isSafeInteger(id) && id > 0)
+    .sort((a, b) => a - b)
+    .join(",");
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const ids = new Set<number>();
+    for (const attachment of editor.editor.getDocument().getAttachments()) {
+      if (attachment.getAttribute("contentType") !== QUIZ_CONTENT_TYPE) continue;
+      const id = Number(attachment.getAttribute("quizId"));
+      if (Number.isSafeInteger(id) && id > 0 && !quizStatesRef.current.has(id)) ids.add(id);
+    }
+    if (ids.size === 0) return;
+    // Claimed now so a re-run while the request is in flight does not repeat it.
+    // The results are applied even if the key has changed since: the ids are still in the map.
+    for (const id of ids) quizStatesRef.current.set(id, "pending");
+    void Promise.all(
+      Array.from(ids).map(async (id) => {
+        let state: QuizCardState = "unknown";
+        let title: string | null = null;
+        try {
+          const res = await apiFetchRef.current(`/v1/quizzes/${id}`);
+          if (res.status === 404) state = "deleted";
+          else if (res.ok) {
+            const quiz = (await res.json()) as { title?: string; status?: string };
+            title = quiz.title ?? null;
+            state = quiz.status === "published" ? "published" : "unpublished";
+          }
+        } catch {
+          state = "unknown";
+        }
+        return { id, state, title };
+      }),
+    ).then((results) => {
+      for (const { id, state, title } of results) {
+        quizStatesRef.current.set(id, state);
+        // Re-read the document: Trix replaces attachment objects on re-render.
+        for (const attachment of editor.editor.getDocument().getAttachments()) {
+          if (attachment.getAttribute("contentType") !== QUIZ_CONTENT_TYPE || Number(attachment.getAttribute("quizId")) !== id) continue;
+          ownInsertRef.current = true;
+          try {
+            attachment.setAttributes({
+              quizTitle: title ?? "",
+              content: buildQuizCardHtml(quizCardLabel(id, title, state)),
+            });
+          } finally {
+            ownInsertRef.current = false;
+          }
+        }
+      }
+      onQuizStatesChangeRef.current?.(new Map(quizStatesRef.current));
+    });
+  }, [quizIdsKey]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -467,6 +570,11 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
         });
         return;
       }
+      if (contentType === QUIZ_CONTENT_TYPE) {
+        // Pasted from another tab or article. Same rebuild as the load pass.
+        attachment.setAttributes(pastedQuizAttributes(attachment.getAttribute("quizId"), attachment.getAttribute("quizTitle")));
+        return;
+      }
       if (contentType.startsWith("audio/") && !attachment.file) {
         // A pasted audio chip. Anything not on our media infrastructure goes.
         const url = String(attachment.getAttribute("url") ?? "");
@@ -625,6 +733,44 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
     },
     [openBlockForImage],
   );
+
+  const insertQuiz = useCallback(
+    (quiz: { id: number; title: string }) => {
+      setQuizOpen(false);
+      const editor = editorRef.current;
+      const Trix = window.Trix;
+      if (!editor || !Trix) return;
+      editor.focus();
+      if (savedRangeRef.current) {
+        editor.editor.setSelectedRange(savedRangeRef.current);
+        savedRangeRef.current = null;
+      }
+      openBlockForImage();
+      // The picker lists only published quizzes, so no lookup is needed.
+      quizStatesRef.current.set(quiz.id, "published");
+      onQuizStatesChangeRef.current?.(new Map(quizStatesRef.current));
+      ownInsertRef.current = true;
+      try {
+        editor.editor.insertAttachment(
+          new Trix.Attachment({
+            contentType: QUIZ_CONTENT_TYPE,
+            quizId: quiz.id,
+            quizTitle: quiz.title,
+            content: buildQuizCardHtml(quizCardLabel(quiz.id, quiz.title, "published")),
+          } as TrixAttachmentAttributes),
+        );
+      } finally {
+        ownInsertRef.current = false;
+      }
+    },
+    [openBlockForImage],
+  );
+
+  const openQuiz = useCallback(() => {
+    const editor = editorRef.current;
+    savedRangeRef.current = editor ? editor.editor.getSelectedRange() : null;
+    setQuizOpen(true);
+  }, []);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -1685,6 +1831,9 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
           <path d="M4 6h16v12H4z" fill="none" stroke="currentColor" strokeWidth="2" />
           <path d="m10 9 5 3-5 3z" fill="currentColor" />
         </symbol>
+        <symbol id={`${toolbarId}-quiz`} viewBox="0 0 24 24">
+          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 15.5a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5Zm1.6-5.2c-.6.4-.8.7-.8 1.4h-1.7c0-1.3.5-2 1.4-2.6.6-.4.9-.7.9-1.3 0-.7-.5-1.2-1.4-1.2-.9 0-1.5.6-1.6 1.4H8.6C8.7 8 10.1 6.6 12.1 6.6c2 0 3.3 1.1 3.3 2.8 0 1.3-.6 2.1-1.8 2.9Z" />
+        </symbol>
       </svg>
 
       <trix-toolbar id={toolbarId}>
@@ -1844,6 +1993,17 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
             </button>
             <button
               type="button"
+              className="trix-button trix-button--icon-quiz"
+              onClick={openQuiz}
+              title="Insert a quiz"
+              tabIndex={-1}
+            >
+              <svg className="trix-icon" aria-hidden="true">
+                <use href={`#${toolbarId}-quiz`} />
+              </svg>
+            </button>
+            <button
+              type="button"
               className="trix-button trix-button--icon-attach"
               data-trix-action="attachFiles"
               title="Attach files"
@@ -1964,6 +2124,16 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
             savedRangeRef.current = null;
           }}
           onInsert={insertEmbed}
+        />
+      )}
+
+      {quizOpen && (
+        <QuizPickerDialog
+          onClose={() => {
+            setQuizOpen(false);
+            savedRangeRef.current = null;
+          }}
+          onPick={insertQuiz}
         />
       )}
 
@@ -2135,6 +2305,90 @@ function EmbedDialog({ onInsert, onClose }: EmbedDialogProps) {
             type="button"
           >
             Insert
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type QuizPickerDialogProps = {
+  onPick: (quiz: { id: number; title: string }) => void;
+  onClose: () => void;
+};
+
+// Lists published quizzes by title. Same modal shell as EmbedDialog.
+function QuizPickerDialog({ onPick, onClose }: QuizPickerDialogProps) {
+  const apiFetch = useApiFetch();
+  const [quizzes, setQuizzes] = useState<{ id: number; title: string }[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const inputId = useId();
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch("/v1/quizzes?status=published");
+        if (!res.ok) throw new Error(String(res.status));
+        const list = (await res.json()) as { id: number; title: string }[];
+        if (!cancelled) setQuizzes(list);
+      } catch {
+        if (!cancelled) setError("Could not load quizzes. Try again.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiFetch]);
+
+  const shown = (quizzes ?? []).filter((q) => q.title.toLowerCase().includes(query.trim().toLowerCase()));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose} role="presentation">
+      <div
+        aria-label="Insert a quiz"
+        aria-modal="true"
+        className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-background p-5"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+      >
+        <label className="text-base font-semibold text-foreground" htmlFor={inputId}>
+          Quiz
+        </label>
+        <input
+          autoFocus
+          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+          id={inputId}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onClose();
+          }}
+          placeholder="Search published quizzes"
+          type="search"
+          value={query}
+        />
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        {quizzes && quizzes.length === 0 && <p className="text-sm text-muted-foreground">No published quizzes yet.</p>}
+        <ul className="max-h-64 overflow-y-auto">
+          {shown.map((q) => (
+            <li key={q.id}>
+              <button
+                className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-muted"
+                onClick={() => onPick(q)}
+                type="button"
+              >
+                {q.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex items-center justify-between">
+          <a className="text-sm text-primary underline" href="/quizzes" rel="noopener" target="_blank">
+            New quiz
+          </a>
+          <button className="rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground" onClick={onClose} type="button">
+            Cancel
           </button>
         </div>
       </div>

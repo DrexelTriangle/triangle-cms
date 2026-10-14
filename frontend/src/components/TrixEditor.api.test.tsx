@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import TrixEditor, { type TrixEditorApi } from "./TrixEditor"
+import { findInvalidEmbeds, trixHtmlToArticle, type QuizCardProblems } from "./trixArticleHtml"
 
 // jsdom's ElementInternals lacks setFormValue and setValidity, which Trix calls.
 const nativeAttachInternals = HTMLElement.prototype.attachInternals
@@ -300,5 +301,122 @@ describe("embeds in the editor", () => {
       editor.editor.insertHTML(chip)
     })
     expect(await screen.findByText(/pasted audio file was removed/i)).toBeInTheDocument()
+  })
+})
+
+describe("quizzes in the editor", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const jsonResponse = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
+
+  const lastStates = (fn: ReturnType<typeof vi.fn>) => fn.mock.calls.at(-1)?.[0] as Map<number, string> | undefined
+
+  it("inserts a picked quiz as a card and saves the shortcode", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/v1/quizzes?status=published")) return jsonResponse([{ id: 7, slug: "campus", title: "Campus trivia", kind: "trivia", status: "published", updated_at: "", starts: 0, edit_version: 1 }])
+      return jsonResponse({ error: "not found" }, 404)
+    })
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    const onQuizStatesChange = vi.fn()
+    render(<TrixEditor value="<p>Body</p>" onChange={onChange} onQuizStatesChange={onQuizStatesChange} />)
+    await waitFor(() => expect(document.querySelector("trix-editor")).not.toBeNull())
+    await user.click(screen.getByTitle(/insert a quiz/i))
+    await user.click(await screen.findByRole("button", { name: /campus trivia/i }))
+    await waitFor(() => {
+      const last = String(onChange.mock.calls.at(-1)?.[0] ?? "")
+      expect(last).toContain('<p>[quiz id="7"]</p>')
+    })
+    expect(document.querySelector("trix-editor .embed-card--quiz")?.textContent).toContain("Quiz: Campus trivia")
+    expect(lastStates(onQuizStatesChange)?.get(7)).toBe("published")
+  })
+
+  it("resolves a loaded quiz card's title and reports its state", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/v1/quizzes/7")) return jsonResponse({ id: 7, title: "Campus trivia", status: "draft" })
+      if (url.endsWith("/v1/quizzes/8")) return jsonResponse({ error: "not found" }, 404)
+      return jsonResponse({}, 500)
+    })
+    const onQuizStatesChange = vi.fn()
+    render(<TrixEditor value='<p>[quiz id="7"]</p><p>[quiz id="8"]</p>' onChange={() => {}} onQuizStatesChange={onQuizStatesChange} />)
+    await waitFor(() => expect(lastStates(onQuizStatesChange)?.get(7)).toBe("unpublished"))
+    expect(lastStates(onQuizStatesChange)?.get(8)).toBe("deleted")
+    const cards = Array.from(document.querySelectorAll("trix-editor .embed-card--quiz")).map((c) => c.textContent)
+    expect(cards[0]).toContain("Quiz: Campus trivia (unpublished)")
+    expect(cards[1]).toContain("Quiz #8 (deleted)")
+  })
+
+  it("marks a card unknown when the lookup fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network"))
+    const onQuizStatesChange = vi.fn()
+    render(<TrixEditor value='<p>[quiz id="7"]</p>' onChange={() => {}} onQuizStatesChange={onQuizStatesChange} />)
+    await waitFor(() => expect(lastStates(onQuizStatesChange)?.get(7)).toBe("unknown"))
+    expect(document.querySelector("trix-editor .embed-card--quiz")?.textContent).toContain("could not check")
+  })
+
+  it("checks quiz cards on the editor document and highlights the ones it flags", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ id: 7, title: "Campus trivia", status: "draft" }))
+    const apiRef: { current: TrixEditorApi | null } = { current: null }
+    const onQuizStatesChange = vi.fn()
+    render(<TrixEditor value='<p>[quiz id="7"]</p>' onChange={() => {}} apiRef={apiRef} onQuizStatesChange={onQuizStatesChange} />)
+    await waitFor(() => expect(lastStates(onQuizStatesChange)?.get(7)).toBe("unpublished"))
+    let problems: QuizCardProblems | undefined
+    act(() => {
+      problems = apiRef.current?.checkQuizCards(new Map([[7, "unpublished"]]))
+    })
+    expect(problems?.blocking).toEqual(["Quiz #7 is unpublished. Remove it or publish the quiz first."])
+    await waitFor(() => expect(document.querySelector("trix-editor .embed-card--flagged")).not.toBeNull())
+  })
+
+  it("replaces a pasted quiz card with an invalid id by the invalid card", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network"))
+    render(<TrixEditor value="<p>Body</p>" onChange={() => {}} />)
+    await waitFor(() => expect(document.querySelector("trix-editor")).not.toBeNull())
+    const editor = document.querySelector("trix-editor") as TrixEditorElement
+    const pasted = `<figure data-trix-attachment='${JSON.stringify({
+      contentType: "application/vnd.triangle.quiz",
+      quizId: "abc",
+      content: '<span class="hostile-marker">x</span>',
+    })}'></figure>`
+    await act(async () => {
+      editor.editor.insertHTML(pasted)
+    })
+    await waitFor(() => expect(findInvalidEmbeds(trixHtmlToArticle(editor.value))).toHaveLength(1))
+    expect(document.querySelector("trix-editor .hostile-marker")).toBeNull()
+  })
+
+  it("rebuilds a pasted quiz card from its id and keeps no stored content", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network"))
+    render(<TrixEditor value="<p>Body</p>" onChange={() => {}} />)
+    await waitFor(() => expect(document.querySelector("trix-editor")).not.toBeNull())
+    const editor = document.querySelector("trix-editor") as TrixEditorElement
+    const pasted = `<figure data-trix-attachment='${JSON.stringify({
+      contentType: "application/vnd.triangle.quiz",
+      quizId: 7,
+      quizOriginal: '<p class="media-box">[quiz id="7" /]</p>',
+      content: '<span class="hostile-marker">x</span>',
+    })}'></figure>`
+    await act(async () => {
+      editor.editor.insertHTML(pasted)
+    })
+    await waitFor(() => expect(document.querySelector("trix-editor .embed-card--quiz")?.textContent).toContain("Quiz #7"))
+    expect(document.querySelector("trix-editor .hostile-marker")).toBeNull()
+    expect(editor.value).not.toContain("quizOriginal")
+  })
+
+  it("does not look a quiz up again when the same document renders again", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ id: 7, title: "Campus trivia", status: "published" }))
+    const value = '<p>[quiz id="7"]</p>'
+    const { rerender } = render(<TrixEditor value={value} onChange={() => {}} onQuizStatesChange={() => {}} />)
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      rerender(<TrixEditor value={value} onChange={() => {}} onQuizStatesChange={() => {}} />)
+    })
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 })

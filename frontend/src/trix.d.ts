@@ -23,6 +23,11 @@ declare global {
     // For a legacy shortcode loaded from an article: the original block, so an
     // unedited embed saves back byte-for-byte.
     embedOriginal?: string;
+    // A quiz card: the CMS quiz id, the title the lookup found, and for a
+    // legacy block the original markup, so an unedited card saves back as it was.
+    quizId?: number;
+    quizTitle?: string;
+    quizOriginal?: string;
   }
 
   interface Window {

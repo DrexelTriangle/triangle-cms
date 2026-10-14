@@ -254,6 +254,26 @@ const buildQuizFigure = (doc: Document, id: number, title: string, original?: st
   return figure
 }
 
+/**
+ * The attributes a pasted quiz attachment is rebuilt from, by the same rule as
+ * the load pass: a safe integer id keeps the card, anything else becomes the
+ * invalid card that findInvalidEmbeds refuses on save. Stored content and
+ * quizOriginal are never kept.
+ */
+export const pastedQuizAttributes = (quizId: unknown, quizTitle: unknown): Record<string, unknown> => {
+  const id = quizIdFrom(quizId)
+  if (!id) {
+    return { contentType: EMBED_CONTENT_TYPE, quizId: undefined, quizTitle: undefined, quizOriginal: undefined, content: buildInvalidCardHtml() }
+  }
+  const title = typeof quizTitle === "string" ? quizTitle : ""
+  return {
+    quizId: id,
+    quizTitle: title,
+    quizOriginal: undefined,
+    content: buildQuizCardHtml(quizCardLabel(id, title || null, title ? "published" : "pending")),
+  }
+}
+
 /** Wrap a figure in the <div> Trix uses for an attachment block. */
 const wrapBlock = (doc: Document, figure: HTMLElement): HTMLElement => {
   const block = doc.createElement("div")
@@ -309,7 +329,7 @@ export const replacementAttachmentAttributes = (
   currentAlt: string,
   image: ReplacementImage,
   source: "library" | "upload",
-): Partial<AttachmentData> => {
+): Partial<Omit<AttachmentData, "quizId" | "quizTitle">> => {
   const libraryAlt = source === "library" ? (image.alt_text?.trim() ?? "") : ""
   const alt = libraryAlt || currentAlt.trim()
   return {
