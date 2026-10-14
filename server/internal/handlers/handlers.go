@@ -3162,6 +3162,11 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		spotlights, err := db.GetExhibitSpotlights(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		developingStories := make([]models.HomepageDevelopingStory, 0, len(stories))
 		for idx, story := range stories {
 			slug := db.CanonicalizeSlug(story.Title)
@@ -3194,6 +3199,7 @@ func GetHomepage(conn *sql.DB) http.HandlerFunc {
 			BreakingNews:      breakingNews,
 			Carousel:          db.PublishedHomepageCarousel(carousel),
 			DevelopingStories: developingStories,
+			ExhibitSpotlight:  db.TodaysExhibitSpotlight(spotlights, time.Now()),
 		}
 
 		// Captured from the news pass so the featured article, which may come

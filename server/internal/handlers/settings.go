@@ -3,11 +3,13 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"server/internal/activity"
 	db "server/internal/database"
@@ -311,4 +313,101 @@ func validCarouselURL(raw string) bool {
 	}
 	parsed, err := url.Parse(raw)
 	return err == nil && parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
+}
+
+// @Summary Get the exhibit of the day schedule (admin; includes unpublished drafts)
+// @Tags settings
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} models.ExhibitSpotlightSettingsResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/settings/exhibit-spotlights [get]
+func GetExhibitSpotlights(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		entries, err := db.GetExhibitSpotlights(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to fetch exhibit spotlights")
+			return
+		}
+		writeJSON(w, http.StatusOK, models.ExhibitSpotlightSettingsResponse{Entries: entries})
+	})
+}
+
+// @Summary Replace the exhibit of the day schedule
+// @Tags settings
+// @Accept json
+// @Produce json
+// @Param body body models.ExhibitSpotlightSettingsPatchRequest true "Exhibit spotlight entries"
+// @Success 200 {object} models.ExhibitSpotlightSettingsResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/settings/exhibit-spotlights [patch]
+func PatchExhibitSpotlights(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body models.ExhibitSpotlightSettingsPatchRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		// A body without "entries" (or a misspelled key) must not be read as
+		// "delete everything"; an explicit empty list still clears the schedule.
+		if body.Entries == nil {
+			writeError(w, http.StatusBadRequest, "entries is required")
+			return
+		}
+		entries := db.NormalizeExhibitSpotlights(body.Entries)
+		if err := validateExhibitSpotlights(entries); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := db.SetExhibitSpotlights(r.Context(), conn, entries); err != nil {
+			if errors.Is(err, db.ErrExhibitSpotlightsTooLarge) {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to update exhibit spotlights")
+			return
+		}
+		activity.LogRequest(r, "settings_changed", "Exhibit spotlights updated", "exhibit_spotlights", strconv.Itoa(len(entries)))
+		writeJSON(w, http.StatusOK, models.ExhibitSpotlightSettingsResponse{Entries: entries})
+	})
+}
+
+func validateExhibitSpotlights(entries []models.ExhibitSpotlight) error {
+	// The list is one TEXT row (64 KB); 30 entries of a few paragraphs each is
+	// the comfortable ceiling, and the farewell series has about 25.
+	if len(entries) > 30 {
+		return fmt.Errorf("exhibit spotlights cannot have more than 30 entries")
+	}
+	for idx, e := range entries {
+		n := idx + 1
+		if e.Enabled {
+			if e.FeatureDate == "" {
+				return fmt.Errorf("entry %d feature_date is required when enabled", n)
+			}
+			if _, err := time.Parse("2006-01-02", e.FeatureDate); err != nil {
+				return fmt.Errorf("entry %d feature_date must be YYYY-MM-DD", n)
+			}
+			if e.Title == "" {
+				return fmt.Errorf("entry %d title is required when enabled", n)
+			}
+		}
+		if len(e.Title) > 200 {
+			return fmt.Errorf("entry %d title cannot exceed 200 characters", n)
+		}
+		if len(e.ImageURL) > 2048 || len(e.ImageCreditURL) > 2048 {
+			return fmt.Errorf("entry %d image URLs cannot exceed 2048 characters", n)
+		}
+		if e.ImageURL != "" && !validCarouselURL(e.ImageURL) {
+			return fmt.Errorf("entry %d image_url must be a relative URL or absolute http(s) URL", n)
+		}
+		if e.ImageCreditURL != "" && !validCarouselURL(e.ImageCreditURL) {
+			return fmt.Errorf("entry %d image_credit_url must be a relative URL or absolute http(s) URL", n)
+		}
+		if e.LinkURL != "" && !validCarouselURL(e.LinkURL) {
+			return fmt.Errorf("entry %d link_url must be a relative URL or absolute http(s) URL", n)
+		}
+	}
+	return nil
 }
