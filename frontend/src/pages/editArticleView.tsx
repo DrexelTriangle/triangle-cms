@@ -23,6 +23,10 @@ async function readErrorMessage(response: Response, fallback: string) {
   }
 }
 
+// A 422 on autosave is the server refusing this content (a draft quiz in a live
+// article, say), not a failed request, so the reason is shown to the editor.
+class AutosavePausedError extends Error {}
+
 type EditableStatus = "draft" | "published"
 type PublishTiming = "draft" | "now" | "schedule"
 
@@ -789,7 +793,27 @@ function EditArticleView() {
     if (!autosave) {
       setQuizWarning(null)
       if (effectiveStatus === "published") {
-        const quizCards = editorApiRef.current?.checkQuizCards(quizStates)
+        let quizCards = editorApiRef.current?.checkQuizCards(quizStates)
+        if (quizCards && quizCards.blocking.length > 0) {
+          // The editor looks each quiz up once, so a quiz published since then
+          // still reads as unpublished. Ask again before refusing the publish.
+          const fresh = new Map(quizStates)
+          await Promise.all(
+            quizCards.flaggedIds
+              .filter((id) => fresh.get(id) !== "published")
+              .map(async (id) => {
+                try {
+                  const res = await apiFetch(`/v1/quizzes/${id}`)
+                  if (res.status === 404) fresh.set(id, "deleted")
+                  else if (res.ok) fresh.set(id, ((await res.json()) as { status?: string }).status === "published" ? "published" : "unpublished")
+                } catch {
+                  // Keep the earlier state; the server decides on publish.
+                }
+              }),
+          )
+          setQuizStates(fresh)
+          quizCards = editorApiRef.current?.checkQuizCards(fresh)
+        }
         if (quizCards && quizCards.blocking.length > 0) {
           validationError(quizCards.blocking[0])
           return
@@ -918,7 +942,8 @@ function EditArticleView() {
         // A rename onto a slug another article holds comes back 409 with a
         // message worth showing: the generic text would read as a save that
         // failed for no reason.
-        throw new Error(await readErrorMessage(response, `Save failed (${response.status})`))
+        const message = await readErrorMessage(response, `Save failed (${response.status})`)
+        throw autosave && response.status === 422 ? new AutosavePausedError(message) : new Error(message)
       }
       if (nextTiming) {
         setPublishTiming(nextTiming)
@@ -946,7 +971,7 @@ function EditArticleView() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save article."
       if (autosave) {
-        setAutoSaveMessage("Autosave failed.")
+        setAutoSaveMessage(err instanceof AutosavePausedError ? `Autosave paused: ${message}` : "Autosave failed.")
       } else {
         setError(message)
       }

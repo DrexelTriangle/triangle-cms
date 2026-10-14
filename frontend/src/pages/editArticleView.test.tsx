@@ -26,6 +26,10 @@ let pendingFlag = false
 // (Trix's figure markup, not the converted article) and the lookup states.
 let quizEditorHtml = ""
 let quizStatesFlag = new Map<number, QuizCardState>()
+// What GET /v1/quizzes/{id} says about a quiz when publish re-checks it.
+let quizRefetchStatus = "draft"
+// When set, PATCH answers 422 with this message.
+let patchRefusal: string | null = null
 const quizFigure = (id: number) =>
   `<div><figure data-trix-attachment='${JSON.stringify({ contentType: QUIZ_CONTENT_TYPE, quizId: id, quizTitle: "" })}'></figure></div>`
 let articlePublishedDate: string | undefined
@@ -115,7 +119,11 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       return jsonResponse({ id: 2, title: "Someone else's story", slug: candidate, content: "" })
     }
   }
+  if (method === "GET" && /^\/v1\/quizzes\/\d+$/.test(url)) {
+    return jsonResponse({ title: "A quiz", status: quizRefetchStatus })
+  }
   if (method === "PATCH") {
+    if (patchRefusal) return jsonResponse({ error: patchRefusal }, 422)
     return new Response(null, { status: 204 })
   }
   return jsonResponse({}, 404)
@@ -208,6 +216,8 @@ describe("EditArticleView autosave", () => {
     pendingFlag = false
     quizEditorHtml = ""
     quizStatesFlag = new Map()
+    quizRefetchStatus = "draft"
+    patchRefusal = null
     articlePublishedDate = undefined
     takenSlugs = new Set()
     articleTags = []
@@ -390,6 +400,26 @@ describe("EditArticleView autosave", () => {
     await user.click(screen.getByRole("button", { name: /^Publish$/ }))
     expect(await screen.findByText("Quiz #7 is unpublished. Remove it or publish the quiz first.")).toBeInTheDocument()
     expect(patchCalls().filter((c) => c.body?.status === "published")).toHaveLength(0)
+  })
+
+  it("publishes when the quiz was published after the editor first looked it up", async () => {
+    articleContent = '<p>[quiz id="7"]</p>'
+    quizEditorHtml = quizFigure(7)
+    quizStatesFlag = new Map([[7, "unpublished"]])
+    quizRefetchStatus = "published"
+    const user = await renderEditor()
+    await user.click(screen.getByRole("radio", { name: /Publish now/ }))
+    await user.click(screen.getByRole("button", { name: /^Publish$/ }))
+    await waitFor(() => expect(patchCalls().filter((c) => c.body?.status === "published")).toHaveLength(1))
+    expect(screen.queryByText(/Quiz #7 is unpublished/)).not.toBeInTheDocument()
+  })
+
+  it("shows the server reason when autosave is refused", async () => {
+    patchRefusal = "Quiz #7 is unpublished. Remove it or publish the quiz first."
+    const user = await renderEditor()
+    await user.type(screen.getByTestId("article-body"), " more")
+    await waitOutAutosave()
+    expect(await screen.findByText("Autosave paused: Quiz #7 is unpublished. Remove it or publish the quiz first.")).toBeInTheDocument()
   })
 
   it("warns but publishes when a quiz lookup is still pending", async () => {
@@ -598,6 +628,8 @@ describe("save guard for embeds and uploads", () => {
     pendingFlag = false
     quizEditorHtml = ""
     quizStatesFlag = new Map()
+    quizRefetchStatus = "draft"
+    patchRefusal = null
     takenSlugs = new Set()
     articleTags = []
     popularTagsPayload = []
