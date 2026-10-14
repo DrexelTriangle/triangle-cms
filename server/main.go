@@ -195,6 +195,10 @@ func main() {
 		slog.Error("failed to create poll archive tables", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsureQuizzesSchema(context.Background(), db); err != nil {
+		slog.Error("failed to create quiz tables", "error", err)
+		os.Exit(1)
+	}
 
 	if err := database.EnsureSessionsTable(context.Background(), db); err != nil {
 		slog.Error("failed to create sessions table", "error", err)
