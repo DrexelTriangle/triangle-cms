@@ -97,3 +97,7 @@ type QuizReferencesResponse struct {
 	Scheduled int `json:"scheduled"`
 	Draft     int `json:"draft"`
 }
+
+type QuizAnswerCountsResponse struct {
+	Counts []int64 `json:"counts"`
+}
