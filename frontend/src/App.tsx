@@ -31,6 +31,7 @@ const SettingsPage = lazy(() => import("./pages/settingsPage"))
 const PollView = lazy(() => import("./pages/pollView"))
 const WordangleView = lazy(() => import("./pages/wordangleView"))
 const QuizzesPage = lazy(() => import("./pages/quizzesPage"))
+const QuizEditor = lazy(() => import("./pages/quizEditor"))
 
 const AUTH_ROUTES = ["/login"]
 
@@ -134,6 +135,8 @@ export default function App() {
           <Route path="/poll" element={<PollView />} />
           <Route path="/wordangle" element={<WordangleView />} />
           <Route path="/quizzes" element={<QuizzesPage />} />
+          <Route path="/quizzes/new" element={<QuizEditor />} />
+          <Route path="/quizzes/:id" element={<QuizEditor />} />
           <Route path="/authors" element={<AuthorsView />} />
           <Route path="/sections" element={<SectionsView />} />
           <Route path="/comments" element={<CommentsView />} />
