@@ -3415,6 +3415,84 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/settings/exhibit-spotlights": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get the exhibit of the day schedule (admin; includes unpublished drafts)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ExhibitSpotlightSettingsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Replace the exhibit of the day schedule",
+                "parameters": [
+                    {
+                        "description": "Exhibit spotlight entries",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.ExhibitSpotlightSettingsPatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ExhibitSpotlightSettingsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/settings/footer": {
             "get": {
                 "produces": [
@@ -5652,6 +5730,82 @@ const docTemplate = `{
                 }
             }
         },
+        "models.ExhibitSpotlight": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "feature_date": {
+                    "type": "string"
+                },
+                "fun_facts": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "image_alt": {
+                    "type": "string"
+                },
+                "image_credit": {
+                    "type": "string"
+                },
+                "image_credit_url": {
+                    "type": "string"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "kicker": {
+                    "type": "string"
+                },
+                "link_url": {
+                    "description": "LinkURL is where the homepage picture links; empty means the Academy site.",
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tenure": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.ExhibitSpotlightSettingsPatchRequest": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ExhibitSpotlight"
+                    }
+                }
+            }
+        },
+        "models.ExhibitSpotlightSettingsResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ExhibitSpotlight"
+                    }
+                }
+            }
+        },
         "models.FooterColumn": {
             "type": "object",
             "properties": {
@@ -5838,6 +5992,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/models.ArticleListItem"
                     }
+                },
+                "exhibit_spotlight": {
+                    "$ref": "#/definitions/models.ExhibitSpotlight"
                 },
                 "news": {
                     "type": "array",
