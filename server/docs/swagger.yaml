@@ -1285,6 +1285,46 @@ definitions:
       title:
         type: string
     type: object
+  models.QuizSaveResponse:
+    properties:
+      counts:
+        items:
+          items:
+            format: int64
+            type: integer
+          type: array
+        type: array
+      cover_media_id:
+        type: integer
+      cover_url:
+        type: string
+      created_at:
+        type: string
+      definition:
+        $ref: '#/definitions/models.QuizDefinition'
+      definition_version:
+        type: integer
+      edit_version:
+        type: integer
+      id:
+        type: integer
+      intro:
+        type: string
+      kind:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+      warnings:
+        items:
+          type: string
+        type: array
+    type: object
   models.QuizValidationResponse:
     properties:
       errors:
@@ -3768,7 +3808,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/models.Quiz'
+            $ref: '#/definitions/models.QuizSaveResponse'
         "422":
           description: Unprocessable Entity
           schema:
@@ -3854,7 +3894,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.Quiz'
+            $ref: '#/definitions/models.QuizSaveResponse'
         "409":
           description: Conflict
           schema:

@@ -55,6 +55,13 @@ type Quiz struct {
 	UpdatedAt         string         `json:"updated_at"`
 }
 
+// QuizSaveResponse is what POST and PATCH return: the saved quiz plus any
+// non-blocking warnings from the save's validation.
+type QuizSaveResponse struct {
+	Quiz
+	Warnings []string `json:"warnings,omitempty"`
+}
+
 type QuizListItem struct {
 	ID          int64  `json:"id"`
 	Slug        string `json:"slug"`

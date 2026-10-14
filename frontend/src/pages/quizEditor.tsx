@@ -159,7 +159,8 @@ export default function QuizEditor() {
       setErrors([`Save failed (${res.status})`])
       return
     }
-    const saved = (await res.json()) as Quiz
+    const saved = (await res.json()) as Quiz & ValidationBody
+    setWarnings(saved.warnings ?? [])
     setQuiz(saved)
     setSlug(saved.slug)
     setDefinition(saved.definition)
@@ -169,7 +170,11 @@ export default function QuizEditor() {
 
   const confirmReferences = async (action: "unpublish" | "delete") => {
     const res = await apiFetch(`/v1/quizzes/${id}/references`)
-    const refs = res.ok ? ((await res.json()) as { published: number; scheduled: number; draft: number }) : { published: 0, scheduled: 0, draft: 0 }
+    if (!res.ok) {
+      setErrors([`Could not check which articles contain this quiz (${res.status}). Try again.`])
+      return
+    }
+    const refs = (await res.json()) as { published: number; scheduled: number; draft: number }
     const parts = [
       refs.published ? `${refs.published} published` : "",
       refs.scheduled ? `${refs.scheduled} scheduled` : "",
@@ -230,14 +235,13 @@ export default function QuizEditor() {
       {warnings.length > 0 && (
         <div className="rounded-lg border border-border p-3 text-sm">
           <ul>{warnings.map((w) => <li key={w}>{w}</li>)}</ul>
-          <button className={`${buttonClass} mt-2`} onClick={() => void save("published")} type="button">Publish anyway</button>
         </div>
       )}
       {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
 
       {tab === "results" && quiz && (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">Percentages are of submitted answers. Starts are approximate.</p>
+          <p className="text-sm text-muted-foreground">Percentages are of submitted answers. Starts are approximate: {quiz.counts[0]?.reduce((a, b) => a + b, 0) ?? 0}.</p>
           {quiz.definition.questions.map((q, qi) => {
             const row = quiz.counts[qi] ?? []
             const total = row.reduce((a, b) => a + b, 0)

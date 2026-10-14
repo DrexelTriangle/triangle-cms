@@ -41,11 +41,11 @@ func quizIDParam(r *http.Request) (int64, error) {
 // published quiz can never be saved into a shape it could not be published
 // in. On a validation failure it has already written the 422 and returns
 // ok=false.
-func decodeQuizInput(w http.ResponseWriter, r *http.Request, conn *sql.DB, alreadyPublished bool) (in models.QuizInput, def string, ok bool) {
+func decodeQuizInput(w http.ResponseWriter, r *http.Request, conn *sql.DB, alreadyPublished bool) (in models.QuizInput, def string, warnings []string, ok bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxQuizBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return in, "", false
+		return in, "", nil, false
 	}
 	in.Title = strings.TrimSpace(in.Title)
 	in.Slug = strings.TrimSpace(in.Slug)
@@ -61,22 +61,22 @@ func decodeQuizInput(w http.ResponseWriter, r *http.Request, conn *sql.DB, alrea
 	fieldErrs, err := db.ValidateQuizFields(r.Context(), conn, in)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to validate quiz")
-		return in, "", false
+		return in, "", nil, false
 	}
 	errs = append(errs, fieldErrs...)
 	if len(errs) > 0 {
 		writeJSON(w, http.StatusUnprocessableEntity, models.QuizValidationResponse{Errors: errs, Warnings: warnings})
-		return in, "", false
+		return in, "", nil, false
 	}
 	raw, err := json.Marshal(in.Definition)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to encode quiz")
-		return in, "", false
+		return in, "", nil, false
 	}
-	return in, string(raw), true
+	return in, string(raw), warnings, true
 }
 
-func writeQuiz(w http.ResponseWriter, r *http.Request, conn *sql.DB, id int64, status int) {
+func writeQuiz(w http.ResponseWriter, r *http.Request, conn *sql.DB, id int64, status int, warnings []string) {
 	q, err := db.GetQuizByID(r.Context(), conn, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load quiz")
@@ -86,7 +86,7 @@ func writeQuiz(w http.ResponseWriter, r *http.Request, conn *sql.DB, id int64, s
 		writeError(w, http.StatusInternalServerError, "Failed to load quiz")
 		return
 	}
-	writeJSON(w, status, q)
+	writeJSON(w, status, models.QuizSaveResponse{Quiz: *q, Warnings: warnings})
 }
 
 // @Summary List quizzes
@@ -131,7 +131,7 @@ func GetQuiz(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusNotFound, "quiz not found")
 			return
 		}
-		writeQuiz(w, r, conn, id, http.StatusOK)
+		writeQuiz(w, r, conn, id, http.StatusOK, nil)
 	})
 }
 
@@ -140,13 +140,13 @@ func GetQuiz(conn *sql.DB) http.Handler {
 // @Accept json
 // @Produce json
 // @Param body body models.QuizInput true "Quiz"
-// @Success 201 {object} models.Quiz
+// @Success 201 {object} models.QuizSaveResponse
 // @Failure 422 {object} models.QuizValidationResponse
 // @Security BearerAuth
 // @Router /v1/quizzes [post]
 func PostQuiz(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		in, def, ok := decodeQuizInput(w, r, conn, false)
+		in, def, warnings, ok := decodeQuizInput(w, r, conn, false)
 		if !ok {
 			return
 		}
@@ -162,7 +162,7 @@ func PostQuiz(conn *sql.DB) http.Handler {
 			return
 		}
 		activity.LogRequest(r, "quiz_updated", fmt.Sprintf("Created quiz: %s", in.Title))
-		writeQuiz(w, r, conn, id, http.StatusCreated)
+		writeQuiz(w, r, conn, id, http.StatusCreated, warnings)
 	})
 }
 
@@ -173,7 +173,7 @@ func PostQuiz(conn *sql.DB) http.Handler {
 // @Param id path int true "Quiz id"
 // @Param reset_counts query bool false "Allow a structural change to reset counts"
 // @Param body body models.QuizInput true "Quiz with the loaded edit_version"
-// @Success 200 {object} models.Quiz
+// @Success 200 {object} models.QuizSaveResponse
 // @Failure 409 {object} models.QuizConflictResponse
 // @Failure 422 {object} models.QuizValidationResponse
 // @Security BearerAuth
@@ -194,7 +194,7 @@ func PatchQuiz(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to load quiz")
 			return
 		}
-		in, def, ok := decodeQuizInput(w, r, conn, stored.Status == models.QuizStatusPublished)
+		in, def, warnings, ok := decodeQuizInput(w, r, conn, stored.Status == models.QuizStatusPublished)
 		if !ok {
 			return
 		}
@@ -223,7 +223,7 @@ func PatchQuiz(conn *sql.DB) http.Handler {
 			return
 		}
 		activity.LogRequest(r, "quiz_updated", fmt.Sprintf("Updated quiz #%d: %s", id, in.Title))
-		writeQuiz(w, r, conn, id, http.StatusOK)
+		writeQuiz(w, r, conn, id, http.StatusOK, warnings)
 	})
 }
 

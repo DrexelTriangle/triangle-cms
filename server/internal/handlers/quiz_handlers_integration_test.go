@@ -467,3 +467,28 @@ func TestQuizHTTP_ArticlePatchGatesPublishByDateAndStatus(t *testing.T) {
 		t.Fatalf("a draft edit with no quiz must save, got %d: %s", rec.Code, rec.Body)
 	}
 }
+
+// Warnings never block a save, so they ride on the success body. They only
+// arise under strict rules, which a publishing save applies.
+func TestQuizHTTP_EditorSaveReturnsWarningsOnSuccess(t *testing.T) {
+	conn := quizHandlerTestDB(t)
+	keyA, keyB := "a", "b"
+	in := models.QuizInput{
+		Slug: "pers", Title: "Pers", Kind: models.QuizKindPersonality, Status: models.QuizStatusPublished, EditVersion: 1,
+		Definition: models.QuizDefinition{
+			Questions: []models.QuizQuestion{{Text: "Q1", Answers: []models.QuizAnswer{{Text: "x", ResultKey: &keyA}, {Text: "y", ResultKey: &keyA}}}},
+			Results:   []models.QuizResult{{Key: keyA, Title: "A"}, {Key: keyB, Title: "B"}},
+		},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/quizzes", strings.NewReader(editorBody(t, in)))
+	rec := httptest.NewRecorder()
+	PostQuiz(conn).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", rec.Code, rec.Body)
+	}
+	var got models.QuizSaveResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], `"b"`) {
+		t.Fatalf("want one warning naming result b, got %+v", got.Warnings)
+	}
+}
