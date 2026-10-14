@@ -13,7 +13,26 @@
 
 export type EmbedProvider = "youtube" | "soundcloud" | "spotify" | "tiktok" | "instagram";
 
-export type Embed = { provider: EmbedProvider; url: string };
+// media: for Instagram, the post's images already copied into our media
+// library, as site-relative wp-content paths. Written by the editor after the
+// import call, read back from the shortcode's media attribute.
+export type Embed = { provider: EmbedProvider; url: string; media?: string[] };
+
+/**
+ * One media path: under the uploads prefix, no climbing, no query, an image
+ * extension. The same rule Scalene applies before it renders the holder.
+ */
+export function isMediaPath(path: string): boolean {
+  if (!path.startsWith("/wp-content/uploads/")) return false;
+  if (path.includes("..") || path.includes("//") || /[?#\s]/.test(path)) return false;
+  return /\.(webp|jpe?g|png)$/i.test(path);
+}
+
+/** A comma-separated media list; one bad path drops the whole list. */
+export function parseMediaList(list: string): string[] {
+  const paths = list.split(",").map((p) => p.trim()).filter(Boolean);
+  return paths.length > 0 && paths.every(isMediaPath) ? paths : [];
+}
 
 export type ParseResult =
   | { ok: true; embed: Embed }
@@ -142,12 +161,14 @@ export function encodeShortcodeUrl(url: string): string {
 /** One template per provider; YouTube keeps its legacy bare form. */
 export function embedToShortcode(embed: Embed): string {
   if (embed.provider === "youtube") return `[youtube ${embed.url}]`;
-  return `[${embed.provider} url="${encodeShortcodeUrl(embed.url)}" /]`;
+  const media = embed.provider === "instagram" && embed.media?.length ? ` media="${embed.media.join(",")}"` : "";
+  return `[${embed.provider} url="${encodeShortcodeUrl(embed.url)}"${media} /]`;
 }
 
 const YOUTUBE_SHORTCODE = /^\[youtube\s+(\S+?)\s*\/?\]$/i;
 const ATTR_SHORTCODE = /^\[(soundcloud|spotify|tiktok|instagram)(?=\s)([^\]]*?)\s*\/?\]$/i;
 const URL_ATTR = /(?:^|\s)url\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+const MEDIA_ATTR = /(?:^|\s)media\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
 
 /**
  * Parse text that is exactly one shortcode. Legacy attribute-form shortcodes
@@ -166,20 +187,55 @@ export function shortcodeToEmbed(text: string): Embed | null {
   const attr = URL_ATTR.exec(m[2]);
   if (!attr) return null;
   const r = parseEmbedUrl(attr[1] ?? attr[2] ?? "");
-  return r.ok && r.embed.provider === m[1].toLowerCase() ? r.embed : null;
+  if (!r.ok || r.embed.provider !== m[1].toLowerCase()) return null;
+  if (r.embed.provider === "instagram") {
+    const mediaAttr = MEDIA_ATTR.exec(m[2]);
+    const media = parseMediaList(mediaAttr?.[1] ?? mediaAttr?.[2] ?? "");
+    if (media.length > 0) return { ...r.embed, media };
+  }
+  return r.embed;
 }
 
-export function audioToShortcode(src: string): string {
-  return `[audio src="${encodeShortcodeUrl(src)}" /]`;
+/** Longest "where this audio is from" line the shortcode carries. */
+export const AUDIO_SOURCE_MAX = 120;
+
+/**
+ * Free text inside a shortcode attribute uses the URL grammar above: a quote,
+ * a bracket or a space is percent-encoded, so the writer's text can never
+ * close the attribute early. decodeShortcodeText reverses it.
+ */
+export function decodeShortcodeText(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function audioToShortcode(src: string, source = ""): string {
+  const text = source.trim().slice(0, AUDIO_SOURCE_MAX);
+  const sourceAttr = text ? ` source="${encodeShortcodeUrl(text)}"` : "";
+  return `[audio src="${encodeShortcodeUrl(src)}"${sourceAttr} /]`;
 }
 
 const AUDIO_SHORTCODE = /^\[audio(?=\s)([^\]]*?)\s*\/?\]$/i;
 const SRC_ATTR = /(?:^|\s)src\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+const SOURCE_ATTR = /(?:^|\s)source\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
 
-export function shortcodeToAudio(text: string, mediaBaseUrl: string): string | null {
+export type AudioShortcode = { src: string; source: string };
+
+export function parseAudioShortcode(text: string, mediaBaseUrl: string): AudioShortcode | null {
   const m = AUDIO_SHORTCODE.exec(text.trim());
   if (!m) return null;
   const attr = SRC_ATTR.exec(m[1]);
   if (!attr) return null;
-  return parseAudioUrl(attr[1] ?? attr[2] ?? "", mediaBaseUrl);
+  const src = parseAudioUrl(attr[1] ?? attr[2] ?? "", mediaBaseUrl);
+  if (!src) return null;
+  const sourceAttr = SOURCE_ATTR.exec(m[1]);
+  const source = decodeShortcodeText(sourceAttr?.[1] ?? sourceAttr?.[2] ?? "").trim().slice(0, AUDIO_SOURCE_MAX);
+  return { src, source };
+}
+
+export function shortcodeToAudio(text: string, mediaBaseUrl: string): string | null {
+  return parseAudioShortcode(text, mediaBaseUrl)?.src ?? null;
 }

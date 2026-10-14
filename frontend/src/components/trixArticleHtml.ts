@@ -14,6 +14,8 @@
 
 import {
   audioToShortcode,
+  parseAudioShortcode,
+  parseMediaList,
   embedToShortcode,
   parseAudioUrl,
   parseEmbedUrl,
@@ -162,6 +164,7 @@ const buildEmbedFigure = (doc: Document, embed: Embed, original?: string): HTMLE
     content: buildEmbedCardHtml(embed.provider, embed.url),
   }
   if (original) data.embedOriginal = original
+  if (embed.media?.length) data.embedMedia = embed.media
   const figure = doc.createElement("figure")
   figure.setAttribute("data-trix-attachment", JSON.stringify(data))
   figure.setAttribute("data-trix-attributes", "{}")
@@ -178,7 +181,9 @@ const buildInvalidFigure = (doc: Document): HTMLElement => {
   return figure
 }
 
-const buildAudioFigure = (doc: Document, url: string): HTMLElement => {
+// The Trix caption on an audio chip is the "where this audio is from" line
+// that Scalene prints above the player; it rides on the shortcode as source=.
+const buildAudioFigure = (doc: Document, url: string, source = ""): HTMLElement => {
   const filename = url.split("/").pop() ?? "audio.mp3"
   const data: AttachmentData = {
     contentType: "audio/mpeg",
@@ -189,7 +194,7 @@ const buildAudioFigure = (doc: Document, url: string): HTMLElement => {
   }
   const figure = doc.createElement("figure")
   figure.setAttribute("data-trix-attachment", JSON.stringify(data))
-  figure.setAttribute("data-trix-attributes", "{}")
+  figure.setAttribute("data-trix-attributes", JSON.stringify(source ? { caption: source } : {}))
   figure.innerHTML = data.content ?? ""
   return figure
 }
@@ -215,6 +220,15 @@ type AttachmentData = {
   embedProvider?: string
   embedUrl?: string
   embedOriginal?: string
+  embedMedia?: string[]
+}
+
+// The embed with its stored media list attached, when every path still
+// passes the rule; a tampered list drops to the plain link.
+const withMedia = (embed: Embed, media: unknown): Embed => {
+  if (embed.provider !== "instagram" || !Array.isArray(media)) return embed
+  const valid = parseMediaList(media.map(String).join(","))
+  return valid.length > 0 ? { ...embed, media: valid } : embed
 }
 
 /** The library image an existing attachment is being replaced with. */
@@ -337,11 +351,12 @@ export const articleHtmlToTrix = (html: string): string => {
     if (contentType === EMBED_CONTENT_TYPE) {
       const parsed = parseEmbedUrl(data?.embedUrl ?? "")
       const valid = parsed.ok && parsed.embed.provider === data?.embedProvider
-      figure.replaceWith(valid ? buildEmbedFigure(doc, parsed.embed, data?.embedOriginal) : buildInvalidFigure(doc))
+      figure.replaceWith(valid ? buildEmbedFigure(doc, withMedia(parsed.embed, data?.embedMedia), data?.embedOriginal) : buildInvalidFigure(doc))
       changed = true
     } else if (isAudioContentType(contentType)) {
       const url = isAcceptableAudioUrl(data?.url ?? "")
-      figure.replaceWith(url ? buildAudioFigure(doc, url) : buildInvalidFigure(doc))
+      const source = parseJSONAttribute<AttachmentAttributes>(figure, "data-trix-attributes")?.caption?.trim() ?? ""
+      figure.replaceWith(url ? buildAudioFigure(doc, url, source) : buildInvalidFigure(doc))
       changed = true
     }
   }
@@ -367,9 +382,9 @@ export const articleHtmlToTrix = (html: string): string => {
       changed = true
       continue
     }
-    const audio = shortcodeToAudio(text, safeOrigin(text))
+    const audio = parseAudioShortcode(text, safeOrigin(text))
     if (audio) {
-      block.replaceWith(wrapBlock(doc, buildAudioFigure(doc, audio)))
+      block.replaceWith(wrapBlock(doc, buildAudioFigure(doc, audio.src, audio.source)))
       changed = true
     }
   }
@@ -530,7 +545,7 @@ export const trixHtmlToArticle = (html: string): string => {
       if (!parsed.ok || parsed.embed.provider !== data.embedProvider) continue // invalid: left for findInvalidEmbeds
       const original = data.embedOriginal ? unchangedOriginalBlock(doc, data.embedOriginal, parsed.embed) : null
       const out = original ?? doc.createElement("div")
-      if (!original) out.textContent = embedToShortcode(parsed.embed)
+      if (!original) out.textContent = embedToShortcode(withMedia(parsed.embed, data.embedMedia))
       replaceAttachmentBlock(figure, out)
       changed = true
       continue
@@ -545,7 +560,8 @@ export const trixHtmlToArticle = (html: string): string => {
       const url = isAcceptableAudioUrl(src)
       if (!url) continue // invalid: left for findInvalidEmbeds
       const out = doc.createElement("div")
-      out.textContent = audioToShortcode(url)
+      const source = parseJSONAttribute<AttachmentAttributes>(figure, "data-trix-attributes")?.caption?.trim() ?? ""
+      out.textContent = audioToShortcode(url, source)
       replaceAttachmentBlock(figure, out)
       changed = true
       continue

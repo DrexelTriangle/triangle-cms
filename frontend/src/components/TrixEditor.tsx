@@ -596,13 +596,48 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
   }, []);
 
   // Returns an error message, or null after a successful insert.
+  // Instagram renders in Scalene's own holder, which needs the post's images
+  // on our media origin. The server copies them before the card goes in, so
+  // a failed import leaves nothing half-done in the article.
+  const importInstagram = async (url: string): Promise<{ media?: string[]; error?: string }> => {
+    try {
+      const response = await fetch(`${apiBaseUrl()}/v1/embeds/instagram`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      if (!response.ok) {
+        let detail = `import failed (${String(response.status)})`;
+        try {
+          const body = (await response.json()) as { error?: string };
+          if (body.error?.trim()) detail = body.error.trim();
+        } catch {
+          // Fall through to the status-code message.
+        }
+        return { error: `Could not import the post's images: ${detail}` };
+      }
+      const body = (await response.json()) as { media?: string[] };
+      return { media: body.media ?? [] };
+    } catch (err: unknown) {
+      return { error: `Could not import the post's images: ${err instanceof Error ? err.message : "network error"}` };
+    }
+  };
+
   const insertEmbed = useCallback(
-    (input: string): string | null => {
+    async (input: string): Promise<string | null> => {
       const parsed = parseEmbedUrl(input);
       if (!parsed.ok) return parsed.reason === "short-link" ? SHORT_LINK_MESSAGE : ACCEPTED_HOSTS_MESSAGE;
       const editor = editorRef.current;
       const Trix = window.Trix;
       if (!editor || !Trix) return "The editor is not ready.";
+
+      let media: string[] | undefined;
+      if (parsed.embed.provider === "instagram") {
+        const imported = await importInstagram(parsed.embed.url);
+        if (imported.error) return imported.error;
+        media = imported.media;
+      }
 
       editor.focus();
       if (savedRangeRef.current) {
@@ -618,6 +653,7 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange }: TrixEditorProp
           contentType: EMBED_CONTENT_TYPE,
           embedProvider: provider,
           embedUrl: url,
+          ...(media?.length ? { embedMedia: media } : {}),
           content: buildEmbedCardHtml(provider, url),
         } as TrixAttachmentAttributes),
       );
@@ -2064,8 +2100,8 @@ function AltTextDialog({ alt, onSave, onCancel }: AltTextDialogProps) {
 }
 
 type EmbedDialogProps = {
-  // Returns an error message, or null once the embed is in the article.
-  onInsert: (url: string) => string | null;
+  // Resolves to an error message, or null once the embed is in the article.
+  onInsert: (url: string) => Promise<string | null>;
   onClose: () => void;
 };
 
@@ -2074,15 +2110,21 @@ type EmbedDialogProps = {
 function EmbedDialog({ onInsert, onClose }: EmbedDialogProps) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // True while an Instagram import runs on the server; the dialog waits.
+  const [busy, setBusy] = useState(false);
   const inputId = useId();
 
   const submit = () => {
-    const message = onInsert(draft);
-    if (message) {
-      setError(message);
-      return;
-    }
-    onClose();
+    if (busy) return;
+    setBusy(true);
+    void onInsert(draft).then((message) => {
+      setBusy(false);
+      if (message) {
+        setError(message);
+        return;
+      }
+      onClose();
+    });
   };
 
   return (
@@ -2131,10 +2173,11 @@ function EmbedDialog({ onInsert, onClose }: EmbedDialogProps) {
           </button>
           <button
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            disabled={busy}
             onClick={submit}
             type="button"
           >
-            Insert
+            {busy ? "Importing..." : "Insert"}
           </button>
         </div>
       </div>

@@ -67,6 +67,24 @@ services:
     networks:
       - triangle_net
 
+  # Reads an Instagram post's image links in a headless browser so the CMS can
+  # copy them into the library. Stateless, internal only, like the others.
+  scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    cpus: ${SCRAPE_CPUS:-1}
+    mem_limit: ${SCRAPE_MEM_LIMIT:-1024m}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - triangle_net
+
   cms:
     build:
       context: ./server
@@ -75,6 +93,7 @@ services:
     environment:
       EMBEDDINGS_URL: ${EMBEDDINGS_URL:-http://embeddings:8000}
       IMAGING_URL: ${IMAGING_URL:-http://imaging:8000}
+      SCRAPER_URL: ${SCRAPER_URL:-http://scraper:8000}
       DB_NAME: ${MARIADB_DATABASE:-triangle}
       DB_USER: ${MARIADB_USER:-triangle_user}
       DB_PASSWORD: ${MARIADB_PASSWORD:?MARIADB_PASSWORD is required}
