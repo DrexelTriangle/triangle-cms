@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { articleUrl } from "../auth/urls"
 import TrixEditor, { type TrixEditorApi } from "../components/TrixEditor"
-import { findInvalidEmbeds } from "../components/trixArticleHtml"
+import { findInvalidEmbeds, type QuizCardState } from "../components/trixArticleHtml"
 import MediaPicker from "../components/MediaPicker"
 import { copyText } from "../lib/clipboard"
 import { srcSetFor, type ImageVariant } from "../lib/imageVariants"
@@ -287,6 +287,9 @@ function EditArticleView() {
   const [slugRegenerating, setSlugRegenerating] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const editorApiRef = useRef<TrixEditorApi | null>(null)
+  // The editor reports each quiz card's lookup state; publish hands it back.
+  const [quizStates, setQuizStates] = useState<Map<number, QuizCardState>>(() => new Map())
+  const [quizWarning, setQuizWarning] = useState<string | null>(null)
   const [hasPendingUploads, setHasPendingUploads] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isAutoSaving, setIsAutoSaving] = useState(false)
@@ -779,6 +782,20 @@ function EditArticleView() {
         "Autosave paused until an author or section is set.",
       )
       return
+    }
+    // A story may be drafted around a quiz that is not live yet, but may not
+    // go out pointing at one the site would 404. Pending or failed lookups
+    // warn and let the save through; the server re-checks on publish.
+    if (!autosave) {
+      setQuizWarning(null)
+      if (effectiveStatus === "published") {
+        const quizCards = editorApiRef.current?.checkQuizCards(quizStates)
+        if (quizCards && quizCards.blocking.length > 0) {
+          validationError(quizCards.blocking[0])
+          return
+        }
+        if (quizCards && quizCards.warnings.length > 0) setQuizWarning(quizCards.warnings.join(" "))
+      }
     }
     // Only an explicit save sends a date, so a half-edited schedule date must not
     // hold the content autosave hostage.
@@ -1388,6 +1405,7 @@ function EditArticleView() {
                 apiRef={editorApiRef}
                 onChange={setContent}
                 onPendingChange={setHasPendingUploads}
+                onQuizStatesChange={setQuizStates}
                 value={content}
               />
             </div>
@@ -1813,6 +1831,11 @@ function EditArticleView() {
             {error && (
               <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
                 {error}
+              </p>
+            )}
+            {quizWarning && (
+              <p className="text-xs text-foreground border border-border rounded-lg px-3 py-2">
+                {quizWarning}
               </p>
             )}
             {successMessage && (
