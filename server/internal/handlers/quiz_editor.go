@@ -94,6 +94,7 @@ func writeQuiz(w http.ResponseWriter, r *http.Request, conn *sql.DB, id int64, s
 // @Produce json
 // @Param status query string false "draft or published"
 // @Success 200 {array} models.QuizListItem
+// @Security BearerAuth
 // @Router /v1/quizzes [get]
 func GetQuizzes(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +118,7 @@ func GetQuizzes(conn *sql.DB) http.Handler {
 // @Param id path int true "Quiz id"
 // @Success 200 {object} models.Quiz
 // @Failure 404 {object} models.ErrorResponse
+// @Security BearerAuth
 // @Router /v1/quizzes/{id} [get]
 func GetQuiz(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +142,7 @@ func GetQuiz(conn *sql.DB) http.Handler {
 // @Param body body models.QuizInput true "Quiz"
 // @Success 201 {object} models.Quiz
 // @Failure 422 {object} models.QuizValidationResponse
+// @Security BearerAuth
 // @Router /v1/quizzes [post]
 func PostQuiz(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -173,6 +176,7 @@ func PostQuiz(conn *sql.DB) http.Handler {
 // @Success 200 {object} models.Quiz
 // @Failure 409 {object} models.QuizConflictResponse
 // @Failure 422 {object} models.QuizValidationResponse
+// @Security BearerAuth
 // @Router /v1/quizzes/{id} [patch]
 func PatchQuiz(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +234,7 @@ func PatchQuiz(conn *sql.DB) http.Handler {
 // @Param body body models.QuizInput true "Only edit_version is read"
 // @Success 204
 // @Failure 409 {object} models.QuizConflictResponse
+// @Security BearerAuth
 // @Router /v1/quizzes/{id} [delete]
 func DeleteQuiz(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -268,6 +273,7 @@ func DeleteQuiz(conn *sql.DB) http.Handler {
 // @Produce json
 // @Param id path int true "Quiz id"
 // @Success 200 {object} models.QuizReferencesResponse
+// @Security BearerAuth
 // @Router /v1/quizzes/{id}/references [get]
 func GetQuizReferences(conn *sql.DB) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

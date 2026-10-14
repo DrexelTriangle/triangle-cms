@@ -3747,6 +3747,8 @@ paths:
             items:
               $ref: '#/definitions/models.QuizListItem'
             type: array
+      security:
+      - BearerAuth: []
       summary: List quizzes
       tags:
       - quiz
@@ -3771,6 +3773,8 @@ paths:
           description: Unprocessable Entity
           schema:
             $ref: '#/definitions/models.QuizValidationResponse'
+      security:
+      - BearerAuth: []
       summary: Create a quiz
       tags:
       - quiz
@@ -3797,6 +3801,8 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/models.QuizConflictResponse'
+      security:
+      - BearerAuth: []
       summary: Delete a quiz
       tags:
       - quiz
@@ -3818,6 +3824,8 @@ paths:
           description: Not Found
           schema:
             $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
       summary: Get a quiz in any status
       tags:
       - quiz
@@ -3855,6 +3863,8 @@ paths:
           description: Unprocessable Entity
           schema:
             $ref: '#/definitions/models.QuizValidationResponse'
+      security:
+      - BearerAuth: []
       summary: Update a quiz
       tags:
       - quiz
@@ -3873,6 +3883,8 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/models.QuizReferencesResponse'
+      security:
+      - BearerAuth: []
       summary: Count articles that embed a quiz
       tags:
       - quiz
