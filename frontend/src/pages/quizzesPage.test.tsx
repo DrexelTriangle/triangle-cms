@@ -15,6 +15,24 @@ const apiFetchStub = vi.fn(async () =>
   ]),
 )
 
+// Counts navigate() calls made by the page itself. Link navigates through
+// react-router's internal copy, so a title click that also reaches the row
+// handler shows up here.
+const navigateSpy = vi.fn()
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>()
+  return {
+    ...actual,
+    useNavigate: () => {
+      const navigate = actual.useNavigate()
+      return (...args: Parameters<typeof navigate>) => {
+        navigateSpy(args[0])
+        return navigate(...args)
+      }
+    },
+  }
+})
+
 vi.mock("../hooks/useApiFetch", () => ({
   useApiFetch: () => apiFetchStub,
 }))
@@ -49,5 +67,14 @@ describe("QuizzesPage", () => {
     renderPage()
     await user.click(await screen.findByText("Personality"))
     expect(await screen.findByText("At /quizzes/8")).toBeInTheDocument()
+  })
+
+  it("leaves navigation to the title link when it is clicked", async () => {
+    navigateSpy.mockClear()
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole("link", { name: /which building/i }))
+    expect(await screen.findByText("At /quizzes/8")).toBeInTheDocument()
+    expect(navigateSpy.mock.calls.map((c) => c[0])).toEqual([])
   })
 })

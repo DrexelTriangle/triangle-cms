@@ -67,7 +67,7 @@ export default function QuizzesPage() {
               // real link so keyboard users can reach it.
               <tr className="cursor-pointer border-t border-border hover:bg-muted" key={q.id} onClick={() => navigate(`/quizzes/${q.id}`)}>
                 <td className="py-2">
-                  <Link className="text-primary underline" to={`/quizzes/${q.id}`}>
+                  <Link className="text-primary underline" onClick={(e) => e.stopPropagation()} to={`/quizzes/${q.id}`}>
                     {q.title}
                   </Link>
                 </td>

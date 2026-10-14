@@ -22,7 +22,6 @@ import {
   shortcodeToEmbed,
   shortcodeToQuizId,
   type Embed,
-
 } from "../lib/embedUrl"
 
 export const ALIGNMENTS = ["left", "center", "right"] as const

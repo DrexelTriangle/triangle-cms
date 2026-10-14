@@ -33,7 +33,7 @@ const emptyAnswer = (): Answer => ({ text: "", correct: false, result_key: null 
 const emptyQuestion = (): Question => ({ text: "", image_media_id: null, answers: [emptyAnswer(), emptyAnswer()], explanation: "" })
 
 const slugify = (title: string) =>
-  title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 190)
+  title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 180)
 
 // Keeps the last band ending at the question count so adding or removing a
 // question never leaves a gap the publish check would refuse.
@@ -115,6 +115,21 @@ export default function QuizEditor() {
     })
   const setQuestions = (questions: Question[]) =>
     setDefinition((d) => ({ questions, results: kind === "trivia" ? retargetBands(d.results, questions.length) : d.results }))
+  // Correct marks, result keys and explanations mean nothing in the other
+  // kind and the other kind's editor hides the controls, so stale values would
+  // ride along unseen and fail the server's check.
+  const changeKind = (next: Kind) => {
+    if (next === kind) return
+    setKind(next)
+    setDefinition((d) => ({
+      questions: d.questions.map((q) => ({
+        ...q,
+        explanation: "",
+        answers: q.answers.map((a) => ({ ...a, correct: false, result_key: null })),
+      })),
+      results: next === "trivia" ? retargetBands([], d.questions.length) : [],
+    }))
+  }
   const updateResult = (ri: number, patch: Partial<Result>) =>
     setDefinition((d) => ({ ...d, results: d.results.map((r, i) => (i === ri ? { ...r, ...patch } : r)) }))
 
@@ -137,12 +152,19 @@ export default function QuizEditor() {
     setNotice(null)
     setPendingStatus(status)
     const url = isNew ? "/v1/quizzes" : `/v1/quizzes/${id}${reset ? "?reset_counts=true" : ""}`
-    const res = await apiFetch(url, {
-      method: isNew ? "POST" : "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body(status)),
-    })
-    setPendingStatus(null)
+    let res: Response
+    try {
+      res = await apiFetch(url, {
+        method: isNew ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body(status)),
+      })
+    } catch {
+      setErrors(["Save failed. Check your connection and try again."])
+      return
+    } finally {
+      setPendingStatus(null)
+    }
     if (res.status === 422) {
       const v = (await res.json()) as ValidationBody
       setErrors(v.errors ?? [])
@@ -277,7 +299,7 @@ export default function QuizEditor() {
             <legend>Kind</legend>
             {(["trivia", "personality"] as Kind[]).map((k) => (
               <label className="mr-4" key={k}>
-                <input checked={kind === k} name="kind" onChange={() => setKind(k)} type="radio" value={k} /> {k === "trivia" ? "Trivia" : "Personality"}
+                <input checked={kind === k} name="kind" onChange={() => changeKind(k)} type="radio" value={k} /> {k === "trivia" ? "Trivia" : "Personality"}
               </label>
             ))}
             {hasCounts && <p className="text-xs text-muted-foreground">Changing the kind resets the answer counts.</p>}
@@ -364,6 +386,7 @@ export default function QuizEditor() {
                 <div className="flex items-center gap-3 text-sm">
                   {r.image_url && <img alt="" className="h-12 w-16 rounded object-cover" src={r.image_url} />}
                   <button className={buttonClass} onClick={() => setPicker({ target: { result: ri } })} type="button">{r.image_media_id ? "Change image" : "Add image"}</button>
+                  {r.image_media_id && <button className={buttonClass} onClick={() => updateResult(ri, { image_media_id: null, image_url: null })} type="button">Remove image</button>}
                   <button className={buttonClass} onClick={() => setDefinition((d) => ({ ...d, results: d.results.filter((_, i) => i !== ri) }))} type="button">Remove result</button>
                 </div>
               </div>

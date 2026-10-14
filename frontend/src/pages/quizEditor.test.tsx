@@ -179,4 +179,43 @@ describe("QuizEditor", () => {
       edit_version: 1,
     })
   })
+
+  it("clears correct marks and explanations when trivia becomes personality", async () => {
+    responses = [() => jsonResponse({ ...stored, status: "draft", edit_version: 1 }, 201)]
+    const user = renderNewEditor()
+    await user.type(screen.getAllByLabelText(/^title/i)[0], "Switch")
+    await user.click(screen.getByLabelText("Question 1 answer 1 correct"))
+    await user.type(screen.getByLabelText(/^explanation/i), "Because")
+    await user.click(screen.getByLabelText(/personality/i))
+    await user.click(screen.getByRole("button", { name: /save draft/i }))
+    await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(1))
+    const sent = JSON.stringify(calls.find((c) => c.method === "POST")?.body)
+    expect(sent).not.toContain('"correct":true')
+    expect(sent).not.toContain("Because")
+    expect(calls.find((c) => c.method === "POST")?.body).toMatchObject({ definition: { results: [] } })
+  })
+
+  it("resets results to a fresh band when personality becomes trivia", async () => {
+    responses = [() => jsonResponse({ ...stored, status: "draft", edit_version: 1 }, 201)]
+    const user = renderNewEditor()
+    await user.type(screen.getAllByLabelText(/^title/i)[0], "Switch")
+    await user.click(screen.getByLabelText(/personality/i))
+    await user.click(screen.getByRole("button", { name: /add result/i }))
+    await user.click(screen.getByLabelText(/trivia/i))
+    await user.click(screen.getByRole("button", { name: /save draft/i }))
+    await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(1))
+    expect(calls.find((c) => c.method === "POST")?.body).toMatchObject({
+      definition: { results: [{ key: "0-1", min: 0, max: 1, title: "", body: "", image_media_id: null }] },
+    })
+  })
+
+  it("re-enables the buttons and shows a message when the save fetch throws", async () => {
+    responses = [() => { throw new Error("offline") }]
+    const user = renderNewEditor()
+    await user.type(screen.getAllByLabelText(/^title/i)[0], "Offline")
+    await user.click(screen.getByRole("button", { name: /save draft/i }))
+    expect(await screen.findByText(/Save failed\. Check your connection/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /save draft/i })).toBeEnabled()
+    expect(screen.getByRole("button", { name: /^publish$/i })).toBeEnabled()
+  })
 })
