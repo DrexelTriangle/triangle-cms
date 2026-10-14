@@ -423,3 +423,47 @@ func TestQuizHTTP_ArticlePublishRefusesUnpublishedQuiz(t *testing.T) {
 		t.Fatalf("publishing must 422 naming the quiz, got %d: %s", rec.Code, rec.Body)
 	}
 }
+
+func TestQuizHTTP_ArticlePatchGatesPublishByDateAndStatus(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	ctx := context.Background()
+	if err := db.EnsureQuizzesSchema(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "DELETE FROM "+db.QuizzesTableName); err != nil {
+		t.Fatal(err)
+	}
+	dr := seedQuiz(t, conn, "dr", models.QuizStatusDraft, nil)
+	draftWithQuiz := func(title string) models.ArticleCreateResponse {
+		body := `{"title":"` + title + `","content":"<p>[quiz id=\"` + itoa(dr) + `\"]</p>","status":"draft","authors":[],"categories":[]}`
+		rec := httptest.NewRecorder()
+		PostArticles(conn).ServeHTTP(rec, postArticleRequest(body))
+		var created models.ArticleCreateResponse
+		if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &created) != nil {
+			t.Fatalf("seed draft: %d %s", rec.Code, rec.Body)
+		}
+		return created
+	}
+	patch := func(a models.ArticleCreateResponse, byID bool, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := patchArticleRequest(a.Slug, body)
+		if byID {
+			req = patchArticleRequestWithID(a.Slug, a.ID, body)
+		}
+		PatchArticle(conn).ServeHTTP(rec, req)
+		return rec
+	}
+	want422 := func(rec *httptest.ResponseRecorder) {
+		t.Helper()
+		if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Quiz #"+itoa(dr)) {
+			t.Fatalf("want 422 naming the quiz, got %d: %s", rec.Code, rec.Body)
+		}
+	}
+
+	want422(patch(draftWithQuiz("Date only"), true, `{"published_date":"2026-01-01T00:00:00Z"}`))
+	want422(patch(draftWithQuiz("Slug status"), false, `{"status":"published"}`))
+
+	if rec := patch(draftWithQuiz("Quiz-free edit"), true, `{"content":"<p>no quiz</p>"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("a draft edit with no quiz must save, got %d: %s", rec.Code, rec.Body)
+	}
+}

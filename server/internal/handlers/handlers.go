@@ -2901,7 +2901,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		// A patch can publish or change the body, so check the effective text
 		// and status after the patch, not only the fields it carries.
 		patchContent, hasContent := body["content"].(string)
-		if hasContent || (statusSet && statusValue != models.ArticleStatusDraft) {
+		if hasContent || publishedDateSet || (statusSet && statusValue != models.ArticleStatusDraft) {
 			// A patch may address the article by slug, so never query on
 			// target.id alone; the handler's own content fallback below does
 			// the same branch.
@@ -2919,7 +2919,11 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 				}
 			}
 			goingLive := statusSet && statusValue != models.ArticleStatusDraft
-			if !statusSet {
+			// articlePatchDateColumns stamps a pub_date from published_date alone,
+			// so a date without a status also takes the article live.
+			if !statusSet && publishedDateSet {
+				goingLive = true
+			} else if !statusSet {
 				var live int
 				liveQuery := "SELECT COUNT(*) FROM articles WHERE id = ? AND archived_at IS NULL AND (pub_date IS NOT NULL OR scheduled_pub_date IS NOT NULL)"
 				var key any = target.id
