@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -351,6 +352,24 @@ func SetFooterSettings(ctx context.Context, conn *sql.DB, s models.FooterSetting
 	return setSetting(ctx, conn, footerSettingKey, string(payload))
 }
 
+// CanonicalFooterVisibleFrom trims an entry's visible_from and rewrites it as
+// UTC RFC3339, so one instant always has one spelling no matter which offset
+// the editor's browser sent it in. Blank means unscheduled and returns "".
+//
+// A zoneless timestamp is an error rather than a guess at a zone, for the same
+// reason poll dates are: read as UTC, a 9am Philadelphia launch goes live at 5am.
+func CanonicalFooterVisibleFrom(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+	parsed, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		return "", fmt.Errorf("visible_from %q must be an RFC3339 timestamp with a UTC offset (e.g. 2026-10-10T09:00:00-04:00)", trimmed)
+	}
+	return parsed.UTC().Format(time.RFC3339), nil
+}
+
 // normalizeFooterColumns trims the menu and drops entries that would render as
 // nothing: unlabelled links, and columns left with no visible content. An
 // unrecognized kind is treated as a link, since that is the only kind that
@@ -362,6 +381,10 @@ func normalizeFooterColumns(columns []models.FooterColumn) []models.FooterColumn
 		for _, entry := range column.Entries {
 			entry.Label = strings.TrimSpace(entry.Label)
 			entry.Href = strings.TrimSpace(entry.Href)
+			// The PATCH handler rejects a malformed schedule before it gets
+			// here, so this only clears one already stored. Clearing shows the
+			// link, which beats failing the footer on every page.
+			entry.VisibleFrom, _ = CanonicalFooterVisibleFrom(entry.VisibleFrom)
 
 			switch entry.Kind {
 			case models.FooterEntrySpacer:

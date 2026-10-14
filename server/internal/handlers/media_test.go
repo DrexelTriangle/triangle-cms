@@ -3,6 +3,9 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"image"
@@ -12,9 +15,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"server/internal/models"
@@ -163,9 +168,76 @@ func TestSanitizeBaseName(t *testing.T) {
 	}
 }
 
-// storeUpload is where the corpus-safety guarantees live: it must never
-// overwrite an existing asset and must not leave partial temp files behind.
-func TestStoreUpload_NeverClobbers(t *testing.T) {
+// contentStem is the name storeUpload is expected to give bytes uploaded under
+// base: the readable stem plus 128 bits of their SHA-256.
+func contentStem(base string, content []byte) string {
+	sum := sha256.Sum256(content)
+	return base + "-" + hex.EncodeToString(sum[:])[:32]
+}
+
+func readFile(t *testing.T, p string) []byte {
+	t.Helper()
+	got, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read %s: %v", p, err)
+	}
+	return got
+}
+
+// Cloudflare caches /wp-content/ for a long time, so a URL must only ever serve
+// one set of bytes. Replacing an image means uploading it again, usually under
+// the same file name, and that must land at a new URL rather than at (or next
+// to, by an incrementing counter that a deleted file frees up again) the old one.
+func TestStoreUpload_DifferentBytesSameNameGetDifferentPaths(t *testing.T) {
+	dir := t.TempDir()
+	original := pngBytes(t, 4, 4)
+	replacement := pngBytes(t, 5, 5)
+
+	first, _, err := storeUpload(dir, "pic", ".png", bytes.NewReader(original))
+	if err != nil {
+		t.Fatalf("store original: %v", err)
+	}
+	second, _, err := storeUpload(dir, "pic", ".png", bytes.NewReader(replacement))
+	if err != nil {
+		t.Fatalf("store replacement: %v", err)
+	}
+
+	if want := contentStem("pic", original) + ".png"; first != want {
+		t.Fatalf("original stored as %q, want %q", first, want)
+	}
+	if want := contentStem("pic", replacement) + ".png"; second != want {
+		t.Fatalf("replacement stored as %q, want %q", second, want)
+	}
+	if !bytes.Equal(readFile(t, filepath.Join(dir, first)), original) {
+		t.Fatal("original file no longer holds the original bytes")
+	}
+	if !bytes.Equal(readFile(t, filepath.Join(dir, second)), replacement) {
+		t.Fatal("replacement file does not hold the replacement bytes")
+	}
+}
+
+// dirNames lists dir, failing on any leftover upload temp file: storeUpload
+// must clean up after itself whichever way it resolves a name.
+func dirNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".upload-") {
+			t.Fatalf("leftover temp file: %s", entry.Name())
+		}
+		names = append(names, entry.Name())
+	}
+	return names
+}
+
+// Uploading the same bytes again, under the same name and in the same month,
+// is the same asset: it reuses the one file (and so the one URL and library
+// row) instead of minting a copy at a second URL.
+func TestStoreUpload_IdenticalBytesReuseOneFile(t *testing.T) {
 	dir := t.TempDir()
 	content := pngBytes(t, 4, 4)
 
@@ -178,24 +250,17 @@ func TestStoreUpload_NeverClobbers(t *testing.T) {
 		t.Fatalf("second store: %v", err)
 	}
 
-	if first != "pic.png" || second != "pic-1.png" {
-		t.Fatalf("names = %q, %q; want pic.png, pic-1.png", first, second)
+	if first != second {
+		t.Fatalf("identical bytes stored twice: %q and %q", first, second)
 	}
 	if size != int64(len(content)) {
 		t.Fatalf("size = %d, want %d", size, len(content))
 	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read dir: %v", err)
+	if names := dirNames(t, dir); len(names) != 1 {
+		t.Fatalf("expected exactly 1 file, got %v", names)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("expected exactly 2 files, got %d", len(entries))
-	}
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".upload-") {
-			t.Fatalf("leftover temp file: %s", entry.Name())
-		}
+	if !bytes.Equal(readFile(t, filepath.Join(dir, first)), content) {
+		t.Fatal("stored file does not hold the uploaded bytes")
 	}
 }
 
@@ -453,6 +518,323 @@ func TestGetMediaIndexStatus_ReportsIdle(t *testing.T) {
 	}
 	if status.Running {
 		t.Fatal("expected the shared job to be idle")
+	}
+}
+
+// Whatever already sits at the content-addressed name and is not these exact
+// bytes is never overwritten or adopted: a legacy file that happens to share
+// the name, a crash-stranded claim placeholder, a symlink. The upload moves on
+// to the next name, and a repeat of it finds and reuses that one.
+func TestStoreUpload_NeverOverwritesOrAdoptsForeignFileAtItsName(t *testing.T) {
+	content := pngBytes(t, 4, 4)
+	primary := contentStem("pic", content) + ".png"
+	fallback := contentStem("pic", content) + "-1.png"
+
+	// Same length as content, so a size check alone would wrongly match.
+	sameSize := bytes.Repeat([]byte{0xAB}, len(content))
+
+	cases := map[string]func(t *testing.T, dir string){
+		"different bytes of the same size": func(t *testing.T, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, primary), sameSize, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"stranded empty claim placeholder": func(t *testing.T, dir string) {
+			if err := os.WriteFile(filepath.Join(dir, primary), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"symlink to identical bytes": func(t *testing.T, dir string) {
+			target := filepath.Join(t.TempDir(), "elsewhere.png")
+			if err := os.WriteFile(target, content, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Join(dir, primary)); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+
+	for name, plant := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			plant(t, dir)
+			before, err := os.Lstat(filepath.Join(dir, primary))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var beforeBytes []byte
+			if before.Mode().IsRegular() {
+				beforeBytes = readFile(t, filepath.Join(dir, primary))
+			}
+
+			got, _, err := storeUpload(dir, "pic", ".png", bytes.NewReader(content))
+			if err != nil {
+				t.Fatalf("storeUpload: %v", err)
+			}
+			if got != fallback {
+				t.Fatalf("stored as %q, want %q", got, fallback)
+			}
+			if !bytes.Equal(readFile(t, filepath.Join(dir, got)), content) {
+				t.Fatal("fallback name does not hold the uploaded bytes")
+			}
+
+			after, err := os.Lstat(filepath.Join(dir, primary))
+			if err != nil {
+				t.Fatalf("the planted file is gone: %v", err)
+			}
+			if after.Mode() != before.Mode() || after.Size() != before.Size() {
+				t.Fatalf("the planted file changed: %v/%d -> %v/%d", before.Mode(), before.Size(), after.Mode(), after.Size())
+			}
+			if before.Mode().IsRegular() && !bytes.Equal(readFile(t, filepath.Join(dir, primary)), beforeBytes) {
+				t.Fatal("the planted file's bytes were overwritten")
+			}
+
+			again, _, err := storeUpload(dir, "pic", ".png", bytes.NewReader(content))
+			if err != nil {
+				t.Fatalf("repeat storeUpload: %v", err)
+			}
+			if again != fallback {
+				t.Fatalf("repeat upload stored as %q, want it to reuse %q", again, fallback)
+			}
+			if names := dirNames(t, dir); len(names) != 2 {
+				t.Fatalf("expected the planted file and one upload, got %v", names)
+			}
+		})
+	}
+}
+
+// Concurrent uploads under one client name must each end up at a URL serving
+// exactly their own bytes, with nothing half-written or left behind. Identical
+// bytes racing each other may occasionally both claim a name (one finds the
+// other's empty claim placeholder and moves on), so that case pins only what
+// matters: every name returned holds the bytes, and every name is theirs.
+func TestStoreUpload_ConcurrentUploads(t *testing.T) {
+	const workers = 16
+
+	t.Run("different bytes", func(t *testing.T) {
+		dir := t.TempDir()
+		contents := make([][]byte, workers)
+		for i := range contents {
+			contents[i] = pngBytes(t, 2+i, 3)
+		}
+		names := make([]string, workers)
+		errs := make([]error, workers)
+		var wg sync.WaitGroup
+		for i := range contents {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				names[i], _, errs[i] = storeUpload(dir, "pic", ".png", bytes.NewReader(contents[i]))
+			}(i)
+		}
+		wg.Wait()
+
+		seen := map[string]bool{}
+		for i, name := range names {
+			if errs[i] != nil {
+				t.Fatalf("upload %d: %v", i, errs[i])
+			}
+			if seen[name] {
+				t.Fatalf("two different uploads share %q", name)
+			}
+			seen[name] = true
+			if !bytes.Equal(readFile(t, filepath.Join(dir, name)), contents[i]) {
+				t.Fatalf("upload %d at %q does not hold its own bytes", i, name)
+			}
+		}
+		if got := dirNames(t, dir); len(got) != workers {
+			t.Fatalf("expected %d files, got %v", workers, got)
+		}
+	})
+
+	t.Run("identical bytes", func(t *testing.T) {
+		dir := t.TempDir()
+		content := pngBytes(t, 6, 6)
+		stem := contentStem("pic", content)
+		names := make([]string, workers)
+		errs := make([]error, workers)
+		var wg sync.WaitGroup
+		for i := range workers {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				names[i], _, errs[i] = storeUpload(dir, "pic", ".png", bytes.NewReader(content))
+			}(i)
+		}
+		wg.Wait()
+
+		for i, name := range names {
+			if errs[i] != nil {
+				t.Fatalf("upload %d: %v", i, errs[i])
+			}
+			if !strings.HasPrefix(name, stem) {
+				t.Fatalf("upload %d stored as %q, want a %q name", i, name, stem)
+			}
+			if !bytes.Equal(readFile(t, filepath.Join(dir, name)), content) {
+				t.Fatalf("upload %d at %q does not hold the bytes", i, name)
+			}
+		}
+		for _, name := range dirNames(t, dir) {
+			if !bytes.Equal(readFile(t, filepath.Join(dir, name)), content) {
+				t.Fatalf("%q in the directory does not hold the bytes", name)
+			}
+		}
+	})
+}
+
+// A file name is capped at 255 bytes on every filesystem the media tree has
+// lived on, and media.path is a VARCHAR(512). The hash suffix must fit inside
+// both however long the client's name was.
+func TestStoreUpload_LongNameStaysWithinLimits(t *testing.T) {
+	dir := t.TempDir()
+	content := pngBytes(t, 4, 4)
+	base := sanitizeBaseName(strings.Repeat("very-long-caption-words ", 40) + ".png")
+
+	name, _, err := storeUpload(dir, base, ".webp", bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("storeUpload: %v", err)
+	}
+	if len(name) > 255 {
+		t.Fatalf("name is %d bytes, over the 255-byte limit: %q", len(name), name)
+	}
+	if want := contentStem(base, content) + ".webp"; name != want {
+		t.Fatalf("name = %q, want %q", name, want)
+	}
+	if rel := "wp-content/uploads/2026/10/" + name; len(rel) > 512 {
+		t.Fatalf("path is %d bytes, over media.path's 512", len(rel))
+	}
+	// The worst case is the random fallback after the numbered ones.
+	worst := base + "-" + strings.Repeat("f", contentHashHexLen) + "-" + strings.Repeat("f", 12) + ".webp"
+	if len(worst) > 255 {
+		t.Fatalf("worst-case name is %d bytes", len(worst))
+	}
+	// A hash never looks like a WordPress derivative, so the indexer adopts it.
+	if wpDerivativeSuffix.MatchString(strings.TrimSuffix(name, ".webp")) {
+		t.Fatalf("%q looks like a WordPress derivative", name)
+	}
+}
+
+// fakeMediaLibrary stands in for the media table behind recordMedia: one row
+// per path, as the unique key enforces, handing back the existing id for a
+// path it already has (what InsertOrGetMedia does against MariaDB).
+type fakeMediaLibrary struct {
+	mu       sync.Mutex
+	ids      map[string]int64
+	calls    []string
+	failNext int
+}
+
+func useFakeMediaLibrary(t *testing.T) *fakeMediaLibrary {
+	t.Helper()
+	lib := &fakeMediaLibrary{ids: map[string]int64{}}
+	previous := recordMedia
+	recordMedia = func(_ context.Context, _ *sql.DB, relPath, _ string, _ int64, _, _ int) (int64, error) {
+		lib.mu.Lock()
+		defer lib.mu.Unlock()
+		lib.calls = append(lib.calls, relPath)
+		if lib.failNext > 0 {
+			lib.failNext--
+			return 0, errors.New("database unavailable")
+		}
+		if id, ok := lib.ids[relPath]; ok {
+			return id, nil
+		}
+		id := int64(len(lib.ids) + 1)
+		lib.ids[relPath] = id
+		return id, nil
+	}
+	t.Cleanup(func() { recordMedia = previous })
+	return lib
+}
+
+func postUpload(t *testing.T, filename string, content []byte) models.MediaUploadResponse {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	PostMedia(nil).ServeHTTP(rec, uploadRequest(t, filename, content))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("upload %s: status = %d, want 201; body = %s", filename, rec.Code, rec.Body.String())
+	}
+	var created models.MediaUploadResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return created
+}
+
+// Replacing an article's image is a fresh upload, almost always under the same
+// file name. It must come back as a new asset at a new path, leaving the old
+// file and row in place for the articles still using it and for rollback; and
+// re-uploading bytes the library already has answers with that same asset.
+func TestPostMedia_ReplacementGetsNewAssetAndKeepsTheOld(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MEDIA_ROOT", root)
+	t.Setenv("MEDIA_BASE_URL", "")
+	useFakeMediaLibrary(t)
+
+	original := pngBytes(t, 4, 4)
+	replacement := pngBytes(t, 8, 8)
+
+	first := postUpload(t, "Lead Photo.png", original)
+	second := postUpload(t, "Lead Photo.png", replacement)
+
+	if first.Path == second.Path || first.ID == second.ID {
+		t.Fatalf("replacement reused the original asset: %+v vs %+v", first, second)
+	}
+	if !strings.HasPrefix(path.Base(second.Path), "lead-photo-") {
+		t.Fatalf("replacement path %q lost the readable stem", second.Path)
+	}
+	if second.URL != "/"+second.Path {
+		t.Fatalf("url = %q, want it to follow the new path", second.URL)
+	}
+	if second.Width != 8 || second.Height != 8 {
+		t.Fatalf("dimensions = %dx%d, want the replacement's 8x8", second.Width, second.Height)
+	}
+	if !bytes.Equal(readFile(t, filepath.Join(root, filepath.FromSlash(first.Path))), original) {
+		t.Fatal("the original file was changed by the replacement upload")
+	}
+
+	again := postUpload(t, "lead photo (copy).PNG", original)
+	if again.Path != path.Join(path.Dir(first.Path), contentStem("lead-photo-copy", original)+".png") {
+		t.Fatalf("re-upload under another name stored as %q", again.Path)
+	}
+	repeat := postUpload(t, "Lead Photo.png", original)
+	if repeat.Path != first.Path || repeat.ID != first.ID {
+		t.Fatalf("identical re-upload = %+v, want the existing asset %+v", repeat, first)
+	}
+}
+
+// The file is durable before its library row is written. If that write fails
+// the upload reports the failure but keeps the file, and the retry must adopt
+// that same file instead of leaving it orphaned beside a second copy.
+func TestStoreImage_RetryAfterIndexFailureAdoptsTheStoredFile(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MEDIA_ROOT", root)
+	lib := useFakeMediaLibrary(t)
+	lib.failNext = 1
+	content := pngBytes(t, 4, 4)
+
+	_, err := storeImage(context.Background(), nil, bytes.NewReader(content), "pic.png")
+	if !errors.Is(err, errIndexFailed) {
+		t.Fatalf("first attempt err = %v, want errIndexFailed", err)
+	}
+	if len(lib.calls) != 1 {
+		t.Fatalf("recordMedia calls = %v", lib.calls)
+	}
+	stored := filepath.Join(root, filepath.FromSlash(lib.calls[0]))
+	if !bytes.Equal(readFile(t, stored), content) {
+		t.Fatal("the file was not kept after the index failure")
+	}
+
+	got, err := storeImage(context.Background(), nil, bytes.NewReader(content), "pic.png")
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if got.Path != lib.calls[0] || got.ID != 1 {
+		t.Fatalf("retry = %+v, want path %q with id 1", got, lib.calls[0])
+	}
+	if names := dirNames(t, filepath.Dir(stored)); len(names) != 1 {
+		t.Fatalf("retry left %v, want the one file", names)
 	}
 }
 

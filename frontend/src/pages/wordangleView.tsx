@@ -50,9 +50,9 @@ function formatDay(date: string) {
   })
 }
 
-// Matches the server's wordangle.PuzzleNumber: #1 is 2026-01-01.
+// Matches the server's wordangle.PuzzleNumber: #0 is 2026-10-09, launch day.
 function puzzleNumber(date: string) {
-  return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.UTC(2026, 0, 1)) / 86400000) + 1
+  return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.UTC(2026, 9, 9)) / 86400000)
 }
 
 async function readErrorMessage(res: Response, fallback: string) {
@@ -385,7 +385,7 @@ export default function WordangleView() {
               <div key={entry.word} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 text-sm">
                 <span className="w-40 shrink-0 text-muted-foreground">
                   {formatDay(entry.date ?? entry.retired_on ?? "")}
-                  {entry.number ? ` · #${entry.number}` : ""}
+                  {entry.number != null ? ` · #${entry.number}` : ""}
                 </span>
                 <span className="font-mono font-semibold tracking-widest uppercase">{entry.word}</span>
                 {entry.retired_on && (

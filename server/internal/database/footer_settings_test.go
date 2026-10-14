@@ -2,6 +2,8 @@ package database
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"server/internal/models"
@@ -136,5 +138,102 @@ func TestFooterTemplate_KeepsTheNonTaxonomyLinks(t *testing.T) {
 		if !found {
 			t.Errorf("%q -> %q is no longer a literal footer entry; generating it would change where it points", want.label, want.href)
 		}
+	}
+}
+
+// One instant, one spelling: the editor's browser sends its own offset, and the
+// public site compares schedules as instants, so storage settles on UTC.
+func TestCanonicalFooterVisibleFrom(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"", ""},
+		{"   ", ""},
+		{" 2026-10-10T09:00:00-04:00 ", "2026-10-10T13:00:00Z"},
+		{"2026-10-10T13:00:00Z", "2026-10-10T13:00:00Z"},
+		{"2026-10-10T13:00:00.000Z", "2026-10-10T13:00:00Z"},
+	} {
+		got, err := CanonicalFooterVisibleFrom(tc.in)
+		if err != nil {
+			t.Errorf("CanonicalFooterVisibleFrom(%q) error = %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("CanonicalFooterVisibleFrom(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+
+	// Zoneless is what a datetime-local value is; reading it as UTC would
+	// launch a 9am Philadelphia link at 5am.
+	for _, bad := range []string{"2026-10-10T09:00", "2026-10-10", "next tuesday"} {
+		if got, err := CanonicalFooterVisibleFrom(bad); err == nil {
+			t.Errorf("CanonicalFooterVisibleFrom(%q) = %q, want an error", bad, got)
+		}
+	}
+}
+
+// The CMS serves a future schedule as-is; hiding the entry is the public
+// site's call, so normalization must not drop or blank it.
+func TestNormalizeFooterColumns_KeepsAFutureSchedule(t *testing.T) {
+	columns := normalizeFooterColumns([]models.FooterColumn{
+		{Entries: []models.FooterEntry{
+			{Kind: models.FooterEntryHeading, Label: "Comics & Puzzles", Href: "/comics-puzzles"},
+			{Kind: models.FooterEntryLink, Label: "Games", Href: "/games", VisibleFrom: " 2099-01-01T09:00:00-05:00 "},
+		}},
+	})
+
+	if got := columns[0].Entries[1].VisibleFrom; got != "2099-01-01T14:00:00Z" {
+		t.Errorf("expected the schedule to be kept in UTC, got %q", got)
+	}
+	if got := columns[0].Entries[0].VisibleFrom; got != "" {
+		t.Errorf("an unscheduled entry gained a schedule: %q", got)
+	}
+}
+
+// A malformed value can only be in storage if it predates validation or was
+// written by hand. Clearing it shows the link; failing would empty the footer.
+func TestNormalizeFooterColumns_ClearsAMalformedStoredSchedule(t *testing.T) {
+	columns := normalizeFooterColumns([]models.FooterColumn{
+		{Entries: []models.FooterEntry{
+			{Kind: models.FooterEntryLink, Label: "Games", Href: "/games", VisibleFrom: "soon"},
+		}},
+	})
+
+	if len(columns) != 1 || len(columns[0].Entries) != 1 {
+		t.Fatalf("expected the entry to survive, got %+v", columns)
+	}
+	if got := columns[0].Entries[0].VisibleFrom; got != "" {
+		t.Errorf("expected the malformed schedule to be cleared, got %q", got)
+	}
+}
+
+func TestNormalizeFooterColumns_StripsASpacerSchedule(t *testing.T) {
+	columns := normalizeFooterColumns([]models.FooterColumn{
+		{Entries: []models.FooterEntry{
+			{Kind: models.FooterEntryHeading, Label: "Opinion", Href: "/opinion"},
+			{Kind: models.FooterEntrySpacer, VisibleFrom: "2099-01-01T00:00:00Z"},
+		}},
+	})
+
+	if got := columns[0].Entries[1].VisibleFrom; got != "" {
+		t.Errorf("expected the spacer's schedule to be stripped, got %q", got)
+	}
+}
+
+// Unscheduled entries must serialize exactly as before the field existed, so
+// the stored production footer and older public-site builds see no change.
+func TestFooterEntryJSON_OmitsAnEmptySchedule(t *testing.T) {
+	plain, err := json.Marshal(models.FooterEntry{Kind: models.FooterEntryLink, Label: "Staff", Href: "/staff"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "visible_from") {
+		t.Errorf("unscheduled entry serialized a schedule: %s", plain)
+	}
+
+	scheduled, err := json.Marshal(models.FooterEntry{Kind: models.FooterEntryLink, Label: "Games", Href: "/games", VisibleFrom: "2099-01-01T14:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(scheduled), `"visible_from":"2099-01-01T14:00:00Z"`) {
+		t.Errorf("scheduled entry lost its schedule: %s", scheduled)
 	}
 }

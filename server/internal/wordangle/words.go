@@ -77,11 +77,11 @@ func ParseDate(value string) (time.Time, error) {
 	return time.Parse(time.DateOnly, strings.TrimSpace(value))
 }
 
-// PuzzleNumber is the "Wordangle #N" shown for a date. #1 is 2026-01-01, the
-// numbering the game used before it moved here.
+// PuzzleNumber is the "Wordangle #N" shown for a date. #0 is 2026-10-09, the
+// public launch day in Philadelphia, and each later day adds one.
 func PuzzleNumber(date time.Time) int {
-	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return int(date.Sub(start).Hours()/24) + 1
+	launch := time.Date(2026, time.October, 9, 0, 0, 0, 0, time.UTC)
+	return int(date.Sub(launch).Hours() / 24)
 }
 
 func parseWords(text string) []string {

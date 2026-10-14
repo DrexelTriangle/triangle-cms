@@ -182,6 +182,43 @@ func TestWordangle_EmptyTodayIsFilledAndRecorded(t *testing.T) {
 	}
 }
 
+func TestWordangle_PreLaunchWordsStayUsed(t *testing.T) {
+	conn := wordangleTestDB(t)
+	ctx := context.Background()
+
+	// waToday (Oct 4) is before launch, so these rows have negative numbers.
+	// The manage list hides them, but they must keep blocking reuse.
+	preLaunch := []string{"factor", "harder", "mature", "signal"}
+	for i, word := range preLaunch {
+		if _, err := SetWordangleWord(ctx, conn, waDay(i), word, models.WordangleSourceGenerated, ""); err != nil {
+			t.Fatalf("seed %s: %v", word, err)
+		}
+	}
+	pinWordangleClock(t, time.Date(2026, time.October, 11, 16, 0, 0, 0, time.UTC))
+
+	got, err := LookupWordangleWord(ctx, conn, "factor")
+	if err != nil || got.Number == nil || *got.Number >= 0 {
+		t.Fatalf("pre-launch row should remain with a negative number: %+v %v", got, err)
+	}
+	unused, err := unusedWordangleTargets(ctx, conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, word := range unused {
+		for _, used := range preLaunch {
+			if word == used {
+				t.Fatalf("pre-launch word %q offered as a generated candidate", word)
+			}
+		}
+	}
+	tomorrow := time.Date(2026, time.October, 12, 0, 0, 0, 0, time.UTC)
+	for _, word := range preLaunch {
+		if _, err := SetWordangleWord(ctx, conn, tomorrow, word, models.WordangleSourceCustom, "ed"); !errors.Is(err, ErrWordangleWordTaken) {
+			t.Fatalf("custom reuse of pre-launch %q: err = %v, want ErrWordangleWordTaken", word, err)
+		}
+	}
+}
+
 func TestWordangle_GenerateOverFilledWindowIsNotExhaustion(t *testing.T) {
 	conn := wordangleTestDB(t)
 	ctx := context.Background()

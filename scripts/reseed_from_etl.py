@@ -477,7 +477,11 @@ def restart_cms(compose: list[str]) -> None:
     if result.returncode != 0:
         warn("cms did not start; run `docker compose up -d cms` yourself and check its logs.")
         return
+    wait_cms_healthy(compose)
 
+
+def wait_cms_healthy(compose: list[str]) -> bool:
+    """Wait for the cms container's healthcheck. Warns and returns False if it never passes."""
     deadline = time.time() + 120
     while time.time() < deadline:
         probe = run(
@@ -494,12 +498,13 @@ def restart_cms(compose: list[str]) -> None:
             health = (state.get("Health") or "").lower()
             if health == "healthy":
                 info("cms healthy")
-                return
+                return True
             if health == "unhealthy":
                 warn("cms reports unhealthy; check `docker compose logs cms`.")
-                return
+                return False
         time.sleep(5)
     warn("cms did not report healthy within 120s; check `docker compose logs cms`.")
+    return False
 
 
 def main() -> int:

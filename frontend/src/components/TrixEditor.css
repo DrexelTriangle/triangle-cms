@@ -418,7 +418,8 @@ trix-editor.trix-content .attachment__toolbar .trix-button--copy-url .trix-icon 
 /* Alt text. Called out in the destructive colour when there is none, because an
    image that publishes undescribed is the failure this button exists to catch
    and nothing else on the page would say so. */
-trix-editor.trix-content .attachment__toolbar .trix-button--alt {
+trix-editor.trix-content .attachment__toolbar .trix-button--alt,
+trix-editor.trix-content .attachment__toolbar .trix-button--replace {
   font-weight: 600;
   letter-spacing: 0.02em;
 }

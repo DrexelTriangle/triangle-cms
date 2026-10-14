@@ -4,10 +4,14 @@ import "trix/dist/trix.css";
 import "./TrixEditor.css";
 import { apiBaseUrl } from "../auth/urls";
 import { copyText } from "../lib/clipboard";
-import MediaPicker, { type MediaPickerItem } from "./MediaPicker";
+import MediaPicker, {
+  type MediaPickerItem,
+  type MediaPickerSource,
+} from "./MediaPicker";
 import {
   articleHtmlToTrix,
   contentTypeForUrl,
+  replacementAttachmentAttributes,
   trixHtmlToArticle,
 } from "./trixImageHtml";
 
@@ -133,6 +137,8 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     attachmentId: number;
     alt: string;
   } | null>(null);
+  // The image being replaced, by attachment id, while the picker is open for it.
+  const [replaceTarget, setReplaceTarget] = useState<number | null>(null);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -488,6 +494,42 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
     attachment.setAttributes({ alt });
     editor.focus();
   }, []);
+
+  // Point one image in this article at a different file: a fresh upload, which
+  // is how an image is replaced, or another library image. Only this
+  // attachment changes. Media URLs are immutable (a new upload is a new path),
+  // so the old file stays exactly as it was for any other article, or any
+  // other spot in this one, still using it, and nothing is persisted until the
+  // article itself is saved.
+  //
+  // Identified by attachment id for the same reason as the alt-text dialog: the
+  // picker outlives the toolbar that opened it.
+  const replaceImage = useCallback(
+    (attachmentId: number, item: MediaPickerItem, source: MediaPickerSource) => {
+      setReplaceTarget(null);
+      const editor = editorRef.current;
+      if (!editor) return;
+      const attachment = editor.editor
+        .getDocument()
+        .getAttachments()
+        .find((candidate) => candidate.id === attachmentId);
+      if (!attachment) {
+        setNotice(
+          "The image was removed before its replacement was chosen. Insert the new image where you want it.",
+        );
+        return;
+      }
+      const currentAlt =
+        typeof attachment.getAttribute("alt") === "string"
+          ? String(attachment.getAttribute("alt"))
+          : "";
+      attachment.setAttributes(
+        replacementAttachmentAttributes(currentAlt, item, source),
+      );
+      editor.focus();
+    },
+    [],
+  );
 
   const openPicker = useCallback(() => {
     const editor = editorRef.current;
@@ -1124,6 +1166,33 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
         setAltEditor({ attachmentId: attachment.id, alt });
       });
       altGroup.appendChild(altButton);
+
+      // Replace this one image, keeping its caption and alt text. It never
+      // touches the file the image currently points at: other articles, or
+      // other spots in this one, may use it too.
+      const replaceButton = document.createElement("button");
+      replaceButton.type = "button";
+      replaceButton.className = "trix-button trix-button--replace";
+      replaceButton.textContent = "Replace";
+      replaceButton.title = "Replace image";
+      replaceButton.setAttribute("aria-label", "Replace image");
+      // Not while an upload or paste import is still in flight: it sets the
+      // image's URL when it lands, silently undoing the replacement. A loaded
+      // image reports progress 0, a finished one 100.
+      const progress = attachment.getUploadProgress();
+      if (!url || (progress > 0 && progress < 100)) {
+        replaceButton.disabled = true;
+        replaceButton.title = "Wait for the image to finish uploading";
+      }
+      replaceButton.addEventListener("mousedown", (mouseEvent) => {
+        mouseEvent.preventDefault();
+      });
+      replaceButton.addEventListener("click", (clickEvent) => {
+        clickEvent.preventDefault();
+        // Only the id, as with Alt: the picker outlives this toolbar.
+        setReplaceTarget(attachment.id);
+      });
+      altGroup.appendChild(replaceButton);
       toolbar.querySelector(".trix-button-row")?.appendChild(altGroup);
 
       toolbar.querySelector(".trix-button-row")?.appendChild(group);
@@ -1693,6 +1762,17 @@ function TrixEditor({ value, onChange }: TrixEditorProps) {
             savedRangeRef.current = null;
           }}
           onSelect={insertFromLibrary}
+        />
+      )}
+
+      {replaceTarget !== null && (
+        <MediaPicker
+          onClose={() => {
+            setReplaceTarget(null);
+            editorRef.current?.focus();
+          }}
+          onSelect={(item, source) => replaceImage(replaceTarget, item, source)}
+          title="Replace image"
         />
       )}
     </div>

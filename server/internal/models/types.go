@@ -340,7 +340,7 @@ type TaxonomyPut struct {
 // readers could already have played it, so it stays on the seen-before list.
 type WordangleWord struct {
 	Date      string    `json:"date,omitempty"`
-	Number    int       `json:"number,omitempty"`
+	Number    *int      `json:"number,omitempty"` // Wordangle #N; #0 is launch day, 2026-10-09
 	Word      string    `json:"word"`
 	Source    string    `json:"source"`
 	SetBy     string    `json:"set_by,omitempty"`

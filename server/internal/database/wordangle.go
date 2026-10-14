@@ -285,11 +285,13 @@ func scanWordangleWord(row interface{ Scan(...any) error }) (models.WordangleWor
 	}
 	if date.Valid {
 		w.Date = date.Time.Format(time.DateOnly)
-		w.Number = wordangle.PuzzleNumber(date.Time)
+		number := wordangle.PuzzleNumber(date.Time)
+		w.Number = &number
 	}
 	if retired.Valid {
 		w.RetiredOn = retired.Time.Format(time.DateOnly)
-		w.Number = wordangle.PuzzleNumber(retired.Time)
+		number := wordangle.PuzzleNumber(retired.Time)
+		w.Number = &number
 	}
 	return w, nil
 }

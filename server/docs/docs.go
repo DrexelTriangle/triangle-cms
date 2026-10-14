@@ -4375,7 +4375,7 @@ const docTemplate = `{
         },
         "/v1/wordangle/days/{date}": {
             "get": {
-                "description": "Public. Only today and past days are served; a future day reads as 404 so the queue cannot be spoiled. An empty today is filled with a generated word on first read, so every played word lands on the seen-before list.",
+                "description": "Public. Only days from launch (#0, 2026-10-09) through today are served. A future day reads as 404 so the queue cannot be spoiled, and a day before launch reads as 404 because its pre-launch word was never a public puzzle (the row is kept only to block reuse). An empty today is filled with a generated word on first read, so every played word lands on the seen-before list.",
                 "produces": [
                     "application/json"
                 ],
@@ -5677,6 +5677,11 @@ const docTemplate = `{
                 },
                 "new_tab": {
                     "type": "boolean"
+                },
+                "visible_from": {
+                    "type": "string",
+                    "format": "date-time",
+                    "example": "2026-10-10T13:00:00Z"
                 }
             }
         },
@@ -6593,6 +6598,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "number": {
+                    "description": "Wordangle #N; #0 is launch day, 2026-10-09",
                     "type": "integer"
                 },
                 "retired_on": {
