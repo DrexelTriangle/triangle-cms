@@ -729,6 +729,57 @@ definitions:
       error:
         type: string
     type: object
+  models.ExhibitSpotlight:
+    properties:
+      body:
+        type: string
+      enabled:
+        type: boolean
+      feature_date:
+        type: string
+      fun_facts:
+        items:
+          type: string
+        type: array
+      image_alt:
+        type: string
+      image_credit:
+        type: string
+      image_credit_url:
+        type: string
+      image_url:
+        type: string
+      kicker:
+        type: string
+      link_url:
+        description: LinkURL is where the homepage picture links; empty means the
+          Academy site.
+        type: string
+      slug:
+        type: string
+      sources:
+        items:
+          type: string
+        type: array
+      tenure:
+        type: string
+      title:
+        type: string
+    type: object
+  models.ExhibitSpotlightSettingsPatchRequest:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/models.ExhibitSpotlight'
+        type: array
+    type: object
+  models.ExhibitSpotlightSettingsResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/models.ExhibitSpotlight'
+        type: array
+    type: object
   models.FooterColumn:
     properties:
       entries:
@@ -851,6 +902,8 @@ definitions:
         items:
           $ref: '#/definitions/models.ArticleListItem'
         type: array
+      exhibit_spotlight:
+        $ref: '#/definitions/models.ExhibitSpotlight'
       news:
         items:
           $ref: '#/definitions/models.ArticleListItem'
@@ -3586,6 +3639,54 @@ paths:
       security:
       - BearerAuth: []
       summary: Update breaking-news banner settings
+      tags:
+      - settings
+  /v1/settings/exhibit-spotlights:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ExhibitSpotlightSettingsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get the exhibit of the day schedule (admin; includes unpublished drafts)
+      tags:
+      - settings
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Exhibit spotlight entries
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.ExhibitSpotlightSettingsPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ExhibitSpotlightSettingsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Replace the exhibit of the day schedule
       tags:
       - settings
   /v1/settings/footer:
