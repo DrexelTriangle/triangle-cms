@@ -7,8 +7,10 @@ import {
   encodeShortcodeUrl,
   parseAudioUrl,
   parseEmbedUrl,
+  quizToShortcode,
   shortcodeToAudio,
   shortcodeToEmbed,
+  shortcodeToQuizId,
 } from "./embedUrl";
 
 describe("parseEmbedUrl", () => {
@@ -86,5 +88,22 @@ describe("encodeShortcodeUrl", () => {
   it("leaves an already safe URL alone", () => {
     const url = "https://soundcloud.com/a/b?secret_token=s-1&x=%20";
     expect(encodeShortcodeUrl(url)).toBe(url);
+  });
+});
+
+describe("quiz shortcode", () => {
+  for (const v of vectors.quiz.accept) {
+    it(`reads ${v.input.trim()}`, () => {
+      expect(shortcodeToQuizId(v.input)).toBe(v.id);
+    });
+  }
+  for (const input of vectors.quiz.reject) {
+    it(`rejects ${input}`, () => {
+      expect(shortcodeToQuizId(input)).toBeNull();
+    });
+  }
+  it("writes the canonical form", () => {
+    expect(quizToShortcode(12)).toBe('[quiz id="12"]');
+    expect(shortcodeToQuizId(quizToShortcode(12))).toBe(12);
   });
 });

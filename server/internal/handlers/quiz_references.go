@@ -16,12 +16,15 @@ import (
 // accepts: the name in any case, a digits-only id, optional space and slash
 // before the closing bracket. Keep the two in step; Task 7's vector test
 // checks them against embed-vectors.json.
-const quizShortcodeBody = `\[quiz\s+id="(\d+)"\s*/?\]`
+const quizShortcodeBody = `\[quiz[ \t\n\f\r]+id="(\d+)"[ \t\n\f\r]*/?\]`
 
 var (
 	quizShortcodeInText = regexp.MustCompile(`(?i)` + quizShortcodeBody)
 	quizShortcodeWhole  = regexp.MustCompile(`(?i)^` + quizShortcodeBody + `$`)
 )
+
+// maxQuizID is Number.MAX_SAFE_INTEGER, the largest id JavaScript reads exactly.
+const maxQuizID = 1<<53 - 1
 
 // quizShortcodeID mirrors shortcodeToQuizId: the trimmed text must be one quiz
 // shortcode whose id is 1 or more.
@@ -31,7 +34,7 @@ func quizShortcodeID(text string) (int64, bool) {
 		return 0, false
 	}
 	id, err := strconv.ParseInt(m[1], 10, 64)
-	if err != nil || id <= 0 {
+	if err != nil || id <= 0 || id > maxQuizID {
 		return 0, false
 	}
 	return id, true
