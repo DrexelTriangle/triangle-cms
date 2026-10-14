@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -320,4 +321,53 @@ func UniqueQuizSlug(ctx context.Context, conn *sql.DB, base string) (string, err
 		}
 		candidate = fmt.Sprintf("%s-%d", base, n)
 	}
+}
+
+var quizSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// ValidateQuizFields checks the parts of a quiz that need the database:
+// slug shape and every referenced media row being an image. Slug uniqueness
+// is enforced by the unique key (ErrQuizSlugTaken) rather than here.
+func ValidateQuizFields(ctx context.Context, conn *sql.DB, in models.QuizInput) ([]string, error) {
+	var errs []string
+	if len(in.Slug) > 180 || !quizSlugPattern.MatchString(in.Slug) {
+		errs = append(errs, "Slug must be lowercase letters, digits and single hyphens, at most 180 characters")
+	}
+	if strings.TrimSpace(in.Title) == "" || len(in.Title) > 255 {
+		errs = append(errs, "Title is required and at most 255 characters")
+	}
+	if in.Status != models.QuizStatusDraft && in.Status != models.QuizStatusPublished {
+		errs = append(errs, "Status must be draft or published")
+	}
+	checkImage := func(id *int64, label string) error {
+		if id == nil {
+			return nil
+		}
+		item, err := GetMediaByID(ctx, conn, *id)
+		if errors.Is(err, sql.ErrNoRows) {
+			errs = append(errs, label+": media item not found")
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(item.MimeType, "image/") {
+			errs = append(errs, label+": must be an image")
+		}
+		return nil
+	}
+	if err := checkImage(in.CoverMediaID, "Cover image"); err != nil {
+		return nil, err
+	}
+	for i, q := range in.Definition.Questions {
+		if err := checkImage(q.ImageMediaID, fmt.Sprintf("Question %d image", i+1)); err != nil {
+			return nil, err
+		}
+	}
+	for i, r := range in.Definition.Results {
+		if err := checkImage(r.ImageMediaID, fmt.Sprintf("Result %d image", i+1)); err != nil {
+			return nil, err
+		}
+	}
+	return errs, nil
 }

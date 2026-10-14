@@ -193,3 +193,204 @@ func TestQuizHTTP_AnswerPostWithoutAuth(t *testing.T) {
 		t.Fatalf("draft must 404, got %d", rec.Code)
 	}
 }
+
+func editorBody(t *testing.T, in models.QuizInput) string {
+	t.Helper()
+	raw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func validTriviaInput(slug string) models.QuizInput {
+	return models.QuizInput{
+		Slug: slug, Title: "T " + slug, Kind: models.QuizKindTrivia, Status: models.QuizStatusDraft, EditVersion: 1,
+		Definition: models.QuizDefinition{
+			Questions: []models.QuizQuestion{{Text: "Q1", Answers: []models.QuizAnswer{{Text: "a", Correct: true}, {Text: "b"}}}},
+			Results:   []models.QuizResult{{Min: intPtr(0), Max: intPtr(1), Title: "Band"}},
+		},
+	}
+}
+
+func TestQuizHTTP_EditorCreateValidatesAndSuffixesSlug(t *testing.T) {
+	conn := quizHandlerTestDB(t)
+	seedQuiz(t, conn, "taken", models.QuizStatusDraft, nil)
+
+	in := validTriviaInput("taken")
+	req := httptest.NewRequest(http.MethodPost, "/v1/quizzes", strings.NewReader(editorBody(t, in)))
+	rec := httptest.NewRecorder()
+	PostQuiz(conn).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", rec.Code, rec.Body)
+	}
+	var created models.Quiz
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	if created.Slug != "taken-2" {
+		t.Fatalf("want auto-suffixed slug taken-2, got %q", created.Slug)
+	}
+
+	bad := validTriviaInput("bad")
+	bad.Definition.Questions[0].Answers[0].Correct = false
+	bad.Status = models.QuizStatusPublished
+	req = httptest.NewRequest(http.MethodPost, "/v1/quizzes", strings.NewReader(editorBody(t, bad)))
+	rec = httptest.NewRecorder()
+	PostQuiz(conn).ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("publishing without a correct answer must 422, got %d: %s", rec.Code, rec.Body)
+	}
+	var v models.QuizValidationResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &v)
+	if len(v.Errors) == 0 || !strings.Contains(v.Errors[0], "Question 1") {
+		t.Fatalf("want an error naming question 1, got %+v", v)
+	}
+
+	bad.Status = models.QuizStatusDraft
+	bad.CoverMediaID = new(int64)
+	*bad.CoverMediaID = 404
+	req = httptest.NewRequest(http.MethodPost, "/v1/quizzes", strings.NewReader(editorBody(t, bad)))
+	rec = httptest.NewRecorder()
+	PostQuiz(conn).ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Cover image: media item not found") {
+		t.Fatalf("unknown media id must 422 naming the cover, got %d: %s", rec.Code, rec.Body)
+	}
+}
+
+// Strict rules apply once a quiz is published, even when the request itself
+// says draft (spec 4.3).
+func TestQuizHTTP_EditorSaveOfPublishedQuizIsStrict(t *testing.T) {
+	conn := quizHandlerTestDB(t)
+	id := seedQuiz(t, conn, "live", models.QuizStatusPublished, nil)
+	in := validTriviaInput("live")
+	in.Definition.Questions[0].Answers[0].Correct = false
+	req := httptest.NewRequest(http.MethodPatch, "/v1/quizzes/"+itoa(id), strings.NewReader(editorBody(t, in)))
+	req.SetPathValue("id", itoa(id))
+	rec := httptest.NewRecorder()
+	PatchQuiz(conn).ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "exactly one correct answer") {
+		t.Fatalf("a draft-status save of a published quiz must run strict rules, got %d: %s", rec.Code, rec.Body)
+	}
+}
+
+func TestQuizHTTP_EditorPatchConflicts(t *testing.T) {
+	conn := quizHandlerTestDB(t)
+	id := seedQuiz(t, conn, "p", models.QuizStatusPublished, nil)
+	if _, err := db.RecordQuizAnswer(context.Background(), conn, id, models.QuizAnswerInput{DefinitionVersion: 1}); err != nil {
+		t.Fatal(err)
+	}
+	patch := func(query string, in models.QuizInput) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPatch, "/v1/quizzes/"+itoa(id)+query, strings.NewReader(editorBody(t, in)))
+		req.SetPathValue("id", itoa(id))
+		rec := httptest.NewRecorder()
+		PatchQuiz(conn).ServeHTTP(rec, req)
+		return rec
+	}
+	in := validTriviaInput("p")
+	in.Status = models.QuizStatusPublished
+	in.Definition.Questions = append(in.Definition.Questions, in.Definition.Questions[0])
+	in.Definition.Results[0].Max = intPtr(2)
+
+	rec := patch("", in)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "reset_required") {
+		t.Fatalf("want 409 reset_required, got %d: %s", rec.Code, rec.Body)
+	}
+	rec = patch("?reset_counts=true", in)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200 with reset, got %d: %s", rec.Code, rec.Body)
+	}
+	var saved models.Quiz
+	if err := json.Unmarshal(rec.Body.Bytes(), &saved); err != nil || saved.DefinitionVersion != 2 {
+		t.Fatalf("reset must bump definition_version to 2, got %+v err=%v", saved.DefinitionVersion, err)
+	}
+	var oldRows int
+	if err := conn.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM "+db.QuizAnswerCountsTableName+" WHERE quiz_id = ? AND definition_version = 1", id).Scan(&oldRows); err != nil || oldRows != 0 {
+		t.Fatalf("reset must leave no rows for the old version, count=%d err=%v", oldRows, err)
+	}
+	rec = patch("?reset_counts=true", in)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "stale") {
+		t.Fatalf("replaying edit_version 1 must 409 stale, got %d: %s", rec.Code, rec.Body)
+	}
+
+	in.EditVersion = 2
+	in.Slug = "renamed"
+	rec = patch("", in)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "slug") {
+		t.Fatalf("slug change on a published quiz must 422, got %d: %s", rec.Code, rec.Body)
+	}
+}
+
+func TestQuizHTTP_ListFilterAndReferences(t *testing.T) {
+	conn := quizHandlerTestDB(t)
+	if _, err := conn.ExecContext(context.Background(), "DROP TABLE IF EXISTS articles"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "CREATE TABLE articles (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, slug VARCHAR(255), `text` LONGTEXT, pub_date DATETIME NULL, scheduled_pub_date DATETIME NULL, archived_at DATETIME NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	pub := seedQuiz(t, conn, "pub", models.QuizStatusPublished, nil)
+	seedQuiz(t, conn, "dr", models.QuizStatusDraft, nil)
+	block := "'<p>[quiz id=\"" + itoa(pub) + "\"]</p>'"
+	for _, row := range []string{
+		"('live', " + block + ", UTC_TIMESTAMP() - INTERVAL 1 DAY, NULL)",
+		"('sched', " + block + ", NULL, UTC_TIMESTAMP() + INTERVAL 1 DAY)",
+		"('draft', " + block + ", NULL, NULL)",
+	} {
+		if _, err := conn.ExecContext(context.Background(), "INSERT INTO articles (slug, `text`, pub_date, scheduled_pub_date) VALUES "+row); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/quizzes?status=published", nil)
+	rec := httptest.NewRecorder()
+	GetQuizzes(conn).ServeHTTP(rec, req)
+	var list []models.QuizListItem
+	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	if rec.Code != http.StatusOK || len(list) != 1 || list[0].Slug != "pub" {
+		t.Fatalf("want only the published quiz, got %d %s", rec.Code, rec.Body)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/quizzes/"+itoa(pub)+"/references", nil)
+	req.SetPathValue("id", itoa(pub))
+	rec = httptest.NewRecorder()
+	GetQuizReferences(conn).ServeHTTP(rec, req)
+	var refs models.QuizReferencesResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &refs)
+	if rec.Code != http.StatusOK || refs.Published != 1 || refs.Scheduled != 1 || refs.Draft != 1 {
+		t.Fatalf("want one reference per status, got %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestQuizHTTP_EditorRejectsSlugOver180(t *testing.T) {
+	conn := quizHandlerTestDB(t)
+	in := validTriviaInput(strings.Repeat("a", 181))
+	req := httptest.NewRequest(http.MethodPost, "/v1/quizzes", strings.NewReader(editorBody(t, in)))
+	rec := httptest.NewRecorder()
+	PostQuiz(conn).ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "at most 180") {
+		t.Fatalf("181-char slug must 422, got %d: %s", rec.Code, rec.Body)
+	}
+	in = validTriviaInput(strings.Repeat("a", 180))
+	req = httptest.NewRequest(http.MethodPost, "/v1/quizzes", strings.NewReader(editorBody(t, in)))
+	rec = httptest.NewRecorder()
+	PostQuiz(conn).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("180-char slug must pass, got %d: %s", rec.Code, rec.Body)
+	}
+}
+
+// The request publishes a draft: strict rules run even though the stored
+// quiz is a draft (second half of the strict rule).
+func TestQuizHTTP_EditorPublishingDraftIsStrict(t *testing.T) {
+	conn := quizHandlerTestDB(t)
+	id := seedQuiz(t, conn, "d", models.QuizStatusDraft, nil)
+	in := validTriviaInput("d")
+	in.Status = models.QuizStatusPublished
+	in.Definition.Questions[0].Answers[0].Correct = false
+	req := httptest.NewRequest(http.MethodPatch, "/v1/quizzes/"+itoa(id), strings.NewReader(editorBody(t, in)))
+	req.SetPathValue("id", itoa(id))
+	rec := httptest.NewRecorder()
+	PatchQuiz(conn).ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("publishing a draft with no correct answer must 422, got %d: %s", rec.Code, rec.Body)
+	}
+}
