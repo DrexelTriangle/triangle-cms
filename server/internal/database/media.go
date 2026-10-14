@@ -280,6 +280,29 @@ func InsertMedia(ctx context.Context, conn *sql.DB, relPath, mimeType string, si
 	return result.LastInsertId()
 }
 
+// InsertOrGetMedia records a stored upload, or returns the id of the row that
+// already records its path. Uploads are named by their content, so the same
+// bytes uploaded twice, or an upload retried after its row failed to insert,
+// arrive at a path the library may already hold; that is the same asset, not a
+// conflict. The existing row is left exactly as it is (alt text, caption,
+// gallery flag).
+//
+// The id comes back from the write itself via LAST_INSERT_ID(id) rather than
+// from a follow-up SELECT, which MaxScale could route to a replica that has not
+// seen the row yet.
+func InsertOrGetMedia(ctx context.Context, conn *sql.DB, relPath, mimeType string, sizeBytes int64, width, height int) (int64, error) {
+	now := time.Now().UTC()
+	result, err := conn.ExecContext(ctx, `
+		INSERT INTO media (path, file_name, mime_type, size_bytes, width, height, created_at, updated_at)
+		VALUES (?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), ?, ?)
+		ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+	`, relPath, path.Base(relPath), mimeType, sizeBytes, width, height, now, now)
+	if err != nil {
+		return 0, fmt.Errorf("insert media: %w", err)
+	}
+	return result.LastInsertId()
+}
+
 // UpdateMediaMeta applies the editable fields of a library row. Only the fields
 // present on the patch are written; a patch with none set is a no-op error so
 // the handler can answer 400 rather than silently succeeding.

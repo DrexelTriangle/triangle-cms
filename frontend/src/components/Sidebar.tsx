@@ -20,6 +20,7 @@ import {
   Activity,
   BarChart3,
   ClipboardList,
+  Puzzle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Separator } from "@/components/ui/separator"
@@ -53,6 +54,7 @@ const navGroups: NavGroup[] = [
       { icon: FileText, label: "Articles", path: "/articles" },
       { icon: TrendingUp, label: "Developing Stories", path: "/developing-stories" },
       { icon: BarChart3, label: "Poll", path: "/poll" },
+      { icon: Puzzle, label: "Wordangle", path: "/wordangle" },
       { icon: Image, label: "Media", path: "/media" },
       // Newsletter is temporarily disabled; re-enable this entry (and the Mail
       // import above) to bring it back.

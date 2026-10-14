@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS wordangle_words (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  word CHAR(6) NOT NULL,
+  puzzle_date DATE NULL,
+  retired_on DATE NULL,
+  source VARCHAR(16) NOT NULL DEFAULT 'generated',
+  set_by VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_wordangle_words_word (word),
+  UNIQUE KEY uq_wordangle_words_puzzle_date (puzzle_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4

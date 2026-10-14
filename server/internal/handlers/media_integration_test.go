@@ -265,6 +265,56 @@ func TestMediaHTTP_PublicGalleryOnlyServesCuratedImages(t *testing.T) {
 	}
 }
 
+// Uploads are named by content, so the unique key on media.path is hit by
+// every repeat of the same bytes. Each of those has to answer 201 with the
+// asset the library already has, and a file whose row was dropped (keep_file)
+// has to be re-adopted rather than refused.
+func TestMediaHTTP_IdenticalReuploadAnswersWithTheExistingAsset(t *testing.T) {
+	conn := mediaHTTPTestDB(t)
+	root := t.TempDir()
+	t.Setenv("MEDIA_ROOT", root)
+
+	upload := func(name string, content []byte) models.MediaUploadResponse {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		PostMedia(conn).ServeHTTP(rec, uploadRequest(t, name, content))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("upload %s: status = %d, body = %s", name, rec.Code, rec.Body.String())
+		}
+		var created models.MediaUploadResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+			t.Fatalf("decode upload: %v", err)
+		}
+		return created
+	}
+
+	original := pngBytes(t, 3, 3)
+	first := upload("lead.png", original)
+	repeat := upload("lead.png", original)
+	if repeat.ID != first.ID || repeat.Path != first.Path {
+		t.Fatalf("repeat upload = %+v, want the existing asset %+v", repeat, first)
+	}
+
+	replacement := upload("lead.png", pngBytes(t, 4, 4))
+	if replacement.ID == first.ID || replacement.Path == first.Path {
+		t.Fatalf("replacement reused the original asset: %+v", replacement)
+	}
+
+	delRec := httptest.NewRecorder()
+	DeleteMediaItem(conn).ServeHTTP(delRec,
+		mediaIDRequest(t, http.MethodDelete, "/v1/media/1?keep_file=true", first.ID, ""))
+	if delRec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, body = %s", delRec.Code, delRec.Body.String())
+	}
+	readopted := upload("lead.png", original)
+	if readopted.Path != first.Path || readopted.ID == first.ID {
+		t.Fatalf("re-upload after a keep_file delete = %+v, want a new row at %q", readopted, first.Path)
+	}
+	if _, err := db.GetMediaByID(context.Background(), conn, readopted.ID); err != nil {
+		t.Fatalf("re-adopted row: %v", err)
+	}
+}
+
 func TestMediaHTTP_DeleteKeepFileLeavesTheFile(t *testing.T) {
 	conn := mediaHTTPTestDB(t)
 	root := t.TempDir()

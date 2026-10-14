@@ -26,6 +26,16 @@ const GALLERY_ITEM: MediaPickerItem = {
   mime_type: "image/jpeg",
 }
 
+// What POST /v1/media answers: a fresh asset at a content-addressed path.
+const UPLOADED = {
+  id: 77,
+  path: "wp-content/uploads/2026/10/protest-0f3a9c2b7d1e4f5a6b7c8d9e0f1a2b3c.jpg",
+  url: "/wp-content/uploads/2026/10/protest-0f3a9c2b7d1e4f5a6b7c8d9e0f1a2b3c.jpg",
+  content_type: "image/jpeg",
+  width: 1200,
+  height: 800,
+}
+
 let patchStatus = 200
 
 const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
@@ -40,6 +50,9 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
     return patchStatus === 200
       ? jsonResponse({ ...GALLERY_ITEM, alt_text: "Students marching on Market Street" })
       : jsonResponse({ error: "media not found" }, patchStatus)
+  }
+  if (method === "POST") {
+    return jsonResponse(UPLOADED, 201)
   }
   return jsonResponse({ media: [GALLERY_ITEM] })
 })
@@ -99,7 +112,7 @@ describe("MediaPicker alt text", () => {
 
     await user.click(screen.getByTitle("protest.jpg"))
 
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ alt_text: "Students marching" }))
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ alt_text: "Students marching" }), "library")
   })
 
   it("keeps the typed text on screen when the save fails", async () => {
@@ -113,6 +126,41 @@ describe("MediaPicker alt text", () => {
 
     expect(await screen.findByText("media not found")).toBeInTheDocument()
     expect(field).toHaveValue("Students marching")
+  })
+})
+
+// Replacing an article's image is an upload from this picker. The caller has to
+// know that is what happened: a just-uploaded file has no library alt text yet,
+// so adopting the library's (empty) description would silently wipe the one the
+// author already wrote for this spot.
+describe("MediaPicker selection source", () => {
+  beforeEach(() => {
+    apiCalls = []
+    patchStatus = 200
+    apiFetchStub.mockClear()
+  })
+
+  it("reports an uploaded file as an upload, with the new asset's URL", async () => {
+    const { onSelect, user } = await renderPicker()
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')
+    if (!input) throw new Error("no file input")
+
+    await user.upload(input, new File(["bytes"], "protest.jpg", { type: "image/jpeg" }))
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1))
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 77, url: UPLOADED.url, width: 1200, height: 800 }),
+      "upload",
+    )
+    expect(apiCalls.filter((call) => call.method === "POST").map((call) => call.url)).toEqual(["/v1/media"])
+  })
+
+  it("reports a library tile as a library pick", async () => {
+    const { onSelect, user } = await renderPicker()
+
+    await user.click(screen.getByTitle("protest.jpg"))
+
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 42 }), "library")
   })
 })
 

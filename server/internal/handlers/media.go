@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -54,6 +56,9 @@ const (
 	// the Nginx `location /wp-content/` root that serves them.
 	uploadsSubdir  = "wp-content/uploads"
 	maxBaseNameLen = 100
+	// contentHashHexLen is how much of an upload's SHA-256 goes into its file
+	// name (see contentAddressedStem): 32 hex characters, 128 bits.
+	contentHashHexLen = 32
 	// mediaIndexTimeout bounds a background index run so a wedged filesystem
 	// cannot leave the job permanently "running" and block every later attempt.
 	mediaIndexTimeout = 2 * time.Hour
@@ -82,6 +87,10 @@ var (
 	errAudioNeedsHTTPSURL = errors.New("audio uploads need MEDIA_BASE_URL set to an https origin")
 	errIndexFailed        = errors.New("file stored but could not be added to the media library")
 )
+
+// recordMedia writes the library row for a stored upload. A variable so the
+// handler tests can stand in for the database.
+var recordMedia = db.InsertOrGetMedia
 
 var nonSlugChars = regexp.MustCompile(`[^a-z0-9]+`)
 
@@ -156,6 +165,13 @@ func audioURLUsable() bool {
 // MEDIA_ROOT) under a WordPress-compatible wp-content/uploads/YYYY/MM/ path,
 // records it in the media library, and returns its canonical path plus display
 // URL.
+//
+// The file name carries a digest of the bytes (see contentAddressedStem), so a
+// path never serves anything but what was first stored there. Replacing an
+// article's image is therefore an upload plus an article save that points at
+// the new path; the old asset stays put for whatever else still uses it.
+// Uploading bytes the same month's directory already holds answers with that
+// existing asset.
 //
 // @Summary Upload a media asset
 // @Tags media
@@ -283,8 +299,10 @@ func storeImage(ctx context.Context, conn *sql.DB, src io.ReadSeeker, filename s
 
 	// The file is already durable at this point. If recording it fails the
 	// upload is still reported as a failure, but the file is left in place:
-	// a reindex will adopt it rather than leaving a silent orphan.
-	id, err := db.InsertMedia(ctx, conn, relPath, contentType, written, width, height)
+	// retrying the upload reuses it (same bytes, same name) and a reindex would
+	// adopt it too, so it is never a silent orphan. A path the library already
+	// has is the same asset uploaded again, and answers with that row.
+	id, err := recordMedia(ctx, conn, relPath, contentType, written, width, height)
 	if err != nil {
 		return models.MediaUploadResponse{}, fmt.Errorf("%w: %v", errIndexFailed, err)
 	}
@@ -559,10 +577,11 @@ func ensureTraversable(dirs ...string) {
 	}
 }
 
-// storeUpload writes src to a uniquely-named file in dir, never overwriting an
-// existing asset (important: the legacy corpus lives here too). It writes to a
-// temp file first and atomically renames into place so partially-written files
-// are never visible to the serving layer.
+// storeUpload writes src to a content-addressed file in dir, never overwriting
+// an existing asset (important: the legacy corpus lives here too). It writes to
+// a temp file first, hashing as it goes, and atomically renames into place so
+// partially-written files are never visible to the serving layer. If dir
+// already holds these exact bytes under that name, the existing file is reused.
 func storeUpload(dir, base, ext string, src io.Reader) (name string, size int64, err error) {
 	tmp, err := os.CreateTemp(dir, ".upload-*"+ext)
 	if err != nil {
@@ -578,7 +597,7 @@ func storeUpload(dir, base, ext string, src io.Reader) (name string, size int64,
 	}()
 
 	// os.CreateTemp always creates with mode 0600, and os.Rename moves the temp
-	// file's *inode* onto the destination, so the 0644 that reserveAndRename
+	// file's *inode* onto the destination, so the 0644 that reserveOrReuse
 	// uses to claim the name is discarded along with the file it created. Without
 	// this the stored asset is readable only by the CMS's own uid, and the Nginx
 	// worker serving /wp-content/ answers 403 for every uploaded image. Chmod is
@@ -587,7 +606,8 @@ func storeUpload(dir, base, ext string, src io.Reader) (name string, size int64,
 		return "", 0, err
 	}
 
-	if size, err = io.Copy(tmp, src); err != nil {
+	digest := sha256.New()
+	if size, err = io.Copy(io.MultiWriter(tmp, digest), src); err != nil {
 		return "", 0, err
 	}
 	if err = tmp.Sync(); err != nil {
@@ -597,11 +617,14 @@ func storeUpload(dir, base, ext string, src io.Reader) (name string, size int64,
 		return "", 0, err
 	}
 
-	name, err = reserveAndRename(dir, base, ext, tmpPath)
+	sum := digest.Sum(nil)
+	name, reused, err := reserveOrReuse(dir, contentAddressedStem(base, sum), ext, tmpPath, sum, size)
 	if err != nil {
 		return "", 0, err
 	}
-	cleanup = false // renamed away
+	// A reused name already holds these bytes, so the temp copy is surplus and
+	// the deferred cleanup removes it; otherwise it was renamed away.
+	cleanup = reused
 
 	// tmp.Sync() above made the *contents* durable; the directory entry carrying
 	// the final name is separate metadata. Without this a crash between the
@@ -610,6 +633,20 @@ func storeUpload(dir, base, ext string, src io.Reader) (name string, size int64,
 	// stored file any less usable right now.
 	syncDir(dir)
 	return name, size, nil
+}
+
+// contentAddressedStem appends a digest of the file's bytes to its readable
+// base name. Cloudflare caches /wp-content/ for a long time, so a URL must only
+// ever serve one set of bytes: a replacement image, typically re-uploaded under
+// the same client file name, has to land at a new URL. Naming by content does
+// that by construction, where the old "-N" counter handed a URL back out as
+// soon as a delete freed it.
+//
+// 128 bits of SHA-256 makes an accidental collision unthinkable; a deliberate
+// one is still caught, because a file is only ever reused after its full
+// digest has been compared (see sameContent).
+func contentAddressedStem(base string, digest []byte) string {
+	return base + "-" + hex.EncodeToString(digest)[:contentHashHexLen]
 }
 
 // syncDir flushes a directory's entries so a rename into it survives a crash.
@@ -625,58 +662,84 @@ func syncDir(dir string) {
 	}
 }
 
-// reserveAndRename finds an unused "<base><ext>" / "<base>-N<ext>" name in dir by
-// exclusively creating it, then renames tmpPath onto it. The O_EXCL create is the
-// atomic no-clobber guarantee even under concurrent uploads.
-func reserveAndRename(dir, base, ext, tmpPath string) (string, error) {
-	reserve := func(name string) (bool, error) {
-		f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+// reserveOrReuse settles the final name for a finished temp file whose bytes
+// hash to digest. Each candidate ("<stem><ext>", then "<stem>-N<ext>", then a
+// random suffix) is either claimed or, if taken, checked:
+//
+//   - free: claimed by exclusively creating it, then tmpPath is renamed onto it.
+//     The O_EXCL create is the atomic no-clobber guarantee even under concurrent
+//     uploads.
+//   - taken by a file holding exactly these bytes: reused (reused is true and
+//     tmpPath is left for the caller to remove). This is a repeat upload, or the
+//     retry of one whose library row failed to insert.
+//   - taken by anything else: skipped, never touched. In practice that is a
+//     claim placeholder a concurrent upload has not renamed over yet, or one a
+//     crash stranded; the next candidate keeps the URL serving only these bytes.
+func reserveOrReuse(dir, stem, ext, tmpPath string, digest []byte, size int64) (name string, reused bool, err error) {
+	claim := func(name string) (done, reused bool, err error) {
+		target := filepath.Join(dir, name)
+		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
 			_ = f.Close()
-			return true, nil
-		}
-		if errors.Is(err, os.ErrExist) {
-			return false, nil
-		}
-		return false, err
-	}
-
-	tryNames := func() (string, error) {
-		if ok, err := reserve(base + ext); err != nil {
-			return "", err
-		} else if ok {
-			return base + ext, nil
-		}
-		for i := 1; i < 1000; i++ {
-			name := fmt.Sprintf("%s-%d%s", base, i, ext)
-			if ok, err := reserve(name); err != nil {
-				return "", err
-			} else if ok {
-				return name, nil
+			if err := os.Rename(tmpPath, target); err != nil {
+				_ = os.Remove(target)
+				return false, false, err
 			}
+			return true, false, nil
 		}
-		suffix, err := randomHex(6)
-		if err != nil {
-			return "", err
+		if !errors.Is(err, os.ErrExist) {
+			return false, false, err
 		}
-		name := base + "-" + suffix + ext
-		if ok, err := reserve(name); err != nil {
-			return "", err
-		} else if !ok {
-			return "", errors.New("could not allocate a unique filename")
+		if sameContent(target, digest, size) {
+			return true, true, nil
 		}
-		return name, nil
+		return false, false, nil
 	}
 
-	name, err := tryNames()
+	candidates := make([]string, 0, 11)
+	candidates = append(candidates, stem+ext)
+	for i := 1; i < 10; i++ {
+		candidates = append(candidates, fmt.Sprintf("%s-%d%s", stem, i, ext))
+	}
+	suffix, err := randomHex(6)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	if err := os.Rename(tmpPath, filepath.Join(dir, name)); err != nil {
-		_ = os.Remove(filepath.Join(dir, name))
-		return "", err
+	candidates = append(candidates, stem+"-"+suffix+ext)
+
+	for _, candidate := range candidates {
+		done, reused, err := claim(candidate)
+		if err != nil {
+			return "", false, err
+		}
+		if done {
+			return candidate, reused, nil
+		}
 	}
-	return name, nil
+	return "", false, errors.New("could not allocate a unique filename")
+}
+
+// sameContent reports whether the file at p is a regular file holding exactly
+// the bytes that hash to digest. Anything it cannot establish (a symlink, a
+// directory, a file it cannot read) counts as different, which only ever costs
+// a fresh name, never an overwrite.
+func sameContent(p string, digest []byte, size int64) bool {
+	// O_NOFOLLOW plus a stat of the open descriptor, rather than an Lstat
+	// first, so nothing can be swapped in between the check and the read.
+	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() != size {
+		return false
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false
+	}
+	return bytes.Equal(h.Sum(nil), digest)
 }
 
 func imageDimensions(p string) (int, int) {

@@ -233,6 +233,10 @@ func PatchFooterSettings(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
 		}
+		if err := validateFooterColumns(body.Columns); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 
 		if err := db.SetFooterSettings(r.Context(), conn, body); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update footer settings")
@@ -266,6 +270,24 @@ func PostRebuildTaxonomyCounts(conn *sql.DB) http.Handler {
 		activity.LogRequest(r, "settings_changed", "Rebuilt taxonomy article counts")
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// validateFooterColumns rejects a footer whose schedule cannot be read. Saving
+// it anyway would mean the normalizer clears the date, and a link meant to
+// launch next week would go live the moment the editor clicked Save.
+// Spacers are skipped: they carry no schedule and the normalizer strips one.
+func validateFooterColumns(columns []models.FooterColumn) error {
+	for c, column := range columns {
+		for e, entry := range column.Entries {
+			if entry.Kind == models.FooterEntrySpacer {
+				continue
+			}
+			if _, err := db.CanonicalFooterVisibleFrom(entry.VisibleFrom); err != nil {
+				return fmt.Errorf("column %d entry %d: %w", c+1, e+1, err)
+			}
+		}
+	}
+	return nil
 }
 
 func validateHomepageCarouselSlides(slides []models.HomepageCarouselSlide) error {

@@ -18,8 +18,14 @@ type GalleryResponse = {
   media?: MediaPickerItem[]
 }
 
+// Where a selection came from. An upload is a brand-new asset with no library
+// alt text yet, which is how an author replaces an image, so callers keep the
+// description already written for that spot rather than adopting the empty
+// one. A library pick carries the library's own description.
+export type MediaPickerSource = "library" | "upload"
+
 type MediaPickerProps = {
-  onSelect: (item: MediaPickerItem) => void
+  onSelect: (item: MediaPickerItem, source: MediaPickerSource) => void
   onClose: () => void
   title?: string
   // When set, the picker also accepts a bare image URL. Only the featured-image
@@ -185,14 +191,17 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
         }
         // Straight into the document: the author picked a file in order to use
         // it, so making them find it in the grid afterwards is a wasted step.
-        onSelect({
-          id: created.id,
-          url: created.url,
-          file_name: created.path.split("/").pop() ?? created.path,
-          mime_type: created.content_type,
-          width: created.width,
-          height: created.height,
-        })
+        onSelect(
+          {
+            id: created.id,
+            url: created.url,
+            file_name: created.path.split("/").pop() ?? created.path,
+            mime_type: created.content_type,
+            width: created.width,
+            height: created.height,
+          },
+          "upload",
+        )
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed.")
       } finally {
@@ -282,7 +291,7 @@ function MediaPicker({ onSelect, onClose, title = "Insert image", onUseUrl, init
                 >
                   <button
                     className="flex flex-col text-left"
-                    onClick={() => onSelect(item)}
+                    onClick={() => onSelect(item, "library")}
                     title={item.file_name}
                     type="button"
                   >
