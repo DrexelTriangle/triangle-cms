@@ -394,3 +394,32 @@ func TestQuizHTTP_EditorPublishingDraftIsStrict(t *testing.T) {
 		t.Fatalf("publishing a draft with no correct answer must 422, got %d: %s", rec.Code, rec.Body)
 	}
 }
+
+func TestQuizHTTP_ArticlePublishRefusesUnpublishedQuiz(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	if err := db.EnsureQuizzesSchema(context.Background(), conn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "DELETE FROM "+db.QuizzesTableName); err != nil {
+		t.Fatal(err)
+	}
+	dr := seedQuiz(t, conn, "dr", models.QuizStatusDraft, nil)
+	body := `{"title":"With quiz","content":"<p>[quiz id=\"` + itoa(dr) + `\"]</p>","status":"draft","authors":[],"categories":[]}`
+	rec := httptest.NewRecorder()
+	PostArticles(conn).ServeHTTP(rec, postArticleRequest(body))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("draft with an unpublished quiz must save, got %d: %s", rec.Code, rec.Body)
+	}
+	blank := strings.Replace(body, `"status":"draft"`, `"status":""`, 1)
+	rec = httptest.NewRecorder()
+	PostArticles(conn).ServeHTTP(rec, postArticleRequest(blank))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("a blank status with no date is a draft and must save, got %d: %s", rec.Code, rec.Body)
+	}
+	body = strings.Replace(body, `"status":"draft"`, `"status":"published"`, 1)
+	rec = httptest.NewRecorder()
+	PostArticles(conn).ServeHTTP(rec, postArticleRequest(body))
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Quiz #"+itoa(dr)) {
+		t.Fatalf("publishing must 422 naming the quiz, got %d: %s", rec.Code, rec.Body)
+	}
+}
