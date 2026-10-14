@@ -176,3 +176,16 @@ func TestQuizFingerprint(t *testing.T) {
 		t.Fatal("changing a result key must change the fingerprint")
 	}
 }
+
+func TestValidateQuizDefinition_LimitsCountCharactersNotBytes(t *testing.T) {
+	def := trivia(1)
+	def.Questions[0].Text = strings.Repeat("é", maxQuestionText)
+	def.Questions[0].Answers[0].Text = strings.Repeat("é", maxAnswerText)
+	def.Questions[0].Explanation = strings.Repeat("é", maxExplanationText)
+	def.Results[0].Title = strings.Repeat("é", maxResultTitle)
+	def.Results[0].Body = strings.Repeat("é", maxResultBody)
+	errs, _ := ValidateQuizDefinition(models.QuizKindTrivia, def, false)
+	if len(errs) != 0 {
+		t.Fatalf("multi-byte text at the character limit must pass, got %v", errs)
+	}
+}

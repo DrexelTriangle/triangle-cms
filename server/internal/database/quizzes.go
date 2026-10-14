@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"server/internal/models"
 )
@@ -330,10 +331,10 @@ var quizSlugPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 // is enforced by the unique key (ErrQuizSlugTaken) rather than here.
 func ValidateQuizFields(ctx context.Context, conn *sql.DB, in models.QuizInput) ([]string, error) {
 	var errs []string
-	if len(in.Slug) > 180 || !quizSlugPattern.MatchString(in.Slug) {
+	if utf8.RuneCountInString(in.Slug) > 180 || !quizSlugPattern.MatchString(in.Slug) {
 		errs = append(errs, "Slug must be lowercase letters, digits and single hyphens, at most 180 characters")
 	}
-	if strings.TrimSpace(in.Title) == "" || len(in.Title) > 255 {
+	if strings.TrimSpace(in.Title) == "" || utf8.RuneCountInString(in.Title) > 255 {
 		errs = append(errs, "Title is required and at most 255 characters")
 	}
 	if in.Status != models.QuizStatusDraft && in.Status != models.QuizStatusPublished {

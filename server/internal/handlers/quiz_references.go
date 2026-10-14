@@ -14,7 +14,7 @@ import (
 
 // quizShortcodeBody is the shape QUIZ_SHORTCODE in frontend/src/lib/embedUrl.ts
 // accepts: the name in any case, a digits-only id, optional space and slash
-// before the closing bracket. Keep the two in step; Task 7's vector test
+// before the closing bracket. Keep the two in step; TestQuizShortcodeIDMatchesTheSharedVectors
 // checks them against embed-vectors.json.
 const quizShortcodeBody = `\[quiz[ \t\n\f\r]+id="(\d+)"[ \t\n\f\r]*/?\]`
 

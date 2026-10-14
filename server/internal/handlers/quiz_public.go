@@ -130,10 +130,10 @@ func GetQuizzesByIDs(conn *sql.DB) http.Handler {
 }
 
 // PostQuizAnswer records one answer. It is public and sits behind its own
-// RateLimitByIP(60, time.Minute) in routes.go. Scalene's proxy overwrites
-// X-Forwarded-For with the reader's address and the limiter keys on the first
-// entry; the CMS is reached only through Scalene and the admin app, so the
-// header is trusted as is. Keep both facts true before adding another proxy.
+// RateLimitByIP(60, time.Minute) in routes.go. The limiter keys on the first
+// X-Forwarded-For entry. The admin SPA calls this API directly, so the header
+// is trusted only because the deployment's proxy is expected to overwrite it
+// with the reader's address; without that the limiter is advisory.
 //
 // @Summary Record a quiz answer
 // @Tags quiz

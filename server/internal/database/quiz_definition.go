@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"server/internal/models"
 )
@@ -70,10 +71,10 @@ func ValidateQuizDefinition(kind string, def models.QuizDefinition, strict bool)
 		}
 	}
 	for i, r := range def.Results {
-		if len(r.Title) > maxResultTitle {
+		if utf8.RuneCountInString(r.Title) > maxResultTitle {
 			add("Result %d: title is over %d characters", i+1, maxResultTitle)
 		}
-		if len(r.Body) > maxResultBody {
+		if utf8.RuneCountInString(r.Body) > maxResultBody {
 			add("Result %d: body is over %d characters", i+1, maxResultBody)
 		}
 		if strict && strings.TrimSpace(r.Title) == "" {
@@ -87,10 +88,10 @@ func ValidateQuizDefinition(kind string, def models.QuizDefinition, strict bool)
 		if strings.TrimSpace(q.Text) == "" {
 			add("Question %d: text is required", n)
 		}
-		if len(q.Text) > maxQuestionText {
+		if utf8.RuneCountInString(q.Text) > maxQuestionText {
 			add("Question %d: text is over %d characters", n, maxQuestionText)
 		}
-		if len(q.Explanation) > maxExplanationText {
+		if utf8.RuneCountInString(q.Explanation) > maxExplanationText {
 			add("Question %d: explanation is over %d characters", n, maxExplanationText)
 		}
 		if len(q.Answers) < minQuizAnswers || len(q.Answers) > maxQuizAnswers {
@@ -101,7 +102,7 @@ func ValidateQuizDefinition(kind string, def models.QuizDefinition, strict bool)
 			if strings.TrimSpace(a.Text) == "" {
 				add("Question %d, answer %d: text is required", n, ai+1)
 			}
-			if len(a.Text) > maxAnswerText {
+			if utf8.RuneCountInString(a.Text) > maxAnswerText {
 				add("Question %d, answer %d: text is over %d characters", n, ai+1, maxAnswerText)
 			}
 			if a.Correct {

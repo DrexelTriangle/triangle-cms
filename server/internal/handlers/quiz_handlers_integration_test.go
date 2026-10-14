@@ -468,6 +468,32 @@ func TestQuizHTTP_ArticlePatchGatesPublishByDateAndStatus(t *testing.T) {
 	}
 }
 
+// Spec 6.3: a content-only edit of a live article is still a publish, so a
+// draft quiz in the new content blocks it.
+func TestQuizHTTP_ContentOnlyPatchOfLiveArticleRefusesDraftQuiz(t *testing.T) {
+	conn := articlePatchTestDB(t)
+	ctx := context.Background()
+	if err := db.EnsureQuizzesSchema(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "DELETE FROM "+db.QuizzesTableName); err != nil {
+		t.Fatal(err)
+	}
+	dr := seedQuiz(t, conn, "dr", models.QuizStatusDraft, nil)
+	rec := httptest.NewRecorder()
+	PostArticles(conn).ServeHTTP(rec, postArticleRequest(`{"title":"Live one","content":"<p>plain</p>","status":"published","authors":[],"categories":[]}`))
+	var live models.ArticleCreateResponse
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &live) != nil {
+		t.Fatalf("seed live article: %d %s", rec.Code, rec.Body)
+	}
+	rec = httptest.NewRecorder()
+	body := `{"content":"<p>[quiz id=\"` + itoa(dr) + `\"]</p>"}`
+	PatchArticle(conn).ServeHTTP(rec, patchArticleRequestWithID(live.Slug, live.ID, body))
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "Quiz #"+itoa(dr)) {
+		t.Fatalf("want 422 naming the quiz, got %d: %s", rec.Code, rec.Body)
+	}
+}
+
 // Warnings never block a save, so they ride on the success body. They only
 // arise under strict rules, which a publishing save applies.
 func TestQuizHTTP_EditorSaveReturnsWarningsOnSuccess(t *testing.T) {
