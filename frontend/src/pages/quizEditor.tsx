@@ -238,7 +238,7 @@ export default function QuizEditor() {
   const resultKeys = definition.results.map((r) => r.key).filter(Boolean)
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-foreground">{isNew ? "New quiz" : "Edit quiz"}</h1>
         {!isNew && (
@@ -363,6 +363,7 @@ export default function QuizEditor() {
             <h2 className="text-lg font-semibold">{kind === "trivia" ? "Score bands" : "Results"}</h2>
             {definition.results.map((r, ri) => (
               <div className="space-y-2 rounded-lg border border-border p-4" key={ri}>
+                <h3 className="text-sm font-medium text-muted-foreground">{kind === "trivia" ? "Score band" : "Result"} {ri + 1}</h3>
                 <div className="grid gap-2 md:grid-cols-3">
                   {kind === "trivia" ? (
                     <>

@@ -64,21 +64,27 @@ func ValidateQuizDefinition(kind string, def models.QuizDefinition, strict bool)
 		}
 		for i, r := range def.Results {
 			if r.Min == nil || r.Max == nil || *r.Min < 0 {
-				add("Result %d: min and max are required", i+1)
+				add("Score band %d: min and max are required", i+1)
 			} else if *r.Min > *r.Max {
-				add("Result %d: min must not exceed max", i+1)
+				add("Score band %d: min must not exceed max", i+1)
 			}
 		}
 	}
+	// The editor labels trivia results "Score bands", so the messages do too;
+	// "Result 1: title is required" read as the quiz title to a first tester.
+	label := "Result"
+	if kind == models.QuizKindTrivia {
+		label = "Score band"
+	}
 	for i, r := range def.Results {
 		if utf8.RuneCountInString(r.Title) > maxResultTitle {
-			add("Result %d: title is over %d characters", i+1, maxResultTitle)
+			add("%s %d: title is over %d characters", label, i+1, maxResultTitle)
 		}
 		if utf8.RuneCountInString(r.Body) > maxResultBody {
-			add("Result %d: body is over %d characters", i+1, maxResultBody)
+			add("%s %d: body is over %d characters", label, i+1, maxResultBody)
 		}
 		if strict && strings.TrimSpace(r.Title) == "" {
-			add("Result %d: title is required", i+1)
+			add("%s %d: title is required", label, i+1)
 		}
 	}
 

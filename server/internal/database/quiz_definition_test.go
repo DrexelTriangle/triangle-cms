@@ -54,13 +54,13 @@ func TestValidateQuizDefinition(t *testing.T) {
 		{"trivia with result key", models.QuizKindTrivia, false, func(d *models.QuizDefinition) { d.Questions[0].Answers[0].ResultKey = ptr("x") }, "Question 1, answer 1: result keys belong to personality quizzes"},
 		{"band gap strict", models.QuizKindTrivia, true, func(d *models.QuizDefinition) { d.Results[0].Max = ptr(1) }, "Score bands must cover 0 to 2"},
 		{"band gap draft ok", models.QuizKindTrivia, false, func(d *models.QuizDefinition) { d.Results[0].Max = ptr(1) }, ""},
-		{"band min above max", models.QuizKindTrivia, false, func(d *models.QuizDefinition) { d.Results[0].Min = ptr(3) }, "Result 1: min must not exceed max"},
+		{"band min above max", models.QuizKindTrivia, false, func(d *models.QuizDefinition) { d.Results[0].Min = ptr(3) }, "Score band 1: min must not exceed max"},
 		{"five bands", models.QuizKindTrivia, false, func(d *models.QuizDefinition) {
 			for len(d.Results) < 5 {
 				d.Results = append(d.Results, d.Results[0])
 			}
 		}, "at most 4 score bands"},
-		{"empty band title strict", models.QuizKindTrivia, true, func(d *models.QuizDefinition) { d.Results[0].Title = "" }, "Result 1: title is required"},
+		{"empty band title strict", models.QuizKindTrivia, true, func(d *models.QuizDefinition) { d.Results[0].Title = "" }, "Score band 1: title is required"},
 		{"personality correct set", models.QuizKindPersonality, false, func(d *models.QuizDefinition) { d.Questions[0].Answers[0].Correct = true }, "Question 1, answer 1: correct answers belong to trivia quizzes"},
 		{"personality unknown key", models.QuizKindPersonality, false, func(d *models.QuizDefinition) { d.Questions[0].Answers[0].ResultKey = ptr("dog") }, `Question 1, answer 1: no result has key "dog"`},
 		{"personality bad key", models.QuizKindPersonality, false, func(d *models.QuizDefinition) { d.Results[0].Key = "Owl!" }, "Result 1: key must be 1 to 32 of a-z, 0-9, _ or -"},
