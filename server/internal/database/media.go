@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"server/internal/mediatype"
 	"server/internal/models"
 )
 
@@ -43,6 +46,7 @@ var mediaMimeByExt = map[string]string{
 	".webp": "image/webp",
 	".avif": "image/avif",
 	".svg":  "image/svg+xml",
+	".mp3":  "audio/mpeg",
 }
 
 // wpResizedSuffix matches the "-800x600" that WordPress appends to generated
@@ -410,6 +414,25 @@ func IndexMediaRoot(ctx context.Context, conn *sql.DB, root, uploadsSubdir strin
 	return IndexMediaRootWithProgress(ctx, conn, root, uploadsSubdir, nil)
 }
 
+// isAdoptableAudio opens an .mp3 found on disk and applies the same check the
+// upload path does. Images are adopted on extension alone because opening every
+// file in the migrated corpus is too slow; audio files are few, and the
+// extension is the only thing a stray non-audio file named .mp3 would have.
+func isAdoptableAudio(absPath string) bool {
+	f, err := os.Open(absPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	head := make([]byte, 512)
+	n, err := io.ReadFull(f, head)
+	if err != nil && n == 0 {
+		return false
+	}
+	head = head[:n]
+	return http.DetectContentType(head) == "audio/mpeg" || mediatype.IsMPEGAudioFrameHeader(head)
+}
+
 // IndexMediaRootWithProgress is IndexMediaRoot with periodic progress reporting.
 // onProgress (may be nil) is called from the walking goroutine every
 // progressInterval entries and once at the end, so it must not block.
@@ -470,6 +493,9 @@ func IndexMediaRootWithProgress(
 		ext := strings.ToLower(filepath.Ext(name))
 		mimeType, ok := mediaMimeByExt[ext]
 		if !ok {
+			return nil
+		}
+		if mimeType == "audio/mpeg" && !isAdoptableAudio(absPath) {
 			return nil
 		}
 		if wpResizedSuffix.MatchString(strings.TrimSuffix(name, filepath.Ext(name))) {

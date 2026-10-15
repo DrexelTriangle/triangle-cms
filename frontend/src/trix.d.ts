@@ -14,6 +14,20 @@ declare global {
     height?: number;
     alt?: string;
     previewable?: boolean;
+    // A content attachment renders this HTML instead of a preview. Our embed
+    // cards use it; the card is always rebuilt from the two fields below and
+    // never read back from storage.
+    content?: string;
+    embedProvider?: string;
+    embedUrl?: string;
+    // For a legacy shortcode loaded from an article: the original block, so an
+    // unedited embed saves back byte-for-byte.
+    embedOriginal?: string;
+    // A quiz card: the CMS quiz id, the title the lookup found, and for a
+    // legacy block the original markup, so an unedited card saves back as it was.
+    quizId?: number;
+    quizTitle?: string;
+    quizOriginal?: string;
   }
 
   interface Window {
@@ -115,6 +129,8 @@ declare global {
     setUploadProgress(value: number): void;
     setAttributes(attrs: Partial<TrixAttachmentAttributes>): void;
     remove(): void;
+    // True while a File is attached and no URL has arrived from the upload.
+    isPending(): boolean;
   }
 
   interface TrixAttachmentAddEvent extends Event {

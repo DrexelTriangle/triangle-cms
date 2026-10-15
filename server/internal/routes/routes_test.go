@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"server/internal/auth"
+	"strings"
 	"testing"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -199,5 +200,37 @@ func TestRegister_MediaEndpointsGated(t *testing.T) {
 				t.Fatalf("expected %d, got %d", http.StatusUnauthorized, rec.Code)
 			}
 		})
+	}
+}
+
+// The quiz answer route has its own 60/min limiter (spec 5.1): a 30-question
+// play must fit, and spending the quiz budget must not touch the poll's.
+func TestRegister_QuizAnswerLimiterIsItsOwn(t *testing.T) {
+	conn, err := sql.Open("mysql", "u:p@tcp(127.0.0.1:1)/db")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer conn.Close()
+	mux := http.NewServeMux()
+	Register(mux, conn, nil, auth.OIDCConfig{}, nil, nil, nil)
+
+	post := func(path string) int {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"definition_version":1,"question_index":0,"answer_index":0}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "203.0.113.7:1"
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i := 1; i <= 60; i++ {
+		if code := post("/v1/quiz/1/answers"); code == http.StatusTooManyRequests {
+			t.Fatalf("post %d was rate limited; the quiz limit is 60 a minute", i)
+		}
+	}
+	if code := post("/v1/quiz/1/answers"); code != http.StatusTooManyRequests {
+		t.Fatalf("post 61: want 429, got %d", code)
+	}
+	if code := post("/v1/poll"); code == http.StatusTooManyRequests {
+		t.Fatal("the poll limiter must not share the quiz bucket")
 	}
 }

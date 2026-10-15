@@ -272,6 +272,10 @@ func TestDeriveExcerpt_DropsShortcodes(t *testing.T) {
 			`[somewidget size='3']<p>The story begins here.</p>`,
 			"The story begins here.",
 		},
+		"quiz block": {
+			`<p>[quiz id="3"]</p><p>Real text here.</p>`,
+			"Real text here.",
+		},
 	}
 
 	for name, tc := range cases {
@@ -348,5 +352,31 @@ func TestArticleSelectList_QualifiesForJoins(t *testing.T) {
 	}
 	if !strings.Contains(articleSelectList(true, "a"), "`text`") {
 		t.Error("full select list is missing `text`")
+	}
+}
+
+// The quiz gate and ArticleToDBFields must agree on when a save is live, or a
+// blank-status draft autosave would be refused as if it were a publish.
+func TestArticleIsLive(t *testing.T) {
+	past := time.Now().UTC().Add(-time.Hour)
+	cases := []struct {
+		name        string
+		status      models.ArticleStatus
+		publishedAt *time.Time
+		want        bool
+	}{
+		{"draft with a date", models.ArticleStatusDraft, &past, false},
+		{"blank status, no date", "", nil, false},
+		{"blank status with a date", "", &past, true},
+		{"published, no date", models.ArticleStatusPublished, nil, true},
+		{"scheduled with a date", models.ArticleStatusScheduled, &past, true},
+		{"scheduled, no date", models.ArticleStatusScheduled, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ArticleIsLive(tc.status, tc.publishedAt); got != tc.want {
+				t.Fatalf("ArticleIsLive = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
