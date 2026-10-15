@@ -187,3 +187,67 @@ describe("MediaPicker thumbnails", () => {
     expect(thumbnail).toHaveAttribute("sizes")
   })
 })
+
+describe("MediaPicker audio", () => {
+  const AUDIO_ITEM: MediaPickerItem = {
+    id: 9,
+    url: "https://m.test/wp-content/uploads/2026/10/ep.mp3",
+    file_name: "ep.mp3",
+    mime_type: "audio/mpeg",
+  }
+
+  beforeEach(() => {
+    apiFetchStub.mockClear()
+  })
+
+  it("shows an audio row with an audio icon", async () => {
+    apiFetchStub.mockImplementationOnce(async () => jsonResponse({ media: [AUDIO_ITEM] }))
+    render(<MediaPicker onClose={vi.fn()} onSelect={vi.fn()} />)
+
+    expect(await screen.findByLabelText("Audio file")).toBeInTheDocument()
+  })
+
+  it("renders no image for an audio row", async () => {
+    apiFetchStub.mockImplementationOnce(async () => jsonResponse({ media: [AUDIO_ITEM] }))
+    render(<MediaPicker onClose={vi.fn()} onSelect={vi.fn()} />)
+    await screen.findByText("ep.mp3")
+
+    expect(document.querySelector('img[src$="ep.mp3"]')).toBeNull()
+  })
+
+  it("offers no alt text field for an audio row", async () => {
+    apiFetchStub.mockImplementationOnce(async () => jsonResponse({ media: [AUDIO_ITEM] }))
+    render(<MediaPicker onClose={vi.fn()} onSelect={vi.fn()} />)
+    await screen.findByText("ep.mp3")
+
+    expect(screen.queryByRole("button", { name: /alt text/i })).toBeNull()
+  })
+
+  it("asks the server for images only when imagesOnly is set", async () => {
+    render(<MediaPicker imagesOnly onClose={vi.fn()} onSelect={vi.fn()} />)
+    await waitFor(() => expect(apiFetchStub).toHaveBeenCalled())
+
+    expect(String(apiFetchStub.mock.calls[0][0])).toContain("mime_type=image%2F")
+  })
+
+  it("refuses audio uploads when imagesOnly is set", async () => {
+    render(<MediaPicker imagesOnly onClose={vi.fn()} onSelect={vi.fn()} />)
+    await waitFor(() => expect(apiFetchStub).toHaveBeenCalled())
+
+    expect((document.querySelector('input[type="file"]') as HTMLInputElement).accept).not.toContain("audio")
+  })
+
+  it("does not filter by type for the body editor", async () => {
+    render(<MediaPicker onClose={vi.fn()} onSelect={vi.fn()} />)
+    await waitFor(() => expect(apiFetchStub).toHaveBeenCalled())
+
+    expect(String(apiFetchStub.mock.calls[0][0])).not.toContain("mime_type")
+  })
+
+  it("accepts audio uploads for the body editor", async () => {
+    render(<MediaPicker onClose={vi.fn()} onSelect={vi.fn()} />)
+    await waitFor(() => expect(apiFetchStub).toHaveBeenCalled())
+
+    expect((document.querySelector('input[type="file"]') as HTMLInputElement).accept).toContain("audio/mpeg")
+  })
+})

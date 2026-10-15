@@ -852,6 +852,7 @@ export default function SettingsPage() {
 
       {carouselPickerIndex !== null && (
         <MediaPicker
+          imagesOnly
           title="Choose carousel image"
           onClose={() => setCarouselPickerIndex(null)}
           onSelect={selectCarouselImage}
