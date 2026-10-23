@@ -2,6 +2,8 @@ module server
 
 go 1.25.0
 
+toolchain go1.26.10
+
 require (
 	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/go-sql-driver/mysql v1.9.3
