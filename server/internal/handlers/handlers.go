@@ -2498,6 +2498,11 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "canonical_url must be an absolute http(s) URL")
 			return
 		}
+		// ArticleInputToDBFields reads published_date only for a published
+		// status, so the date cannot make a create live on its own.
+		if db.ArticleIsLive(body.Status, nil) && rejectUnpublishedQuizzes(w, r, conn, body.Content) {
+			return
+		}
 		// Two editors filing "Letter from the editor" on the same afternoon is
 		// the ordinary case, not the rare one, so the slug is deduped rather
 		// than rejected. body.Slug comes back carrying whatever was reserved.
@@ -2575,6 +2580,9 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		if _, ok := db.NormalizeCanonicalURL(body.CanonicalURL); !ok {
 			writeError(w, http.StatusBadRequest, "canonical_url must be an absolute http(s) URL")
+			return
+		}
+		if db.ArticleIsLive(body.Status, body.PublishedAt) && rejectUnpublishedQuizzes(w, r, conn, body.Content) {
 			return
 		}
 		if rejectTakenSlug(w, r, conn, target, strings.TrimSpace(body.Slug)) {
@@ -2888,6 +2896,49 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 			default:
 				setCols = append(setCols, column)
 				setArgs = append(setArgs, v)
+			}
+		}
+		// A patch can publish or change the body, so check the effective text
+		// and status after the patch, not only the fields it carries.
+		patchContent, hasContent := body["content"].(string)
+		if hasContent || publishedDateSet || (statusSet && statusValue != models.ArticleStatusDraft) {
+			// A patch may address the article by slug, so never query on
+			// target.id alone; the handler's own content fallback below does
+			// the same branch.
+			effectiveContent := patchContent
+			if !hasContent {
+				var err error
+				if target.hasID {
+					effectiveContent, err = db.GetArticleContentByID(r.Context(), conn, target.id)
+				} else {
+					effectiveContent, err = db.GetArticleContentBySlug(r.Context(), conn, target.slug)
+				}
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+			}
+			goingLive := statusSet && statusValue != models.ArticleStatusDraft
+			// articlePatchDateColumns stamps a pub_date from published_date alone,
+			// so a date without a status also takes the article live.
+			if !statusSet && publishedDateSet {
+				goingLive = true
+			} else if !statusSet {
+				var live int
+				liveQuery := "SELECT COUNT(*) FROM articles WHERE id = ? AND archived_at IS NULL AND (pub_date IS NOT NULL OR scheduled_pub_date IS NOT NULL)"
+				var key any = target.id
+				if !target.hasID {
+					liveQuery = "SELECT COUNT(*) FROM articles WHERE slug = ? AND archived_at IS NULL AND (pub_date IS NOT NULL OR scheduled_pub_date IS NOT NULL)"
+					key = target.slug
+				}
+				if err := conn.QueryRowContext(r.Context(), liveQuery, key).Scan(&live); err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				goingLive = live == 1
+			}
+			if goingLive && rejectUnpublishedQuizzes(w, r, conn, effectiveContent) {
+				return
 			}
 		}
 		if dateCols, dateArgs := articlePatchDateColumns(statusSet, statusValue, publishedDateSet, publishedDateValue, scheduledDateValue, currentPublishedAt, lastPublishedAt, time.Now().UTC()); len(dateCols) > 0 {

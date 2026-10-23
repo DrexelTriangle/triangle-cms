@@ -1,9 +1,11 @@
+import { useEffect, type MutableRefObject } from "react"
 import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { MediaPickerItem, MediaPickerSource } from "../components/MediaPicker"
+import { QUIZ_CONTENT_TYPE, findDeadQuizCards, type QuizCardState } from "../components/trixArticleHtml"
 import EditArticleView from "./editArticleView"
 
 // The publish-timing radios are intent, not action: only the publish button may
@@ -17,6 +19,19 @@ type ApiCall = { url: string; method: string; body: Record<string, unknown> | nu
 
 let apiCalls: ApiCall[] = []
 let articleStatus: string
+let articleContent: string
+// What the mocked editor reports through apiRef and onPendingChange.
+let pendingFlag = false
+// What the mocked editor holds and reports for quiz cards: its own document
+// (Trix's figure markup, not the converted article) and the lookup states.
+let quizEditorHtml = ""
+let quizStatesFlag = new Map<number, QuizCardState>()
+// What GET /v1/quizzes/{id} says about a quiz when publish re-checks it.
+let quizRefetchStatus = "draft"
+// When set, PATCH answers 422 with this message.
+let patchRefusal: string | null = null
+const quizFigure = (id: number) =>
+  `<div><figure data-trix-attachment='${JSON.stringify({ contentType: QUIZ_CONTENT_TYPE, quizId: id, quizTitle: "" })}'></figure></div>`
 let articlePublishedDate: string | undefined
 // Slugs belonging to other articles, so a GET for them answers 200 the way the
 // API would rather than the 404 that means "free".
@@ -77,7 +92,7 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       id: 1,
       title: "Live story",
       slug: ARTICLE_SLUG,
-      content: "<p>Body</p>",
+      content: articleContent,
       excerpt: "Excerpt",
       status: articleStatus,
       published_date: articlePublishedDate,
@@ -104,7 +119,11 @@ const apiFetchStub = vi.fn(async (url: string, init?: RequestInit): Promise<Resp
       return jsonResponse({ id: 2, title: "Someone else's story", slug: candidate, content: "" })
     }
   }
+  if (method === "GET" && /^\/v1\/quizzes\/\d+$/.test(url)) {
+    return jsonResponse({ title: "A quiz", status: quizRefetchStatus })
+  }
   if (method === "PATCH") {
+    if (patchRefusal) return jsonResponse({ error: patchRefusal }, 422)
     return new Response(null, { status: 204 })
   }
   return jsonResponse({}, 404)
@@ -116,11 +135,37 @@ vi.mock("../hooks/useApiFetch", () => ({
 
 // Trix and the Yoast analysis both drag in browser-only machinery that has
 // nothing to do with publish timing.
-vi.mock("../components/TrixEditor", () => ({
-  default: ({ value, onChange }: { value: string; onChange: (next: string) => void }) => (
-    <textarea data-testid="article-body" value={value} onChange={(e) => onChange(e.target.value)} />
-  ),
-}))
+vi.mock("../components/TrixEditor", () => {
+  const MockTrixEditor = ({
+    value,
+    onChange,
+    apiRef,
+    onPendingChange,
+    onQuizStatesChange,
+  }: {
+    value: string
+    onChange: (next: string) => void
+    apiRef?: MutableRefObject<{
+      hasPendingUploads: () => boolean
+      checkQuizCards: (states: Map<number, QuizCardState>) => ReturnType<typeof findDeadQuizCards>
+    } | null>
+    onPendingChange?: (pending: boolean) => void
+    onQuizStatesChange?: (states: Map<number, QuizCardState>) => void
+  }) => {
+    useEffect(() => {
+      if (apiRef) {
+        apiRef.current = {
+          hasPendingUploads: () => pendingFlag,
+          checkQuizCards: (states) => findDeadQuizCards(quizEditorHtml, states),
+        }
+      }
+      onPendingChange?.(pendingFlag)
+      onQuizStatesChange?.(new Map(quizStatesFlag))
+    }, [apiRef, onPendingChange, onQuizStatesChange])
+    return <textarea data-testid="article-body" value={value} onChange={(e) => onChange(e.target.value)} />
+  }
+  return { default: MockTrixEditor }
+})
 // Stands in for the library picker with the two ways it can hand back an image:
 // a file the author just uploaded (how an image is replaced), or a tile from
 // the library.
@@ -167,6 +212,12 @@ describe("EditArticleView autosave", () => {
   beforeEach(() => {
     apiCalls = []
     articleStatus = "draft"
+    articleContent = "<p>Body</p>"
+    pendingFlag = false
+    quizEditorHtml = ""
+    quizStatesFlag = new Map()
+    quizRefetchStatus = "draft"
+    patchRefusal = null
     articlePublishedDate = undefined
     takenSlugs = new Set()
     articleTags = []
@@ -318,6 +369,68 @@ describe("EditArticleView autosave", () => {
     // Once the transition is on file, later autosaves stop warning about it.
     await waitOutAutosave()
     expect(screen.queryByText(/Publish timing is not autosaved/)).not.toBeInTheDocument()
+  })
+
+  it("autosaves a body that embeds an unpublished quiz", async () => {
+    articleContent = '<p>[quiz id="7"]</p>'
+    quizEditorHtml = quizFigure(7)
+    quizStatesFlag = new Map([[7, "unpublished"]])
+    const user = await renderEditor()
+    await user.type(screen.getByTestId("article-body"), " more")
+    await waitOutAutosave()
+    expect(patchCalls()).toHaveLength(1)
+  })
+
+  it("saves a draft that embeds an unpublished quiz", async () => {
+    articleContent = '<p>[quiz id="7"]</p>'
+    quizEditorHtml = quizFigure(7)
+    quizStatesFlag = new Map([[7, "unpublished"]])
+    const user = await renderEditor()
+    await user.click(screen.getByRole("button", { name: /^Save Draft$/ }))
+    await waitFor(() => expect(patchCalls()).toHaveLength(1))
+    expect(patchCalls()[0].body?.status).toBe("draft")
+  })
+
+  it("refuses to publish an article whose quiz is unpublished", async () => {
+    articleContent = '<p>[quiz id="7"]</p>'
+    quizEditorHtml = quizFigure(7)
+    quizStatesFlag = new Map([[7, "unpublished"]])
+    const user = await renderEditor()
+    await user.click(screen.getByRole("radio", { name: /Publish now/ }))
+    await user.click(screen.getByRole("button", { name: /^Publish$/ }))
+    expect(await screen.findByText("Quiz #7 is unpublished. Remove it or publish the quiz first.")).toBeInTheDocument()
+    expect(patchCalls().filter((c) => c.body?.status === "published")).toHaveLength(0)
+  })
+
+  it("publishes when the quiz was published after the editor first looked it up", async () => {
+    articleContent = '<p>[quiz id="7"]</p>'
+    quizEditorHtml = quizFigure(7)
+    quizStatesFlag = new Map([[7, "unpublished"]])
+    quizRefetchStatus = "published"
+    const user = await renderEditor()
+    await user.click(screen.getByRole("radio", { name: /Publish now/ }))
+    await user.click(screen.getByRole("button", { name: /^Publish$/ }))
+    await waitFor(() => expect(patchCalls().filter((c) => c.body?.status === "published")).toHaveLength(1))
+    expect(screen.queryByText(/Quiz #7 is unpublished/)).not.toBeInTheDocument()
+  })
+
+  it("shows the server reason when autosave is refused", async () => {
+    patchRefusal = "Quiz #7 is unpublished. Remove it or publish the quiz first."
+    const user = await renderEditor()
+    await user.type(screen.getByTestId("article-body"), " more")
+    await waitOutAutosave()
+    expect(await screen.findByText("Autosave paused: Quiz #7 is unpublished. Remove it or publish the quiz first.")).toBeInTheDocument()
+  })
+
+  it("warns but publishes when a quiz lookup is still pending", async () => {
+    articleContent = '<p>[quiz id="7"]</p>'
+    quizEditorHtml = quizFigure(7)
+    quizStatesFlag = new Map([[7, "pending"]])
+    const user = await renderEditor()
+    await user.click(screen.getByRole("radio", { name: /Publish now/ }))
+    await user.click(screen.getByRole("button", { name: /^Publish$/ }))
+    await waitFor(() => expect(patchCalls().filter((c) => c.body?.status === "published")).toHaveLength(1))
+    expect(screen.getByText("Quiz #7 could not be checked yet. The server checks it again when you publish.")).toBeInTheDocument()
   })
 })
 
@@ -500,5 +613,56 @@ describe("EditArticleView SEO tag suggestions", () => {
     })
 
     expect(screen.getByText(/No existing tag matches/)).toBeInTheDocument()
+  })
+})
+
+describe("save guard for embeds and uploads", () => {
+  // The edit-lock heartbeat is a PUT the page sends on load; it is not a save.
+  const nonGetCalls = () =>
+    apiCalls.filter((c) => c.method !== "GET" && !c.url.includes("/edit-lock")).length
+
+  beforeEach(() => {
+    apiCalls = []
+    articleStatus = "draft"
+    articleContent = "<p>Body</p>"
+    pendingFlag = false
+    quizEditorHtml = ""
+    quizStatesFlag = new Map()
+    quizRefetchStatus = "draft"
+    patchRefusal = null
+    takenSlugs = new Set()
+    articleTags = []
+    popularTagsPayload = []
+    archiveTagsPayload = []
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("disables Save while an upload is pending", async () => {
+    pendingFlag = true
+    await renderEditor()
+    await waitFor(() => expect(screen.getByRole("button", { name: /^save draft$/i })).toBeDisabled())
+  })
+
+  it("refuses an autosave while an upload is pending, sending nothing", async () => {
+    pendingFlag = true
+    const user = await renderEditor()
+    await user.type(screen.getByTestId("article-body"), " more")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+    expect(await screen.findByText(/waiting for upload to finish/i)).toBeInTheDocument()
+    expect(nonGetCalls()).toBe(0)
+  })
+
+  it("refuses to save an article with an invalid embed and names the block", async () => {
+    articleContent = `<div><figure data-trix-attachment='${JSON.stringify({ contentType: "application/x-triangle-embed", embedProvider: "spotify", embedUrl: "nope" })}' data-trix-attributes='{}'></figure></div>`
+    const user = await renderEditor()
+    await user.click(screen.getByRole("button", { name: /^save draft$/i }))
+    expect(await screen.findByText(/embed 1 has an invalid url/i)).toBeInTheDocument()
+    expect(nonGetCalls()).toBe(0)
   })
 })

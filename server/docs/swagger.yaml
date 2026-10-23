@@ -926,6 +926,18 @@ definitions:
       width:
         type: integer
     type: object
+  models.InstagramEmbedRequest:
+    properties:
+      url:
+        type: string
+    type: object
+  models.InstagramEmbedResponse:
+    properties:
+      media:
+        items:
+          type: string
+        type: array
+    type: object
   models.Media:
     properties:
       alt_text:
@@ -1181,6 +1193,213 @@ definitions:
         type: string
       total_votes:
         type: integer
+    type: object
+  models.Quiz:
+    properties:
+      counts:
+        items:
+          items:
+            format: int64
+            type: integer
+          type: array
+        type: array
+      cover_media_id:
+        type: integer
+      cover_url:
+        type: string
+      created_at:
+        type: string
+      definition:
+        $ref: '#/definitions/models.QuizDefinition'
+      definition_version:
+        type: integer
+      edit_version:
+        type: integer
+      id:
+        type: integer
+      intro:
+        type: string
+      kind:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.QuizAnswer:
+    properties:
+      correct:
+        type: boolean
+      result_key:
+        type: string
+      text:
+        type: string
+    type: object
+  models.QuizAnswerCountsResponse:
+    properties:
+      counts:
+        items:
+          type: integer
+        type: array
+    type: object
+  models.QuizAnswerInput:
+    properties:
+      answer_index:
+        type: integer
+      definition_version:
+        type: integer
+      question_index:
+        type: integer
+    type: object
+  models.QuizConflictResponse:
+    properties:
+      reason:
+        type: string
+    type: object
+  models.QuizDefinition:
+    properties:
+      questions:
+        items:
+          $ref: '#/definitions/models.QuizQuestion'
+        type: array
+      results:
+        items:
+          $ref: '#/definitions/models.QuizResult'
+        type: array
+    type: object
+  models.QuizInput:
+    properties:
+      cover_media_id:
+        type: integer
+      definition:
+        $ref: '#/definitions/models.QuizDefinition'
+      edit_version:
+        type: integer
+      intro:
+        type: string
+      kind:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+    type: object
+  models.QuizListItem:
+    properties:
+      edit_version:
+        type: integer
+      id:
+        type: integer
+      kind:
+        type: string
+      slug:
+        type: string
+      starts:
+        type: integer
+      status:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.QuizQuestion:
+    properties:
+      answers:
+        items:
+          $ref: '#/definitions/models.QuizAnswer'
+        type: array
+      explanation:
+        type: string
+      image_media_id:
+        type: integer
+      image_url:
+        type: string
+      text:
+        type: string
+    type: object
+  models.QuizReferencesResponse:
+    properties:
+      draft:
+        type: integer
+      published:
+        type: integer
+      scheduled:
+        type: integer
+    type: object
+  models.QuizResult:
+    properties:
+      body:
+        type: string
+      image_media_id:
+        type: integer
+      image_url:
+        type: string
+      key:
+        type: string
+      max:
+        type: integer
+      min:
+        type: integer
+      title:
+        type: string
+    type: object
+  models.QuizSaveResponse:
+    properties:
+      counts:
+        items:
+          items:
+            format: int64
+            type: integer
+          type: array
+        type: array
+      cover_media_id:
+        type: integer
+      cover_url:
+        type: string
+      created_at:
+        type: string
+      definition:
+        $ref: '#/definitions/models.QuizDefinition'
+      definition_version:
+        type: integer
+      edit_version:
+        type: integer
+      id:
+        type: integer
+      intro:
+        type: string
+      kind:
+        type: string
+      slug:
+        type: string
+      status:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+      warnings:
+        items:
+          type: string
+        type: array
+    type: object
+  models.QuizValidationResponse:
+    properties:
+      errors:
+        items:
+          type: string
+        type: array
+      warnings:
+        items:
+          type: string
+        type: array
     type: object
   models.RandomArticleResponse:
     properties:
@@ -2620,6 +2839,45 @@ paths:
       summary: Update developing story description
       tags:
       - developing-stories
+  /v1/embeds/instagram:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Post URL
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.InstagramEmbedRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.InstagramEmbedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Import an Instagram post's images into the media library
+      tags:
+      - embeds
   /v1/gallery:
     get:
       parameters:
@@ -3529,6 +3787,251 @@ paths:
       summary: List all polls including drafts
       tags:
       - poll
+  /v1/quiz:
+    get:
+      parameters:
+      - description: Comma-separated ids, at most 10
+        in: query
+        name: ids
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/models.Quiz'
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get published quizzes by id
+      tags:
+      - quiz
+  /v1/quiz/{id}/answers:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Quiz id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Answer
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.QuizAnswerInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.QuizAnswerCountsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "415":
+          description: Unsupported Media Type
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Record a quiz answer
+      tags:
+      - quiz
+  /v1/quiz/{slug}:
+    get:
+      parameters:
+      - description: Quiz slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Quiz'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get a published quiz by slug
+      tags:
+      - quiz
+  /v1/quizzes:
+    get:
+      parameters:
+      - description: draft or published
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.QuizListItem'
+            type: array
+      security:
+      - BearerAuth: []
+      summary: List quizzes
+      tags:
+      - quiz
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Quiz
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.QuizInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.QuizSaveResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/models.QuizValidationResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a quiz
+      tags:
+      - quiz
+  /v1/quizzes/{id}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: Quiz id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Only edit_version is read
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.QuizInput'
+      responses:
+        "204":
+          description: No Content
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.QuizConflictResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a quiz
+      tags:
+      - quiz
+    get:
+      parameters:
+      - description: Quiz id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Quiz'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a quiz in any status
+      tags:
+      - quiz
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Quiz id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Allow a structural change to reset counts
+        in: query
+        name: reset_counts
+        type: boolean
+      - description: Quiz with the loaded edit_version
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.QuizInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.QuizSaveResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.QuizConflictResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/models.QuizValidationResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a quiz
+      tags:
+      - quiz
+  /v1/quizzes/{id}/references:
+    get:
+      parameters:
+      - description: Quiz id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.QuizReferencesResponse'
+      security:
+      - BearerAuth: []
+      summary: Count articles that embed a quiz
+      tags:
+      - quiz
   /v1/sections/{section_slug}/articles:
     get:
       parameters:

@@ -7,6 +7,7 @@ import (
 	"server/internal/auth"
 	"server/internal/handlers"
 	"server/internal/middleware"
+	"server/internal/scraper"
 	"server/internal/slack"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder) {
+func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder, instagramScraper *scraper.Client) {
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 	// Prometheus scrape target. Unauthenticated by design, and safe only
 	// because Nginx proxies just /v1 and /swagger: nothing routes /metrics in
@@ -99,6 +100,9 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	// operations (delete, reindex) stay admin-only.
 	mux.Handle("POST /v1/media", authMW(handlers.PostMedia(conn)))
 	mux.Handle("POST /v1/media/fetch", authMW(handlers.PostMediaFetch(conn)))
+	// Copies an Instagram post's images into the library, part of writing an
+	// article like the sideload above, so editors may call it.
+	mux.Handle("POST /v1/embeds/instagram", authMW(handlers.PostInstagramEmbed(conn, instagramScraper)))
 	// Indexing runs in the background (the walk outlives any proxy timeout), so
 	// starting it and polling its progress are separate endpoints.
 	mux.Handle("POST /v1/media/index", authMW(adminOnly(handlers.PostMediaIndex(conn))))
@@ -119,6 +123,21 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/poll", handlers.GetPoll(conn))
 	mux.Handle("GET /v1/poll/title", handlers.GetPollTitle(conn))
 	mux.Handle("POST /v1/poll", middleware.RateLimitByIP(5, time.Minute)(handlers.PostPoll(conn)))
+
+	// Quizzes. Public reads and the answer counter live under the singular
+	// /v1/quiz so they never share a pattern with the editor CRUD under
+	// /v1/quizzes. The answer limiter is its own: a full play posts once per
+	// question, which the 5/min poll limit would cut off at question six.
+	mux.Handle("GET /v1/quiz", handlers.GetQuizzesByIDs(conn))
+	mux.Handle("GET /v1/quiz/{slug}", handlers.GetQuizBySlug(conn))
+	mux.Handle("POST /v1/quiz/{id}/answers", middleware.RateLimitByIP(60, time.Minute)(handlers.PostQuizAnswer(conn)))
+	// Quiz CRUD is editorial work like polls, so any signed-in editor may do it.
+	mux.Handle("GET /v1/quizzes", authMW(handlers.GetQuizzes(conn)))
+	mux.Handle("GET /v1/quizzes/{id}", authMW(handlers.GetQuiz(conn)))
+	mux.Handle("GET /v1/quizzes/{id}/references", authMW(handlers.GetQuizReferences(conn)))
+	mux.Handle("POST /v1/quizzes", authMW(handlers.PostQuiz(conn)))
+	mux.Handle("PATCH /v1/quizzes/{id}", authMW(handlers.PatchQuiz(conn)))
+	mux.Handle("DELETE /v1/quizzes/{id}", authMW(handlers.DeleteQuiz(conn)))
 	mux.Handle("GET /v1/poll/options", handlers.GetPollOptions(conn))
 
 	// Poll archive. GET /v1/polls is public and hides drafts; the editor-facing

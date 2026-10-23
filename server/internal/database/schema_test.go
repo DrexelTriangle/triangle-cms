@@ -15,7 +15,7 @@ import (
 // local seed. A rename here silently breaks the seed generator, which has no
 // tests of its own, so this is the guard for both consumers.
 func TestTableSchema_CoversEveryCMSOwnedTable(t *testing.T) {
-	for _, table := range []string{"classifieds", "comments", "cms_poll_counts", "site_taxonomy", "wordangle_words"} {
+	for _, table := range []string{"classifieds", "comments", "cms_poll_counts", "site_taxonomy", "wordangle_words", "cms_quizzes", "cms_quiz_answer_counts"} {
 		t.Run(table, func(t *testing.T) {
 			got := TableSchema(table)
 

@@ -55,6 +55,7 @@ const navGroups: NavGroup[] = [
       { icon: TrendingUp, label: "Developing Stories", path: "/developing-stories" },
       { icon: BarChart3, label: "Poll", path: "/poll" },
       { icon: Puzzle, label: "Wordangle", path: "/wordangle" },
+      { icon: ClipboardList, label: "Quizzes", path: "/quizzes" },
       { icon: Image, label: "Media", path: "/media" },
       // Newsletter is temporarily disabled; re-enable this entry (and the Mail
       // import above) to bring it back.

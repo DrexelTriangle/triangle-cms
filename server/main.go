@@ -19,6 +19,7 @@ import (
 	"server/internal/imaging"
 	"server/internal/middleware"
 	"server/internal/routes"
+	"server/internal/scraper"
 	"server/internal/slack"
 
 	"strconv"
@@ -193,6 +194,10 @@ func main() {
 	}
 	if err := database.EnsurePollsSchema(context.Background(), db); err != nil {
 		slog.Error("failed to create poll archive tables", "error", err)
+		os.Exit(1)
+	}
+	if err := database.EnsureQuizzesSchema(context.Background(), db); err != nil {
+		slog.Error("failed to create quiz tables", "error", err)
 		os.Exit(1)
 	}
 
@@ -457,7 +462,10 @@ func run(deps runDeps, conn *sql.DB) error {
 	handlers.SetImageVariants(variantIndex)
 
 	mux := http.NewServeMux()
-	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder)
+	// Instagram image import. An unset SCRAPER_URL disables the route with a
+	// clear message in the editor; the rest of the embeds keep working.
+	instagramScraper := scraper.New(os.Getenv("SCRAPER_URL"), 45*time.Second)
+	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder, instagramScraper)
 	server := deps.newServer(cert, mux, slog.Default())
 
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())

@@ -1,0 +1,5 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+# Camoufox is a Firefox build with the fingerprint surface patched out. A plain
+# fetch of an Instagram post gets an empty shell; this browser gets the images.
+camoufox==0.5.8
