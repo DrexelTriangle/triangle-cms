@@ -33,6 +33,7 @@ import (
 
 	"server/internal/activity"
 	db "server/internal/database"
+	"server/internal/mediatype"
 	"server/internal/models"
 )
 
@@ -65,6 +66,10 @@ const (
 	// blocks the editor's attachment on this call, so it has to fail fast rather
 	// than inherit the server's much longer default.
 	remoteFetchTimeout = 30 * time.Second
+	// remoteAudioFetchTimeout replaces remoteFetchTimeout when the sideload
+	// target looks like an MP3. 90 MiB in 30 s needs 3 MB/s from the remote,
+	// which a podcast host will not always give.
+	remoteAudioFetchTimeout = 5 * time.Minute
 	// maxRemoteRedirects caps a sideload's redirect chain. Every hop is
 	// re-validated by safeDialControl, so this only bounds the work, not the risk.
 	maxRemoteRedirects = 5
@@ -79,18 +84,9 @@ var (
 	errMediaUnavailable   = errors.New("media storage is unavailable")
 	errUnsupportedType    = errors.New("unsupported file type")
 	errStoreFailed        = errors.New("failed to store upload")
+	errAudioNeedsHTTPSURL = errors.New("audio uploads need MEDIA_BASE_URL set to an https origin")
 	errIndexFailed        = errors.New("file stored but could not be added to the media library")
 )
-
-// allowedImageTypes maps a sniffed content type to its canonical extension. Only
-// these types are accepted; the extension is derived from the sniffed bytes, not
-// the client-supplied filename.
-var allowedImageTypes = map[string]string{
-	"image/jpeg": ".jpg",
-	"image/png":  ".png",
-	"image/gif":  ".gif",
-	"image/webp": ".webp",
-}
 
 // recordMedia writes the library row for a stored upload. A variable so the
 // handler tests can stand in for the database.
@@ -159,6 +155,10 @@ func uploadURL(relPath string) string {
 		return base + "/" + relPath
 	}
 	return "/" + relPath
+}
+
+func audioURLUsable() bool {
+	return strings.HasPrefix(uploadURL("x"), "https://")
 }
 
 // PostMedia stores an uploaded image on the media filesystem (the Ceph-backed
@@ -255,10 +255,13 @@ func storeImage(ctx context.Context, conn *sql.DB, src io.ReadSeeker, filename s
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		return models.MediaUploadResponse{}, fmt.Errorf("%w: read: %v", errStoreFailed, err)
 	}
-	contentType := http.DetectContentType(head[:n])
-	ext, ok := allowedImageTypes[contentType]
+	contentType, ext, ok := mediatype.DetectUpload(head[:n], filename)
 	if !ok {
 		return models.MediaUploadResponse{}, fmt.Errorf("%w: %s", errUnsupportedType, contentType)
+	}
+	// The public site only expands [audio] shortcodes whose src is absolute https.
+	if contentType == "audio/mpeg" && !audioURLUsable() {
+		return models.MediaUploadResponse{}, errAudioNeedsHTTPSURL
 	}
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return models.MediaUploadResponse{}, fmt.Errorf("%w: rewind: %v", errStoreFailed, err)
@@ -331,6 +334,8 @@ func writeStoreImageError(w http.ResponseWriter, err error) {
 	case errors.Is(err, errUnsupportedType):
 		// Safe to echo in full: the only variable part is a sniffed MIME type.
 		writeError(w, http.StatusUnsupportedMediaType, err.Error())
+	case errors.Is(err, errAudioNeedsHTTPSURL):
+		writeError(w, http.StatusUnprocessableEntity, errAudioNeedsHTTPSURL.Error())
 	case errors.Is(err, errIndexFailed):
 		writeError(w, http.StatusInternalServerError, errIndexFailed.Error())
 	default:
@@ -385,15 +390,15 @@ func PostMediaFetch(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusBadRequest, "url could not be requested")
 			return
 		}
-		req.Header.Set("Accept", "image/*")
+		req.Header.Set("Accept", "image/*, audio/mpeg")
 
-		resp, err := remoteImageClient().Do(req)
+		resp, err := remoteImageClient(remoteFetchTimeoutFor(target)).Do(req)
 		if err != nil {
 			// The reason (blocked address, DNS failure, timeout) goes to the log
 			// rather than the response: echoing it back would turn this endpoint
 			// into a probe that reports what the server can reach.
 			slog.Warn("media sideload: fetch failed", "url", target.String(), "error", err)
-			writeError(w, http.StatusBadGateway, "could not fetch the image from that URL")
+			writeError(w, http.StatusBadGateway, "could not fetch the file from that URL")
 			return
 		}
 		defer resp.Body.Close()
@@ -422,12 +427,12 @@ func PostMediaFetch(conn *sql.DB) http.Handler {
 		written, err := io.Copy(tmp, io.LimitReader(resp.Body, maxBytes+1))
 		if err != nil {
 			slog.Warn("media sideload: read failed", "url", target.String(), "error", err)
-			writeError(w, http.StatusBadGateway, "could not read the image from that URL")
+			writeError(w, http.StatusBadGateway, "could not read the file from that URL")
 			return
 		}
 		if written > maxBytes {
 			writeError(w, http.StatusRequestEntityTooLarge,
-				fmt.Sprintf("image exceeds maximum size of %d bytes", maxBytes))
+				fmt.Sprintf("file exceeds maximum size of %d bytes", maxBytes))
 			return
 		}
 		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
@@ -447,13 +452,22 @@ func PostMediaFetch(conn *sql.DB) http.Handler {
 	})
 }
 
+// remoteFetchTimeoutFor picks the sideload timeout from the target path's
+// extension. The query is not part of url.Path, so "?v=1" does not confuse it.
+func remoteFetchTimeoutFor(target *url.URL) time.Duration {
+	if strings.EqualFold(path.Ext(target.Path), ".mp3") {
+		return remoteAudioFetchTimeout
+	}
+	return remoteFetchTimeout
+}
+
 // remoteImageClient builds the HTTP client used for sideloads. It is created per
 // request rather than shared: sideloads are rare, and a fresh client keeps the
 // connection pool from holding sockets open to arbitrary third-party hosts.
-func remoteImageClient() *http.Client {
+func remoteImageClient(timeout time.Duration) *http.Client {
 	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: safeDialControl}
 	return &http.Client{
-		Timeout:   remoteFetchTimeout,
+		Timeout:   timeout,
 		Transport: &http.Transport{DialContext: dialer.DialContext},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= maxRemoteRedirects {

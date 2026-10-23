@@ -585,3 +585,32 @@ func TestMediaHTTP_PublicGalleryCarriesVariants(t *testing.T) {
 		t.Fatalf("gallery = %+v, want the item with its variants", gallery.Media)
 	}
 }
+
+func TestMediaHTTP_AcceptsMP3Upload(t *testing.T) {
+	conn := mediaHTTPTestDB(t)
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+	t.Setenv("MEDIA_BASE_URL", "https://media.test")
+
+	mp3, err := os.ReadFile(filepath.Join("..", "mediatype", "testdata", "bare.mp3"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	PostMedia(conn).ServeHTTP(rec, uploadRequest(t, "Episode One.MP3", mp3))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body = %s", rec.Code, rec.Body.String())
+	}
+	var stored models.MediaUploadResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &stored); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if stored.ContentType != "audio/mpeg" {
+		t.Errorf("content_type = %q, want audio/mpeg", stored.ContentType)
+	}
+	if !strings.HasSuffix(stored.Path, ".mp3") {
+		t.Errorf("path = %q, want .mp3 suffix", stored.Path)
+	}
+	if stored.Width != 0 || stored.Height != 0 {
+		t.Errorf("dimensions = %dx%d, want 0x0 for audio", stored.Width, stored.Height)
+	}
+}

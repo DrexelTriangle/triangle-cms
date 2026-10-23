@@ -1,0 +1,83 @@
+{
+  "accept": [
+    { "input": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "input": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "input": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&amp;w=560&amp;h=315", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "input": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&#038;w=560&#038;h=315", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "input": "https://m.youtube.com/watch?v=dQw4w9WgXcQ", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "input": "https://youtu.be/dQw4w9WgXcQ", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "input": "https://www.youtube.com/shorts/dQw4w9WgXcQ", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "input": "https://www.youtube.com/live/dQw4w9WgXcQ", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "input": "https://soundcloud.com/thetriangle/episode-one", "provider": "soundcloud", "url": "https://soundcloud.com/thetriangle/episode-one" },
+    { "input": "https://soundcloud.com/thetriangle/episode-one?si=abc&utm_source=x", "provider": "soundcloud", "url": "https://soundcloud.com/thetriangle/episode-one" },
+    { "input": "https://soundcloud.com/thetriangle/private-ep?secret_token=s-AbC123", "provider": "soundcloud", "url": "https://soundcloud.com/thetriangle/private-ep?secret_token=s-AbC123" },
+    { "input": "https://api.soundcloud.com/tracks/123456789", "provider": "soundcloud", "url": "https://api.soundcloud.com/tracks/123456789" },
+    { "input": "https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5", "provider": "spotify", "url": "https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5" },
+    { "input": "https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5?si=xyz", "provider": "spotify", "url": "https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5" },
+    { "input": "https://open.spotify.com/intl-de/track/7makk4oTQel546B0PZlDM5", "provider": "spotify", "url": "https://open.spotify.com/track/7makk4oTQel546B0PZlDM5" },
+    { "input": "https://open.spotify.com/intl-pt-br/show/7makk4oTQel546B0PZlDM5/", "provider": "spotify", "url": "https://open.spotify.com/show/7makk4oTQel546B0PZlDM5" },
+    { "input": "https://www.tiktok.com/@scout2015/video/6718335390845095173", "provider": "tiktok", "url": "https://www.tiktok.com/@scout2015/video/6718335390845095173" },
+    { "input": "https://m.tiktok.com/@scout2015/video/6718335390845095173?is_from_webapp=1", "provider": "tiktok", "url": "https://www.tiktok.com/@scout2015/video/6718335390845095173" },
+    { "input": "https://www.instagram.com/p/Cabc123_-x/", "provider": "instagram", "url": "https://www.instagram.com/p/Cabc123_-x/" },
+    { "input": "https://www.instagram.com/p/Cabc123_-x/?igsh=tracking", "provider": "instagram", "url": "https://www.instagram.com/p/Cabc123_-x/" },
+    { "input": "https://www.instagram.com/reel/Cabc123_-x", "provider": "instagram", "url": "https://www.instagram.com/reel/Cabc123_-x/" },
+    { "input": "https://www.instagram.com/reels/Cabc123_-x/", "provider": "instagram", "url": "https://www.instagram.com/reel/Cabc123_-x/" },
+    { "input": "https://www.instagram.com/thetriangle/p/Cabc123_-x/", "provider": "instagram", "url": "https://www.instagram.com/p/Cabc123_-x/" },
+    { "input": "https://www.instagram.com/p/Cabc123_-x/?x=\"><img onerror=1>", "provider": "instagram", "url": "https://www.instagram.com/p/Cabc123_-x/" }
+  ],
+  "reject": [
+    { "input": "https://vm.tiktok.com/ZMabc/", "reason": "short-link" },
+    { "input": "https://vt.tiktok.com/ZMabc/", "reason": "short-link" },
+    { "input": "https://spotify.link/abc", "reason": "short-link" },
+    { "input": "https://on.soundcloud.com/abc", "reason": "short-link" },
+    { "input": "https://www.youtube.com/watch?v=short", "reason": "invalid" },
+    { "input": "https://www.youtube.com/channel/UCabc", "reason": "invalid" },
+    { "input": "https://open.spotify.com/track/tooshort", "reason": "invalid" },
+    { "input": "https://www.tiktok.com/@scout2015", "reason": "invalid" },
+    { "input": "https://www.instagram.com/tv/Cabc123_-x/", "reason": "invalid" },
+    { "input": "https://evil.example/watch?v=dQw4w9WgXcQ", "reason": "invalid" },
+    { "input": "https://user:pw@www.youtube.com/watch?v=dQw4w9WgXcQ", "reason": "invalid" },
+    { "input": "https://www.youtube.com:8443/watch?v=dQw4w9WgXcQ", "reason": "invalid" },
+    { "input": "javascript:alert(1)", "reason": "invalid" },
+    { "input": "not a url", "reason": "invalid" },
+    { "input": "", "reason": "invalid" }
+  ],
+  "audio": {
+    "mediaBaseUrl": "https://media.example.test",
+    "accept": [
+      { "input": "https://media.example.test/wp-content/uploads/2026/10/ep1.mp3", "url": "https://media.example.test/wp-content/uploads/2026/10/ep1.mp3" },
+      { "input": "https://media.example.test/wp-content/uploads/2026/10/EP1.MP3", "url": "https://media.example.test/wp-content/uploads/2026/10/EP1.MP3" },
+      { "input": "https://media.example.test/wp-content/uploads/2026/10/ep1.mp3?ver=2#t=10", "url": "https://media.example.test/wp-content/uploads/2026/10/ep1.mp3" },
+      { "input": "https://media.example.test/wp-content/uploads/2026/10/a&b.mp3", "url": "https://media.example.test/wp-content/uploads/2026/10/a&b.mp3" }
+    ],
+    "reject": [
+      "http://media.example.test/wp-content/uploads/2026/10/ep1.mp3",
+      "https://other.example.test/wp-content/uploads/2026/10/ep1.mp3",
+      "https://media.example.test/other/ep1.mp3",
+      "https://media.example.test/wp-content/uploads/2026/10/ep1.wav",
+      "https://media.example.test/wp-content/uploads/2026/10/ep1.mp3.html",
+      "https://user@media.example.test/wp-content/uploads/2026/10/ep1.mp3",
+      "javascript:alert(1)",
+      "blob:https://cms.example/abc",
+      ""
+    ]
+  },
+  "shortcodes": [
+    { "text": "[youtube https://www.youtube.com/watch?v=dQw4w9WgXcQ]", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+    { "text": "[soundcloud url=\"https://soundcloud.com/thetriangle/episode-one\" /]", "provider": "soundcloud", "url": "https://soundcloud.com/thetriangle/episode-one" },
+    { "text": "[spotify url=\"https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5\" /]", "provider": "spotify", "url": "https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5" },
+    { "text": "[tiktok url=\"https://www.tiktok.com/@scout2015/video/6718335390845095173\" /]", "provider": "tiktok", "url": "https://www.tiktok.com/@scout2015/video/6718335390845095173" },
+    { "text": "[instagram url=\"https://www.instagram.com/p/Cabc123_-x/\" /]", "provider": "instagram", "url": "https://www.instagram.com/p/Cabc123_-x/" }
+  ],
+  "shortcodeRejects": [
+    "[Spotify]",
+    "[spotify]",
+    "[tiktok url=]",
+    "[instagram url=\"https://www.instagram.com/tv/Cabc123_-x/\" /]",
+    "[spotify url=\"https://spotify.link/abc\" /]",
+    "[spotify-foo url=\"https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5\" /]",
+    "[spotify data-url=\"https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5\" /]",
+    "[spotify src=\"https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5\" /]",
+    "Listen: [spotify url=\"https://open.spotify.com/episode/7makk4oTQel546B0PZlDM5\" /]"
+  ]
+}
