@@ -873,6 +873,18 @@ definitions:
       width:
         type: integer
     type: object
+  models.InstagramEmbedRequest:
+    properties:
+      url:
+        type: string
+    type: object
+  models.InstagramEmbedResponse:
+    properties:
+      media:
+        items:
+          type: string
+        type: array
+    type: object
   models.Media:
     properties:
       alt_text:
@@ -2774,6 +2786,45 @@ paths:
       summary: Update developing story description
       tags:
       - developing-stories
+  /v1/embeds/instagram:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Post URL
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.InstagramEmbedRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.InstagramEmbedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Import an Instagram post's images into the media library
+      tags:
+      - embeds
   /v1/gallery:
     get:
       parameters:

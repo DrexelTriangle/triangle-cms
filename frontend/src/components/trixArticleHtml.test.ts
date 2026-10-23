@@ -269,6 +269,40 @@ describe("save: embed cards become shortcodes", () => {
     const out = trixHtmlToArticle(embedFigure({ contentType: "audio/mpeg", url: AUDIO, href: AUDIO, filename: "ep1.mp3" }))
     expect(out).toBe(`<div>[audio src="${AUDIO}" /]</div>`)
   })
+  it("round-trips an instagram block with its media list", () => {
+    const html = `<div>[instagram url="https://www.instagram.com/p/Cabc123_-x/" media="/wp-content/uploads/2026/10/a.jpg,/wp-content/uploads/2026/10/b.jpg" /]</div>`
+    const loaded = articleHtmlToTrix(html)
+    expect(loaded).toContain("embedMedia")
+    expect(trixHtmlToArticle(loaded)).toBe(html)
+  })
+  it("saves a stored instagram figure with media as the shortcode", () => {
+    const out = trixHtmlToArticle(
+      embedFigure({ contentType: EMBED_CONTENT_TYPE, embedProvider: "instagram", embedUrl: "https://www.instagram.com/p/Cabc123_-x/", embedMedia: ["/wp-content/uploads/2026/10/a.jpg"] }),
+    )
+    expect(out).toBe(`<div>[instagram url="https://www.instagram.com/p/Cabc123_-x/" media="/wp-content/uploads/2026/10/a.jpg" /]</div>`)
+  })
+  it("drops a tampered media list on save", () => {
+    const out = trixHtmlToArticle(
+      embedFigure({ contentType: EMBED_CONTENT_TYPE, embedProvider: "instagram", embedUrl: "https://www.instagram.com/p/Cabc123_-x/", embedMedia: ["https://evil.test/x.jpg"] }),
+    )
+    expect(out).toBe(`<div>[instagram url="https://www.instagram.com/p/Cabc123_-x/" /]</div>`)
+  })
+  it("saves the audio chip's caption as the source line", () => {
+    const out = trixHtmlToArticle(`<div>${attachment({ contentType: "audio/mpeg", url: AUDIO, href: AUDIO, filename: "ep1.mp3" }, { caption: ' WKDU "91.7" FM ' })}</div>`)
+    expect(out).toBe(`<div>[audio src="${AUDIO}" source="WKDU%20%2291.7%22%20FM" /]</div>`)
+  })
+  it("loads the source line back into the chip's caption", () => {
+    const out = articleHtmlToTrix(`<div>[audio src="${AUDIO}" source="WKDU%2091.7%20FM" /]</div>`)
+    expect(out).toContain("&quot;caption&quot;:&quot;WKDU 91.7 FM&quot;")
+  })
+  it("round-trips an audio block with a source unchanged", () => {
+    const html = `<div>[audio src="${AUDIO}" source="WKDU%2091.7%20FM" /]</div>`
+    expect(trixHtmlToArticle(articleHtmlToTrix(html))).toBe(html)
+  })
+  it("keeps the caption when a stored audio figure is rebuilt on load", () => {
+    const out = articleHtmlToTrix(`<div>${attachment({ contentType: "audio/mpeg", url: AUDIO }, { caption: "WKDU" })}</div>`)
+    expect(out).toContain("&quot;caption&quot;:&quot;WKDU&quot;")
+  })
 
   it("round-trips an uppercase .MP3", () => {
     const upper = "https://media.test/wp-content/uploads/2026/10/EP1.MP3"

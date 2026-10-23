@@ -7,6 +7,7 @@ import (
 	"server/internal/auth"
 	"server/internal/handlers"
 	"server/internal/middleware"
+	"server/internal/scraper"
 	"server/internal/slack"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder) {
+func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder, instagramScraper *scraper.Client) {
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 	// Prometheus scrape target. Unauthenticated by design, and safe only
 	// because Nginx proxies just /v1 and /swagger: nothing routes /metrics in
@@ -99,6 +100,9 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	// operations (delete, reindex) stay admin-only.
 	mux.Handle("POST /v1/media", authMW(handlers.PostMedia(conn)))
 	mux.Handle("POST /v1/media/fetch", authMW(handlers.PostMediaFetch(conn)))
+	// Copies an Instagram post's images into the library, part of writing an
+	// article like the sideload above, so editors may call it.
+	mux.Handle("POST /v1/embeds/instagram", authMW(handlers.PostInstagramEmbed(conn, instagramScraper)))
 	// Indexing runs in the background (the walk outlives any proxy timeout), so
 	// starting it and polling its progress are separate endpoints.
 	mux.Handle("POST /v1/media/index", authMW(adminOnly(handlers.PostMediaIndex(conn))))

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import vectors from "./embed-vectors.json";
 import {
   audioToShortcode,
+  parseAudioShortcode,
+  parseMediaList,
   embedToShortcode,
   encodeShortcodeUrl,
   parseAudioUrl,
@@ -78,6 +80,48 @@ describe("shortcode round trip", () => {
       provider: "youtube",
       url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     });
+  });
+});
+
+describe("instagram media", () => {
+  const url = "https://www.instagram.com/p/Cabc123_-x/";
+  const one = "/wp-content/uploads/2026/10/a.jpg";
+  const two = "/wp-content/uploads/2026/10/b.webp";
+  it("writes the media list onto the shortcode and reads it back", () => {
+    const text = embedToShortcode({ provider: "instagram", url, media: [one, two] });
+    expect(text).toBe(`[instagram url="${url}" media="${one},${two}" /]`);
+    expect(shortcodeToEmbed(text)).toEqual({ provider: "instagram", url, media: [one, two] });
+  });
+  it("drops a media list with a path off the uploads tree", () => {
+    expect(shortcodeToEmbed(`[instagram url="${url}" media="${one},https://evil.test/x.jpg" /]`)).toEqual({ provider: "instagram", url });
+  });
+  it("ignores media on other providers", () => {
+    expect(embedToShortcode({ provider: "tiktok", url: "https://www.tiktok.com/@a/video/123", media: [one] })).toBe(
+      `[tiktok url="https://www.tiktok.com/@a/video/123" /]`,
+    );
+  });
+  it("validates one path at a time", () => {
+    expect(parseMediaList(` ${one} , ${two}`)).toEqual([one, two]);
+    expect(parseMediaList("/wp-content/uploads/../x.png")).toEqual([]);
+    expect(parseMediaList("/wp-content/uploads/x.svg")).toEqual([]);
+    expect(parseMediaList("")).toEqual([]);
+  });
+});
+
+describe("audio source", () => {
+  const base = "https://media.test";
+  const src = "https://media.test/wp-content/uploads/2026/10/ep1.mp3";
+  it("writes and reads the source line, quotes and brackets included", () => {
+    const text = audioToShortcode(src, ` WKDU "91.7" [FM] `);
+    expect(text).toBe(`[audio src="${src}" source="WKDU%20%2291.7%22%20%5BFM%5D" /]`);
+    expect(parseAudioShortcode(text, base)).toEqual({ src, source: 'WKDU "91.7" [FM]' });
+  });
+  it("omits the attribute for a blank source and reads it back empty", () => {
+    expect(audioToShortcode(src, "  ")).toBe(`[audio src="${src}" /]`);
+    expect(parseAudioShortcode(`[audio src="${src}" /]`, base)).toEqual({ src, source: "" });
+  });
+  it("cuts the source to 120 characters", () => {
+    expect(audioToShortcode(src, "y".repeat(130))).toBe(`[audio src="${src}" source="${"y".repeat(120)}" /]`);
   });
 });
 
