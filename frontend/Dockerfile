@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Baked in at build time (Vite inlines import.meta.env), so this is the origin
@@ -7,7 +7,7 @@ WORKDIR /app
 ARG VITE_PUBLIC_SITE_URL="https://www.thetriangle.org"
 ENV VITE_PUBLIC_SITE_URL=${VITE_PUBLIC_SITE_URL}
 
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci --include=dev --no-audit --no-fund
 
 COPY . .
