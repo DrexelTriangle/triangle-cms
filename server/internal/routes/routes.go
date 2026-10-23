@@ -161,6 +161,10 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("PATCH /v1/settings/seo", authMW(adminOnly(handlers.PatchSEOSettings(conn))))
 	mux.Handle("PATCH /v1/settings/breaking-news", authMW(adminOnly(handlers.PatchBreakingNews(conn))))
 	mux.Handle("PATCH /v1/settings/homepage-carousel", authMW(adminOnly(handlers.PatchHomepageCarousel(conn))))
+	// The schedule holds unreviewed drafts, so reading it is admin-only too;
+	// the public site gets today's entry from /v1/homepage.
+	mux.Handle("GET /v1/settings/exhibit-spotlights", authMW(adminOnly(handlers.GetExhibitSpotlights(conn))))
+	mux.Handle("PATCH /v1/settings/exhibit-spotlights", authMW(adminOnly(handlers.PatchExhibitSpotlights(conn))))
 	mux.Handle("PATCH /v1/settings/footer", authMW(adminOnly(handlers.PatchFooterSettings(conn))))
 	mux.Handle("POST /v1/settings/taxonomy/rebuild", authMW(adminOnly(handlers.PostRebuildTaxonomyCounts(conn))))
 	mux.Handle("POST /v1/taxonomy", authMW(editorOrAdmin(handlers.PostTaxonomy(conn))))

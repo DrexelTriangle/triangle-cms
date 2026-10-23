@@ -1,0 +1,512 @@
+[
+  {
+    "slug": "hadrosaurus-foulkii",
+    "name": "Hadrosaurus foulkii",
+    "hall": "Dinosaur Hall",
+    "tenure": "Mounted in 1868, the first mounted dinosaur skeleton anywhere. The current cast mount was built for a 2008 exhibit, stored in 2020, and returned to the floor on July 16, 2025.",
+    "facts": [
+      "Bones were first noticed in 1838 by John Estaugh Hopkins in a marl pit in Haddonfield, New Jersey.",
+      "William Parker Foulke excavated the skeleton in 1858 and Joseph Leidy of the Academy described it.",
+      "Benjamin Waterhouse Hawkins built the 1868 mount, the first to show a dinosaur standing on two legs.",
+      "Crowds grew so large after the mount went up that the Academy began charging admission.",
+      "Hadrosaurus foulkii has been the New Jersey state dinosaur since 1991.",
+      "The original fossil bones are kept in the Academy's vertebrate paleontology collection.",
+      "Collections manager Ned Gilmore, 2025: \"Hadrosaurus foulkii, or Haddy, is a bit of a local celebrity.\""
+    ],
+    "sources": [
+      "https://ansp.org/press-room/press-releases/2025/haddy-returns",
+      "https://en.wikipedia.org/wiki/Hadrosaurus"
+    ],
+    "image": {
+      "commons_file": "https://commons.wikimedia.org/wiki/File:Hadrosaurus_reconstruction.jpg",
+      "credit": "James Capaldi, Wikimedia Commons, CC BY 2.0",
+      "alt": "The mounted Hadrosaurus foulkii cast standing on two legs in Dinosaur Hall"
+    },
+    "verified": true,
+    "link_url": "https://ansp.org/press-room/press-releases/2025/haddy-returns"
+  },
+  {
+    "slug": "dinosaur-hall",
+    "name": "Dinosaur Hall",
+    "hall": "Dinosaur Hall",
+    "tenure": "The Academy's first dinosaur hall, Discovering Dinosaurs, opened in 1986. The current Dinosaur Hall opened in 1998 and was refreshed in 2018.",
+    "facts": [
+      "The hall held more than 30 species of dinosaurs and other Mesozoic reptiles, about half of them as full skeletal mounts.",
+      "Mounts included Tyrannosaurus rex, Hadrosaurus, Avaceratops, Chasmosaurus, Corythosaurus, Pachycephalosaurus and the mosasaur Tylosaurus.",
+      "Visitors could touch a real Tyrannosaurus rex bone and a dinosaur footprint.",
+      "The hall included a Torosaurus skull, an Ichthyosaurus slab and dinosaur eggs."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/dinosaur-hall",
+      "https://en.wikipedia.org/wiki/Academy_of_Natural_Sciences_of_Drexel_University"
+    ],
+    "image": {
+      "commons_file": "https://commons.wikimedia.org/wiki/File:T-rex_exhibit_Philadelphia.jpg",
+      "credit": "Jon Voltaire B. Aquino, Wikimedia Commons, public domain",
+      "alt": "The Tyrannosaurus rex cast at the entrance to Dinosaur Hall"
+    },
+    "verified": true,
+    "link_url": "https://ansp.org/exhibits/dinosaur-hall"
+  },
+  {
+    "slug": "tyrannosaurus-rex",
+    "name": "Tyrannosaurus rex",
+    "hall": "Dinosaur Hall",
+    "tenure": "On the floor since the Discovering Dinosaurs exhibit opened in 1986.",
+    "facts": [
+      "The Academy described its Tyrannosaurus rex as up to 42 feet long and weighing an estimated 7.5 tons.",
+      "The skeleton is a cast of specimen AMNH 5027 from the American Museum of Natural History in New York.",
+      "It stood at the entrance to Dinosaur Hall as the first thing visitors saw."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/dinosaur-hall",
+      "https://extinctmonsters.net/2013/03/18/a-visit-to-the-academy-of-natural-sciences/"
+    ],
+    "image": {
+      "commons_file": "https://commons.wikimedia.org/wiki/File:T-rex_exhibit_Philadelphia.jpg",
+      "credit": "Jon Voltaire B. Aquino, Wikimedia Commons, public domain",
+      "alt": "The Tyrannosaurus rex cast in Dinosaur Hall"
+    },
+    "verified": true,
+    "link_url": "https://ansp.org/exhibits/dinosaur-hall"
+  },
+  {
+    "slug": "the-big-dig",
+    "name": "The Big Dig",
+    "hall": "Dinosaur Hall",
+    "tenure": "",
+    "facts": [
+      "A hands-on fossil dig inside Dinosaur Hall where visitors brushed away sediment to uncover fossils.",
+      "The dig was modeled on the badlands of New Mexico."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/the-big-dig"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": "https://ansp.org/exhibits/the-big-dig"
+  },
+  {
+    "slug": "outside-in",
+    "name": "Outside In",
+    "hall": "Children's discovery center",
+    "tenure": "Opened in 1979.",
+    "facts": [
+      "A discovery center for children ages 3 to 8 with live animals including a leopard tortoise, a leopard gecko and a box turtle.",
+      "Children could climb into a giant nest and dig for shark teeth.",
+      "It housed the Cheryl Beth Silverman Hands-on Lab."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/outside-in",
+      "https://en.wikipedia.org/wiki/Academy_of_Natural_Sciences_of_Drexel_University"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": true,
+    "link_url": "https://ansp.org/exhibits/outside-in"
+  },
+  {
+    "slug": "dioramas",
+    "name": "The dioramas",
+    "hall": "Three floors of dioramas",
+    "tenure": "Most of the 37 dioramas were built between the 1930s and the 1960s. Two were renovated in 2018.",
+    "facts": [
+      "The first floor held North American animals including bison, musk ox, bears and moose.",
+      "The second floor held African and Asian animals including a lion, zebras, an okapi, a gorilla, tigers, a takin, a kiang, pandas and a yak.",
+      "The third floor held extinct species including the passenger pigeon and the Labrador duck."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/dioramas"
+    ],
+    "image": {
+      "commons_file": "https://commons.wikimedia.org/wiki/File:Academy_of_Natural_Sciences,_Philadelphia_-_IMG_7491.JPG",
+      "credit": "Daderot, Wikimedia Commons, public domain",
+      "alt": "A Serengeti diorama at the Academy of Natural Sciences"
+    },
+    "verified": true,
+    "link_url": "https://ansp.org/exhibits/dioramas"
+  },
+  {
+    "slug": "secrets-of-the-dioramas",
+    "name": "Secrets of the Dioramas",
+    "hall": "Second floor",
+    "tenure": "",
+    "facts": [
+      "An exhibit on how the dioramas were made, covering taxidermy, plant models and painted backgrounds.",
+      "It stood on the second floor across from the kiang diorama."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/secrets-of-the-dioramas"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": "https://ansp.org/exhibits/secrets-of-the-dioramas"
+  },
+  {
+    "slug": "botany-of-nations-garden",
+    "name": "Native Plants on the Parkway",
+    "hall": "Outdoor garden",
+    "tenure": "",
+    "facts": [
+      "An outdoor native plant garden on the Benjamin Franklin Parkway, titled A Botany of Nations Garden.",
+      "It was created with the Garden Club of Philadelphia and Forrester Landscape Studio."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/bon-garden",
+      "https://ansp.org/press-room/press-releases/2024/botany-of-nations"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": "https://ansp.org/exhibits/bon-garden"
+  },
+  {
+    "slug": "botany-of-nations",
+    "name": "Botany of Nations",
+    "hall": "Indoor exhibit",
+    "tenure": "",
+    "facts": [
+      "An exhibit built around seven plant specimens from the Lewis and Clark Herbarium and the Indigenous knowledge connected to them."
+    ],
+    "sources": [
+      "https://ansp.org/learn/Journal-Archive/2026/April/botany-of-nations-plant-models"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": "https://ansp.org/learn/Journal-Archive/2026/April/botany-of-nations-plant-models"
+  },
+  {
+    "slug": "spotlight-gallery",
+    "name": "Neighborhood Naturalists",
+    "hall": "Spotlight Gallery",
+    "tenure": "",
+    "facts": [
+      "An exhibit about community science and the City Nature Challenge."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/spotlight-gallery"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": "https://ansp.org/exhibits/spotlight-gallery"
+  },
+  {
+    "slug": "what-eats-what",
+    "name": "What Eats What",
+    "hall": "Gallery highlight",
+    "tenure": "",
+    "facts": [
+      "A display of a stream food chain featuring a brook trout and a mayfly."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/gallery-highlights"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": "https://ansp.org/exhibits/gallery-highlights"
+  },
+  {
+    "slug": "science-at-the-academy",
+    "name": "Science at the Academy",
+    "hall": "Gallery highlight",
+    "tenure": "",
+    "facts": [
+      "A display on the Academy's research that included a Tiktaalik roseae fossil, the fish with limb-like fins described by Academy scientists."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/gallery-highlights"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": "https://ansp.org/exhibits/gallery-highlights"
+  },
+  {
+    "slug": "marveling-at-mollusks",
+    "name": "Marveling at Mollusks",
+    "hall": "Gallery highlight",
+    "tenure": "",
+    "facts": [
+      "A display of about 100 mollusk specimens drawn from the Academy's malacology collection."
+    ],
+    "sources": [
+      "https://ansp.org/exhibits/gallery-highlights"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": "https://ansp.org/exhibits/gallery-highlights"
+  },
+  {
+    "slug": "butterflies",
+    "name": "Butterflies!",
+    "hall": "Live butterfly garden",
+    "tenure": "Opened in October 2006. It closed during the pandemic and never reopened.",
+    "facts": [
+      "A tropical garden where live butterflies flew freely around visitors.",
+      "It closed with the pandemic in 2020 and did not reopen."
+    ],
+    "sources": [
+      "https://explorepahistory.com/attraction.php?id=1-B-3F30",
+      "https://whyy.org/articles/philadelphia-academy-of-natural-science-museum-closing-supporters-rally/"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": true,
+    "link_url": ""
+  },
+  {
+    "slug": "live-animal-center",
+    "name": "Live Animal Center",
+    "hall": "Live animals",
+    "tenure": "",
+    "facts": [
+      "A center housing about 100 animals, most of them rescued, visible through glass near the 19th Street entrance."
+    ],
+    "sources": [
+      "https://artsandculture.google.com/story/tour-the-academy-of-natural-sciences-of-drexel-university-academy-of-natural-sciences-of-drexel-university/kAWB3ffiAXwPJQ?hl=en"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": ""
+  },
+  {
+    "slug": "fossil-prep-lab",
+    "name": "Fossil Prep Lab",
+    "hall": "Working lab",
+    "tenure": "",
+    "facts": [
+      "A working laboratory where visitors watched technicians prepare fossils, including material from the Morrison Formation in Montana."
+    ],
+    "sources": [
+      "https://artsandculture.google.com/story/tour-the-academy-of-natural-sciences-of-drexel-university-academy-of-natural-sciences-of-drexel-university/kAWB3ffiAXwPJQ?hl=en"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": ""
+  },
+  {
+    "slug": "deinonychus-statue",
+    "name": "The Deinonychus bronze",
+    "hall": "Outside at 19th Street and the Parkway",
+    "tenure": "Installed in 1987.",
+    "facts": [
+      "A bronze Deinonychus by sculptor Kent Ullberg stands outside the building at 19th Street and the Benjamin Franklin Parkway.",
+      "It was installed in 1987."
+    ],
+    "sources": [
+      "https://commons.wikimedia.org/wiki/File:Deinonychus_statue.jpg"
+    ],
+    "image": {
+      "commons_file": "https://commons.wikimedia.org/wiki/File:Deinonychus_statue.jpg",
+      "credit": "Wikimedia Commons",
+      "alt": "The bronze Deinonychus outside the Academy of Natural Sciences"
+    },
+    "verified": false,
+    "link_url": ""
+  },
+  {
+    "slug": "deinonychus-tenontosaurus",
+    "name": "Deinonychus and Tenontosaurus",
+    "hall": "Dinosaur Hall",
+    "tenure": "",
+    "facts": [
+      "A mount in Dinosaur Hall showed a pack of Deinonychus attacking a Tenontosaurus."
+    ],
+    "sources": [
+      "https://artsandculture.google.com/story/tour-the-academy-of-natural-sciences-of-drexel-university-academy-of-natural-sciences-of-drexel-university/kAWB3ffiAXwPJQ?hl=en"
+    ],
+    "image": {
+      "commons_file": "https://commons.wikimedia.org/wiki/File:PANSDeinonychus.JPG",
+      "credit": "Wikimedia Commons, public domain",
+      "alt": "The Deinonychus mount in Dinosaur Hall"
+    },
+    "verified": false,
+    "link_url": ""
+  },
+  {
+    "slug": "corythosaurus",
+    "name": "Corythosaurus",
+    "hall": "Dinosaur Hall",
+    "tenure": "",
+    "facts": [
+      "Unlike most of the hall's casts, the Corythosaurus mount is mostly original bone with a lightweight cast skull.",
+      "It was the centerpiece of the Academy's fossil hall for much of the twentieth century."
+    ],
+    "sources": [
+      "https://extinctmonsters.net/2013/03/18/a-visit-to-the-academy-of-natural-sciences/",
+      "http://prehistoricbeastoftheweek.blogspot.com/2019/01/prehistoric-beast-at-academy-of-natural.html"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": ""
+  },
+  {
+    "slug": "tylosaurus",
+    "name": "Tylosaurus",
+    "hall": "Dinosaur Hall",
+    "tenure": "",
+    "facts": [
+      "A mount of the giant marine reptile Tylosaurus, a mosasaur that could reach about 43 feet.",
+      "It hung in Dinosaur Hall alongside the predatory fish Xiphactinus."
+    ],
+    "sources": [
+      "https://commons.wikimedia.org/wiki/File:Tylosaurus_rex_ANSP.jpg",
+      "https://artsandculture.google.com/story/tour-the-academy-of-natural-sciences-of-drexel-university-academy-of-natural-sciences-of-drexel-university/kAWB3ffiAXwPJQ?hl=en"
+    ],
+    "image": {
+      "commons_file": "https://commons.wikimedia.org/wiki/File:Tylosaurus_rex_ANSP.jpg",
+      "credit": "Jonathan Chen, Wikimedia Commons, CC BY 4.0",
+      "alt": "The Tylosaurus mount in Dinosaur Hall"
+    },
+    "verified": false,
+    "link_url": ""
+  },
+  {
+    "slug": "megalonyx",
+    "name": "Megalonyx jeffersonii claws",
+    "hall": "Collection item",
+    "tenure": "",
+    "facts": [
+      "Fossil claws of Jefferson's ground sloth, Megalonyx jeffersonii, a species first described from bones studied by Thomas Jefferson and Caspar Wistar."
+    ],
+    "sources": [
+      "https://commons.wikimedia.org/wiki/File:Megalonyx_jeffersonii_Jefferson_specimen.jpg"
+    ],
+    "image": {
+      "commons_file": "https://commons.wikimedia.org/wiki/File:Megalonyx_jeffersonii_Jefferson_specimen.jpg",
+      "credit": "Wikimedia Commons",
+      "alt": "Fossil claws of Megalonyx jeffersonii"
+    },
+    "verified": false,
+    "link_url": ""
+  },
+  {
+    "slug": "lewis-and-clark-herbarium",
+    "name": "The Lewis and Clark Herbarium",
+    "hall": "Research collection",
+    "tenure": "Deposited at the Academy in the 1890s.",
+    "facts": [
+      "The herbarium holds 226 pressed plant sheets collected on the Lewis and Clark expedition, representing 173 species, 55 of them type specimens.",
+      "It is a research collection rather than a permanent public display."
+    ],
+    "sources": [
+      "https://ansp.org/work/collections-and-biodiversity",
+      "https://www.inquirer.com/arts/academy-of-natural-sciences-collections-museum-closing-20260912.html"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": true,
+    "link_url": "https://ansp.org/work/collections-and-biodiversity"
+  },
+  {
+    "slug": "mummies-1852",
+    "name": "The 1852 mummies",
+    "hall": "Historical display",
+    "tenure": "Displayed in 1852.",
+    "facts": [
+      "In 1852 the Academy displayed four human mummies along with George Gliddon's mummified calf, two hawks, six ibis and 32 serpents."
+    ],
+    "sources": [
+      "https://philadelphiaencyclopedia.org/essays/mummies/"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": true,
+    "link_url": ""
+  },
+  {
+    "slug": "research-collections",
+    "name": "The research collections",
+    "hall": "Behind the scenes",
+    "tenure": "Built up since the Academy's founding in 1812.",
+    "facts": [
+      "The Academy holds about 19 million specimens and more than 73,000 type specimens.",
+      "Major collections include 1.6 million fish specimens, 10 million mollusks and more than 215,000 birds, plus a diatom herbarium, entomology, and vertebrate and invertebrate fossils.",
+      "The Academy said in September 2026 that access to and use of the collections will not be affected by the museum's closure."
+    ],
+    "sources": [
+      "https://ansp.org/work/collections-and-biodiversity",
+      "https://ansp.org/learn/Journal-Archive/2026/September/protecting-the-academy-legacy"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": true,
+    "link_url": "https://ansp.org/work/collections-and-biodiversity"
+  },
+  {
+    "slug": "library-and-archives",
+    "name": "The Library and Archives",
+    "hall": "Behind the scenes",
+    "tenure": "",
+    "facts": [
+      "The library holds more than 75,000 titles, with material dating from the 16th century onward."
+    ],
+    "sources": [
+      "https://ansp.org/work/library-and-archives"
+    ],
+    "image": {
+      "commons_file": "",
+      "credit": "",
+      "alt": ""
+    },
+    "verified": false,
+    "link_url": "https://ansp.org/work/library-and-archives"
+  }
+]
