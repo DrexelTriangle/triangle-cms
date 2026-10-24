@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS newsletters (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  subject VARCHAR(255) NOT NULL,
+  preheader VARCHAR(255) NOT NULL DEFAULT '',
+  status VARCHAR(16) NOT NULL DEFAULT 'draft',
+  sponsor_image_url VARCHAR(2048) NULL,
+  sponsor_link_url VARCHAR(2048) NULL,
+  sponsor_alt VARCHAR(255) NULL,
+  body_html LONGTEXT NOT NULL,
+  email_html LONGTEXT NOT NULL,
+  scheduled_for DATETIME NULL,
+  sent_at DATETIME NULL,
+  recipient_count INT UNSIGNED NOT NULL DEFAULT 0,
+  open_count INT UNSIGNED NOT NULL DEFAULT 0,
+  created_by VARCHAR(255) NULL,
+  updated_by VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  INDEX idx_newsletters_status_scheduled_for (status, scheduled_for),
+  INDEX idx_newsletters_updated_at (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4

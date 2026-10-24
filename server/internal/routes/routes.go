@@ -154,6 +154,20 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/wordangle/manage", authMW(handlers.GetWordangleManage(conn)))
 	mux.Handle("POST /v1/wordangle/generate", authMW(handlers.PostWordangleGenerate(conn)))
 	mux.Handle("GET /v1/wordangle/check", authMW(handlers.GetWordangleCheck(conn)))
+	// Newsletter (To The Point). Writing and scheduling issues is editorial
+	// work; erasing a subscriber is not reversible, so it is admin-only. "stats"
+	// is a literal segment, so Go's mux prefers it over /v1/newsletters/{id}.
+	mux.Handle("GET /v1/newsletters", authMW(editorOrAdmin(handlers.GetNewsletters(conn))))
+	mux.Handle("GET /v1/newsletters/stats", authMW(editorOrAdmin(handlers.GetNewsletterStats(conn))))
+	mux.Handle("GET /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.GetNewsletter(conn))))
+	mux.Handle("POST /v1/newsletters", authMW(editorOrAdmin(handlers.PostNewsletter(conn))))
+	mux.Handle("PUT /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.PutNewsletter(conn))))
+	mux.Handle("DELETE /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.DeleteNewsletter(conn))))
+	mux.Handle("POST /v1/newsletters/{id}/schedule", authMW(editorOrAdmin(handlers.PostNewsletterSchedule(conn))))
+	mux.Handle("DELETE /v1/newsletters/{id}/schedule", authMW(editorOrAdmin(handlers.DeleteNewsletterSchedule(conn))))
+	mux.Handle("POST /v1/newsletters/{id}/test", authMW(editorOrAdmin(handlers.PostNewsletterTest())))
+	mux.Handle("GET /v1/newsletter-subscribers", authMW(editorOrAdmin(handlers.GetNewsletterSubscribers(conn))))
+	mux.Handle("DELETE /v1/newsletter-subscribers/{id}", authMW(adminOnly(handlers.DeleteNewsletterSubscriber(conn))))
 	mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))
 	mux.Handle("PUT /v1/developing-stories", authMW(adminOnly(handlers.PutDevelopingStory(conn))))
 	mux.Handle("DELETE /v1/developing-stories", authMW(adminOnly(handlers.DeleteDevelopingStory(conn))))
