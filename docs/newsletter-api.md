@@ -12,8 +12,10 @@ sends and the public unsubscribe page are implemented in Go
 (`server/internal/handlers/newsletters.go`, `newsletter_unsubscribe.go`,
 `server/internal/mailer/`). The send worker (`server/internal/newsletter/`, see
 "Sending" below) sends scheduled issues; the only sender is still SMTP to Mailpit
-in the laptop sandbox. Open/click tracking and the view-online page are in. Not
-built: the Gmail API sender, public subscribe, and anything for WordPress's legacy
+in the laptop sandbox. Open/click tracking, the view-online page and public subscribe
+are in; WordPress's legacy unsubscribe links are mapped in Delta's nginx
+(triangle-infrastructure, branch `feat/legacy-newsletter-unsubscribe`). Not
+built: the Gmail API sender, and the view-online form of WordPress's legacy
 links (below).
 
 ## Model
@@ -71,6 +73,7 @@ Deleting a subscriber is admin-only. The unsubscribe routes below are public.
 | POST | `/v1/newsletters/{id}/test` | `{emails: string[]}` | 204; sends the saved issue, subject `[Test] …`, to ≤5 bare addresses; 501 with no sender configured; 502 if the sender fails (the message names who already got it) |
 | GET | `/v1/newsletter-subscribers?status=` | | `{subscribers: [{id, email, name, status, lists, subscribed_at, unsubscribed_at?}]}`; `status` defaults to `confirmed`, or `unsubscribed`/`bounced`/`all` |
 | DELETE | `/v1/newsletter-subscribers/{id}` | | 204; erases the row (not an unsubscribe) |
+| POST | `/v1/newsletter-subscribers/subscribe` | `{email, lists?: int[], website?}` | **public**, 5/min per IP; `{success: true}` for every valid submit (new, already subscribed, or unsubscribed/bounced, which stays so); 400 `{success: false, error}` for a bad address or list id; a filled `website` honeypot answers success and stores nothing |
 | GET | `/v1/newsletter/unsubscribe?t=` or `?nk=<wp id>-<wp token>` | | public HTML page; **never changes anything** (mail scanners open every link) |
 | POST | `/v1/newsletter/unsubscribe?t=`/`?nk=` | form, or RFC 8058 `List-Unsubscribe=One-Click` | public HTML page; confirmed → unsubscribed; repeating it is harmless |
 | POST | `/v1/newsletter/resubscribe?t=`/`?nk=` | | public HTML page; unsubscribed → confirmed; bounced stays bounced |
@@ -130,9 +133,19 @@ progress beyond the status.
 
 WordPress's links in issues it already sent point at the WordPress plugin's endpoint on
 `cms.thetriangle.org`: `/wp-admin/admin-ajax.php?action=tnp&na=<action>&nk=<id>-<token>`
-(`na=u`/`uc` unsubscribe, `na=v` view online, plus `id=<email id>`). After cutover that
-host is Delta's nginx, which needs to map `na=u*` to `/v1/newsletter/unsubscribe?nk=…`.
-`na=v` can't be honoured: WordPress's sent issues were not imported. Not done yet.
+(`na=u`/`uc`/`ocu` unsubscribe, `na=v` view online, plus `id=<email id>`). Delta's
+nginx (`roles/delta_cms_host/files/triangle-cms.conf` in triangle-infrastructure)
+rewrites `na=u|uc|ocu` in place onto `/v1/newsletter/unsubscribe?nk=…`, keeping the
+method so an inbox's one-click POST still unsubscribes; the sandbox gateway mirrors
+it. It takes effect only once the tunnel routes `cms.thetriangle.org` to Delta
+(today WordPress still answers those links itself). `na=v` 404s: WordPress's sent
+issues were not imported.
+
+Public subscribe: Scalene's `/subscribe` form posts to its own same-origin
+`/api/newsletter-subscribe`, which forwards to the CMS with the reader's address in
+`X-Forwarded-For` (Scalene branch `feat/cms-newsletter-subscribe`). Single opt-in,
+as WordPress was. The form can't resubscribe an address that unsubscribed: anyone
+can type an address in, so only the reader's own link can undo it.
 
 `NewsletterInput` = `{subject, preheader, sponsor, body_html, email_html}`. `subject`
 (≤255) and `email_html` are required; a sponsor with an empty `image_url` is stored
@@ -214,9 +227,10 @@ already sends as notify@ through the Gmail HTTP API with an OAuth refresh token
 
 - **Sender.** Provider is undecided; the stored HTML is provider-neutral.
   Current issues come from `notify@thetriangle.org`.
-- **Public subscribe.** Scalene's `src/pages/subscribe.astro` still posts to the
-  dead WordPress Newsletter plugin (`cms.thetriangle.org/wp-json/newsletter/v1/subscribe`).
-  It needs a public, rate-limited, double-opt-in `POST /v1/newsletter-subscribers/subscribe`.
+- **Rate-limit key.** `middleware.RateLimitByIP` trusts the first `X-Forwarded-For`
+  hop, so a client that reaches the CMS directly (not through Scalene) can rotate it
+  past the limit. It is the same for comments, classifieds and polls; fix it once,
+  for all of them.
 - **Subscriber import**: `server/cmd/import-newsletter-subscribers` copies
   `wp_newsletter` in, keyed on `legacy_wp_id`. Source from `WP_DSN`, target from
   `DB_*`; one transaction, rolled back unless `-apply`. Re-runnable until WordPress
