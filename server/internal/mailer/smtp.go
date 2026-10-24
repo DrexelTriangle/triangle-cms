@@ -3,9 +3,11 @@ package mailer
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"time"
 )
 
@@ -22,7 +24,7 @@ type SMTPSender struct {
 func (s *SMTPSender) Send(ctx context.Context, m *Message) error {
 	raw, err := m.Bytes()
 	if err != nil {
-		return err
+		return &PermanentError{Err: err}
 	}
 	timeout := s.Timeout
 	if timeout <= 0 {
@@ -71,7 +73,17 @@ func (s *SMTPSender) Send(ctx context.Context, m *Message) error {
 		return fmt.Errorf("smtp write: %w", err)
 	}
 	if err := w.Close(); err != nil {
+		// A reply refusing the message means it was not taken. Anything else
+		// (the connection dropping) leaves it unknown whether the server
+		// queued it, and a duplicate is worse than a gap: don't retry.
+		var reply *textproto.Error
+		if !errors.As(err, &reply) {
+			err = &PermanentError{Err: err}
+		}
 		return fmt.Errorf("smtp end of data: %w", err)
 	}
-	return c.Quit()
+	// The message is accepted; QUIT is only manners, and failing it must not
+	// read as a failed send.
+	_ = c.Quit()
+	return nil
 }

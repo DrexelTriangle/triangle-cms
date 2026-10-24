@@ -22,6 +22,7 @@ import (
 	"server/internal/imaging"
 	"server/internal/mailer"
 	"server/internal/middleware"
+	"server/internal/newsletter"
 	"server/internal/routes"
 	"server/internal/slack"
 
@@ -53,6 +54,8 @@ const (
 	newsletterFromEnv      = "NEWSLETTER_FROM"
 	newsletterPublicURLEnv = "NEWSLETTER_PUBLIC_URL"
 	newsletterSiteURLEnv   = "NEWSLETTER_SITE_URL"
+	newsletterSendRateEnv  = "NEWSLETTER_SEND_RATE"
+	newsletterDailyCapEnv  = "NEWSLETTER_DAILY_CAP"
 	defaultNewsletterFrom  = "The Triangle <notify@thetriangle.org>"
 	defaultShutdownTimeout = 10 * time.Second
 )
@@ -486,6 +489,20 @@ func run(deps runDeps, conn *sql.DB) error {
 	defer stopScheduler()
 	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default())
 
+	// Scheduled newsletter issues. Every slot runs a sender; a lease on the
+	// issue lets only one of them send it. Shutdown waits for the message in
+	// hand to be sent and recorded, so a deploy can't double-send it.
+	newsletterDone := make(chan struct{})
+	if m := deps.newsletterMail; m != nil {
+		worker := &newsletter.Worker{Conn: conn, Composer: m.Composer, Sender: m.Sender, Rate: m.SendRate, DailyCap: m.DailyCap}
+		go func() {
+			defer close(newsletterDone)
+			worker.Run(schedulerCtx)
+		}()
+	} else {
+		close(newsletterDone)
+	}
+
 	// The reconciler embeds articles in the background. It gets its own client
 	// with a far longer timeout: batches of article bodies take much longer than
 	// a query, and unlike search it has no reason to give up quickly.
@@ -533,6 +550,13 @@ func run(deps runDeps, conn *sql.DB) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), deps.shutdownTimeout)
 	defer cancel()
+
+	stopScheduler()
+	select {
+	case <-newsletterDone:
+	case <-ctx.Done():
+		slog.Error("newsletter sender did not stop before the shutdown timeout")
+	}
 
 	if err := server.Shutdown(ctx); err != nil {
 		if closeErr := server.Close(); closeErr != nil {
@@ -616,10 +640,24 @@ func newsletterMailFromEnv() (*handlers.NewsletterMail, error) {
 		strings.Trim(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return nil, fmt.Errorf("%s must be the http(s) origin readers reach the API on", newsletterPublicURLEnv)
 	}
+	rate := newsletter.DefaultRate
+	if raw := strings.TrimSpace(os.Getenv(newsletterSendRateEnv)); raw != "" {
+		if rate, err = strconv.ParseFloat(raw, 64); err != nil || rate <= 0 || rate > 50 {
+			return nil, fmt.Errorf("%s must be messages per second, above 0 and at most 50", newsletterSendRateEnv)
+		}
+	}
+	dailyCap := newsletter.DefaultDailyCap
+	if raw := strings.TrimSpace(os.Getenv(newsletterDailyCapEnv)); raw != "" {
+		if dailyCap, err = strconv.Atoi(raw); err != nil || dailyCap <= 0 {
+			return nil, fmt.Errorf("%s must be a positive number of messages", newsletterDailyCapEnv)
+		}
+	}
 	slog.Info("newsletter sending through SMTP", "addr", smtpAddr, "from", from.Address)
 	return &handlers.NewsletterMail{
 		Composer: &mailer.Newsletter{From: from, PublicURL: publicURL},
 		Sender:   &mailer.SMTPSender{Addr: smtpAddr},
+		SendRate: rate,
+		DailyCap: dailyCap,
 	}, nil
 }
 

@@ -152,8 +152,25 @@ func TestBytes_HeaderInjection(t *testing.T) {
 	}
 }
 
+// How fakeSMTP misbehaves, for the error tests.
+type smtpFault int
+
+const (
+	smtpOK smtpFault = iota
+	// Queue the message, then drop the connection before QUIT.
+	smtpHangUpAfterQueuing
+	// Read the message, then drop the connection without replying to it.
+	smtpHangUpBeforeReply
+	// Refuse the recipient with a 4xx.
+	smtpDeferRecipient
+)
+
 // fakeSMTP accepts one message and returns what it was given.
 func fakeSMTP(t *testing.T) (addr string, got <-chan [3]string) {
+	return fakeSMTPWithFault(t, smtpOK)
+}
+
+func fakeSMTPWithFault(t *testing.T, fault smtpFault) (addr string, got <-chan [3]string) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -183,15 +200,22 @@ func fakeSMTP(t *testing.T) (addr string, got <-chan [3]string) {
 				_ = tp.PrintfLine("250 ok")
 			case "RCPT":
 				to = line
+				if fault == smtpDeferRecipient {
+					_ = tp.PrintfLine("450 mailbox busy")
+					continue
+				}
 				_ = tp.PrintfLine("250 ok")
 			case "DATA":
 				_ = tp.PrintfLine("354 go ahead")
 				data, err := io.ReadAll(tp.DotReader())
-				if err != nil {
+				if err != nil || fault == smtpHangUpBeforeReply {
 					return
 				}
 				_ = tp.PrintfLine("250 queued")
 				ch <- [3]string{from, to, string(data)}
+				if fault == smtpHangUpAfterQueuing {
+					return
+				}
 			case "QUIT":
 				_ = tp.PrintfLine("221 bye")
 				return
@@ -223,5 +247,25 @@ func TestSMTPSender_Delivers(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("fake SMTP server received nothing")
+	}
+}
+
+// The worker retries only errors marked transient, so a send whose fate is
+// unknown must not be one of them: that would put a second copy in the inbox.
+func TestSMTPSender_ClassifiesFailuresForRetry(t *testing.T) {
+	m := testComposer().Compose(Issue{ID: 3, Subject: "Hello", EmailHTML: "<p>{{unsubscribe_url}}</p>"}, testTo, "tok", nil)
+	send := func(fault smtpFault) error {
+		addr, _ := fakeSMTPWithFault(t, fault)
+		return (&SMTPSender{Addr: addr, Timeout: 5 * time.Second}).Send(context.Background(), m)
+	}
+
+	if err := send(smtpHangUpAfterQueuing); err != nil {
+		t.Errorf("a queued message is sent even if QUIT fails, got %v", err)
+	}
+	if err := send(smtpHangUpBeforeReply); err == nil || !IsPermanent(err) {
+		t.Errorf("no reply to the message leaves its fate unknown, so no retry; got %v (permanent=%v)", err, IsPermanent(err))
+	}
+	if err := send(smtpDeferRecipient); err == nil || IsPermanent(err) {
+		t.Errorf("a 4xx on the recipient is worth a retry; got %v (permanent=%v)", err, IsPermanent(err))
 	}
 }

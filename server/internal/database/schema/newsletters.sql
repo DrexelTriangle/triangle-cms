@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS newsletters (
   recipient_count INT UNSIGNED NOT NULL DEFAULT 0,
   open_count INT UNSIGNED NOT NULL DEFAULT 0,
   click_count INT UNSIGNED NOT NULL DEFAULT 0,
+  send_lease_owner VARCHAR(128) NULL,
+  send_lease_until DATETIME NULL,
   created_by VARCHAR(255) NULL,
   updated_by VARCHAR(255) NULL,
   created_at DATETIME NOT NULL,

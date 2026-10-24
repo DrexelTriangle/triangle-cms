@@ -258,6 +258,10 @@ func DeleteNewsletterSchedule(conn *sql.DB) http.Handler {
 type NewsletterMail struct {
 	Composer *mailer.Newsletter
 	Sender   mailer.Sender
+	// The scheduled sender's pace: messages per second, and the most copies
+	// in a rolling 24 hours. Zero means the newsletter package's default.
+	SendRate float64
+	DailyCap int
 }
 
 // A test goes to the author and maybe an editor or two; more than this is a

@@ -51,10 +51,19 @@ func EnsureNewsletterTables(ctx context.Context, conn *sql.DB) error {
 			return err
 		}
 	}
-	// Added after the table first shipped to the laptop sandbox.
-	if _, err := conn.ExecContext(ctx,
-		"ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS click_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER open_count"); err != nil {
-		return err
+	// Added after the tables first shipped to the laptop sandbox.
+	for _, alter := range []string{
+		"ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS click_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER open_count",
+		"ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS send_lease_owner VARCHAR(128) NULL AFTER click_count",
+		"ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS send_lease_until DATETIME NULL AFTER send_lease_owner",
+		"ALTER TABLE newsletter_deliveries ADD COLUMN IF NOT EXISTS attempts INT UNSIGNED NOT NULL DEFAULT 0 AFTER click_count",
+		"ALTER TABLE newsletter_deliveries ADD COLUMN IF NOT EXISTS error VARCHAR(255) NULL AFTER attempts",
+		"ALTER TABLE newsletter_deliveries ADD INDEX IF NOT EXISTS idx_newsletter_deliveries_issue_status (newsletter_id, status)",
+		"ALTER TABLE newsletter_deliveries ADD INDEX IF NOT EXISTS idx_newsletter_deliveries_sent_at (sent_at)",
+	} {
+		if _, err := conn.ExecContext(ctx, alter); err != nil {
+			return err
+		}
 	}
 	for _, list := range newsletterLists {
 		if _, err := conn.ExecContext(ctx, "INSERT IGNORE INTO newsletter_lists (id, name) VALUES (?, ?)", list.ID, list.Name); err != nil {
@@ -198,8 +207,8 @@ func DeleteNewsletter(ctx context.Context, conn *sql.DB, id int64) error {
 	return err
 }
 
-// ScheduleNewsletter queues an issue (or moves its send time). Nothing sends it
-// until the sender exists; this only records the editor's intent.
+// ScheduleNewsletter queues an issue (or moves its send time). The send worker
+// picks it up once the time comes (see newsletter_send.go).
 func ScheduleNewsletter(ctx context.Context, conn *sql.DB, id int64, sendAt time.Time, by string) (models.Newsletter, error) {
 	return withLockedNewsletter(ctx, conn, id, func(tx *sql.Tx, _ models.Newsletter) error {
 		_, err := tx.ExecContext(ctx, `

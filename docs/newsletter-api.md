@@ -10,10 +10,11 @@ Types: `frontend/src/lib/newsletter/types.ts` (dashboard) and
 **Status (2026-10-24):** CRUD, scheduling state, stats, the subscriber list, test
 sends and the public unsubscribe page are implemented in Go
 (`server/internal/handlers/newsletters.go`, `newsletter_unsubscribe.go`,
-`server/internal/mailer/`). A scheduled issue still just sits there: there is no
-send worker yet, and the only sender is SMTP to Mailpit in the laptop sandbox.
-Open/click tracking and the view-online page are in. Not built: the send worker, the
-Gmail API sender, public subscribe, and anything for WordPress's legacy links (below).
+`server/internal/mailer/`). The send worker (`server/internal/newsletter/`, see
+"Sending" below) sends scheduled issues; the only sender is still SMTP to Mailpit
+in the laptop sandbox. Open/click tracking and the view-online page are in. Not
+built: the Gmail API sender, public subscribe, and anything for WordPress's legacy
+links (below).
 
 ## Model
 
@@ -88,7 +89,42 @@ blocked; link scanners inflate clicks.
 Sender config (backend env): `NEWSLETTER_SMTP_ADDR` (host:port; unset = no sender),
 `NEWSLETTER_FROM` (default `The Triangle <notify@thetriangle.org>`),
 `NEWSLETTER_PUBLIC_URL` (origin readers reach `/v1` on; required with a sender),
-`NEWSLETTER_SITE_URL` (the unsubscribe page's link home; default www.thetriangle.org).
+`NEWSLETTER_SITE_URL` (the unsubscribe page's link home; default www.thetriangle.org),
+`NEWSLETTER_SEND_RATE` (messages per second, default 2, at most 50),
+`NEWSLETTER_DAILY_CAP` (most copies in a rolling 24 hours, default 1500).
+
+## Sending
+
+With a sender configured, every backend slot runs `newsletter.Worker` (every 15s);
+the state is all in the database (`server/internal/database/newsletter_send.go`).
+
+- **Start.** A `scheduled` issue whose `scheduled_for` has passed moves to `sending`
+  and gets one `pending` delivery per confirmed subscriber, in one transaction.
+  Campaigns go to all confirmed subscribers, not per list, as in WordPress. An
+  issue more than 12h overdue (the sender was down) is left `scheduled` and logged:
+  stale news needs an editor to schedule it again.
+- **One sender.** The issue row carries a lease (`send_lease_owner`/`until`, 2 min),
+  taken and renewed under `SELECT … FOR UPDATE`; only the holder claims deliveries.
+  A dead slot's lease runs out and the other slot carries on.
+- **Each copy.** Claimed `pending` → `sending` before the message goes, then `sent`;
+  `failed` for a refusal (SMTP 5xx) or when delivery is unknown (the connection
+  dropped after the message went); back to `pending` for a transient error, up to 3
+  attempts, which also ends the run until the next tick. A subscriber who
+  unsubscribed or was erased after the start is `skipped`. A row still `sending`
+  when the lease changes hands belonged to a slot that died mid-message: it is
+  marked `failed`, never resent. A gap beats a duplicate.
+- **Pace.** `NEWSLETTER_SEND_RATE` per second. Before each claim the worker counts
+  `sent` deliveries (all issues, test copies too) in the last 24h, and at
+  `NEWSLETTER_DAILY_CAP` the issue stays `sending` until the window frees up. Two
+  slots sending two different issues can overshoot the cap by one.
+- **Finish.** With nothing `pending` or `sending` left, the issue is `sent`;
+  `recipient_count` counts the copies that went.
+- **Shutdown.** SIGTERM stops claiming; the message in hand is sent and recorded
+  before the process exits, so a deploy mid-send resumes cleanly on the new slot.
+
+Editors can't change, unschedule or delete an issue once it is `sending` (409). There
+is no pause or cancel for a send in progress yet, and the dashboard shows no
+progress beyond the status.
 
 | GET | `/v1/newsletter/issues/{id}` or `/latest` | | public HTML; a **sent** issue only (drafts 404). Unsubscribe links go to the keyless unsubscribe page, which says to use the link in the inbox copy; not tracked; frameable by `NEWSLETTER_SITE_URL` (Scalene's `/subscribe` iframe, which today loads a static `tothepoint.html`, should point at `/latest`) |
 
@@ -197,7 +233,5 @@ already sends as notify@ through the Gmail HTTP API with an OAuth refresh token
   `define( 'DB_USER', '…' );` with spaces inside the parentheses; strip the quotes
   when scripting against it.
 - **Opens.** Open tracking needs a pixel or the ESP's webhooks; `open_count` stays 0 until then.
-- **Scheduling worker** that moves `scheduled` → `sending` → `sent` and is safe across
-  the blue/green slots (only one slot may send).
 - **Sanitising.** `body_html`/`email_html` come from trusted dashboard users, but the
   view-online page should still serve them under a CSP, as article content is.
