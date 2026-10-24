@@ -6,6 +6,10 @@ WORKDIR /app
 # Override with --build-arg to publish an image aimed at another site.
 ARG VITE_PUBLIC_SITE_URL="https://www.thetriangle.org"
 ENV VITE_PUBLIC_SITE_URL=${VITE_PUBLIC_SITE_URL}
+# "live" points the Newsletter screens at /v1/newsletters; empty keeps them on
+# the in-browser mock, which is what published images use until sending exists.
+ARG VITE_NEWSLETTER_API=""
+ENV VITE_NEWSLETTER_API=${VITE_NEWSLETTER_API}
 
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci --include=dev --no-audit --no-fund
