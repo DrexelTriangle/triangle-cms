@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS newsletter_subscribers (
   status VARCHAR(16) NOT NULL DEFAULT 'confirmed',
   token CHAR(32) NOT NULL,
   legacy_wp_id BIGINT UNSIGNED NULL,
+  legacy_wp_token VARCHAR(64) NULL,
   subscribed_at DATETIME NOT NULL,
   unsubscribed_at DATETIME NULL,
   created_at DATETIME NOT NULL,

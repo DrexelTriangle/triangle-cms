@@ -144,9 +144,15 @@ already sends as notify@ through the Gmail HTTP API with an OAuth refresh token
 - **Public subscribe.** Scalene's `src/pages/subscribe.astro` still posts to the
   dead WordPress Newsletter plugin (`cms.thetriangle.org/wp-json/newsletter/v1/subscribe`).
   It needs a public, rate-limited, double-opt-in `POST /v1/newsletter-subscribers/subscribe`.
-- **Subscriber import** from `wp_newsletter` (599 rows, `list_1`..`list_7`) into
-  `newsletter_subscribers`, keyed on `legacy_wp_id`. The schema is ready; the
-  importer isn't written yet.
+- **Subscriber import**: `server/cmd/import-newsletter-subscribers` copies
+  `wp_newsletter` in, keyed on `legacy_wp_id`. Source from `WP_DSN`, target from
+  `DB_*`; one transaction, rolled back unless `-apply`. Re-runnable until WordPress
+  is retired: it adds new rows and carries WordPress unsubscribes over, but never
+  resubscribes anyone, and copies lists on insert only. Statuses other than C/U/B
+  (never confirmed), invalid addresses and later duplicates of an address are
+  skipped and listed. The WordPress token is kept in `legacy_wp_token` so old
+  `nk=<id>-<token>` unsubscribe links can be honoured after cutover. Prod needs
+  the backend deployed first (it refuses without the tables) and operator approval.
 - **Opens.** Open tracking needs a pixel or the ESP's webhooks; `open_count` stays 0 until then.
 - **Scheduling worker** that moves `scheduled` → `sending` → `sent` and is safe across
   the blue/green slots (only one slot may send).
