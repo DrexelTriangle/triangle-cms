@@ -128,6 +128,13 @@ func (f unsubscribeFlow) key(w http.ResponseWriter, r *http.Request) (db.Subscri
 			"The link worked, but test emails aren't tied to a subscription, so nothing changed."))
 		return db.SubscriberKey{}, false
 	}
+	if q.Get("t") == "" && q.Get("nk") == "" {
+		// The public web copy of an issue links here with no key: it is
+		// everyone's copy, so it can't unsubscribe anyone.
+		writeUnsubscribePage(w, http.StatusOK, f.page("Unsubscribe from To The Point",
+			"Use the Unsubscribe link at the bottom of any issue in your inbox. It's tied to your address, so one click is all it takes."))
+		return db.SubscriberKey{}, false
+	}
 	key, ok := db.ParseSubscriberKey(q.Get("t"), q.Get("nk"))
 	if !ok {
 		f.notFound(w)

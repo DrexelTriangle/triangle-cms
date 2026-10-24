@@ -115,6 +115,13 @@ func GetNewsletter(ctx context.Context, conn *sql.DB, id int64) (models.Newslett
 	return scanNewsletter(conn.QueryRowContext(ctx, "SELECT "+newsletterColumns+" FROM newsletters WHERE id = ?", id))
 }
 
+// LatestSentNewsletter returns the most recently sent issue, or sql.ErrNoRows.
+func LatestSentNewsletter(ctx context.Context, conn *sql.DB) (models.Newsletter, error) {
+	return scanNewsletter(conn.QueryRowContext(ctx,
+		"SELECT "+newsletterColumns+" FROM newsletters WHERE status = ? ORDER BY sent_at DESC, id DESC LIMIT 1",
+		models.NewsletterStatusSent))
+}
+
 // ListNewsletters returns every issue, most recently edited first.
 func ListNewsletters(ctx context.Context, conn *sql.DB) ([]models.Newsletter, error) {
 	rows, err := conn.QueryContext(ctx, "SELECT "+newsletterColumns+" FROM newsletters ORDER BY updated_at DESC, id DESC")

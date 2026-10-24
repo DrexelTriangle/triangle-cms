@@ -127,7 +127,6 @@ func TestNewsletterUnsubscribe_Flow(t *testing.T) {
 	for name, path := range map[string]string{
 		"unknown token":   "/v1/newsletter/unsubscribe?t=ffffffffffffffffffffffffffffffff",
 		"malformed token": "/v1/newsletter/unsubscribe?t=' OR 1=1",
-		"no key":          "/v1/newsletter/unsubscribe",
 		"bad legacy":      "/v1/newsletter/unsubscribe?nk=abc",
 	} {
 		if rec := unsubscribeRequest(t, conn, http.MethodGet, strings.ReplaceAll(path, " ", "%20"), ""); rec.Code != http.StatusNotFound {

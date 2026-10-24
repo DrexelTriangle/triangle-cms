@@ -12,8 +12,8 @@ sends and the public unsubscribe page are implemented in Go
 (`server/internal/handlers/newsletters.go`, `newsletter_unsubscribe.go`,
 `server/internal/mailer/`). A scheduled issue still just sits there: there is no
 send worker yet, and the only sender is SMTP to Mailpit in the laptop sandbox.
-Open/click tracking is in. Not built: the view-online page
-(`/v1/newsletter/issues/{id}` 404s), the Gmail API sender, public subscribe.
+Open/click tracking and the view-online page are in. Not built: the send worker, the
+Gmail API sender, public subscribe, and anything for WordPress's legacy links (below).
 
 ## Model
 
@@ -90,9 +90,13 @@ Sender config (backend env): `NEWSLETTER_SMTP_ADDR` (host:port; unset = no sende
 `NEWSLETTER_PUBLIC_URL` (origin readers reach `/v1` on; required with a sender),
 `NEWSLETTER_SITE_URL` (the unsubscribe page's link home; default www.thetriangle.org).
 
-WordPress's own unsubscribe links point at the WordPress site
-(`/?na=u&nk=<id>-<token>` and friends). After cutover that host is Scalene, which must
-redirect those to `/v1/newsletter/unsubscribe?nk=…` on the CMS; not done yet.
+| GET | `/v1/newsletter/issues/{id}` or `/latest` | | public HTML; a **sent** issue only (drafts 404). Unsubscribe links go to the keyless unsubscribe page, which says to use the link in the inbox copy; not tracked; frameable by `NEWSLETTER_SITE_URL` (Scalene's `/subscribe` iframe, which today loads a static `tothepoint.html`, should point at `/latest`) |
+
+WordPress's links in issues it already sent point at the WordPress plugin's endpoint on
+`cms.thetriangle.org`: `/wp-admin/admin-ajax.php?action=tnp&na=<action>&nk=<id>-<token>`
+(`na=u`/`uc` unsubscribe, `na=v` view online, plus `id=<email id>`). After cutover that
+host is Delta's nginx, which needs to map `na=u*` to `/v1/newsletter/unsubscribe?nk=…`.
+`na=v` can't be honoured: WordPress's sent issues were not imported. Not done yet.
 
 `NewsletterInput` = `{subject, preheader, sponsor, body_html, email_html}`. `subject`
 (≤255) and `email_html` are required; a sponsor with an empty `image_url` is stored

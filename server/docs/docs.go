@@ -2624,6 +2624,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/newsletter/issues/{id}": {
+            "get": {
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "newsletters"
+                ],
+                "summary": "View a sent newsletter issue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Newsletter ID, or latest",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The issue's HTML",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "HTML page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/newsletter/o/{token}": {
             "get": {
                 "produces": [
