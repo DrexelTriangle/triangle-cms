@@ -138,7 +138,7 @@ func (f unsubscribeFlow) key(w http.ResponseWriter, r *http.Request) (db.Subscri
 
 func (f unsubscribeFlow) notFound(w http.ResponseWriter) {
 	writeUnsubscribePage(w, http.StatusNotFound, f.page("This link doesn't work",
-		"We couldn't find a subscription for it. If you copied it from an email, check that the whole link came across."))
+		"It's broken or out of date. If you copied it from an email, check that the whole link came across."))
 }
 
 func (f unsubscribeFlow) failed(w http.ResponseWriter, err error) {

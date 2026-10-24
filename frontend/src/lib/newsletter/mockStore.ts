@@ -80,6 +80,7 @@ export function createMockNewsletterApi(): NewsletterApi {
         sent_at: null,
         recipient_count: 0,
         open_count: 0,
+        click_count: 0,
         created_at: now,
         updated_at: now,
       }
@@ -128,6 +129,9 @@ export function createMockNewsletterApi(): NewsletterApi {
         recipients_reached: sent.reduce((sum, n) => sum + n.recipient_count, 0),
         avg_open_rate: withRecipients.length
           ? withRecipients.reduce((sum, n) => sum + n.open_count / n.recipient_count, 0) / withRecipients.length
+          : null,
+        avg_click_rate: withRecipients.length
+          ? withRecipients.reduce((sum, n) => sum + n.click_count / n.recipient_count, 0) / withRecipients.length
           : null,
       }
     },

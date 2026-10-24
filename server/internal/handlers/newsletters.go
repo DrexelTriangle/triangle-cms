@@ -309,9 +309,26 @@ func PostNewsletterTest(conn *sql.DB, mail *NewsletterMail) http.Handler {
 			writeNewsletterError(w, err)
 			return
 		}
+		links, err := db.EnsureNewsletterLinks(r.Context(), conn, issue.ID, mailer.TrackableURLs(issue.EmailHTML))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Could not prepare the test email.")
+			return
+		}
 		for i, to := range recipients {
-			m := mail.Composer.Compose(mailer.Issue{ID: issue.ID, Subject: issue.Subject, EmailHTML: issue.EmailHTML}, to, mailer.TestToken)
-			if err := mail.Sender.Send(r.Context(), m); err != nil {
+			// Tracked like a real copy, so opens and clicks can be tried out
+			// on a draft; is_test keeps them out of the issue's numbers.
+			deliveryID, delivery, err := db.CreateTestDelivery(r.Context(), conn, issue.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "Could not prepare the test email.")
+				return
+			}
+			m := mail.Composer.Compose(mailer.Issue{ID: issue.ID, Subject: issue.Subject, EmailHTML: issue.EmailHTML}, to, mailer.TestToken,
+				&mailer.Tracking{Delivery: delivery, Links: links})
+			err = mail.Sender.Send(r.Context(), m)
+			if finishErr := db.FinishDelivery(r.Context(), conn, deliveryID, err == nil); finishErr != nil {
+				slog.Error("record newsletter test delivery", "delivery_id", deliveryID, "error", finishErr)
+			}
+			if err != nil {
 				slog.Error("newsletter test send failed", "newsletter_id", id, "sent", i, "of", len(recipients), "error", err)
 				// Say what already went, so a retry is a choice and not a
 				// surprise duplicate for the earlier addresses.

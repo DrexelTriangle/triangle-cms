@@ -36,6 +36,15 @@ const previewOf = (n: Newsletter) => {
   return doc.body.textContent?.trim().slice(0, 160) ?? ""
 }
 
+function CountWithRate({ count, of }: { count: number; of: number }) {
+  if (count <= 0 || of <= 0) return <>—</>
+  return (
+    <span className="text-muted-foreground">
+      {count.toLocaleString()} <span className="text-xs">({Math.round((count / of) * 100)}%)</span>
+    </span>
+  )
+}
+
 export default function NewsletterView() {
   const navigate = useNavigate()
   const api = useNewsletterApi()
@@ -113,7 +122,8 @@ export default function NewsletterView() {
     (s) => s.name.toLowerCase().includes(query) || s.email.toLowerCase().includes(query),
   )
 
-  const openRate = stats?.avg_open_rate == null ? "—" : `${Math.round(stats.avg_open_rate * 100)}%`
+  const percent = (rate: number | null | undefined) => (rate == null ? "—" : `${Math.round(rate * 100)}%`)
+  const openRate = percent(stats?.avg_open_rate)
   // Ads run for weeks, so the newest issue with a banner is the one to offer.
   const previousSponsor = newsletters.find((n) => n.sponsor?.image_url)?.sponsor ?? null
 
@@ -148,11 +158,12 @@ export default function NewsletterView() {
       ) : null}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
           { label: "Total Subscribers", value: (stats?.subscriber_count ?? 0).toLocaleString() },
           { label: "Campaigns Sent", value: (stats?.sent_count ?? 0).toString() },
           { label: "Avg Open Rate", value: openRate },
+          { label: "Avg Click Rate", value: percent(stats?.avg_click_rate) },
           { label: "Recipients Reached", value: (stats?.recipients_reached ?? 0).toLocaleString() },
         ].map((stat) => (
           <div key={stat.label} className="rounded-xl border border-border bg-card p-4">
@@ -213,6 +224,7 @@ export default function NewsletterView() {
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground" scope="col">Status</th>
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden md:table-cell" scope="col">Recipients</th>
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden lg:table-cell" scope="col">Opens</th>
+                <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden lg:table-cell" scope="col">Clicks</th>
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground hidden md:table-cell" scope="col">Date</th>
                 <th className="text-right px-4 py-3 font-semibold text-muted-foreground" scope="col">Actions</th>
               </tr>
@@ -238,9 +250,10 @@ export default function NewsletterView() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{n.recipient_count > 0 ? n.recipient_count.toLocaleString() : "—"}</td>
                   <td className="px-4 py-3 hidden lg:table-cell">
-                    {n.open_count > 0 && n.recipient_count > 0 ? (
-                      <span className="text-muted-foreground">{n.open_count.toLocaleString()} <span className="text-xs">({Math.round(n.open_count / n.recipient_count * 100)}%)</span></span>
-                    ) : "—"}
+                    <CountWithRate count={n.open_count} of={n.recipient_count} />
+                  </td>
+                  <td className="px-4 py-3 hidden lg:table-cell">
+                    <CountWithRate count={n.click_count} of={n.recipient_count} />
                   </td>
                   <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{rowDate(n)}</td>
                   <td className="px-4 py-3">

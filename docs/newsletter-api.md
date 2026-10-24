@@ -12,8 +12,8 @@ sends and the public unsubscribe page are implemented in Go
 (`server/internal/handlers/newsletters.go`, `newsletter_unsubscribe.go`,
 `server/internal/mailer/`). A scheduled issue still just sits there: there is no
 send worker yet, and the only sender is SMTP to Mailpit in the laptop sandbox.
-Not built: the view-online page (`/v1/newsletter/issues/{id}` 404s), the Gmail
-API sender, open/click tracking, public subscribe.
+Open/click tracking is in. Not built: the view-online page
+(`/v1/newsletter/issues/{id}` 404s), the Gmail API sender, public subscribe.
 
 ## Model
 
@@ -73,6 +73,17 @@ Deleting a subscriber is admin-only. The unsubscribe routes below are public.
 | GET | `/v1/newsletter/unsubscribe?t=` or `?nk=<wp id>-<wp token>` | | public HTML page; **never changes anything** (mail scanners open every link) |
 | POST | `/v1/newsletter/unsubscribe?t=`/`?nk=` | form, or RFC 8058 `List-Unsubscribe=One-Click` | public HTML page; confirmed → unsubscribed; repeating it is harmless |
 | POST | `/v1/newsletter/resubscribe?t=`/`?nk=` | | public HTML page; unsubscribed → confirmed; bounced stays bounced |
+| GET | `/v1/newsletter/o/{delivery}` | | public; 1×1 GIF, always (even for unknown tokens); counts an open |
+| GET | `/v1/newsletter/c/{delivery}/{link}` | | public; 302 to the link, counting a click (and an open); 404 unless the link belongs to the delivery's issue, so it is not an open redirect |
+
+Tracking: every copy sent is a row in `newsletter_deliveries` (random `token`, `is_test`
+for test sends, per-copy open/click counts), and each issue's links are registered in
+`newsletter_links`. The mailer rewrites every http(s) `href` in the body to the click URL
+and adds the pixel before `</body>`; unsubscribe and view-online links are not rewritten.
+`newsletters.open_count`/`click_count` count unique readers among real copies; test
+copies are tracked but never counted. HEAD requests are never counted (scanners send
+them). Opens read high with Apple Mail Privacy Protection and low where images are
+blocked; link scanners inflate clicks.
 
 Sender config (backend env): `NEWSLETTER_SMTP_ADDR` (host:port; unset = no sender),
 `NEWSLETTER_FROM` (default `The Triangle <notify@thetriangle.org>`),

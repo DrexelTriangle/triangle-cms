@@ -62,7 +62,7 @@ func TestCompose_PersonalisesLinksAndHeaders(t *testing.T) {
 		Subject:   "To The Point: café edition",
 		EmailHTML: `<a href="{{view_online_url}}">View online</a> <a href="{{unsubscribe_url}}">Unsubscribe</a> <a href="{{manage_subscription_url}}">Manage</a>`,
 	}
-	m := testComposer().Compose(issue, testTo, "abc123")
+	m := testComposer().Compose(issue, testTo, "abc123", nil)
 	m.Date = time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
 	raw, err := m.Bytes()
 	if err != nil {
@@ -102,8 +102,33 @@ func TestCompose_PersonalisesLinksAndHeaders(t *testing.T) {
 	}
 }
 
+func TestCompose_TracksLinksButNotUnsubscribe(t *testing.T) {
+	issue := Issue{
+		ID: 9,
+		EmailHTML: `<html><body><a href="https://www.example.org/a?x=1&amp;y=2">A</a> <a href="https://www.example.org/a?x=1&amp;y=2">A again</a>` +
+			` <a href="mailto:tips@example.org">Tips</a> <a href="{{unsubscribe_url}}">Unsubscribe</a> <a href="https://untracked.example">U</a></body></html>`,
+	}
+	urls := TrackableURLs(issue.EmailHTML)
+	if len(urls) != 2 || urls[0] != "https://www.example.org/a?x=1&y=2" || urls[1] != "https://untracked.example" {
+		t.Fatalf("TrackableURLs = %q", urls)
+	}
+	m := testComposer().Compose(issue, testTo, "tok", &Tracking{Delivery: "dlv", Links: map[string]int64{urls[0]: 41}})
+	click := `href="https://cms.example.org/v1/newsletter/c/dlv/41"`
+	if strings.Count(m.HTML, click) != 2 {
+		t.Errorf("both copies of the link should redirect: %s", m.HTML)
+	}
+	for _, kept := range []string{`href="mailto:tips@example.org"`, `href="https://untracked.example"`, `href="https://cms.example.org/v1/newsletter/unsubscribe?t=tok"`} {
+		if !strings.Contains(m.HTML, kept) {
+			t.Errorf("HTML lost %s", kept)
+		}
+	}
+	if !strings.Contains(m.HTML, `<img src="https://cms.example.org/v1/newsletter/o/dlv" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;"></body>`) {
+		t.Errorf("no open pixel before </body>: %s", m.HTML)
+	}
+}
+
 func TestCompose_MarksTestSends(t *testing.T) {
-	m := testComposer().Compose(Issue{ID: 1, Subject: "Hello", EmailHTML: "<p>x</p>"}, testTo, TestToken)
+	m := testComposer().Compose(Issue{ID: 1, Subject: "Hello", EmailHTML: "<p>x</p>"}, testTo, TestToken, nil)
 	if m.Subject != "[Test] Hello" {
 		t.Errorf("Subject = %q", m.Subject)
 	}
@@ -180,7 +205,7 @@ func fakeSMTP(t *testing.T) (addr string, got <-chan [3]string) {
 
 func TestSMTPSender_Delivers(t *testing.T) {
 	addr, got := fakeSMTP(t)
-	m := testComposer().Compose(Issue{ID: 3, Subject: "Hello", EmailHTML: "<p>{{unsubscribe_url}}</p>"}, testTo, "tok")
+	m := testComposer().Compose(Issue{ID: 3, Subject: "Hello", EmailHTML: "<p>{{unsubscribe_url}}</p>"}, testTo, "tok", nil)
 	if err := (&SMTPSender{Addr: addr, Timeout: 5 * time.Second}).Send(context.Background(), m); err != nil {
 		t.Fatalf("Send: %v", err)
 	}

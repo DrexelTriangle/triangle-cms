@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS newsletters (
   sent_at DATETIME NULL,
   recipient_count INT UNSIGNED NOT NULL DEFAULT 0,
   open_count INT UNSIGNED NOT NULL DEFAULT 0,
+  click_count INT UNSIGNED NOT NULL DEFAULT 0,
   created_by VARCHAR(255) NULL,
   updated_by VARCHAR(255) NULL,
   created_at DATETIME NOT NULL,

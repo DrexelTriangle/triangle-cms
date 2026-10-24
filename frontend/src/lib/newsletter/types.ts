@@ -29,7 +29,10 @@ export type Newsletter = {
   scheduled_for: string | null
   sent_at: string | null
   recipient_count: number
+  // Unique readers who opened / clicked, from real (not test) copies. Opens
+  // are approximate: Apple Mail loads every pixel, and blocked images load none.
   open_count: number
+  click_count: number
   created_at: string
   updated_at: string
 }
@@ -56,6 +59,7 @@ export type NewsletterStats = {
   recipients_reached: number
   // 0..1 across sent issues with at least one recipient; null when none.
   avg_open_rate: number | null
+  avg_click_rate: number | null
 }
 
 export type NewsletterApi = {

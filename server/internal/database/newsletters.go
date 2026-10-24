@@ -39,16 +39,22 @@ var ValidSubscriberStatuses = map[string]bool{
 // sender has already picked up.
 var ErrNewsletterLocked = errors.New("newsletter has already been sent")
 
-const newsletterColumns = "id, subject, preheader, status, sponsor_image_url, sponsor_link_url, sponsor_alt, body_html, email_html, scheduled_for, sent_at, recipient_count, open_count, created_at, updated_at"
+const newsletterColumns = "id, subject, preheader, status, sponsor_image_url, sponsor_link_url, sponsor_alt, body_html, email_html, scheduled_for, sent_at, recipient_count, open_count, click_count, created_at, updated_at"
 
 // EnsureNewsletterTables creates the newsletter tables, parents first for the
 // foreign keys, and makes sure lists 1-7 exist. INSERT IGNORE leaves a list an
 // admin has since renamed alone.
 func EnsureNewsletterTables(ctx context.Context, conn *sql.DB) error {
-	for _, table := range []string{"newsletters", "newsletter_lists", "newsletter_subscribers", "newsletter_subscriber_lists"} {
+	for _, table := range []string{"newsletters", "newsletter_lists", "newsletter_subscribers", "newsletter_subscriber_lists",
+		"newsletter_deliveries", "newsletter_links"} {
 		if _, err := conn.ExecContext(ctx, TableSchema(table)); err != nil {
 			return err
 		}
+	}
+	// Added after the table first shipped to the laptop sandbox.
+	if _, err := conn.ExecContext(ctx,
+		"ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS click_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER open_count"); err != nil {
+		return err
 	}
 	for _, list := range newsletterLists {
 		if _, err := conn.ExecContext(ctx, "INSERT IGNORE INTO newsletter_lists (id, name) VALUES (?, ?)", list.ID, list.Name); err != nil {
@@ -205,8 +211,9 @@ func UnscheduleNewsletter(ctx context.Context, conn *sql.DB, id int64, by string
 	})
 }
 
-// GetNewsletterStats computes the dashboard tiles. The open rate is the mean of
-// each sent issue's own rate, so one huge issue does not drown out the rest.
+// GetNewsletterStats computes the dashboard tiles. The open and click rates are
+// the mean of each sent issue's own rate, so one huge issue does not drown out
+// the rest.
 func GetNewsletterStats(ctx context.Context, conn *sql.DB) (models.NewsletterStats, error) {
 	var stats models.NewsletterStats
 	if err := conn.QueryRowContext(ctx,
@@ -215,17 +222,22 @@ func GetNewsletterStats(ctx context.Context, conn *sql.DB) (models.NewsletterSta
 		return stats, err
 	}
 
-	var openRate sql.NullFloat64
+	var openRate, clickRate sql.NullFloat64
 	if err := conn.QueryRowContext(ctx, `
 		SELECT COUNT(*), COALESCE(SUM(recipient_count), 0),
-			AVG(CASE WHEN recipient_count > 0 THEN open_count / recipient_count END)
+			AVG(CASE WHEN recipient_count > 0 THEN open_count / recipient_count END),
+			AVG(CASE WHEN recipient_count > 0 THEN click_count / recipient_count END)
 		FROM newsletters WHERE status = ?
-	`, models.NewsletterStatusSent).Scan(&stats.SentCount, &stats.RecipientsReached, &openRate); err != nil {
+	`, models.NewsletterStatusSent).Scan(&stats.SentCount, &stats.RecipientsReached, &openRate, &clickRate); err != nil {
 		return stats, err
 	}
 	if openRate.Valid {
 		rate := openRate.Float64
 		stats.AvgOpenRate = &rate
+	}
+	if clickRate.Valid {
+		rate := clickRate.Float64
+		stats.AvgClickRate = &rate
 	}
 	return stats, nil
 }
@@ -237,7 +249,7 @@ func scanNewsletter(row interface{ Scan(dest ...any) error }) (models.Newsletter
 		scheduledFor, sent sql.NullTime
 	)
 	if err := row.Scan(&n.ID, &n.Subject, &n.Preheader, &n.Status, &image, &link, &alt, &n.BodyHTML, &n.EmailHTML,
-		&scheduledFor, &sent, &n.RecipientCount, &n.OpenCount, &n.CreatedAt, &n.UpdatedAt); err != nil {
+		&scheduledFor, &sent, &n.RecipientCount, &n.OpenCount, &n.ClickCount, &n.CreatedAt, &n.UpdatedAt); err != nil {
 		return models.Newsletter{}, err
 	}
 	if image.Valid && image.String != "" {

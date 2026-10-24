@@ -80,6 +80,8 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/newsletter/unsubscribe", handlers.GetNewsletterUnsubscribe(conn, newsletterSiteURL))
 	mux.Handle("POST /v1/newsletter/unsubscribe", handlers.PostNewsletterUnsubscribe(conn, newsletterSiteURL))
 	mux.Handle("POST /v1/newsletter/resubscribe", handlers.PostNewsletterResubscribe(conn, newsletterSiteURL))
+	mux.Handle("GET /v1/newsletter/o/{token}", handlers.GetNewsletterOpen(conn))
+	mux.Handle("GET /v1/newsletter/c/{token}/{link}", handlers.GetNewsletterClick(conn, newsletterSiteURL))
 	// The public photo gallery. The editor-facing catalogue at
 	// /v1/media/gallery stays authenticated; this one is images-only.
 	mux.Handle("GET /v1/gallery", handlers.GetPublicGallery(conn))

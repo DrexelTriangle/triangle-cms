@@ -28,7 +28,7 @@ func legacyImportTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { conn.Close() })
 
 	ctx := context.Background()
-	for _, table := range []string{"newsletter_subscriber_lists", "newsletter_subscribers", "newsletter_lists", "newsletters"} {
+	for _, table := range []string{"newsletter_deliveries", "newsletter_links", "newsletter_subscriber_lists", "newsletter_subscribers", "newsletter_lists", "newsletters"} {
 		if _, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
 			t.Fatalf("drop %s: %v", table, err)
 		}

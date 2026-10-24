@@ -2589,6 +2589,69 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/newsletter/c/{token}/{link}": {
+            "get": {
+                "tags": [
+                    "newsletters"
+                ],
+                "summary": "Newsletter click redirect",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Delivery token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Link ID",
+                        "name": "link",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    },
+                    "404": {
+                        "description": "HTML page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/newsletter/o/{token}": {
+            "get": {
+                "produces": [
+                    "image/gif"
+                ],
+                "tags": [
+                    "newsletters"
+                ],
+                "summary": "Newsletter open pixel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Delivery token",
+                        "name": "token",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/newsletter/resubscribe": {
             "post": {
                 "consumes": [
@@ -6927,6 +6990,9 @@ const docTemplate = `{
                 "body_html": {
                     "type": "string"
                 },
+                "click_count": {
+                    "type": "integer"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -6937,6 +7003,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "open_count": {
+                    "description": "Unique openers and unique clickers among real (not test) deliveries.",
                     "type": "integer"
                 },
                 "preheader": {
@@ -7010,6 +7077,9 @@ const docTemplate = `{
         "models.NewsletterStats": {
             "type": "object",
             "properties": {
+                "avg_click_rate": {
+                    "type": "number"
+                },
                 "avg_open_rate": {
                     "type": "number"
                 },

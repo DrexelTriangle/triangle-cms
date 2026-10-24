@@ -1072,6 +1072,8 @@ definitions:
     properties:
       body_html:
         type: string
+      click_count:
+        type: integer
       created_at:
         type: string
       email_html:
@@ -1079,6 +1081,7 @@ definitions:
       id:
         type: integer
       open_count:
+        description: Unique openers and unique clickers among real (not test) deliveries.
         type: integer
       preheader:
         type: string
@@ -1126,6 +1129,8 @@ definitions:
     type: object
   models.NewsletterStats:
     properties:
+      avg_click_rate:
+        type: number
       avg_open_rate:
         type: number
       recipients_reached:
@@ -3215,6 +3220,47 @@ paths:
       security:
       - BearerAuth: []
       summary: Delete a newsletter subscriber
+      tags:
+      - newsletters
+  /v1/newsletter/c/{token}/{link}:
+    get:
+      parameters:
+      - description: Delivery token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: Link ID
+        in: path
+        name: link
+        required: true
+        type: integer
+      responses:
+        "302":
+          description: Found
+        "404":
+          description: HTML page
+          schema:
+            type: string
+      summary: Newsletter click redirect
+      tags:
+      - newsletters
+  /v1/newsletter/o/{token}:
+    get:
+      parameters:
+      - description: Delivery token
+        in: path
+        name: token
+        required: true
+        type: string
+      produces:
+      - image/gif
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: Newsletter open pixel
       tags:
       - newsletters
   /v1/newsletter/resubscribe:

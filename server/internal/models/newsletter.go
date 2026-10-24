@@ -41,9 +41,11 @@ type Newsletter struct {
 	ScheduledFor   *time.Time         `json:"scheduled_for"`
 	SentAt         *time.Time         `json:"sent_at"`
 	RecipientCount int                `json:"recipient_count"`
-	OpenCount      int                `json:"open_count"`
-	CreatedAt      time.Time          `json:"created_at"`
-	UpdatedAt      time.Time          `json:"updated_at"`
+	// Unique openers and unique clickers among real (not test) deliveries.
+	OpenCount  int       `json:"open_count"`
+	ClickCount int       `json:"click_count"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // NewsletterInput is what the dashboard sends on create and save.
@@ -67,13 +69,15 @@ type NewsletterTestRequest struct {
 	Emails []string `json:"emails"`
 }
 
-// NewsletterStats feeds the dashboard's summary tiles. AvgOpenRate is 0..1
-// across sent issues with at least one recipient, and null when there are none.
+// NewsletterStats feeds the dashboard's summary tiles. AvgOpenRate and
+// AvgClickRate are 0..1 across sent issues with at least one recipient, and
+// null when there are none.
 type NewsletterStats struct {
 	SubscriberCount   int      `json:"subscriber_count"`
 	SentCount         int      `json:"sent_count"`
 	RecipientsReached int      `json:"recipients_reached"`
 	AvgOpenRate       *float64 `json:"avg_open_rate"`
+	AvgClickRate      *float64 `json:"avg_click_rate"`
 }
 
 // NewsletterSubscriber is one address on the mailing list. Lists holds the
