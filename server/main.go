@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/mail"
+	"net/url"
 	"os"
 	"os/signal"
 	"server/internal/activity"
@@ -17,6 +20,7 @@ import (
 	"server/internal/embeddings"
 	"server/internal/handlers"
 	"server/internal/imaging"
+	"server/internal/mailer"
 	"server/internal/middleware"
 	"server/internal/routes"
 	"server/internal/slack"
@@ -45,6 +49,10 @@ const (
 	slackWebhookURLEnv     = "SLACK_WEBHOOK_URL"
 	slackSigningSecretEnv  = "SLACK_SIGNING_SECRET"
 	slackQueueURLEnv       = "SLACK_CLASSIFIEDS_QUEUE_URL"
+	newsletterSMTPAddrEnv  = "NEWSLETTER_SMTP_ADDR"
+	newsletterFromEnv      = "NEWSLETTER_FROM"
+	newsletterPublicURLEnv = "NEWSLETTER_PUBLIC_URL"
+	defaultNewsletterFrom  = "The Triangle <notify@thetriangle.org>"
 	defaultShutdownTimeout = 10 * time.Second
 )
 
@@ -70,6 +78,7 @@ type runDeps struct {
 	oidcCfg         auth.OIDCConfig
 	spamChecker     akismet.Checker
 	slackNotifier   slack.Notifier
+	newsletterMail  *handlers.NewsletterMail
 }
 
 // @title Triangle CMS API
@@ -340,6 +349,11 @@ func main() {
 		os.Exit(1)
 	}
 	logSlackModerationState(slackNotifier)
+	newsletterMail, err := newsletterMailFromEnv()
+	if err != nil {
+		slog.Error("invalid newsletter mail configuration", "error", err)
+		os.Exit(1)
+	}
 
 	if spamChecker == nil {
 		slog.Warn("Akismet comment spam filtering disabled: AKISMET_API_KEY not set")
@@ -347,7 +361,7 @@ func main() {
 		slog.Info("Akismet comment spam filtering enabled")
 	}
 
-	if err := run(defaultRunDeps(verifier, oidcCfg, spamChecker, slackNotifier), db); err != nil {
+	if err := run(defaultRunDeps(verifier, oidcCfg, spamChecker, slackNotifier, newsletterMail), db); err != nil {
 		slog.Error("server terminated", "error", err)
 		os.Exit(1)
 	}
@@ -380,7 +394,7 @@ func dbConfigFromEnv() (dbName, user, password, host string, port int, err error
 	return dbName, user, password, host, port, nil
 }
 
-func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier) runDeps {
+func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, newsletterMail *handlers.NewsletterMail) runDeps {
 	return runDeps{
 		loadX509KeyPair: tls.LoadX509KeyPair,
 		newServer:       newDefaultServer,
@@ -391,6 +405,7 @@ func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spa
 		oidcCfg:         oidcCfg,
 		spamChecker:     spamChecker,
 		slackNotifier:   slackNotifier,
+		newsletterMail:  newsletterMail,
 	}
 }
 
@@ -461,7 +476,7 @@ func run(deps runDeps, conn *sql.DB) error {
 	handlers.SetImageVariants(variantIndex)
 
 	mux := http.NewServeMux()
-	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder)
+	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder, deps.newsletterMail)
 	server := deps.newServer(cert, mux, slog.Default())
 
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
@@ -574,6 +589,35 @@ func slackNotifierFromEnv() (slack.Notifier, error) {
 		return nil, fmt.Errorf("%s: %w", slackWebhookURLEnv, err)
 	}
 	return client, nil
+}
+
+// newsletterMailFromEnv builds the newsletter sender, or returns nil when none
+// is configured, which leaves every send answering 501. The only sender so far
+// is SMTP through an unauthenticated relay, meant for Mailpit in the laptop
+// sandbox; production will send through the Gmail API.
+func newsletterMailFromEnv() (*handlers.NewsletterMail, error) {
+	smtpAddr := strings.TrimSpace(os.Getenv(newsletterSMTPAddrEnv))
+	if smtpAddr == "" {
+		slog.Warn("newsletter sending disabled: " + newsletterSMTPAddrEnv + " not set")
+		return nil, nil
+	}
+	if _, _, err := net.SplitHostPort(smtpAddr); err != nil {
+		return nil, fmt.Errorf("%s must be host:port: %w", newsletterSMTPAddrEnv, err)
+	}
+	from, err := mail.ParseAddress(getenvOrDefault(newsletterFromEnv, defaultNewsletterFrom))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", newsletterFromEnv, err)
+	}
+	publicURL := strings.TrimSpace(os.Getenv(newsletterPublicURLEnv))
+	if parsed, err := url.Parse(publicURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+		strings.Trim(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("%s must be the http(s) origin readers reach the API on", newsletterPublicURLEnv)
+	}
+	slog.Info("newsletter sending through SMTP", "addr", smtpAddr, "from", from.Address)
+	return &handlers.NewsletterMail{
+		Composer: &mailer.Newsletter{From: from, PublicURL: publicURL},
+		Sender:   &mailer.SMTPSender{Addr: smtpAddr},
+	}, nil
 }
 
 // The two halves of Slack moderation are configured separately and half of it

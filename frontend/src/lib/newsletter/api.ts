@@ -3,9 +3,10 @@ import { useApiFetch } from "../../hooks/useApiFetch"
 import { createMockNewsletterApi } from "./mockStore"
 import type { Newsletter, NewsletterApi, NewsletterInput, NewsletterStats, NewsletterSubscriber } from "./types"
 
-// Off until sending exists: the CRUD endpoints are live, but test sends answer
-// 501. Set VITE_NEWSLETTER_API=live to point the dashboard at /v1/newsletters
-// instead of the in-browser mock.
+// Off until scheduled sending exists: the CRUD endpoints are live, and test
+// sends work wherever the server has a sender (501 otherwise). Set
+// VITE_NEWSLETTER_API=live to point the dashboard at /v1/newsletters instead
+// of the in-browser mock.
 const useLiveBackend = import.meta.env.VITE_NEWSLETTER_API === "live"
 
 type ApiFetch = ReturnType<typeof useApiFetch>

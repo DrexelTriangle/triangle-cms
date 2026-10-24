@@ -15,7 +15,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder) {
+func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder, newsletterMail *handlers.NewsletterMail) {
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 	// Prometheus scrape target. Unauthenticated by design, and safe only
 	// because Nginx proxies just /v1 and /swagger: nothing routes /metrics in
@@ -165,7 +165,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("DELETE /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.DeleteNewsletter(conn))))
 	mux.Handle("POST /v1/newsletters/{id}/schedule", authMW(editorOrAdmin(handlers.PostNewsletterSchedule(conn))))
 	mux.Handle("DELETE /v1/newsletters/{id}/schedule", authMW(editorOrAdmin(handlers.DeleteNewsletterSchedule(conn))))
-	mux.Handle("POST /v1/newsletters/{id}/test", authMW(editorOrAdmin(handlers.PostNewsletterTest())))
+	mux.Handle("POST /v1/newsletters/{id}/test", authMW(editorOrAdmin(handlers.PostNewsletterTest(conn, newsletterMail))))
 	mux.Handle("GET /v1/newsletter-subscribers", authMW(editorOrAdmin(handlers.GetNewsletterSubscribers(conn))))
 	mux.Handle("DELETE /v1/newsletter-subscribers/{id}", authMW(adminOnly(handlers.DeleteNewsletterSubscriber(conn))))
 	mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))

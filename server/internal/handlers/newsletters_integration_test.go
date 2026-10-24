@@ -8,14 +8,17 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	netmail "net/mail"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 
 	db "server/internal/database"
+	"server/internal/mailer"
 	"server/internal/models"
 )
 
@@ -223,9 +226,71 @@ func TestNewsletterHTTP_RejectsBadInput(t *testing.T) {
 		})
 	}
 
-	rec := serveNewsletter(t, PostNewsletterTest(), http.MethodPost, "/v1/newsletters/1/test", map[string][]string{"emails": {"a@b.c"}}, nil)
+	rec := serveNewsletter(t, PostNewsletterTest(conn, nil), http.MethodPost, "/v1/newsletters/1/test", map[string][]string{"emails": {"a@b.c"}}, nil)
 	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("test send: expected 501 until the sender exists, got %d", rec.Code)
+		t.Fatalf("test send: expected 501 with no sender configured, got %d", rec.Code)
+	}
+}
+
+type recordingSender struct{ sent []*mailer.Message }
+
+func (s *recordingSender) Send(_ context.Context, m *mailer.Message) error {
+	s.sent = append(s.sent, m)
+	return nil
+}
+
+func TestNewsletterHTTP_TestSend(t *testing.T) {
+	conn := newsletterTestDB(t)
+	sender := &recordingSender{}
+	mail := &NewsletterMail{
+		Composer: &mailer.Newsletter{From: &netmail.Address{Address: "notify@thetriangle.org"}, PublicURL: "https://cms.example.org"},
+		Sender:   sender,
+	}
+
+	created, err := db.InsertNewsletter(context.Background(), conn, models.NewsletterInput{
+		Subject:   "To The Point",
+		EmailHTML: `<a href="{{unsubscribe_url}}">Unsubscribe</a>`,
+	}, "editor@example.com")
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	path := "/v1/newsletters/" + strconv.FormatInt(created.ID, 10) + "/test"
+
+	rec := serveNewsletter(t, PostNewsletterTest(conn, mail), http.MethodPost, path,
+		map[string][]string{"emails": {"a@example.com", " A@example.com ", "b@example.com"}}, map[string]string{"id": strconv.FormatInt(created.ID, 10)})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(sender.sent) != 2 {
+		t.Fatalf("expected 2 messages (duplicate address dropped), got %d", len(sender.sent))
+	}
+	m := sender.sent[0]
+	if m.To.Address != "a@example.com" || m.Subject != "[Test] To The Point" {
+		t.Errorf("first message to %q with subject %q", m.To.Address, m.Subject)
+	}
+	if want := "https://cms.example.org/v1/newsletter/unsubscribe?t=" + mailer.TestToken; m.UnsubscribeURL != want || !strings.Contains(m.HTML, want) {
+		t.Errorf("unsubscribe link = %q, HTML %q", m.UnsubscribeURL, m.HTML)
+	}
+
+	bad := map[string][]string{
+		"none":        {" "},
+		"not address": {"Someone <a@example.com>"},
+		"too many":    {"1@x.org", "2@x.org", "3@x.org", "4@x.org", "5@x.org", "6@x.org"},
+	}
+	for name, emails := range bad {
+		rec := serveNewsletter(t, PostNewsletterTest(conn, mail), http.MethodPost, path,
+			map[string][]string{"emails": emails}, map[string]string{"id": strconv.FormatInt(created.ID, 10)})
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: expected 400, got %d", name, rec.Code)
+		}
+	}
+	rec = serveNewsletter(t, PostNewsletterTest(conn, mail), http.MethodPost, "/v1/newsletters/999999/test",
+		map[string][]string{"emails": {"a@example.com"}}, map[string]string{"id": "999999"})
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("missing issue: expected 404, got %d", rec.Code)
+	}
+	if len(sender.sent) != 2 {
+		t.Errorf("rejected requests still sent mail: %d messages", len(sender.sent))
 	}
 }
 

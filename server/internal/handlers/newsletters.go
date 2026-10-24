@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
+	netmail "net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"server/internal/activity"
 	db "server/internal/database"
+	"server/internal/mailer"
 	"server/internal/middleware"
 	"server/internal/models"
 )
@@ -250,8 +253,21 @@ func DeleteNewsletterSchedule(conn *sql.DB) http.Handler {
 	})
 }
 
-// PostNewsletterTest is a placeholder until the sender exists. It answers 501
-// rather than 204 so the dashboard never reports a test email that was not sent.
+// NewsletterMail is how newsletter email leaves the CMS. A nil *NewsletterMail
+// means no sender is configured, and every send answers 501.
+type NewsletterMail struct {
+	Composer *mailer.Newsletter
+	Sender   mailer.Sender
+}
+
+// A test goes to the author and maybe an editor or two; more than this is a
+// send to a list, which belongs to the scheduled path.
+const maxNewsletterTestRecipients = 5
+
+// PostNewsletterTest sends the saved version of an issue to a few addresses,
+// with "[Test]" on the subject and unsubscribe links that do nothing. With no
+// sender configured it answers 501 rather than 204, so the dashboard never
+// reports a test email that was not sent.
 //
 // @Summary Send a test of a newsletter issue
 // @Tags newsletters
@@ -259,13 +275,96 @@ func DeleteNewsletterSchedule(conn *sql.DB) http.Handler {
 // @Produce json
 // @Param id path int true "Newsletter ID"
 // @Param body body models.NewsletterTestRequest true "Recipients"
+// @Success 204
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
 // @Failure 501 {object} models.ErrorResponse
+// @Failure 502 {object} models.ErrorResponse
 // @Security BearerAuth
 // @Router /v1/newsletters/{id}/test [post]
-func PostNewsletterTest() http.Handler {
+func PostNewsletterTest(conn *sql.DB, mail *NewsletterMail) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, http.StatusNotImplemented, "Sending isn't set up yet, so no test email was sent.")
+		if mail == nil {
+			writeError(w, http.StatusNotImplemented, "Sending isn't set up yet, so no test email was sent.")
+			return
+		}
+		id, ok := classifiedIDParam(r)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid id")
+			return
+		}
+		var body models.NewsletterTestRequest
+		r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "emails must be a list of addresses")
+			return
+		}
+		recipients, problem := parseTestRecipients(body.Emails)
+		if problem != "" {
+			writeError(w, http.StatusBadRequest, problem)
+			return
+		}
+		issue, err := db.GetNewsletter(r.Context(), conn, id)
+		if err != nil {
+			writeNewsletterError(w, err)
+			return
+		}
+		for i, to := range recipients {
+			m := mail.Composer.Compose(mailer.Issue{ID: issue.ID, Subject: issue.Subject, EmailHTML: issue.EmailHTML}, to, mailer.TestToken)
+			if err := mail.Sender.Send(r.Context(), m); err != nil {
+				slog.Error("newsletter test send failed", "newsletter_id", id, "sent", i, "of", len(recipients), "error", err)
+				// Say what already went, so a retry is a choice and not a
+				// surprise duplicate for the earlier addresses.
+				problem := "The test email could not be sent. Try again in a minute."
+				if i > 0 {
+					activity.LogRequest(r, "newsletter_test_sent", "Newsletter "+strconv.FormatInt(id, 10), "recipients", strconv.Itoa(i))
+					problem = "The test went to " + strings.Join(testAddresses(recipients[:i]), ", ") + " but not to " + to.Address + ". Try the rest again in a minute."
+				}
+				writeError(w, http.StatusBadGateway, problem)
+				return
+			}
+		}
+		activity.LogRequest(r, "newsletter_test_sent", "Newsletter "+strconv.FormatInt(id, 10), "recipients", strconv.Itoa(len(recipients)))
+		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+func testAddresses(recipients []*netmail.Address) []string {
+	out := make([]string, len(recipients))
+	for i, r := range recipients {
+		out[i] = r.Address
+	}
+	return out
+}
+
+// parseTestRecipients accepts bare addresses only, deduplicated, and returns a
+// message for the author when the list is unusable.
+func parseTestRecipients(emails []string) ([]*netmail.Address, string) {
+	seen := map[string]bool{}
+	var out []*netmail.Address
+	for _, raw := range emails {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		addr, err := netmail.ParseAddress(raw)
+		if err != nil || addr.Address != raw {
+			return nil, raw + " isn't an email address."
+		}
+		key := strings.ToLower(addr.Address)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, &netmail.Address{Address: addr.Address})
+	}
+	switch {
+	case len(out) == 0:
+		return nil, "Add at least one address to send the test to."
+	case len(out) > maxNewsletterTestRecipients:
+		return nil, "A test can go to at most " + strconv.Itoa(maxNewsletterTestRecipients) + " addresses."
+	}
+	return out, ""
 }
 
 // GetNewsletterSubscribers lists subscribers, confirmed only unless ?status=
