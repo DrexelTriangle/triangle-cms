@@ -52,6 +52,7 @@ const (
 	newsletterSMTPAddrEnv  = "NEWSLETTER_SMTP_ADDR"
 	newsletterFromEnv      = "NEWSLETTER_FROM"
 	newsletterPublicURLEnv = "NEWSLETTER_PUBLIC_URL"
+	newsletterSiteURLEnv   = "NEWSLETTER_SITE_URL"
 	defaultNewsletterFrom  = "The Triangle <notify@thetriangle.org>"
 	defaultShutdownTimeout = 10 * time.Second
 )
@@ -476,7 +477,9 @@ func run(deps runDeps, conn *sql.DB) error {
 	handlers.SetImageVariants(variantIndex)
 
 	mux := http.NewServeMux()
-	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder, deps.newsletterMail)
+	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder, deps.newsletterMail,
+		// Where the unsubscribe page's "Go to The Triangle" link points.
+		getenvOrDefault(newsletterSiteURLEnv, "https://www.thetriangle.org"))
 	server := deps.newServer(cert, mux, slog.Default())
 
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())

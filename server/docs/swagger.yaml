@@ -3217,6 +3217,84 @@ paths:
       summary: Delete a newsletter subscriber
       tags:
       - newsletters
+  /v1/newsletter/resubscribe:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      parameters:
+      - description: Subscriber token
+        in: query
+        name: t
+        type: string
+      - description: WordPress key, <id>-<token>
+        in: query
+        name: nk
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML page
+          schema:
+            type: string
+        "404":
+          description: HTML page
+          schema:
+            type: string
+      summary: Resubscribe to the newsletter
+      tags:
+      - newsletters
+  /v1/newsletter/unsubscribe:
+    get:
+      parameters:
+      - description: Subscriber token
+        in: query
+        name: t
+        type: string
+      - description: WordPress key, <id>-<token>
+        in: query
+        name: nk
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML page
+          schema:
+            type: string
+        "404":
+          description: HTML page
+          schema:
+            type: string
+      summary: Newsletter unsubscribe page
+      tags:
+      - newsletters
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      parameters:
+      - description: Subscriber token
+        in: query
+        name: t
+        type: string
+      - description: WordPress key, <id>-<token>
+        in: query
+        name: nk
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML page
+          schema:
+            type: string
+        "404":
+          description: HTML page
+          schema:
+            type: string
+      summary: Unsubscribe from the newsletter
+      tags:
+      - newsletters
   /v1/newsletters:
     get:
       produces:

@@ -7,10 +7,13 @@ an in-browser mock (`frontend/src/lib/newsletter/mockStore.ts`); build with
 Types: `frontend/src/lib/newsletter/types.ts` (dashboard) and
 `server/internal/models/newsletter.go` (server).
 
-**Status (2026-10-23):** CRUD, scheduling state, stats and the subscriber list are
-implemented in Go (`server/internal/handlers/newsletters.go`,
-`server/internal/database/newsletters.go`). Nothing sends yet: a scheduled issue
-just sits there, and `POST /{id}/test` answers 501.
+**Status (2026-10-24):** CRUD, scheduling state, stats, the subscriber list, test
+sends and the public unsubscribe page are implemented in Go
+(`server/internal/handlers/newsletters.go`, `newsletter_unsubscribe.go`,
+`server/internal/mailer/`). A scheduled issue still just sits there: there is no
+send worker yet, and the only sender is SMTP to Mailpit in the laptop sandbox.
+Not built: the view-online page (`/v1/newsletter/issues/{id}` 404s), the Gmail
+API sender, open/click tracking, public subscribe.
 
 ## Model
 
@@ -40,12 +43,19 @@ stores it verbatim and, at send time, substitutes per recipient:
 - `{{view_online_url}}` — a public web copy of the issue
 
 These are generic tokens, not provider merge tags, so any sender (SMTP or an ESP)
-can fill them.
+can fill them. `server/internal/mailer` fills them: unsubscribe and manage both go
+to `{NEWSLETTER_PUBLIC_URL}/v1/newsletter/unsubscribe?t=<token>` (there is no
+separate preferences page), view online to `/v1/newsletter/issues/{id}`. Test sends
+use the token `test`, which the unsubscribe page treats as a no-op.
+
+The template is laid out for desktop Outlook (Word): an MSO-only 600px table, block
+spacing from cell padding rather than margins, text blocks as `<p>`, no `<figure>`.
+Mailpit's HTML Check in the sandbox shows what a change does to client support.
 
 ## Endpoints
 
 All require a dashboard session with the editor or admin role, like `/v1/articles`.
-Deleting a subscriber is admin-only.
+Deleting a subscriber is admin-only. The unsubscribe routes below are public.
 
 | method | path | body | returns |
 | --- | --- | --- | --- |
@@ -57,9 +67,21 @@ Deleting a subscriber is admin-only.
 | DELETE | `/v1/newsletters/{id}` | | 204; 409 once `sending`/`sent` |
 | POST | `/v1/newsletters/{id}/schedule` | `{send_at}` (RFC 3339, future) | `Newsletter` (status `scheduled`); 409 once `sending`/`sent` |
 | DELETE | `/v1/newsletters/{id}/schedule` | | `Newsletter` (back to `draft`) |
-| POST | `/v1/newsletters/{id}/test` | `{emails: string[]}` | 204 once a sender exists; **501 for now** |
+| POST | `/v1/newsletters/{id}/test` | `{emails: string[]}` | 204; sends the saved issue, subject `[Test] …`, to ≤5 bare addresses; 501 with no sender configured; 502 if the sender fails (the message names who already got it) |
 | GET | `/v1/newsletter-subscribers?status=` | | `{subscribers: [{id, email, name, status, lists, subscribed_at, unsubscribed_at?}]}`; `status` defaults to `confirmed`, or `unsubscribed`/`bounced`/`all` |
 | DELETE | `/v1/newsletter-subscribers/{id}` | | 204; erases the row (not an unsubscribe) |
+| GET | `/v1/newsletter/unsubscribe?t=` or `?nk=<wp id>-<wp token>` | | public HTML page; **never changes anything** (mail scanners open every link) |
+| POST | `/v1/newsletter/unsubscribe?t=`/`?nk=` | form, or RFC 8058 `List-Unsubscribe=One-Click` | public HTML page; confirmed → unsubscribed; repeating it is harmless |
+| POST | `/v1/newsletter/resubscribe?t=`/`?nk=` | | public HTML page; unsubscribed → confirmed; bounced stays bounced |
+
+Sender config (backend env): `NEWSLETTER_SMTP_ADDR` (host:port; unset = no sender),
+`NEWSLETTER_FROM` (default `The Triangle <notify@thetriangle.org>`),
+`NEWSLETTER_PUBLIC_URL` (origin readers reach `/v1` on; required with a sender),
+`NEWSLETTER_SITE_URL` (the unsubscribe page's link home; default www.thetriangle.org).
+
+WordPress's own unsubscribe links point at the WordPress site
+(`/?na=u&nk=<id>-<token>` and friends). After cutover that host is Scalene, which must
+redirect those to `/v1/newsletter/unsubscribe?nk=…` on the CMS; not done yet.
 
 `NewsletterInput` = `{subject, preheader, sponsor, body_html, email_html}`. `subject`
 (≤255) and `email_html` are required; a sponsor with an empty `image_url` is stored

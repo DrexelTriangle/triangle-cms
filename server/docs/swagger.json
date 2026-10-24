@@ -2586,6 +2586,127 @@
                 }
             }
         },
+        "/v1/newsletter/resubscribe": {
+            "post": {
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "newsletters"
+                ],
+                "summary": "Resubscribe to the newsletter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscriber token",
+                        "name": "t",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "WordPress key, \u003cid\u003e-\u003ctoken\u003e",
+                        "name": "nk",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "HTML page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/newsletter/unsubscribe": {
+            "get": {
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "newsletters"
+                ],
+                "summary": "Newsletter unsubscribe page",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscriber token",
+                        "name": "t",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "WordPress key, \u003cid\u003e-\u003ctoken\u003e",
+                        "name": "nk",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "HTML page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/x-www-form-urlencoded"
+                ],
+                "produces": [
+                    "text/html"
+                ],
+                "tags": [
+                    "newsletters"
+                ],
+                "summary": "Unsubscribe from the newsletter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscriber token",
+                        "name": "t",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "WordPress key, \u003cid\u003e-\u003ctoken\u003e",
+                        "name": "nk",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "HTML page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "HTML page",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/newsletters": {
             "get": {
                 "security": [

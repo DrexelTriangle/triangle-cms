@@ -15,7 +15,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder, newsletterMail *handlers.NewsletterMail) {
+func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder, newsletterMail *handlers.NewsletterMail, newsletterSiteURL string) {
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 	// Prometheus scrape target. Unauthenticated by design, and safe only
 	// because Nginx proxies just /v1 and /swagger: nothing routes /metrics in
@@ -75,6 +75,11 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("PATCH /v1/classifieds/{id}", authMW(handlers.PatchClassified(conn)))
 	mux.Handle("DELETE /v1/classifieds/{id}", authMW(adminOnly(handlers.DeleteClassified(conn))))
 	mux.Handle("POST /v1/integrations/slack/classifieds", middleware.RateLimitByIP(30, time.Minute)(handlers.PostSlackClassifiedAction(conn)))
+	// The links in every newsletter issue. Public, and not rate limited: see
+	// handlers/newsletter_unsubscribe.go.
+	mux.Handle("GET /v1/newsletter/unsubscribe", handlers.GetNewsletterUnsubscribe(conn, newsletterSiteURL))
+	mux.Handle("POST /v1/newsletter/unsubscribe", handlers.PostNewsletterUnsubscribe(conn, newsletterSiteURL))
+	mux.Handle("POST /v1/newsletter/resubscribe", handlers.PostNewsletterResubscribe(conn, newsletterSiteURL))
 	// The public photo gallery. The editor-facing catalogue at
 	// /v1/media/gallery stays authenticated; this one is images-only.
 	mux.Handle("GET /v1/gallery", handlers.GetPublicGallery(conn))
