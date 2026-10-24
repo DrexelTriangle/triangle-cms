@@ -138,32 +138,55 @@ const soleLink = (el: Element): HTMLAnchorElement | null => {
   return null
 }
 
-// A table, not a styled <a>: Outlook ignores padding on inline elements.
-const buttonFor = (doc: Document, link: HTMLAnchorElement): HTMLTableElement => {
+// Desktop Outlook renders with Word, which ignores margin on <div> and
+// <table> and padding on inline elements, but honours padding on a table cell
+// and margin on <p>. So spacing around blocks comes from a cell's padding, and
+// text blocks become <p>.
+const spacer = (doc: Document, padding: string, ...content: Node[]): HTMLTableElement => {
   const table = doc.createElement("table")
   table.setAttribute("role", "presentation")
+  table.setAttribute("width", "100%")
   table.setAttribute("cellpadding", "0")
   table.setAttribute("cellspacing", "0")
-  style(table, "margin:8px 0 24px;")
   const cell = table.insertRow().insertCell()
-  cell.setAttribute("bgcolor", MASTHEAD_BLUE)
-  style(cell, "border-radius:4px;")
-  const a = doc.createElement("a")
-  a.setAttribute("href", link.getAttribute("href") ?? "#")
-  a.textContent = link.textContent?.trim() || READ_MORE_LABEL
-  style(
-    a,
-    `${FONT}display:inline-block;padding:10px 18px;font-size:14px;font-weight:bold;color:#ffffff;text-decoration:none;`,
-  )
-  cell.appendChild(a)
+  style(cell, `padding:${padding};`)
+  cell.append(...content)
   return table
 }
 
+// A table, not a styled <a>: Outlook ignores padding on inline elements, so
+// the padding is on the cell.
+const buttonFor = (doc: Document, link: HTMLAnchorElement): HTMLTableElement => {
+  const button = doc.createElement("table")
+  button.setAttribute("role", "presentation")
+  button.setAttribute("cellpadding", "0")
+  button.setAttribute("cellspacing", "0")
+  const cell = button.insertRow().insertCell()
+  cell.setAttribute("bgcolor", MASTHEAD_BLUE)
+  style(cell, "border-radius:4px;padding:10px 18px;")
+  const a = doc.createElement("a")
+  a.setAttribute("href", link.getAttribute("href") ?? "#")
+  a.textContent = link.textContent?.trim() || READ_MORE_LABEL
+  style(a, `${FONT}font-size:14px;font-weight:bold;color:#ffffff;text-decoration:none;`)
+  cell.appendChild(a)
+  return spacer(doc, "8px 0 24px", button)
+}
+
 const divider = (doc: Document) => {
-  const hr = doc.createElement("div")
-  style(hr, `border-top:2px solid ${DIVIDER_BLUE};margin:32px 0 24px;font-size:0;line-height:0;`)
-  hr.innerHTML = "&nbsp;"
-  return hr
+  const rule = doc.createElement("div")
+  style(rule, `border-top:2px solid ${DIVIDER_BLUE};font-size:0;line-height:0;`)
+  rule.innerHTML = "&nbsp;"
+  return spacer(doc, "32px 0 24px", rule)
+}
+
+const BLOCKS = "div, p, h1, h2, h3, h4, ul, ol, blockquote, table, figure"
+
+const renamed = (el: Element, tag: string): Element => {
+  const next = el.ownerDocument.createElement(tag)
+  for (const attr of Array.from(el.attributes)) next.setAttribute(attr.name, attr.value)
+  next.append(...Array.from(el.childNodes))
+  el.replaceWith(next)
+  return next
 }
 
 // Inline-style the editor's HTML for mail clients, which ignore <style> blocks
@@ -180,7 +203,9 @@ export function bodyToEmailHtml(bodyHtml: string): string {
       continue
     }
     if (el.querySelector("figure, img")) continue
-    style(el, `${FONT}margin:0 0 14px;font-size:15px;line-height:1.55;color:${TEXT};`)
+    // Only a leaf block can become <p>; a <p> can't hold other blocks.
+    const text = el.tagName === "DIV" && !el.querySelector(BLOCKS) ? renamed(el, "p") : el
+    style(text, `${FONT}margin:0 0 14px;font-size:15px;line-height:1.55;color:${TEXT};`)
   }
 
   let headlines = 0
@@ -194,16 +219,18 @@ export function bodyToEmailHtml(bodyHtml: string): string {
     style(quote, `${FONT}margin:24px 0 20px;padding:0;text-align:center;font-size:14px;color:${TEXT};`)
   }
 
-  for (const figure of Array.from(root.querySelectorAll("figure"))) {
-    style(figure, "margin:0 0 16px;padding:0;")
-  }
   for (const img of Array.from(root.querySelectorAll("img"))) {
     img.removeAttribute("loading")
     img.setAttribute("width", String(EMAIL_WIDTH - 48))
     style(img, "display:block;width:100%;max-width:100%;height:auto;border:0;")
   }
   for (const caption of Array.from(root.querySelectorAll("figcaption"))) {
-    style(caption, `${FONT}margin:6px 0 0;font-size:12px;line-height:1.4;color:${MUTED};`)
+    style(renamed(caption, "div"), `${FONT}padding:6px 0 0;font-size:12px;line-height:1.4;color:${MUTED};`)
+  }
+  // Outlook, GMX and WEB.DE don't know <figure>; a spacer cell holds the same
+  // image and caption everywhere.
+  for (const figure of Array.from(root.querySelectorAll("figure"))) {
+    figure.replaceWith(spacer(doc, "0 0 16px", ...Array.from(figure.childNodes)))
   }
   for (const list of Array.from(root.querySelectorAll("ul, ol"))) {
     style(list, `${FONT}margin:0 0 14px;padding-left:22px;font-size:15px;line-height:1.55;color:${TEXT};`)
@@ -240,7 +267,7 @@ export function footerHtml(): string {
   const link = (href: string, label: string) =>
     `<a href="${href}" style="color:${MUTED};text-decoration:none;">${label}</a>`
   const socials = SOCIAL_LINKS.map((s) => link(s.url, s.label)).join(" &nbsp;·&nbsp; ")
-  return `<td align="center" style="${FONT}padding:28px 24px 32px;font-size:12px;line-height:1.6;color:${MUTED};"><div style="font-size:13px;color:${TEXT};">${FOOTER_TAGLINE}</div><div style="margin:8px 0;">${socials}</div><div>${link(EMAIL_TOKENS.unsubscribe, "Unsubscribe")} &nbsp;|&nbsp; ${link(EMAIL_TOKENS.manage, "Manage your subscription")} &nbsp;|&nbsp; ${link(EMAIL_TOKENS.viewOnline, "View online")}</div></td>`
+  return `<td align="center" style="${FONT}padding:28px 24px 32px;font-size:12px;line-height:1.6;color:${MUTED};"><div style="font-size:13px;color:${TEXT};">${FOOTER_TAGLINE}</div><p style="margin:8px 0;">${socials}</p><div>${link(EMAIL_TOKENS.unsubscribe, "Unsubscribe")} &nbsp;|&nbsp; ${link(EMAIL_TOKENS.manage, "Manage your subscription")} &nbsp;|&nbsp; ${link(EMAIL_TOKENS.viewOnline, "View online")}</div></td>`
 }
 
 type EmailFields = Pick<NewsletterInput, "subject" | "preheader" | "sponsor" | "body_html">
@@ -259,12 +286,14 @@ export function renderNewsletterEmail({ subject, preheader, sponsor, body_html }
 <body style="margin:0;padding:0;background:#f3f4f6;">
 ${pre}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f3f4f6"><tr><td align="center" style="padding:16px 8px;">
-<table role="presentation" width="${EMAIL_WIDTH}" cellpadding="0" cellspacing="0" style="width:100%;max-width:${EMAIL_WIDTH}px;background:#ffffff;">
+<!--[if mso]><table role="presentation" width="${EMAIL_WIDTH}" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+<table role="presentation" width="${EMAIL_WIDTH}" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="width:100%;max-width:${EMAIL_WIDTH}px;background:#ffffff;">
 ${sponsorHtml(sponsor)}
 <tr><td>${mastheadHtml()}</td></tr>
 <tr><td style="padding:24px 24px 8px;">${bodyToEmailHtml(body_html)}</td></tr>
 <tr>${footerHtml()}</tr>
 </table>
+<!--[if mso]></td></tr></table><![endif]-->
 </td></tr></table>
 </body>
 </html>`

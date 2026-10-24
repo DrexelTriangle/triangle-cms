@@ -108,6 +108,25 @@ describe("bodyToEmailHtml", () => {
     expect(doc.body.firstElementChild?.tagName).toBe("H1")
   })
 
+  it("leaves nothing Outlook's Word engine can't lay out", () => {
+    const doc = parse(
+      bodyToEmailHtml(
+        '<div>Plain text</div><div><a href="https://x.test/a">Read</a></div>' +
+          '<figure class="wp-caption"><img src="https://m.test/a.jpg" alt=""><figcaption>Credit</figcaption></figure>',
+      ),
+    )
+    expect(doc.querySelector("figure, figcaption")).toBeNull()
+    expect(doc.querySelector("p")?.textContent).toBe("Plain text")
+    // Spacing is cell padding, never margin on a table.
+    for (const table of Array.from(doc.querySelectorAll("table"))) {
+      expect(table.getAttribute("style") ?? "").not.toContain("margin")
+    }
+    const button = doc.querySelector("td[bgcolor]")
+    expect(button?.getAttribute("style")).toContain("padding:10px 18px")
+    expect(button?.querySelector("a")?.getAttribute("style")).not.toContain("padding")
+    expect(doc.querySelector("img")?.closest("td")?.textContent).toBe("Credit")
+  })
+
   it("sizes images for the email column and drops lazy loading", () => {
     const doc = parse(bodyToEmailHtml('<figure class="wp-caption"><img src="https://m.test/a.jpg" alt="" loading="lazy"></figure>'))
     const img = doc.querySelector("img")
@@ -136,6 +155,10 @@ describe("renderNewsletterEmail", () => {
     const doc = parse(renderNewsletterEmail(fields))
     expect(doc.querySelector('img[src="https://m.test/ad.png"]')).not.toBeNull()
     expect(doc.querySelector('a[href^="javascript"]')).toBeNull()
+  })
+
+  it("pins the card to 600px for Outlook, which ignores max-width", () => {
+    expect(renderNewsletterEmail(fields)).toMatch(/<!--\[if mso\]><table role="presentation" width="600"/)
   })
 
   it("includes the masthead, hidden preheader and subject title", () => {
