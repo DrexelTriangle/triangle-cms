@@ -1140,6 +1140,24 @@ definitions:
       subscriber_count:
         type: integer
     type: object
+  models.NewsletterSubscribeRequest:
+    properties:
+      email:
+        type: string
+      lists:
+        items:
+          type: integer
+        type: array
+      website:
+        type: string
+    type: object
+  models.NewsletterSubscribeResponse:
+    properties:
+      error:
+        type: string
+      success:
+        type: boolean
+    type: object
   models.NewsletterSubscriber:
     properties:
       email:
@@ -3220,6 +3238,41 @@ paths:
       security:
       - BearerAuth: []
       summary: Delete a newsletter subscriber
+      tags:
+      - newsletters
+  /v1/newsletter-subscribers/subscribe:
+    post:
+      consumes:
+      - application/json
+      description: Public, rate limited per IP. Lists are ids 1-7; none means no particular
+        list.
+      parameters:
+      - description: Address and lists
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.NewsletterSubscribeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.NewsletterSubscribeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.NewsletterSubscribeResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.NewsletterSubscribeResponse'
+      summary: Subscribe to the newsletter
       tags:
       - newsletters
   /v1/newsletter/c/{token}/{link}:

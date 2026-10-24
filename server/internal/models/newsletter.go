@@ -69,6 +69,21 @@ type NewsletterTestRequest struct {
 	Emails []string `json:"emails"`
 }
 
+// NewsletterSubscribeRequest is the public subscribe form. Website is a
+// honeypot: hidden from readers, so only a bot fills it in.
+type NewsletterSubscribeRequest struct {
+	Email   string `json:"email"`
+	Lists   []int  `json:"lists"`
+	Website string `json:"website,omitempty"`
+}
+
+// NewsletterSubscribeResponse keeps the WordPress plugin's success flag, which
+// the public site's form already reads.
+type NewsletterSubscribeResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
 // NewsletterStats feeds the dashboard's summary tiles. AvgOpenRate and
 // AvgClickRate are 0..1 across sent issues with at least one recipient, and
 // null when there are none.

@@ -2541,6 +2541,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/newsletter-subscribers/subscribe": {
+            "post": {
+                "description": "Public, rate limited per IP. Lists are ids 1-7; none means no particular list.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "newsletters"
+                ],
+                "summary": "Subscribe to the newsletter",
+                "parameters": [
+                    {
+                        "description": "Address and lists",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.NewsletterSubscribeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.NewsletterSubscribeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.NewsletterSubscribeResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.NewsletterSubscribeResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/newsletter-subscribers/{id}": {
             "delete": {
                 "security": [
@@ -7125,6 +7177,34 @@ const docTemplate = `{
                 },
                 "subscriber_count": {
                     "type": "integer"
+                }
+            }
+        },
+        "models.NewsletterSubscribeRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "lists": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "website": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.NewsletterSubscribeResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
                 }
             }
         },

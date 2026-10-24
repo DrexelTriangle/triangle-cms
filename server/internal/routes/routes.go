@@ -83,6 +83,11 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/newsletter/issues/{id}", handlers.GetNewsletterIssue(conn, newsletterSiteURL))
 	mux.Handle("GET /v1/newsletter/o/{token}", handlers.GetNewsletterOpen(conn))
 	mux.Handle("GET /v1/newsletter/c/{token}/{link}", handlers.GetNewsletterClick(conn, newsletterSiteURL))
+	// The public site's subscribe form, through Scalene's /api proxy, which
+	// forwards the reader's address so this limit is per reader.
+	// "subscribe" is a literal segment, so Go's mux prefers it over
+	// /v1/newsletter-subscribers/{id}.
+	mux.Handle("POST /v1/newsletter-subscribers/subscribe", middleware.RateLimitByIP(5, time.Minute)(handlers.PostNewsletterSubscribe(conn)))
 	// The public photo gallery. The editor-facing catalogue at
 	// /v1/media/gallery stays authenticated; this one is images-only.
 	mux.Handle("GET /v1/gallery", handlers.GetPublicGallery(conn))
