@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import "trix";
 import "trix/dist/trix.css";
 import "./TrixEditor.css";
@@ -91,14 +91,54 @@ const isOwnMediaUrl = (url: string): boolean => {
   }
 };
 
+// Lets a page drop prepared content in at the caret (the newsletter's "Insert
+// article" card) without reaching into the Trix element itself.
+export type TrixEditorHandle = {
+  insertHTML: (html: string) => void;
+};
+
 type TrixEditorProps = {
   value: string;
   onChange: (html: string) => void;
+  handleRef?: React.Ref<TrixEditorHandle>;
 };
 
-function TrixEditor({ value, onChange }: TrixEditorProps) {
+function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
   const toolbarId = useId();
   const editorRef = useRef<TrixEditorElement>(null);
+
+  useImperativeHandle(
+    handleRef,
+    () => ({
+      insertHTML: (html: string) => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        editor.focus();
+        const doc = editor.editor.getDocument();
+        const [caret] = editor.editor.getSelectedRange();
+        const { index } = doc.locationFromPosition(caret);
+        const block = doc.getBlockAtIndex(index);
+        // Inserted content is whole blocks. Dropped mid-block it would split
+        // the block, and its first paragraph would merge into it, so a card
+        // inserted inside a headline became part of the headline. Open a
+        // fresh, unformatted block after the caret's block instead.
+        if (block && !block.isEmpty()) {
+          const blockEnd = doc.positionFromLocation({ index, offset: 0 }) + block.getLength() - 1;
+          editor.editor.setSelectedRange(blockEnd);
+          editor.editor.composition.insertBlockBreak();
+        }
+        const current = editor.editor.getDocument();
+        const [at] = editor.editor.getSelectedRange();
+        const opened = current.getBlockAtIndex(current.locationFromPosition(at).index);
+        for (const attribute of opened?.getAttributes() ?? []) {
+          editor.editor.deactivateAttribute(attribute);
+        }
+        // Same load path as the value prop, so figures arrive as attachments.
+        editor.editor.insertHTML(articleHtmlToTrix(html));
+      },
+    }),
+    [],
+  );
   const wrapperRef = useRef<HTMLDivElement>(null);
   // Every HTML string we have emitted since the last load from outside, so we
   // never call loadHTML on our own output, which would reset the document and

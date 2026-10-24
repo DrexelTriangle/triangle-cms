@@ -56,10 +56,14 @@ declare global {
     getAttachments(): TrixAttachment[];
     locationFromPosition(position: number): { index: number; offset: number };
     getBlockAtIndex(index: number): TrixBlock | undefined;
+    positionFromLocation(location: { index: number; offset: number }): number;
   }
 
   interface TrixBlock {
     isEmpty(): boolean;
+    // Includes the block's trailing newline.
+    getLength(): number;
+    getAttributes(): string[];
   }
 
   // Not part of Trix's documented editor API, but the only way to put an
@@ -96,6 +100,7 @@ declare global {
     insertHTML(html: string): void;
     insertAttachment(attachment: TrixAttachment): void;
     insertLineBreak(): void;
+    deactivateAttribute(name: string): void;
     activateAttachment(attachment: TrixAttachment): void;
   }
 
