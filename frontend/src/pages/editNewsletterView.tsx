@@ -118,9 +118,8 @@ export default function EditNewsletterView() {
   // the server's echo: if it normalises what we send, comparing against that
   // would leave the page "dirty" forever after a save.
   const [baseline, setBaseline] = useState<Draft | null>(null)
-  // When the body was loaded, and whether Trix has re-serialised it yet; see setBody.
-  const loadedAtRef = useRef(0)
-  const normalisedRef = useRef(false)
+  // Whether the author has done anything to the body since it was loaded; see setBody.
+  const bodyTouchedRef = useRef(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null)
@@ -144,8 +143,7 @@ export default function EditNewsletterView() {
         setNewsletter(loaded)
         setDraft(draftOf(loaded))
         setBaseline(draftOf(loaded))
-        loadedAtRef.current = Date.now()
-        normalisedRef.current = false
+        bodyTouchedRef.current = false
       })
       .catch((err: unknown) => {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load the newsletter.")
@@ -164,13 +162,16 @@ export default function EditNewsletterView() {
   const patch = useCallback((changes: Partial<Draft>) => {
     setDraft((current) => (current ? { ...current, ...changes } : current))
   }, [])
+  const markBodyTouched = useCallback(() => {
+    bodyTouchedRef.current = true
+  }, [])
   const setBody = useCallback(
     (body_html: string) => {
-      // Trix re-serialises the template HTML as soon as it loads it, which
-      // would otherwise read as an edit on an issue nobody has touched. Treat
-      // the first emission right after load as the new baseline.
-      if (!normalisedRef.current && Date.now() - loadedAtRef.current < 1000) {
-        normalisedRef.current = true
+      // Trix re-serialises the template HTML when it loads it, and again as
+      // images finish loading, which would otherwise read as edits on an issue
+      // nobody has touched. Until the author does something to the body, every
+      // emission is that normalisation and becomes the new baseline.
+      if (!bodyTouchedRef.current) {
         setBaseline((current) => (current ? { ...current, body_html } : current))
       }
       patch({ body_html })
@@ -408,7 +409,14 @@ export default function EditNewsletterView() {
                 <div className="text-xs tracking-[0.2em]">THE TRIANGLE</div>
                 <div className="text-2xl leading-tight">{NEWSLETTER_NAME}</div>
               </div>
-              <div className={isLocked ? "pointer-events-none opacity-70" : ""}>
+              <div
+                className={isLocked ? "pointer-events-none opacity-70" : ""}
+                onCutCapture={markBodyTouched}
+                onDropCapture={markBodyTouched}
+                onKeyDownCapture={markBodyTouched}
+                onMouseDownCapture={markBodyTouched}
+                onPasteCapture={markBodyTouched}
+              >
                 <TrixEditor handleRef={editorHandle} onChange={setBody} value={draft.body_html} />
               </div>
               <div className="border-t border-border bg-muted/30 px-4 py-3 text-center text-xs text-muted-foreground">
@@ -527,6 +535,7 @@ export default function EditNewsletterView() {
         <ArticlePicker
           onClose={() => setArticlePickerOpen(false)}
           onSelect={(article) => {
+            markBodyTouched()
             editorHandle.current?.insertHTML(articleCardHtml(article))
             setArticlePickerOpen(false)
           }}
