@@ -153,6 +153,12 @@ already sends as notify@ through the Gmail HTTP API with an OAuth refresh token
   skipped and listed. The WordPress token is kept in `legacy_wp_token` so old
   `nk=<id>-<token>` unsubscribe links can be honoured after cutover. Prod needs
   the backend deployed first (it refuses without the tables) and operator approval.
+  Source checked 2026-10-23: 594 C (1 `test`) + 7 U, no case-insensitive duplicate
+  addresses, tokens ≤10 chars, `created` is a `timestamp` on a UTC server. The WP
+  DB user is `wordpressuser@%` and Delta reaches 10.248.42.122:3306, so run it on
+  Delta. `WP_DSN` needs `parseTime=true`. wp-config writes
+  `define( 'DB_USER', '…' );` with spaces inside the parentheses; strip the quotes
+  when scripting against it.
 - **Opens.** Open tracking needs a pixel or the ESP's webhooks; `open_count` stays 0 until then.
 - **Scheduling worker** that moves `scheduled` → `sending` → `sent` and is safe across
   the blue/green slots (only one slot may send).
