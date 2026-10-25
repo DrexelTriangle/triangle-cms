@@ -112,6 +112,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/settings/homepage-carousel", handlers.GetHomepageCarousel(conn))
 	mux.Handle("GET /v1/settings/footer", handlers.GetFooterSettings(conn))
 	mux.Handle("GET /v1/legacy-redirects", handlers.GetLegacyRedirects(conn))
+	mux.Handle("GET /v1/legacy-redirects/newsletter-click", handlers.GetLegacyNewsletterClick())
 	mux.Handle("GET /v1/seo/audit", authMW(handlers.GetSEOAudit(conn)))
 	mux.Handle("GET /v1/activity", authMW(adminOnly(handlers.GetActivity())))
 	mux.Handle("GET /v1/users/me", authMW(http.HandlerFunc(handlers.GetMe)))

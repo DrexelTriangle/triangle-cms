@@ -340,6 +340,16 @@ def load_cms_articles(cms: Client) -> list[CMSArticle]:
     return [CMSArticle(int(r[0]), unhex(r[1]), r[2], unhex(r[3]), r[4] == "1") for r in rows]
 
 
+def redirects_table_exists(cms: Client) -> bool:
+    """The CMS creates the table at startup, so it is missing only on a
+    database the new CMS has not booted against yet."""
+    rows = cms.rows(
+        "SELECT COUNT(*) FROM information_schema.tables "
+        "WHERE table_schema = DATABASE() AND table_name = 'legacy_redirects'"
+    )
+    return rows[0][0] == "1"
+
+
 def load_manual_sources(cms: Client) -> set[tuple[str, str]]:
     rows = cms.rows(
         f"SELECT `source_kind`, HEX(`source`) FROM `legacy_redirects` WHERE `origin` <> '{ORIGIN}'"
@@ -396,6 +406,10 @@ class Matcher:
         if has_date:
             same_time = self.by_date.get(post.post_date_gmt, [])
             if len(same_time) == 1:
+                # Still a match -- editors retitle articles -- but counted
+                # apart so a dry run shows how much rests on the time alone.
+                if normalize_title(same_time[0].title) != title:
+                    return same_time[0], "date, retitled"
                 return same_time[0], "date"
             titled = [a for a in same_time if normalize_title(a.title) == title]
             if len(titled) == 1:
@@ -545,14 +559,20 @@ def main() -> int:
 
         step("Reading the CMS")
         articles = load_cms_articles(cms)
-        manual = load_manual_sources(cms)
+        if redirects_table_exists(cms):
+            manual = load_manual_sources(cms)
+        elif args.apply:
+            raise Fail("legacy_redirects does not exist yet: deploy the CMS version that creates it, then re-run")
+        else:
+            warn("legacy_redirects does not exist yet (the CMS creates it at startup); assuming no manual rows")
+            manual = set()
         info(f"{len(articles)} articles, {len(manual)} manual redirects")
 
         step("Matching")
         redirects, unplaced, stats = build_redirects(
             posts, categories, default_category, structure, Matcher(articles), manual
         )
-        for key in ("date", "date+title", "slug", "title", "unmatched", "archived", "shadowed_by_manual", "slug_is_category", "duplicate_source"):
+        for key in ("date", "date, retitled", "date+title", "slug", "title", "unmatched", "archived", "shadowed_by_manual", "slug_is_category", "duplicate_source"):
             if stats.get(key):
                 info(f"{key:>20}: {stats[key]}")
         info(f"{len(redirects)} redirects for {len(posts) - len(unplaced)} posts; {len(unplaced)} posts unplaced")

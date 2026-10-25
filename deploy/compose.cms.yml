@@ -33,6 +33,10 @@ x-backend-base: &backend-base
     SLACK_CLASSIFIEDS_QUEUE_URL: ${SLACK_CLASSIFIEDS_QUEUE_URL:-}
     AKISMET_API_KEY: ${AKISMET_API_KEY:-}
     AKISMET_BLOG_URL: ${AKISMET_BLOG_URL:-}
+    # The WordPress Newsletter plugin's signing key, so click-tracking links in
+    # issues it sent can still reach sponsors and other sites (links to our own
+    # domains work without it). See handlers/legacy_newsletter_click.go.
+    NEWSLETTER_LEGACY_LINK_KEY: ${NEWSLETTER_LEGACY_LINK_KEY:-}
     # Media: legacy WP uploads migrated to CephFS. The upload endpoint writes new
     # assets under MEDIA_ROOT; MEDIA_BASE_URL is the public host that serves them.
     MEDIA_ROOT: ${MEDIA_ROOT:-/mnt/cephfs/media}

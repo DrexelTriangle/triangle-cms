@@ -2003,6 +2003,29 @@
                 }
             }
         },
+        "/v1/legacy-redirects/newsletter-click": {
+            "get": {
+                "description": "Decodes the Newsletter plugin's nltr parameter and redirects to the original link when its signature verifies (or it points at The Triangle's own site); otherwise redirects to the homepage.",
+                "tags": [
+                    "newsletter"
+                ],
+                "summary": "Follow a click-tracking link from a WordPress-era newsletter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The plugin's base64 tracking payload",
+                        "name": "nltr",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    }
+                }
+            }
+        },
         "/v1/media": {
             "get": {
                 "security": [
