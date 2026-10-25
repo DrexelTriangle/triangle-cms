@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowLeft, Check, Code, Eye, Image, Monitor, Newspaper, Save, Send, Smartphone, X } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
-import TrixEditor, { type TrixEditorHandle } from "../components/TrixEditor"
+import TrixEditor, { type TrixArticleCards, type TrixEditorHandle } from "../components/TrixEditor"
 import MediaPicker from "../components/MediaPicker"
 import ArticlePicker from "../components/newsletter/ArticlePicker"
 import { DateTimeField } from "../components/ui/datetime-field"
@@ -13,6 +13,7 @@ import {
   isHttpUrl,
   mastheadHtml,
   previewEmailHtml,
+  READ_MORE_LABEL,
   renderNewsletterEmail,
 } from "../lib/newsletter/template"
 import type { Newsletter, NewsletterSponsor } from "../lib/newsletter/types"
@@ -123,6 +124,9 @@ export default function EditNewsletterView() {
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [articlePickerOpen, setArticlePickerOpen] = useState(false)
+  // Set while the picker is open to swap out one card: the editor's function
+  // that replaces it.
+  const [replaceArticle, setReplaceArticle] = useState<((html: string) => void) | null>(null)
   const [sponsorPickerOpen, setSponsorPickerOpen] = useState(false)
   const [htmlCopied, setHtmlCopied] = useState(false)
   const [testEmails, setTestEmails] = useState("")
@@ -163,6 +167,14 @@ export default function EditNewsletterView() {
   const markBodyTouched = useCallback(() => {
     bodyTouchedRef.current = true
   }, [])
+  const articleCards = useMemo<TrixArticleCards>(
+    () => ({
+      endLinkText: READ_MORE_LABEL,
+      // Wrapped: a bare function passed to a state setter is called as an updater.
+      onEdit: (replace) => setReplaceArticle(() => replace),
+    }),
+    [],
+  )
   const setBody = useCallback(
     (body_html: string) => {
       // Trix re-serialises the template HTML when it loads it, and again as
@@ -409,7 +421,12 @@ export default function EditNewsletterView() {
                 onMouseDownCapture={markBodyTouched}
                 onPasteCapture={markBodyTouched}
               >
-                <TrixEditor handleRef={editorHandle} onChange={setBody} value={draft.body_html} />
+                <TrixEditor
+                  articleCards={isLocked ? undefined : articleCards}
+                  handleRef={editorHandle}
+                  onChange={setBody}
+                  value={draft.body_html}
+                />
               </div>
               <div className="border-t border-border bg-muted/30 px-4 py-3 text-center text-xs text-muted-foreground">
                 <div className="text-foreground">{FOOTER_TAGLINE}</div>
@@ -529,6 +546,18 @@ export default function EditNewsletterView() {
             editorHandle.current?.insertHTML(articleCardHtml(article))
             setArticlePickerOpen(false)
           }}
+        />
+      ) : null}
+
+      {replaceArticle ? (
+        <ArticlePicker
+          onClose={() => setReplaceArticle(null)}
+          onSelect={(article) => {
+            markBodyTouched()
+            replaceArticle(articleCardHtml(article))
+            setReplaceArticle(null)
+          }}
+          title="Swap article"
         />
       ) : null}
 

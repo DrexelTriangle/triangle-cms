@@ -14,6 +14,7 @@ import {
   replacementAttachmentAttributes,
   trixHtmlToArticle,
 } from "./trixImageHtml";
+import { type CardSpan, findCards } from "./trixCards";
 
 // Leave the caption area of an image empty until it has a real caption. Trix's
 // default is to fill it with the filename and file size, which reads as a
@@ -93,17 +94,32 @@ const isOwnMediaUrl = (url: string): boolean => {
 
 // Lets a page drop prepared content in at the caret (the newsletter's "Insert
 // article" card) without reaching into the Trix element itself.
+// The editor's content as Trix serializes it, one top-level element per block.
+const serializedBlocks = (editor: TrixEditorElement): Element[] =>
+  Array.from(
+    new DOMParser().parseFromString(editor.value, "text/html").body.children,
+  );
+
 export type TrixEditorHandle = {
   insertHTML: (html: string) => void;
+};
+
+// Opt-in swap control on article cards (see trixCards.ts). onEdit is handed a
+// function that replaces the card with new HTML; the caller decides what that
+// HTML is, typically by opening a picker and calling it on selection.
+export type TrixArticleCards = {
+  endLinkText: string;
+  onEdit: (replace: (html: string) => void) => void;
 };
 
 type TrixEditorProps = {
   value: string;
   onChange: (html: string) => void;
   handleRef?: React.Ref<TrixEditorHandle>;
+  articleCards?: TrixArticleCards;
 };
 
-function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
+function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProps) {
   const toolbarId = useId();
   const editorRef = useRef<TrixEditorElement>(null);
 
@@ -179,6 +195,97 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
   } | null>(null);
   // The image being replaced, by attachment id, while the picker is open for it.
   const [replaceTarget, setReplaceTarget] = useState<number | null>(null);
+  // Article cards currently in the document, with where each one's swap button
+  // sits in the wrapper.
+  const [cards, setCards] = useState<
+    (CardSpan & { top: number; title: string })[]
+  >([]);
+  const endLinkText = articleCards?.endLinkText;
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const wrapper = wrapperRef.current;
+    // Disabled: the render ignores `cards` without articleCards.
+    if (!editor || !wrapper || endLinkText === undefined) return;
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const live = Array.from(editor.children) as HTMLElement[];
+        const serialized = serializedBlocks(editor);
+        // Rendered and serialized blocks line up by index (see commitMove).
+        if (live.length !== serialized.length) {
+          setCards([]);
+          return;
+        }
+        const wrapperTop = wrapper.getBoundingClientRect().top;
+        setCards(
+          findCards(serialized, endLinkText).map((card) => ({
+            ...card,
+            top: live[card.start].getBoundingClientRect().top - wrapperTop,
+            title: serialized[card.start].textContent?.trim() ?? "",
+          })),
+        );
+      });
+    };
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(editor);
+    editor.addEventListener("trix-render", measure);
+    editor.addEventListener("trix-change", measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      editor.removeEventListener("trix-render", measure);
+      editor.removeEventListener("trix-change", measure);
+    };
+  }, [endLinkText]);
+
+  // Swap one card's blocks for new HTML, as one undo entry. Unlike commitMove
+  // this splices the document's own blocks rather than reparsing the whole
+  // serialization: reparsing makes every image in the issue a new attachment,
+  // and trix-attachment-add then re-imports each one that isn't on our media
+  // host (and deletes it if that fails). Only the new card's images are new.
+  const replaceCard = useCallback(
+    (target: CardSpan, html: string) => {
+      const editor = editorRef.current;
+      const Trix = window.Trix;
+      if (!editor || !Trix || endLinkText === undefined) return;
+      const serialized = serializedBlocks(editor);
+      const blocks = editor.editor.getDocument().getBlocks();
+      // The serialization has one element per block (see commitMove).
+      if (blocks.length !== serialized.length) return;
+      // The picker was open while the author could still edit, so find the
+      // card again: where it was, or else the only card with its link.
+      const sameLink = findCards(serialized, endLinkText).filter(
+        (card) => card.href === target.href,
+      );
+      const card =
+        sameLink.find((c) => c.start === target.start) ??
+        (sameLink.length === 1 ? sameLink[0] : undefined);
+      if (!card) {
+        setNotice(
+          "That article changed before a replacement was chosen. Insert the new one where you want it.",
+        );
+        return;
+      }
+      const replacement = Trix.HTMLParser.parse(articleHtmlToTrix(html), {
+        referenceElement: editor,
+      })
+        .getDocument()
+        .getBlocks();
+      editor.editor.composition.stopEditingAttachment();
+      editor.editor.recordUndoEntry("Replace Article");
+      editor.editor.composition.setDocument(
+        new Trix.models.Document([
+          ...blocks.slice(0, card.start),
+          ...replacement,
+          ...blocks.slice(card.end + 1),
+        ]),
+      );
+    },
+    [endLinkText],
+  );
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -1387,7 +1494,10 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
   }, []);
 
   return (
-    <div ref={wrapperRef} className="trix-editor-wrapper">
+    <div
+      ref={wrapperRef}
+      className={`trix-editor-wrapper${articleCards ? " trix-editor-wrapper--cards" : ""}`}
+    >
       <svg style={{ display: "none" }} aria-hidden="true">
         <symbol
           id={`${toolbarId}-undo`}
@@ -1770,6 +1880,37 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
         toolbar={toolbarId}
         className="trix-content"
       />
+
+      {/* Outside the contenteditable, like the image overlay, so Trix leaves
+          them alone. */}
+      {articleCards &&
+        cards.map((card) => (
+          <button
+            aria-label={`Swap article: ${card.title}`}
+            className="trix-card-swap"
+            key={`${card.start.toString()}-${card.href}`}
+            onClick={() =>
+              articleCards.onEdit((html) => replaceCard(card, html))
+            }
+            style={{ top: card.top }}
+            title="Swap article"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              {/* lucide's Pencil, matching the hand-built toolbar icons. */}
+              <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+              <path d="m15 5 4 4" />
+            </svg>
+          </button>
+        ))}
 
       {notice && (
         <div className="trix-editor-notice" role="status">

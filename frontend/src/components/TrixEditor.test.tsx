@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { MediaPickerItem, MediaPickerSource } from "./MediaPicker"
 
@@ -172,5 +172,99 @@ describe("TrixEditor image links", () => {
     const linkOf = (src: string) => saved.querySelector(`img[src="${src}"]`)?.closest("a")?.getAttribute("href") ?? null
     expect(linkOf("https://m.test/comic.png")).toBe("https://www.thetriangle.org/article/comic")
     expect(linkOf("https://m.test/photo.jpg")).toBeNull()
+  })
+})
+
+describe("TrixEditor article cards", () => {
+  const READ_MORE = "Click Here to Read More"
+  const card = (title: string, slug: string, image?: string) =>
+    `<h1>${title}</h1>` +
+    (image ? `<figure><a href="/article/${slug}"><img src="${image}" alt="${title}"></a></figure>` : "") +
+    `<p>${title} excerpt</p><p><a href="/article/${slug}">${READ_MORE}</a></p>`
+  const BODY = `<p>Intro</p>${card("Alpha", "alpha", "https://m.test/a.jpg")}${card("Beta", "beta")}<p>Question of the day</p>`
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    )
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const renderCards = async () => {
+    const onChange = vi.fn()
+    const onEdit = vi.fn<(replace: (html: string) => void) => void>()
+    const { container } = render(
+      <TrixEditor articleCards={{ endLinkText: READ_MORE, onEdit }} onChange={onChange} value={BODY} />,
+    )
+    const editor = container.querySelector<TrixEditorElement>("trix-editor")
+    if (!editor) throw new Error("no trix-editor")
+    await screen.findByRole("button", { name: "Swap article: Beta" })
+    return { editor, onChange, onEdit }
+  }
+  const lastHtml = (onChange: ReturnType<typeof vi.fn>) => String(onChange.mock.calls.at(-1)?.[0])
+
+  it("swaps only the chosen card's blocks, in place, leaving other images alone", async () => {
+    // Alpha's image is off-site, so if the swap re-added it the editor would
+    // try to re-import it, and delete it when that failed.
+    const fetchSpy = vi.fn(() => Promise.reject(new Error("offline")))
+    vi.stubGlobal("fetch", fetchSpy)
+    const { editor, onChange, onEdit } = await renderCards()
+
+    fireEvent.click(screen.getByRole("button", { name: "Swap article: Beta" }))
+    act(() => onEdit.mock.calls[0][0](card("Gamma", "gamma", "/wp-content/uploads/g.jpg")))
+
+    await waitFor(() => expect(lastHtml(onChange)).toContain("Gamma"))
+    // Trix's own serialization: jsdom never loads the images, so the saved
+    // HTML has no figures to check.
+    const saved = editor.value
+    expect(saved).not.toContain("Beta")
+    const positions = [
+      "Intro",
+      "Alpha",
+      "https://m.test/a.jpg",
+      "/article/alpha",
+      "Gamma",
+      "/wp-content/uploads/g.jpg",
+      "Gamma excerpt",
+      "/article/gamma",
+      "Question of the day",
+    ].map((text) => saved.indexOf(text))
+    expect(positions.every((p) => p >= 0)).toBe(true)
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+    expect(fetchSpy).not.toHaveBeenCalled()
+    await screen.findByRole("button", { name: "Swap article: Gamma" })
+  })
+
+  it("is one undo step", async () => {
+    const { editor, onChange, onEdit } = await renderCards()
+    fireEvent.click(screen.getByRole("button", { name: "Swap article: Beta" }))
+    act(() => onEdit.mock.calls[0][0](card("Gamma", "gamma")))
+    await waitFor(() => expect(lastHtml(onChange)).toContain("Gamma"))
+
+    act(() => editor.editor.undo())
+    await waitFor(() => expect(editor.value).toContain("Beta excerpt"))
+    expect(editor.value).not.toContain("Gamma")
+  })
+
+  it("refuses to guess when the card was removed while the picker was open", async () => {
+    const { editor, onChange, onEdit } = await renderCards()
+    fireEvent.click(screen.getByRole("button", { name: "Swap article: Beta" }))
+    act(() => editor.editor.loadHTML(`<p>Intro</p>${card("Alpha", "alpha")}`))
+    act(() => onEdit.mock.calls[0][0](card("Gamma", "gamma")))
+
+    expect(await screen.findByRole("status")).toHaveTextContent("That article changed")
+    expect(onChange.mock.calls.some((call) => String(call[0]).includes("Gamma"))).toBe(false)
+  })
+
+  it("shows no swap buttons unless asked to", async () => {
+    const { container } = render(<TrixEditor onChange={vi.fn()} value={BODY} />)
+    await waitFor(() => expect(container.querySelector("trix-editor h1")).not.toBeNull())
+    expect(screen.queryByRole("button", { name: /Swap article/ })).toBeNull()
   })
 })
