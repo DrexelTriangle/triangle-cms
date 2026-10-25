@@ -1977,6 +1977,55 @@
                 }
             }
         },
+        "/v1/legacy-redirects": {
+            "get": {
+                "description": "Every legacy_redirects row, for Delta's nginx sync to turn into maps for the old WordPress host (cms.thetriangle.org).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "List the redirects for retired WordPress URLs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.LegacyRedirectsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/legacy-redirects/newsletter-click": {
+            "get": {
+                "description": "Decodes the Newsletter plugin's nltr parameter and redirects to the original link when its signature verifies (or it points at The Triangle's own site); otherwise redirects to the homepage.",
+                "tags": [
+                    "newsletter"
+                ],
+                "summary": "Follow a click-tracking link from a WordPress-era newsletter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "The plugin's base64 tracking payload",
+                        "name": "nltr",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    }
+                }
+            }
+        },
         "/v1/media": {
             "get": {
                 "security": [
@@ -6860,6 +6909,34 @@
                 },
                 "width": {
                     "type": "integer"
+                }
+            }
+        },
+        "models.LegacyRedirect": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "target": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.LegacyRedirectsResponse": {
+            "type": "object",
+            "properties": {
+                "redirects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.LegacyRedirect"
+                    }
                 }
             }
         },

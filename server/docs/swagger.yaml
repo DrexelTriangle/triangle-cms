@@ -926,6 +926,24 @@ definitions:
       width:
         type: integer
     type: object
+  models.LegacyRedirect:
+    properties:
+      source:
+        type: string
+      source_kind:
+        type: string
+      status:
+        type: integer
+      target:
+        type: string
+    type: object
+  models.LegacyRedirectsResponse:
+    properties:
+      redirects:
+        items:
+          $ref: '#/definitions/models.LegacyRedirect'
+        type: array
+    type: object
   models.Media:
     properties:
       alt_text:
@@ -2853,6 +2871,41 @@ paths:
       summary: Slack interactivity callback for classified moderation
       tags:
       - classifieds
+  /v1/legacy-redirects:
+    get:
+      description: Every legacy_redirects row, for Delta's nginx sync to turn into
+        maps for the old WordPress host (cms.thetriangle.org).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.LegacyRedirectsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List the redirects for retired WordPress URLs
+      tags:
+      - settings
+  /v1/legacy-redirects/newsletter-click:
+    get:
+      description: Decodes the Newsletter plugin's nltr parameter and redirects to
+        the original link when its signature verifies (or it points at The Triangle's
+        own site); otherwise redirects to the homepage.
+      parameters:
+      - description: The plugin's base64 tracking payload
+        in: query
+        name: nltr
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Found
+      summary: Follow a click-tracking link from a WordPress-era newsletter
+      tags:
+      - newsletter
   /v1/media:
     get:
       parameters:
