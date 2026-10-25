@@ -33,7 +33,9 @@ dashboard (`delta.thetriangle.org/newsletter`).
 | triangle-cms #261 | `compose.cms.yml` passes the `NEWSLETTER_*` env to the backend (#258 had left it out, so sending started disabled) |
 | triangle-infrastructure #17, #18 | Delta nginx: `cms.thetriangle.org` redirects, map sync timer, old emails' click and unsubscribe links (applied with Tier 2 `delta-host`) |
 | Scalene #174 (#172, #173) | www `/newsletter/*` proxy to the CMS; `/subscribe` posts to the CMS |
-| triangle-infrastructure #19 (open) | Drops the WordPress vhost from `scalene_host`'s foreign-vhost assert; records the spin-down |
+| triangle-infrastructure #19 | Drops the WordPress vhost from `scalene_host`'s foreign-vhost assert; records the spin-down |
+| triangle-infrastructure #20, #21 | Old emails' "manage your subscription" (`na=p`) opens the unsubscribe page; "view online" (`na=v`) 302s to www's `/newsletter/issues/latest` |
+| triangle-cms #263 | `issues/latest` 302s to the public site until an issue has been sent (its integration test has not been run: it needs `CMS_TEST_DSN`) |
 
 Still open: triangle-sandbox #1 (Mailpit, Gmail test sends, no-login dashboard).
 
@@ -55,7 +57,12 @@ Still open: triangle-sandbox #1 (Mailpit, Gmail test sends, no-login dashboard).
   and the `wordpress` DB on 10.248.42.122 are kept. It had 4 unsent drafts and no
   scheduled issue.
 - **Media.** `uploads/2026/` and `uploads/newsletter/` synced; nothing new at the
-  final sync.
+  final sync. Old issues' social icons load from
+  `wp-content/plugins/newsletter/images/social-4/`, so the plugin's `images/`
+  (88 files) was copied to the same path on CephFS.
+- **Old-email links, checked after the flip.** Click tracking, unsubscribe, manage
+  and view online all resolve; view online ends on www's homepage until the first
+  Delta send, then on the newest issue.
 
 ### Rollback
 
@@ -75,8 +82,9 @@ Still open: triangle-sandbox #1 (Mailpit, Gmail test sends, no-login dashboard).
 - **Monitoring.** The `blackbox-http` and `blackbox-page` jobs in infra's
   `prometheus.delta.yml` still probe `cms.thetriangle.org` as "wordpress"; it now
   answers with Delta's redirects (`/wp-json/...` is 410).
-- **`/subscribe`'s iframe** should point at `/v1/newsletter/issues/latest` once
-  Delta has sent an issue (it 404s until then).
+- **`/subscribe`'s iframe** should point at `/v1/newsletter/issues/latest` only
+  after Delta has sent an issue: until then that URL redirects to the homepage,
+  which would load inside the frame.
 - **The ad** goes in through the sponsor picker per issue. In WordPress it was
   pasted: an image plus the advertiser's link, no alt text.
 - **Staging.** `dev.thetriangle.org` isn't in Scalene's `security.allowedDomains`,
