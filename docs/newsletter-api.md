@@ -20,22 +20,73 @@ the view-online form of WordPress's legacy links.
 
 ## Handoff (2026-10-25)
 
-Where the cutover from WordPress's Newsletter plugin stands. This replaces the
-2026-10-24 handoff. Nothing is merged or deployed yet. WordPress is still live and
-in editorial use.
+**The cutover is done.** WordPress was spun down on the evening of 2026-10-25
+and Delta sends To The Point. The editors run the next issue themselves from the
+dashboard (`delta.thetriangle.org/newsletter`).
 
-### Open PRs, in merge order
+### What shipped (all in production)
 
-| PR | Branch → base | What |
-|---|---|---|
-| triangle-cms #258 | `feat/newsletter-editor` → `main` | Editor, send worker, Gmail sender, template, tracking, public pages |
-| triangle-cms #260 | `feat/newsletter-editor-email-assets` → #258's branch | Masthead and icons served from Delta, trimmed editor copy, the editing tools below |
-| triangle-cms #259 | `feat/legacy-redirects` → `main` | `legacy_redirects` table, `/v1/legacy-redirects`, the redirect builder, old-email click links |
-| triangle-infrastructure #17 | `feat/legacy-newsletter-unsubscribe` → `main` | Delta nginx: old emails' unsubscribe links |
-| triangle-infrastructure #18 | `feat/legacy-redirects-vhost` → #17's branch | Delta nginx: cms.thetriangle.org redirects, map sync timer, old emails' click links |
-| Scalene #172 | `feat/newsletter-email-assets` → `dev` | `/newsletter/*` proxy to the CMS (every reader link goes through it) |
-| Scalene #173 | `feat/cms-newsletter-subscribe` → `dev` | `/subscribe` form posts to the CMS |
-| triangle-sandbox #1 | `feat/newsletter-sandbox` | Mailpit, Gmail test sends with the VPN up, no-login dashboard |
+| PR | What |
+|---|---|
+| triangle-cms #258 (with #260) | Editor, send worker, Gmail sender, template, tracking, public pages, masthead and icons on Delta |
+| triangle-cms #259 | `legacy_redirects` table, `/v1/legacy-redirects`, the redirect builder, old-email click links |
+| triangle-cms #261 | `compose.cms.yml` passes the `NEWSLETTER_*` env to the backend (#258 had left it out, so sending started disabled) |
+| triangle-infrastructure #17, #18 | Delta nginx: `cms.thetriangle.org` redirects, map sync timer, old emails' click and unsubscribe links (applied with Tier 2 `delta-host`) |
+| Scalene #174 (#172, #173) | www `/newsletter/*` proxy to the CMS; `/subscribe` posts to the CMS |
+| triangle-infrastructure #19 (open) | Drops the WordPress vhost from `scalene_host`'s foreign-vhost assert; records the spin-down |
+
+Still open: triangle-sandbox #1 (Mailpit, Gmail test sends, no-login dashboard).
+
+### Cutover state (2026-10-25)
+
+- **Backend.** Logs `newsletter sending enabled`: Gmail API as notify@, 2/s,
+  1,500/day (`NEWSLETTER_DAILY_CAP`); the list is ~600, so one send fits a day.
+  Env is in `/etc/triangle-cms/cms.env` (backup `cms.env.bak-20261025`). The legacy
+  key is the plugin's `newsletter_statistics.key`, not `newsletter_main`.
+- **Subscribers.** 602 imported from WordPress with their ids and tokens (595
+  confirmed, 7 unsubscribed). A re-run after the tunnel flip changed nothing.
+  WordPress no longer takes sign-ups or unsubscribes, so there is nothing left to
+  re-import.
+- **Redirects.** 30,009 rows for 10,008 of 10,013 posts; 5 have no CMS article.
+  `sync-legacy-redirects` renders them into Delta's nginx every 15 minutes.
+- **Tunnel.** `cms.thetriangle.org` → `http://10.248.40.168:80` (was
+  `http://10.248.40.141:80`).
+- **WordPress.** Its vhost on 141 moved to `/etc/nginx/disabled-20261025/`. Files
+  and the `wordpress` DB on 10.248.42.122 are kept. It had 4 unsent drafts and no
+  scheduled issue.
+- **Media.** `uploads/2026/` and `uploads/newsletter/` synced; nothing new at the
+  final sync.
+
+### Rollback
+
+- Site or redirects: point the tunnel route back at `http://10.248.40.141:80`, move
+  the vhost back into `sites-enabled` on 141, `nginx -t && systemctl reload nginx`.
+  Sign-ups and unsubscribes made on Delta since are not in WordPress.
+- CMS deploy: `deploy/scripts/rollback.sh` (or the Rollback workflow) switches to
+  the previous slot. The new tables are additive.
+- A send can't be recalled. If one fails partway, don't resend from WordPress: it
+  would double-send to everyone who already got it.
+
+### Follow-ups
+
+- **Two old URL shapes 404 on www.** `/category/<name>/` and a bare `/<slug>/` (no
+  section in front) fall through to "same path on www", which serves neither.
+  They need rules in infra's `triangle-legacy-redirects.conf`.
+- **Monitoring.** The `blackbox-http` and `blackbox-page` jobs in infra's
+  `prometheus.delta.yml` still probe `cms.thetriangle.org` as "wordpress"; it now
+  answers with Delta's redirects (`/wp-json/...` is 410).
+- **`/subscribe`'s iframe** should point at `/v1/newsletter/issues/latest` once
+  Delta has sent an issue (it 404s until then).
+- **The ad** goes in through the sponsor picker per issue. In WordPress it was
+  pasted: an image plus the advertiser's link, no alt text.
+- **Staging.** `dev.thetriangle.org` isn't in Scalene's `security.allowedDomains`,
+  so the unsubscribe POST through the proxy is refused there.
+- **Media sync gotcha.** The HANDOVER rsync needs `--rsync-path="sudo -n rsync"
+  --chown=10001:101`: the CMS owns the month directories it created.
+- **Running the tools from a laptop.** The CMS DB user is only allowed from Delta,
+  so the redirect builder and `cmd/import-newsletter-subscribers` were run over
+  `ssh -L 14006:10.248.40.183:4006 tadmin@10.248.40.168`; Delta has no MariaDB
+  client.
 
 ### Done
 
@@ -72,46 +123,6 @@ in editorial use.
   go through `/v1/legacy-redirects/newsletter-click` (#259, routed by infra #18). It
   checks the plugin's signature, or allows unsigned links to our own domains.
   Unsubscribe links (`action=tnp`) are rewritten by infra #17.
-
-### Before the first Delta send
-
-1. **Scalene #172 merged and deployed to production.** Without it, every reader link
-   in an email 404s, including click tracking, unsubscribe and view online.
-2. **Delta's backend env. Done 2026-10-25** in `/etc/triangle-cms/cms.env`
-   (backup `cms.env.bak-20261025`). Containers read it at deploy, so it takes
-   effect when #258 ships.
-   - `NEWSLETTER_GMAIL_CLIENT_ID`, `_CLIENT_SECRET` and `_REFRESH_TOKEN`, from
-     WordPress's `wp option get wp_mail_smtp`, the `gmail` keys.
-   - `NEWSLETTER_PUBLIC_URL=https://delta.thetriangle.org`.
-   - `NEWSLETTER_LINK_URL=https://www.thetriangle.org/newsletter`.
-   - `NEWSLETTER_LEGACY_LINK_KEY`, the plugin's `newsletter_statistics.key` (not
-     `newsletter_main`, which has no key: `statistics.php` signs with the
-     Statistics module's option). Without it, only old links to our own domains
-     are followed.
-   - Leave `NEWSLETTER_SMTP_ADDR` unset: setting both refuses to start.
-3. **#258 and #260 deployed.** The frontend Dockerfile defaults to
-   `VITE_NEWSLETTER_API=live`, so the published dashboard uses the real API.
-   Today Delta answers 404 on `/v1/newsletter/*`.
-4. **The ad re-uploaded through the sponsor picker.** In WordPress, ads are pasted
-   per issue: an image plus the advertiser's link, with no alt text. Issues 47-51 ran
-   Google Gemini (with Google's `dclid` tracking URL), and issue 52 ran vote.pa.
-5. **`/subscribe`'s iframe pointed at `/v1/newsletter/issues/latest`** once Delta has
-   sent an issue.
-
-Taking WordPress offline is a separate step: run the redirect builder with `--apply`,
-rsync media (including `newsletter/`), get editors off WordPress, and change the
-tunnel route (needs approval). The steps are in triangle-infrastructure's
-`docs/legacy-redirects.md`.
-
-### Open decisions
-
-- **WordPress subscribers.** The sandbox import was removed on purpose on
-  2026-10-24. Re-importing (`cmd/import-newsletter-subscribers`) is what makes the
-  old emails' unsubscribe links mean anything. Without it, the list starts from
-  people who subscribe on the new form.
-- **Staging.** `dev.thetriangle.org` isn't in Scalene's `security.allowedDomains`, so
-  the unsubscribe button's POST through the proxy is refused there. Links and pages
-  work.
 
 ### Testing in the laptop sandbox (triangle-sandbox #1)
 
