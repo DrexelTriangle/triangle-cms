@@ -24,9 +24,25 @@ const TestToken = "test"
 // Newsletter turns a saved issue into one personalised Message per recipient.
 type Newsletter struct {
 	From *mail.Address
+	// ReplyTo, when set, is where readers' replies go: the issue asks them to
+	// reply to the question of the day, and From is a send-only mailbox.
+	ReplyTo *mail.Address
 	// PublicURL is the origin readers reach the CMS API on, e.g.
-	// https://cms.thetriangle.org. Every link in the email is built from it.
+	// https://cms.thetriangle.org. The List-Unsubscribe header and the open
+	// pixel, which readers never see, go straight to it.
 	PublicURL string
+	// LinkURL is the base of every link a reader sees or clicks (the
+	// unsubscribe page, view online, click redirects), e.g.
+	// https://www.thetriangle.org/newsletter, which Scalene proxies to the
+	// CMS's /v1/newsletter. Empty means PublicURL + "/v1/newsletter".
+	LinkURL string
+}
+
+func (n *Newsletter) linkBase() string {
+	if n.LinkURL != "" {
+		return strings.TrimRight(n.LinkURL, "/")
+	}
+	return strings.TrimRight(n.PublicURL, "/") + "/v1/newsletter"
 }
 
 // Issue is the part of a saved newsletter the email is built from.
@@ -36,12 +52,19 @@ type Issue struct {
 	EmailHTML string
 }
 
+// UnsubscribeURL is the one-click target for the List-Unsubscribe header:
+// the CMS itself, so an inbox's POST doesn't depend on the public site.
 func (n *Newsletter) UnsubscribeURL(token string) string {
 	return strings.TrimRight(n.PublicURL, "/") + "/v1/newsletter/unsubscribe?t=" + url.QueryEscape(token)
 }
 
+// UnsubscribePageURL is the same page as a link in the email.
+func (n *Newsletter) UnsubscribePageURL(token string) string {
+	return n.linkBase() + "/unsubscribe?t=" + url.QueryEscape(token)
+}
+
 func (n *Newsletter) ViewOnlineURL(issueID int64) string {
-	return strings.TrimRight(n.PublicURL, "/") + "/v1/newsletter/issues/" + strconv.FormatInt(issueID, 10)
+	return n.linkBase() + "/issues/" + strconv.FormatInt(issueID, 10)
 }
 
 // The dashboard's template writes every link as a double-quoted href (it is
@@ -75,7 +98,7 @@ type Tracking struct {
 }
 
 func (n *Newsletter) ClickURL(delivery string, linkID int64) string {
-	return strings.TrimRight(n.PublicURL, "/") + "/v1/newsletter/c/" + url.PathEscape(delivery) + "/" + strconv.FormatInt(linkID, 10)
+	return n.linkBase() + "/c/" + url.PathEscape(delivery) + "/" + strconv.FormatInt(linkID, 10)
 }
 
 func (n *Newsletter) OpenPixelURL(delivery string) string {
@@ -103,7 +126,7 @@ func (n *Newsletter) track(emailHTML string, t *Tracking) string {
 // subject so nobody mistakes the test for the real issue. tracking may be
 // nil for an untracked copy.
 func (n *Newsletter) Compose(issue Issue, to *mail.Address, token string, tracking *Tracking) *Message {
-	unsubscribe := n.UnsubscribeURL(token)
+	unsubscribe := n.UnsubscribePageURL(token)
 	viewOnline := n.ViewOnlineURL(issue.ID)
 	emailHTML := issue.EmailHTML
 	if tracking != nil {
@@ -123,10 +146,11 @@ func (n *Newsletter) Compose(issue Issue, to *mail.Address, token string, tracki
 	}
 	return &Message{
 		From:           n.From,
+		ReplyTo:        n.ReplyTo,
 		To:             to,
 		Subject:        subject,
 		HTML:           body,
 		Text:           issue.Subject + "\n\nRead this issue online: " + viewOnline + "\n\nUnsubscribe: " + unsubscribe + "\n",
-		UnsubscribeURL: unsubscribe,
+		UnsubscribeURL: n.UnsubscribeURL(token),
 	}
 }

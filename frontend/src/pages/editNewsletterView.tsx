@@ -11,8 +11,7 @@ import {
   articleCardHtml,
   FOOTER_TAGLINE,
   isHttpUrl,
-  MASTHEAD_BLUE,
-  NEWSLETTER_NAME,
+  mastheadHtml,
   previewEmailHtml,
   READ_MORE_LABEL,
   renderNewsletterEmail,
@@ -402,13 +401,7 @@ export default function EditNewsletterView() {
             <div className="overflow-hidden rounded-lg border border-border">
               {/* The fixed parts of the template frame the editable body, so the
                   author writes in place rather than in a box with no context. */}
-              <div
-                className="px-4 py-4 text-center text-white"
-                style={{ background: MASTHEAD_BLUE, fontFamily: "Georgia, 'Times New Roman', serif" }}
-              >
-                <div className="text-xs tracking-[0.2em]">THE TRIANGLE</div>
-                <div className="text-2xl leading-tight">{NEWSLETTER_NAME}</div>
-              </div>
+              <div className="bg-white py-3" dangerouslySetInnerHTML={{ __html: mastheadHtml() }} />
               <div
                 className={isLocked ? "pointer-events-none opacity-70" : ""}
                 onCutCapture={markBodyTouched}
@@ -522,7 +515,7 @@ export default function EditNewsletterView() {
             <ul className="flex list-disc flex-col gap-1 pl-4">
               <li><span className="font-medium text-foreground">Heading</span> — a story headline, with a divider above.</li>
               <li><span className="font-medium text-foreground">Quote</span> — a centred section label.</li>
-              <li><span className="font-medium text-foreground">A line that is only a link</span> — a button, like "{READ_MORE_LABEL}".</li>
+              <li><span className="font-medium text-foreground">A line that is only a link</span> — a button: a small one for a link to an article, like "{READ_MORE_LABEL}", and a wide centred one for anything else.</li>
             </ul>
             <p>Insert article adds a story card at the cursor.</p>
           </div>

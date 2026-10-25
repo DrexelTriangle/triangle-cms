@@ -90,7 +90,7 @@ func TestNewsletterUnsubscribe_Flow(t *testing.T) {
 	if status != "unsubscribed" || !unsubscribedAt.Valid {
 		t.Fatalf("after unsubscribe: %s %v", status, unsubscribedAt)
 	}
-	if !strings.Contains(rec.Body.String(), `action="/v1/newsletter/resubscribe?t=`+token+`"`) {
+	if !strings.Contains(rec.Body.String(), `action="resubscribe?t=`+token+`"`) {
 		t.Errorf("no resubscribe form: %s", rec.Body.String())
 	}
 

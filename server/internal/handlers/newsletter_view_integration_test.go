@@ -60,8 +60,8 @@ func TestNewsletterIssuePage(t *testing.T) {
 	}
 	for _, want := range []string{
 		`<head><base target="_blank">`,
-		`href="/v1/newsletter/unsubscribe">Unsubscribe`,
-		`href="/v1/newsletter/issues/` + strconv.FormatInt(oldID, 10) + `">View online`,
+		`href="../unsubscribe">Unsubscribe`,
+		`href="` + strconv.FormatInt(oldID, 10) + `">View online`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %s", want)

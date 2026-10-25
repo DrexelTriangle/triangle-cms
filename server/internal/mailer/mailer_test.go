@@ -22,7 +22,7 @@ var (
 )
 
 func testComposer() *Newsletter {
-	return &Newsletter{From: testFrom, PublicURL: "https://cms.example.org/"}
+	return &Newsletter{From: testFrom, ReplyTo: &mail.Address{Address: "newsletter@thetriangle.org"}, PublicURL: "https://cms.example.org/"}
 }
 
 // parse reads a rendered message back into its headers and decoded parts.
@@ -77,6 +77,9 @@ func TestCompose_PersonalisesLinksAndHeaders(t *testing.T) {
 	if got := msg.Header.Get("List-Unsubscribe-Post"); got != "List-Unsubscribe=One-Click" {
 		t.Errorf("List-Unsubscribe-Post = %q", got)
 	}
+	if got := msg.Header.Get("Reply-To"); got != "<newsletter@thetriangle.org>" {
+		t.Errorf("Reply-To = %q", got)
+	}
 	subject, err := new(mime.WordDecoder).DecodeHeader(msg.Header.Get("Subject"))
 	if err != nil || subject != issue.Subject {
 		t.Errorf("Subject = %q (%v)", subject, err)
@@ -124,6 +127,32 @@ func TestCompose_TracksLinksButNotUnsubscribe(t *testing.T) {
 	}
 	if !strings.Contains(m.HTML, `<img src="https://cms.example.org/v1/newsletter/o/dlv" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;"></body>`) {
 		t.Errorf("no open pixel before </body>: %s", m.HTML)
+	}
+}
+
+func TestCompose_ReaderLinksGoThroughThePublicSite(t *testing.T) {
+	n := testComposer()
+	n.LinkURL = "https://www.example.org/newsletter/"
+	issue := Issue{ID: 7, EmailHTML: `<a href="https://www.example.org/article/a">A</a> <a href="{{unsubscribe_url}}">Unsubscribe</a> <a href="{{view_online_url}}">View online</a>`}
+	m := n.Compose(issue, testTo, "tok", &Tracking{Delivery: "dlv", Links: map[string]int64{"https://www.example.org/article/a": 3}})
+	for _, want := range []string{
+		`href="https://www.example.org/newsletter/c/dlv/3"`,
+		`href="https://www.example.org/newsletter/unsubscribe?t=tok"`,
+		`href="https://www.example.org/newsletter/issues/7"`,
+	} {
+		if !strings.Contains(m.HTML, want) {
+			t.Errorf("HTML missing %s: %s", want, m.HTML)
+		}
+	}
+	if strings.Contains(m.HTML, `href="https://cms.example.org`) {
+		t.Errorf("a reader-facing link still goes to the CMS: %s", m.HTML)
+	}
+	// One-click unsubscribe and the pixel, which no reader sees, stay on the CMS.
+	if m.UnsubscribeURL != "https://cms.example.org/v1/newsletter/unsubscribe?t=tok" {
+		t.Errorf("UnsubscribeURL = %q", m.UnsubscribeURL)
+	}
+	if !strings.Contains(m.HTML, `<img src="https://cms.example.org/v1/newsletter/o/dlv"`) {
+		t.Errorf("pixel moved off the CMS: %s", m.HTML)
 	}
 }
 

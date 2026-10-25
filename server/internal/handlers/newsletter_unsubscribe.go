@@ -100,7 +100,9 @@ func maskEmail(email string) string {
 }
 
 // subscriberLinkQuery rebuilds the key part of the link, for the form to post
-// back to.
+// back to. The form actions are relative ("unsubscribe?..."), because readers
+// reach this page on the public site (www.thetriangle.org/newsletter/...,
+// which Scalene proxies here) as well as on the CMS (/v1/newsletter/...).
 func subscriberLinkQuery(r *http.Request) string {
 	q := url.Values{}
 	if t := r.URL.Query().Get("t"); t != "" {
@@ -168,7 +170,7 @@ func (f unsubscribeFlow) show(w http.ResponseWriter, r *http.Request, s *db.Subs
 			page.Title = "Unsubscribe from To The Point?"
 			page.Message = "You'll stop getting the newsletter at"
 		}
-		page.Action = "/v1/newsletter/unsubscribe?" + query
+		page.Action = "unsubscribe?" + query
 		page.ActionLabel = "Unsubscribe"
 		if justChanged {
 			page.Action = ""
@@ -176,7 +178,7 @@ func (f unsubscribeFlow) show(w http.ResponseWriter, r *http.Request, s *db.Subs
 	case models.SubscriberStatusUnsubscribed:
 		page.Title = "You're unsubscribed"
 		page.Message = "To The Point won't be sent to"
-		page.Action = "/v1/newsletter/resubscribe?" + query
+		page.Action = "resubscribe?" + query
 		page.ActionLabel = "Subscribe again"
 	default:
 		page.Title = "This address isn't receiving To The Point"

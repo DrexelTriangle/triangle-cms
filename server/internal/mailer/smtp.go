@@ -14,7 +14,7 @@ import (
 // SMTPSender relays through an unauthenticated SMTP server. It exists for the
 // laptop sandbox, where Addr is Mailpit: Mailpit keeps every message for
 // inspection and delivers none, so a sandbox send can never reach a real
-// subscriber. Production sends through the Gmail API instead.
+// subscriber. Production sends through GmailSender instead.
 type SMTPSender struct {
 	Addr string
 	// Timeout bounds one whole send when ctx has no earlier deadline.

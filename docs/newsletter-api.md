@@ -11,12 +11,61 @@ Types: `frontend/src/lib/newsletter/types.ts` (dashboard) and
 sends and the public unsubscribe page are implemented in Go
 (`server/internal/handlers/newsletters.go`, `newsletter_unsubscribe.go`,
 `server/internal/mailer/`). The send worker (`server/internal/newsletter/`, see
-"Sending" below) sends scheduled issues; the only sender is still SMTP to Mailpit
-in the laptop sandbox. Open/click tracking, the view-online page and public subscribe
-are in; WordPress's legacy unsubscribe links are mapped in Delta's nginx
-(triangle-infrastructure, branch `feat/legacy-newsletter-unsubscribe`). Not
-built: the Gmail API sender, and the view-online form of WordPress's legacy
-links (below).
+"Sending" below) sends scheduled issues, through the Gmail API in production
+(`mailer.GmailSender`) and SMTP to Mailpit in the laptop sandbox. Open/click
+tracking, the view-online page and public subscribe are in; WordPress's legacy
+unsubscribe links are mapped in Delta's nginx (triangle-infrastructure, branch
+`feat/legacy-newsletter-unsubscribe`). Not built: the view-online form of
+WordPress's legacy links (below).
+
+## Handoff (2026-10-24)
+
+Where the cutover from WordPress's Newsletter plugin stands.
+
+**Done.** The Gmail API sender, using WordPress's own OAuth token for notify@
+(test-sent to a real inbox: SPF, DKIM and DMARC pass). The email template matches the
+issues WordPress sent: image masthead, white page, `#256f9c` buttons, `#0092ff`
+dividers, Reply-To newsletter@. Every image is linked: a story photo to its story, the
+comic to the comic, and the editor keeps an image's link (the attachment `href`). Links
+readers see go to `www.thetriangle.org/newsletter/...`. The concurrent public-subscribe
+deadlock is fixed.
+
+**Lives in Scalene** (branch `feat/newsletter-email-assets`, PR into `dev`): the
+masthead and social icons in `public/email/` (the template loads them from the public
+site, so they outlive WordPress), and the `/newsletter/*` proxy. Scalene's
+`feat/cms-newsletter-subscribe` (the `/subscribe` form posting to this CMS) is a local
+commit, not pushed yet.
+
+**Before the first Delta send:**
+1. Scalene `feat/newsletter-email-assets` deployed to production. Without it, the
+   masthead and icons break and every reader link 404s.
+2. Delta's backend env: `NEWSLETTER_GMAIL_CLIENT_ID`, `_CLIENT_SECRET` and
+   `_REFRESH_TOKEN` (from WordPress: `wp option get wp_mail_smtp`, the `gmail` keys;
+   copy them before WordPress is turned off), `NEWSLETTER_PUBLIC_URL`, and
+   `NEWSLETTER_LINK_URL=https://www.thetriangle.org/newsletter`. Leave
+   `NEWSLETTER_SMTP_ADDR` unset: setting both refuses to start.
+3. This branch deployed, with the dashboard built `VITE_NEWSLETTER_API=live`.
+4. The ad re-uploaded through the sponsor picker. Ads are pasted per issue in
+   WordPress: an image plus the advertiser's link (issues 47-51 Google Gemini, with
+   Google's `dclid` tracking URL; issue 52 vote.pa), with no alt text.
+5. `/subscribe`'s iframe pointed at `/v1/newsletter/issues/latest` once Delta has sent
+   an issue.
+
+**Open decisions:**
+- **WordPress subscribers.** The sandbox import was removed on 2026-10-24 on purpose.
+  Re-importing (`cmd/import-newsletter-subscribers`) is what makes the old emails'
+  unsubscribe links (the nginx mapping above) work. Without it, the list starts from
+  people who subscribe on the new form.
+- **Old emails' other links.** Every link in a WordPress-sent body goes through the
+  plugin's tracker, `admin-ajax.php?action=tnptr&nltr=<base64 email;user;url;;md5>`,
+  including the visible Unsubscribe link and every article link. The nginx mapping
+  covers only `action=tnp`, the List-Unsubscribe header form. Once WordPress is off,
+  those links 404 unless something decodes `nltr`. The signature is
+  `md5(email;user;url;anchor + newsletter_main.key)`, so verifying it, and not becoming
+  an open redirect, needs that key copied from WordPress first.
+- **Staging.** `dev.thetriangle.org` isn't in Scalene's `security.allowedDomains`, so
+  the unsubscribe button's POST through the proxy is refused there (links and pages
+  work).
 
 ## Model
 
@@ -89,9 +138,21 @@ copies are tracked but never counted. HEAD requests are never counted (scanners 
 them). Opens read high with Apple Mail Privacy Protection and low where images are
 blocked; link scanners inflate clicks.
 
-Sender config (backend env): `NEWSLETTER_SMTP_ADDR` (host:port; unset = no sender),
-`NEWSLETTER_FROM` (default `The Triangle <notify@thetriangle.org>`),
-`NEWSLETTER_PUBLIC_URL` (origin readers reach `/v1` on; required with a sender),
+Sender config (backend env): either `NEWSLETTER_GMAIL_CLIENT_ID`,
+`NEWSLETTER_GMAIL_CLIENT_SECRET` and `NEWSLETTER_GMAIL_REFRESH_TOKEN` (production:
+the Gmail API as the token's mailbox) or `NEWSLETTER_SMTP_ADDR` (host:port, the
+sandbox's Mailpit); setting both refuses to start, neither = no sender.
+`NEWSLETTER_FROM` (default `The Triangle <notify@thetriangle.org>`; Gmail rewrites a
+From that isn't the mailbox or a verified alias), `NEWSLETTER_REPLY_TO` (default
+`newsletter@thetriangle.org`, as WordPress's issues had; readers reply to the question
+of the day),
+`NEWSLETTER_PUBLIC_URL` (origin readers reach `/v1` on; required with a sender; the
+List-Unsubscribe header and open pixel use it),
+`NEWSLETTER_LINK_URL` (base of every link a reader sees: unsubscribe page, view online,
+click redirects; production `https://www.thetriangle.org/newsletter`, which Scalene's
+`src/pages/newsletter/[...path].ts` proxies to `/v1/newsletter`; unset = the CMS's own
+`/v1/newsletter`. The public pages use relative links and form actions so they work
+under either prefix),
 `NEWSLETTER_SITE_URL` (the unsubscribe page's link home; default www.thetriangle.org),
 `NEWSLETTER_SEND_RATE` (messages per second, default 2, at most 50),
 `NEWSLETTER_DAILY_CAP` (most copies in a rolling 24 hours, default 1500).
@@ -221,12 +282,23 @@ Sending constraints already known: no control of thetriangle.org DNS (no SPF/DKI
 changes, so no domain-verified ESP), and Gmail caps a Workspace account at ~2,000
 recipients/day (500 for consumer Gmail), so campaigns must be throttled. triapply
 already sends as notify@ through the Gmail HTTP API with an OAuth refresh token
-(KB: access.md); reusing that pattern from Go avoids SMTP entirely.
+(KB: access.md); `mailer.GmailSender` does the same from Go.
+
+**Gmail sender.** It reuses the OAuth client and refresh token WordPress's WP Mail
+SMTP plugin sent with (`wp option get wp_mail_smtp`, keys `gmail.client_id`,
+`gmail.client_secret`, `gmail.refresh_token`; scope `https://mail.google.com/`,
+mailbox notify@). Copy them before WordPress is retired; they stay valid after, as
+long as the Google Cloud OAuth client isn't deleted. The access token is cached and
+refreshed a minute before its hour is up. A message goes to the media upload form of
+`users.messages.send` as the RFC 5322 bytes. Retried: anything before the request
+went, 401 (token refetched), 403 and 429 (rate and daily quota) and 5xx (a rare
+duplicate beats failing the rest of the list in an outage). Not retried: 400 (a bad
+recipient), and a connection dropped after the whole request went (it may have been
+delivered). A revoked refresh token (`invalid_grant`) defers each copy, so after
+three ticks the copy at the head of the queue fails; mint a new token for notify@.
 
 ## Still to decide on the backend
 
-- **Sender.** Provider is undecided; the stored HTML is provider-neutral.
-  Current issues come from `notify@thetriangle.org`.
 - **Rate-limit key.** `middleware.RateLimitByIP` trusts the first `X-Forwarded-For`
   hop, so a client that reaches the CMS directly (not through Scalene) can rotate it
   past the limit. It is the same for comments, classifieds and polls; fix it once,

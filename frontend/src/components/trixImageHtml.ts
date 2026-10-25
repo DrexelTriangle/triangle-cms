@@ -101,6 +101,27 @@ const positiveInt = (value: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? Math.round(n) : null
 }
 
+// An image can link somewhere (a newsletter's comic links to the comic). Trix
+// keeps the link as the attachment's href. Only http(s) links survive, and not
+// WordPress's "link to media file", which only opens the image itself.
+const IMAGE_FILE = /\.(?:jpe?g|png|gif|webp|avif|svg|bmp|tiff?)(?:[?#]|$)/i
+
+const safeLink = (href: string): string | null => {
+  const trimmed = href.trim()
+  try {
+    const url = new URL(trimmed)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null
+  } catch {
+    return null
+  }
+  return IMAGE_FILE.test(trimmed) ? null : trimmed
+}
+
+const imageLink = (img: Element): string | null => {
+  const href = img.closest("a")?.getAttribute("href")
+  return href ? safeLink(href) : null
+}
+
 const parseDocument = (html: string): Document | null => {
   if (typeof window === "undefined" || !window.DOMParser) return null
   return new DOMParser().parseFromString(html, "text/html")
@@ -207,6 +228,8 @@ export const articleHtmlToTrix = (html: string): string => {
     }
     if (width) data.width = width
     if (height) data.height = height
+    const href = imageLink(img)
+    if (href) data.href = href
 
     // Deliberately no presentation. Trix's "gallery" presentation fuses
     // adjacent images into a single block; see the config in TrixEditor.tsx.
@@ -306,7 +329,15 @@ export const trixHtmlToArticle = (html: string): string => {
     // would normally be worth emitting to reserve layout space, but that only
     // holds on a page with a matching `height: auto`.
     img.setAttribute("loading", "lazy")
-    out.appendChild(img)
+    const href = typeof data.href === "string" ? safeLink(data.href) : null
+    if (href) {
+      const a = doc.createElement("a")
+      a.setAttribute("href", href)
+      a.appendChild(img)
+      out.appendChild(a)
+    } else {
+      out.appendChild(img)
+    }
 
     if (caption) {
       const figcaption = doc.createElement("figcaption")

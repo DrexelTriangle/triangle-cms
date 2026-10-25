@@ -31,13 +31,14 @@ func frameAncestors(siteURL string) string {
 }
 
 // publicIssueHTML fills an issue's placeholders for the public copy. Links
-// are root-relative, so they resolve against the CMS whether the page is
-// opened directly or framed by the public site.
+// are relative to the page (.../issues/{id}), so they resolve whether it is
+// opened on the CMS (/v1/newsletter/), through the public site's proxy
+// (www.thetriangle.org/newsletter/), or framed by either.
 func publicIssueHTML(n models.Newsletter) string {
 	html := strings.NewReplacer(
-		"{{unsubscribe_url}}", "/v1/newsletter/unsubscribe",
-		"{{manage_subscription_url}}", "/v1/newsletter/unsubscribe",
-		"{{view_online_url}}", "/v1/newsletter/issues/"+strconv.FormatInt(n.ID, 10),
+		"{{unsubscribe_url}}", "../unsubscribe",
+		"{{manage_subscription_url}}", "../unsubscribe",
+		"{{view_online_url}}", strconv.FormatInt(n.ID, 10),
 	).Replace(n.EmailHTML)
 	// Links leave the frame: a reader clicking a story on the public site's
 	// preview should get the story, not the story squeezed into the iframe.

@@ -150,3 +150,27 @@ describe("TrixEditor image replacement", () => {
     )
   })
 })
+
+describe("TrixEditor image links", () => {
+  it("keeps a link on an image through an edit, but not a link to the image file itself", async () => {
+    const onChange = vi.fn()
+    const value =
+      '<p>Lede</p><figure><a href="https://www.thetriangle.org/article/comic"><img src="https://m.test/comic.png" alt="Comic"></a></figure>' +
+      '<figure class="wp-caption"><a href="https://m.test/full.jpg"><img src="https://m.test/photo.jpg" alt="Photo"></a></figure>'
+    const { container } = render(<TrixEditor onChange={onChange} value={value} />)
+    const editor = container.querySelector<TrixEditorElement>("trix-editor")
+    if (!editor) throw new Error("no trix-editor")
+    await waitFor(() => expect(editor.editor.getDocument().getAttachments()).toHaveLength(2))
+
+    act(() => {
+      editor.editor.setSelectedRange([0, 0])
+      editor.editor.insertHTML("New ")
+    })
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled())
+    const saved = new DOMParser().parseFromString(onChange.mock.calls.at(-1)?.[0] as string, "text/html")
+    const linkOf = (src: string) => saved.querySelector(`img[src="${src}"]`)?.closest("a")?.getAttribute("href") ?? null
+    expect(linkOf("https://m.test/comic.png")).toBe("https://www.thetriangle.org/article/comic")
+    expect(linkOf("https://m.test/photo.jpg")).toBeNull()
+  })
+})

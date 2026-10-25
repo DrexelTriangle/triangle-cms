@@ -2,8 +2,7 @@
 //
 // The message is built here, once, as RFC 5322 bytes, so every Sender delivers
 // exactly the same thing: the SMTP sender writes the bytes to a relay (Mailpit
-// in the laptop sandbox), and the Gmail API sender will upload them as the raw
-// message.
+// in the laptop sandbox), and the Gmail API sender uploads them as they are.
 package mailer
 
 import (
@@ -31,6 +30,7 @@ type Sender interface {
 // copy carries its own unsubscribe link), so there is never more than one To.
 type Message struct {
 	From    *mail.Address
+	ReplyTo *mail.Address
 	To      *mail.Address
 	Subject string
 	HTML    string
@@ -81,6 +81,9 @@ func (m *Message) Bytes() ([]byte, error) {
 		fmt.Fprintf(&head, "%s: %s\r\n", name, value)
 	}
 	writeHeader("From", m.From.String())
+	if m.ReplyTo != nil {
+		writeHeader("Reply-To", m.ReplyTo.String())
+	}
 	writeHeader("To", m.To.String())
 	writeHeader("Subject", mime.QEncoding.Encode("utf-8", m.Subject))
 	writeHeader("Date", date.Format(time.RFC1123Z))
