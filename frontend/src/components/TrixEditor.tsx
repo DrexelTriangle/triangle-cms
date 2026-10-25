@@ -201,6 +201,11 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
     (CardSpan & { top: number; title: string })[]
   >([]);
   const endLinkText = articleCards?.endLinkText;
+  // For the image-move effect below, which is set up once.
+  const endLinkTextRef = useRef(endLinkText);
+  useEffect(() => {
+    endLinkTextRef.current = endLinkText;
+  }, [endLinkText]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -761,10 +766,42 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
       return null;
     };
 
-    // Where the dragged block would land, as a boundary index, or null if it
+    // ── What a move carries ────────────────────────────────────────────────
+    // The document as the runs of blocks that move as one: with articleCards,
+    // each article card is one unit (an image inside it carries the whole card
+    // along, and nothing can be dropped into the middle of one), and every
+    // other block is a unit of its own. Without articleCards every block is.
+    type Unit = { start: number; end: number };
+
+    const unitsOf = (): Unit[] => {
+      const count = editor.children.length;
+      const cardText = endLinkTextRef.current;
+      const cards =
+        cardText === undefined ? [] : findCards(serializedBlocks(editor), cardText);
+      const units: Unit[] = [];
+      let index = 0;
+      for (const card of cards) {
+        for (; index < card.start; index++) units.push({ start: index, end: index });
+        units.push({ start: card.start, end: card.end });
+        index = card.end + 1;
+      }
+      for (; index < count; index++) units.push({ start: index, end: index });
+      return units;
+    };
+
+    // The unit holding the figure, and the units it sits among, or null.
+    const unitOf = (figure: HTMLElement): { unit: Unit; units: Unit[] } | null => {
+      const from = blockIndexOf(figure);
+      if (from < 0) return null;
+      const units = unitsOf();
+      const unit = units.find((u) => u.start <= from && from <= u.end);
+      return unit ? { unit, units } : null;
+    };
+
+    // Where the dragged unit would land, as a boundary index, or null if it
     // cannot go anywhere from here.
     //
-    // Only boundaries clear of the dragged block itself are candidates: the two
+    // Only boundaries clear of the dragged unit itself are candidates: the two
     // touching it leave the document exactly as it was. They used to be offered,
     // and since an image block is as tall as the image, the pointer spent the
     // whole of a short drag inside them: the indicator appeared, tracked the
@@ -774,22 +811,26 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
     // exists to remove: every boundary drawn is now one that moves something.
     const findDropIndex = (
       clientY: number,
-      fromIndex: number,
+      figure: HTMLElement,
       originY: number,
     ): number | null => {
       const blocks = Array.from(editor.children) as HTMLElement[];
       if (blocks.length === 0) return null;
+      const found = unitOf(figure);
+      const units = found?.units ?? unitsOf();
+      const boundaries = [...units.map((u) => u.start), blocks.length];
 
       let first = 0;
       let last = blocks.length;
-      if (fromIndex >= 0) {
-        if (clientY < originY) last = fromIndex - 1;
-        else first = fromIndex + 2;
+      if (found) {
+        if (clientY < originY) last = found.unit.start - 1;
+        else first = found.unit.end + 2;
       }
 
       let best: number | null = null;
       let bestDist = Infinity;
-      for (let index = first; index <= last; index++) {
+      for (const index of boundaries) {
+        if (index < first || index > last) continue;
         const dist = Math.abs(clientY - boundaryY(blocks, index));
         if (dist < bestDist) {
           bestDist = dist;
@@ -865,41 +906,46 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
       if (attachment) editor.editor.composition.editAttachment(attachment);
     };
 
-    // Move the figure's whole block to sit before or after the target block.
+    // Move the figure's unit (its block, or its whole article card) to the
+    // target boundary.
     //
-    // This reorders Trix's serialized HTML and reloads it, rather than splicing
-    // the live document through Trix's mutation APIs. The obvious approach,
-    // removing the attachment then inserting it at a captured DOM Range, cannot
-    // work: the Attachment objects on editor.getDocument() are plain models
-    // with no remove() of their own (only the ManagedAttachment passed to
-    // trix-attachment-add has one), and any removal re-renders the blocks the
-    // captured Range was anchored to. Reordering the serialization sidesteps
-    // both problems and is order-of-blocks-in, order-of-blocks-out.
+    // This reorders the document's own blocks and sets a new document built
+    // from them, rather than editing the live document through Trix's mutation
+    // APIs. The obvious approach, removing the attachment then inserting it at
+    // a captured DOM Range, cannot work: the Attachment objects on
+    // editor.getDocument() are plain models with no remove() of their own
+    // (only the ManagedAttachment passed to trix-attachment-add has one), and
+    // any removal re-renders the blocks the captured Range was anchored to.
+    //
+    // Nor does it reparse the serialized HTML, as it once did: that made every
+    // image in the document a new attachment, and trix-attachment-add then
+    // re-imported each one not on our media host (deleting it when that
+    // failed). Reused blocks keep their attachments.
     //
     // A move is one undo step that restores the whole document rather than a
     // fine-grained edit, which for a whole-block move is what the author would
     // expect to get back anyway.
     const commitMove = (figure: HTMLElement, target: DropTarget) => {
       const liveBlocks = Array.from(editor.children) as HTMLElement[];
-      const from = blockIndexOf(figure);
-      if (from < 0) return;
+      const figureIndex = blockIndexOf(figure);
+      const found = unitOf(figure);
+      if (!found) return;
+      const { start, end } = found.unit;
       if (target.index < 0 || target.index > liveBlocks.length) return;
+      if (target.index > start && target.index <= end) return;
 
-      const serialized = Array.from(
-        new DOMParser().parseFromString(editor.value, "text/html").body
-          .children,
-      );
-      // The serialized blocks line up with the rendered ones by index. If that
+      const blocks = editor.editor.getDocument().getBlocks();
+      // The document's blocks line up with the rendered ones by index. If that
       // ever stops holding, bail rather than reorder the wrong block.
-      if (serialized.length !== liveBlocks.length) return;
+      if (blocks.length !== liveBlocks.length) return;
 
-      // Where the block lands once it has been lifted out of the list.
-      let insertAt = target.index;
-      if (from < insertAt) insertAt -= 1;
-      if (insertAt === from) return;
+      // Where the unit starts once it has been lifted out of the list.
+      const length = end - start + 1;
+      const insertAt = target.index > end ? target.index - length : target.index;
+      if (insertAt === start) return;
 
-      const [moved] = serialized.splice(from, 1);
-      serialized.splice(insertAt, 0, moved);
+      const moved = blocks.splice(start, length);
+      blocks.splice(insertAt, 0, ...moved);
 
       // Take the attachment editor down before swapping the document out from
       // under it. Its controller holds a reference to the figure it was
@@ -916,15 +962,9 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
       // stack, and Composition#setDocument then mutates without disturbing it.
       const Trix = window.Trix;
       if (!Trix) return;
-      const movedDocument = Trix.HTMLParser.parse(
-        serialized.map((block) => block.outerHTML).join(""),
-        {
-          referenceElement: editor,
-        },
-      ).getDocument();
-
       editor.editor.recordUndoEntry("Move Image");
-      editor.editor.composition.setDocument(movedDocument);
+      editor.editor.composition.setDocument(new Trix.models.Document(blocks));
+      const figureAt = insertAt + (figureIndex - start);
 
       // Re-select the image at its new home. Without this every nudge costs the
       // author the selection, and with it the toolbar they are clicking, so
@@ -943,7 +983,7 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
         requestAnimationFrame(() => {
           if (!editor.isConnected) return;
           editAttachmentForFigure(
-            editor.children[insertAt]?.querySelector("[data-trix-id]"),
+            editor.children[figureAt]?.querySelector("[data-trix-id]"),
           );
         });
       });
@@ -974,7 +1014,7 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
       // and the indicator must exclude the boundaries around wherever the
       // block is *now*, or it offers no-op drops again.
       const updateDropTarget = () => {
-        const index = findDropIndex(lastClientY, blockIndexOf(figure), startY);
+        const index = findDropIndex(lastClientY, figure, startY);
         if (index === null) {
           dropIndicator.style.display = "none";
           dropTarget = null;
@@ -1191,16 +1231,18 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
     // Trix already shows over a selected attachment, next to Remove.
 
     // One step in `direction` as a boundary index: up is the boundary above the
-    // previous block, down is the boundary below the next one. Null at the ends,
+    // previous unit, down is the boundary below the next one. Null at the ends,
     // where there is nothing to swap with.
     const stepTarget = (
       figure: HTMLElement,
       direction: "up" | "down",
     ): DropTarget | null => {
-      const from = blockIndexOf(figure);
-      if (from < 0) return null;
-      const index = direction === "up" ? from - 1 : from + 2;
-      return index >= 0 && index <= editor.children.length ? { index } : null;
+      const found = unitOf(figure);
+      if (!found) return null;
+      const at = found.units.indexOf(found.unit);
+      const neighbour = found.units[direction === "up" ? at - 1 : at + 1];
+      if (!neighbour) return null;
+      return { index: direction === "up" ? neighbour.start : neighbour.end + 1 };
     };
 
     const onBeforeToolbar = (event: Event) => {
@@ -1215,11 +1257,13 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
       const group = document.createElement("span");
       group.className = "trix-button-group trix-button-group--move";
 
+      const unit = unitOf(figure)?.unit;
+      const what = unit && unit.end > unit.start ? "article" : "image";
       for (const direction of ["up", "down"] as const) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `trix-button trix-button--move trix-button--move-${direction}`;
-        button.title = direction === "up" ? "Move image up" : "Move image down";
+        button.title = `Move ${what} ${direction}`;
         button.textContent = direction === "up" ? "↑" : "↓";
         // Nothing to swap with at the top or bottom of the document.
         button.disabled = !stepTarget(figure, direction);

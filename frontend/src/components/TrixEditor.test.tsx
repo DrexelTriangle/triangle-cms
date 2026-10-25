@@ -267,4 +267,54 @@ describe("TrixEditor article cards", () => {
     await waitFor(() => expect(container.querySelector("trix-editor h1")).not.toBeNull())
     expect(screen.queryByRole("button", { name: /Swap article/ })).toBeNull()
   })
+
+  // On our media host, so nothing is sideloaded.
+  const MOVE_BODY = `<p>Intro</p>${card("Alpha", "alpha", "/wp-content/uploads/a.jpg")}${card("Beta", "beta")}<p>Outro</p>`
+  const blockTexts = (editor: TrixEditorElement) =>
+    Array.from(editor.children).map((block) =>
+      block.querySelector("img") ? "[image]" : (block.textContent ?? "").trim(),
+    )
+
+  it("moves an image's whole article card, past the next card, as one undo step", async () => {
+    const { container } = render(
+      <TrixEditor articleCards={{ endLinkText: READ_MORE, onEdit: vi.fn() }} onChange={vi.fn()} value={MOVE_BODY} />,
+    )
+    const editor = container.querySelector<TrixEditorElement>("trix-editor")
+    if (!editor) throw new Error("no trix-editor")
+    await waitFor(() => expect(editor.editor.getDocument().getAttachments()).toHaveLength(1))
+    const before = blockTexts(editor)
+    selectImage(editor, 0)
+
+    fireEvent.click(await screen.findByTitle("Move article down"))
+
+    await waitFor(() =>
+      expect(blockTexts(editor)).toEqual([
+        "Intro",
+        "Beta",
+        "Beta excerpt",
+        READ_MORE,
+        "Alpha",
+        "[image]",
+        "Alpha excerpt",
+        READ_MORE,
+        "Outro",
+      ]),
+    )
+    act(() => editor.editor.undo())
+    await waitFor(() => expect(blockTexts(editor)).toEqual(before))
+  })
+
+  it("still moves just the image block in an ordinary article", async () => {
+    const { container } = render(<TrixEditor onChange={vi.fn()} value={MOVE_BODY} />)
+    const editor = container.querySelector<TrixEditorElement>("trix-editor")
+    if (!editor) throw new Error("no trix-editor")
+    await waitFor(() => expect(editor.editor.getDocument().getAttachments()).toHaveLength(1))
+    selectImage(editor, 0)
+
+    fireEvent.click(await screen.findByTitle("Move image down"))
+
+    await waitFor(() =>
+      expect(blockTexts(editor).slice(0, 4)).toEqual(["Intro", "Alpha", "Alpha excerpt", "[image]"]),
+    )
+  })
 })

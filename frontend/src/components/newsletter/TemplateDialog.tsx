@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { ArrowDown, ArrowUp, ImageOff, Plus, X } from "lucide-react"
+import { ArrowDown, ArrowUp, ImageOff, Pencil, Plus, X } from "lucide-react"
 import { useApiFetch } from "../../hooks/useApiFetch"
 import { fetchLatestComic, fetchPublishedArticles, type PickableArticle } from "../../lib/newsletter/articles"
 import {
@@ -50,6 +50,8 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // The story being swapped out while the picker is open for it.
+  const [swapId, setSwapId] = useState<number | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -194,6 +196,15 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
                     <span className="min-w-0 flex-1 truncate text-sm text-foreground">{decodeEntities(article.title)}</span>
                     <span className="flex flex-shrink-0 items-center gap-0.5">
                       <button
+                        aria-label={`Swap ${decodeEntities(article.title)}`}
+                        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        onClick={() => setSwapId(article.id)}
+                        title="Swap story"
+                        type="button"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
                         aria-label="Move up"
                         className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
                         disabled={index === 0}
@@ -301,6 +312,18 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
             setPickerOpen(false)
           }}
           title="Add a story"
+        />
+      ) : null}
+
+      {swapId !== null ? (
+        <ArticlePicker
+          excludeIds={articles.map((a) => a.id)}
+          onClose={() => setSwapId(null)}
+          onSelect={(article) => {
+            setArticles((current) => current.map((a) => (a.id === swapId ? article : a)))
+            setSwapId(null)
+          }}
+          title="Swap story"
         />
       ) : null}
     </div>
