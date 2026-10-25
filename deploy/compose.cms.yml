@@ -37,6 +37,20 @@ x-backend-base: &backend-base
     # issues it sent can still reach sponsors and other sites (links to our own
     # domains work without it). See handlers/legacy_newsletter_click.go.
     NEWSLETTER_LEGACY_LINK_KEY: ${NEWSLETTER_LEGACY_LINK_KEY:-}
+    # Newsletter sending (main.go, newsletterMailFromEnv). With no sender set the
+    # backend starts with sending disabled; empty values take the code defaults,
+    # and an invalid one stops the backend, so a bad cms.env fails the deploy.
+    NEWSLETTER_GMAIL_CLIENT_ID: ${NEWSLETTER_GMAIL_CLIENT_ID:-}
+    NEWSLETTER_GMAIL_CLIENT_SECRET: ${NEWSLETTER_GMAIL_CLIENT_SECRET:-}
+    NEWSLETTER_GMAIL_REFRESH_TOKEN: ${NEWSLETTER_GMAIL_REFRESH_TOKEN:-}
+    NEWSLETTER_SMTP_ADDR: ${NEWSLETTER_SMTP_ADDR:-}
+    NEWSLETTER_FROM: ${NEWSLETTER_FROM:-}
+    NEWSLETTER_REPLY_TO: ${NEWSLETTER_REPLY_TO:-}
+    NEWSLETTER_PUBLIC_URL: ${NEWSLETTER_PUBLIC_URL:-}
+    NEWSLETTER_LINK_URL: ${NEWSLETTER_LINK_URL:-}
+    NEWSLETTER_SITE_URL: ${NEWSLETTER_SITE_URL:-}
+    NEWSLETTER_SEND_RATE: ${NEWSLETTER_SEND_RATE:-}
+    NEWSLETTER_DAILY_CAP: ${NEWSLETTER_DAILY_CAP:-}
     # Media: legacy WP uploads migrated to CephFS. The upload endpoint writes new
     # assets under MEDIA_ROOT; MEDIA_BASE_URL is the public host that serves them.
     MEDIA_ROOT: ${MEDIA_ROOT:-/mnt/cephfs/media}
