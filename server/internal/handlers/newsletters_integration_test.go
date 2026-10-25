@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysqlDriver "github.com/go-sql-driver/mysql"
 
 	db "server/internal/database"
 	"server/internal/mailer"
@@ -33,7 +33,14 @@ func newsletterTestDB(t *testing.T) *sql.DB {
 	if dsn == "" {
 		t.Skip("CMS_TEST_DSN not set; skipping newsletter integration test")
 	}
-	conn, err := sql.Open("mysql", dsn)
+	// Connect the way the server does (database.buildDSN), so a test sees the
+	// RowsAffected the server sees.
+	cfg, err := mysqlDriver.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("parse CMS_TEST_DSN: %v", err)
+	}
+	cfg.ClientFoundRows = true
+	conn, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}

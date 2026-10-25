@@ -39,18 +39,22 @@ func IsNewsletterList(id int) bool {
 	return false
 }
 
-// errSubscribeRace is a concurrent submit of the same new address inserting it
-// first.
-var errSubscribeRace = errors.New("subscriber inserted concurrently")
+// subscribeAttempts bounds the retries of a subscribe InnoDB picked as a
+// deadlock victim. A subscribe only ever adds, so running it again is safe.
+const subscribeAttempts = 3
 
 // SubscribeNewsletter adds an address from the public form. lists must already
 // be valid list ids.
 func SubscribeNewsletter(ctx context.Context, conn *sql.DB, email string, lists []int) (SubscribeOutcome, error) {
-	outcome, err := subscribeNewsletterOnce(ctx, conn, email, lists)
-	if errors.Is(err, errSubscribeRace) {
-		// The row exists now, so the second go finds it and adds this
-		// submit's lists to it rather than dropping them.
-		return subscribeNewsletterOnce(ctx, conn, email, lists)
+	var (
+		outcome SubscribeOutcome
+		err     error
+	)
+	for range subscribeAttempts {
+		outcome, err = subscribeNewsletterOnce(ctx, conn, email, lists)
+		if !isDeadlock(err) {
+			break
+		}
 	}
 	return outcome, err
 }
@@ -62,45 +66,52 @@ func subscribeNewsletterOnce(ctx context.Context, conn *sql.DB, email string, li
 	}
 	defer tx.Rollback()
 
+	// Insert first, rather than SELECT ... FOR UPDATE and insert if missing:
+	// a locking read of an absent row takes a gap lock that concurrent
+	// submits of the same new address all share, and their inserts then
+	// deadlock on each other. A duplicate email leaves the existing row as it
+	// is (id = id changes nothing).
+	//
+	// RowsAffected can't say which happened: the connection sets
+	// clientFoundRows (see buildDSN), under which an unchanged duplicate
+	// reports 1, the same as an insert. So the row is read back, now a lock on
+	// a row that exists, and the token says whose it is: a fresh random token
+	// only matches if this insert wrote it.
+	token, err := NewSubscriberToken()
+	if err != nil {
+		return 0, err
+	}
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO newsletter_subscribers (email, status, token, subscribed_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE id = id
+	`, email, models.SubscriberStatusConfirmed, token, now, now, now); err != nil {
+		return 0, err
+	}
+
 	// The email column's collation ignores case, so A@x.org finds a@x.org.
 	var (
-		id     int64
-		status string
+		id          int64
+		status      string
+		storedToken string
 	)
-	err = tx.QueryRowContext(ctx, "SELECT id, status FROM newsletter_subscribers WHERE email = ? FOR UPDATE", email).Scan(&id, &status)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		token, err := NewSubscriberToken()
-		if err != nil {
-			return 0, err
-		}
-		now := time.Now().UTC()
-		res, err := tx.ExecContext(ctx, `
-			INSERT INTO newsletter_subscribers (email, status, token, subscribed_at, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`, email, models.SubscriberStatusConfirmed, token, now, now, now)
-		if isDuplicateKey(err) {
-			return 0, errSubscribeRace
-		}
-		if err != nil {
-			return 0, err
-		}
-		if id, err = res.LastInsertId(); err != nil {
-			return 0, err
-		}
-		if err := addSubscriberLists(ctx, tx, id, lists); err != nil {
-			return 0, err
-		}
-		return Subscribed, tx.Commit()
-	case err != nil:
+	if err := tx.QueryRowContext(ctx,
+		"SELECT id, status, token FROM newsletter_subscribers WHERE email = ? FOR UPDATE", email,
+	).Scan(&id, &status, &storedToken); err != nil {
 		return 0, err
-	case status != models.SubscriberStatusConfirmed:
+	}
+	if status != models.SubscriberStatusConfirmed {
 		return NotResubscribed, nil
 	}
 	if err := addSubscriberLists(ctx, tx, id, lists); err != nil {
 		return 0, err
 	}
-	return AlreadySubscribed, tx.Commit()
+	outcome := AlreadySubscribed
+	if storedToken == token {
+		outcome = Subscribed
+	}
+	return outcome, tx.Commit()
 }
 
 // addSubscriberLists only ever adds: a form submit can't take anyone off a
@@ -116,7 +127,9 @@ func addSubscriberLists(ctx context.Context, tx *sql.Tx, subscriberID int64, lis
 	return nil
 }
 
-func isDuplicateKey(err error) bool {
+// isDeadlock reports InnoDB's ER_LOCK_DEADLOCK: the transaction was rolled
+// back to break a deadlock and can simply be run again.
+func isDeadlock(err error) bool {
 	var mysqlErr *mysqlDriver.MySQLError
-	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1062
+	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1213
 }
