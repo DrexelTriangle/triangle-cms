@@ -13,7 +13,6 @@ import {
   isHttpUrl,
   mastheadHtml,
   previewEmailHtml,
-  READ_MORE_LABEL,
   renderNewsletterEmail,
 } from "../lib/newsletter/template"
 import type { Newsletter, NewsletterSponsor } from "../lib/newsletter/types"
@@ -279,13 +278,13 @@ export default function EditNewsletterView() {
 
       {backendPending ? (
         <p className="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-300">
-          Preview build: drafts are saved in this browser only, and sending isn't connected yet.
+          Preview build: drafts stay in this browser and sending is off.
         </p>
       ) : null}
 
       {isLocked ? (
         <p className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          This issue has been sent and can no longer be edited. Duplicate it from the list to reuse it.
+          Sent issues can't be edited. Duplicate it to reuse it.
         </p>
       ) : null}
 
@@ -307,7 +306,7 @@ export default function EditNewsletterView() {
               className={inputClass}
               disabled={isLocked}
               onChange={(e) => patch({ preheader: e.target.value })}
-              placeholder="The line inboxes show after the subject"
+              placeholder="Shown after the subject in inboxes"
               value={draft.preheader}
             />
           </label>
@@ -356,7 +355,7 @@ export default function EditNewsletterView() {
                       value={sponsor.link_url}
                     />
                     {sponsorLinkInvalid ? (
-                      <span className="text-xs text-destructive">Use a full http(s) address, or the banner won't link.</span>
+                      <span className="text-xs text-destructive">Needs a full https:// link.</span>
                     ) : null}
                   </label>
                   <label className="flex flex-col gap-1">
@@ -365,7 +364,7 @@ export default function EditNewsletterView() {
                       className={inputClass}
                       disabled={isLocked}
                       onChange={(e) => patch({ sponsor: { ...sponsor, alt: e.target.value } })}
-                      placeholder="e.g. Google Gemini, free for college students"
+                      placeholder="What the banner says"
                       value={sponsor.alt}
                     />
                   </label>
@@ -379,7 +378,7 @@ export default function EditNewsletterView() {
                 type="button"
               >
                 <Image className="h-5 w-5" />
-                <span className="text-xs font-medium">Add a sponsor banner (optional)</span>
+                <span className="text-xs font-medium">Add sponsor banner</span>
               </button>
             )}
           </div>
@@ -445,7 +444,7 @@ export default function EditNewsletterView() {
           <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-6">
             <h2 className="text-base font-semibold text-foreground">Send</h2>
             {backendPending ? (
-              <p className="text-xs text-muted-foreground">Sending arrives with the newsletter backend.</p>
+              <p className="text-xs text-muted-foreground">Sending is off in this build.</p>
             ) : null}
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">Send a test to</span>
@@ -453,7 +452,7 @@ export default function EditNewsletterView() {
                 className={inputClass}
                 disabled={backendPending}
                 onChange={(e) => setTestEmails(e.target.value)}
-                placeholder="you@drexel.edu, editor@drexel.edu"
+                placeholder="Emails, separated by commas"
                 value={testEmails}
               />
             </label>
@@ -470,7 +469,7 @@ export default function EditNewsletterView() {
                   "Test sent.",
                 )
               }
-              title={isDirty ? "Save first; the test sends the saved version." : undefined}
+              title={isDirty ? "Save before sending a test" : undefined}
               type="button"
             >
               <Send className="h-4 w-4" />
@@ -511,13 +510,11 @@ export default function EditNewsletterView() {
 
           <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-6 text-xs text-muted-foreground">
             <h2 className="text-base font-semibold text-foreground">Formatting</h2>
-            <p>The editor's formats map onto the email template:</p>
-            <ul className="flex list-disc flex-col gap-1 pl-4">
-              <li><span className="font-medium text-foreground">Heading</span> — a story headline, with a divider above.</li>
-              <li><span className="font-medium text-foreground">Quote</span> — a centred section label.</li>
-              <li><span className="font-medium text-foreground">A line that is only a link</span> — a button: a small one for a link to an article, like "{READ_MORE_LABEL}", and a wide centred one for anything else.</li>
+            <ul className="flex flex-col gap-1">
+              <li><span className="font-medium text-foreground">Heading:</span> story headline</li>
+              <li><span className="font-medium text-foreground">Quote:</span> section label</li>
+              <li><span className="font-medium text-foreground">Link on its own line:</span> button</li>
             </ul>
-            <p>Insert article adds a story card at the cursor.</p>
           </div>
         </aside>
       </div>

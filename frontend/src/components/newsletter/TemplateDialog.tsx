@@ -61,7 +61,7 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
     ]).then(([latest, latestComic]) => {
       if (controller.signal.aborted) return
       if (latest.status === "fulfilled") setArticles(latest.value)
-      else setLoadError("Couldn't load the latest articles. Add them by hand below.")
+      else setLoadError("Couldn't load the latest articles.")
       if (latestComic.status === "fulfilled") setComic(latestComic.value)
       setIsLoading(false)
     })
@@ -122,14 +122,9 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
     >
       <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl">
         <div className="flex items-start justify-between border-b border-border px-6 py-4">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground" id="template-dialog-title">
-              New {NEWSLETTER_NAME} issue
-            </h2>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Starts from the template. Everything here stays editable afterwards.
-            </p>
-          </div>
+          <h2 className="text-lg font-semibold text-foreground" id="template-dialog-title">
+            New {NEWSLETTER_NAME} issue
+          </h2>
           <button
             aria-label="Close"
             className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -174,11 +169,11 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
             {loadError ? <p className="text-xs text-destructive">{loadError}</p> : null}
             {isLoading ? (
               <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-                Loading the latest stories...
+                Loading stories...
               </p>
             ) : articles.length === 0 ? (
               <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-                No stories yet. Add some, or start empty and insert them in the editor.
+                No stories yet.
               </p>
             ) : (
               <ol className="flex flex-col divide-y divide-border rounded-lg border border-border">
@@ -255,7 +250,7 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
             <span className="min-w-0 text-sm">
               <span className="block font-medium text-foreground">Include the latest comic</span>
               <span className="block truncate text-xs text-muted-foreground">
-                {isLoading ? "Looking for it..." : comic ? decodeEntities(comic.title) : "No comic with art found."}
+                {isLoading ? "Loading..." : comic ? decodeEntities(comic.title) : "No comic found."}
               </span>
             </span>
           </label>
