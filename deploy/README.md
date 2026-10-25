@@ -346,7 +346,7 @@ must carry the exact immutable image tag for the active deployment.
 - `AKISMET_BLOG_URL` - public site URL Akismet associates with comment checks.
   Required when `AKISMET_API_KEY` is set.
 - `NEWSLETTER_LEGACY_LINK_KEY` - optional; the WordPress Newsletter plugin's key
-  (`wp option pluck newsletter_main key`). With it, click-tracking links in
+  (`wp option pluck newsletter_statistics key`). With it, click-tracking links in
   WordPress-era issues reach every destination; without it, only links to
   The Triangle's own domains do and the rest land on the homepage.
 - `MEDIA_HOST_PATH` - host path to the CephFS media tree, bind-mounted into the

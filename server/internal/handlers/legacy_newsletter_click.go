@@ -26,7 +26,7 @@ import (
 // base64 a URL. Like the plugin, a link is followed only if it verifies, or
 // if it points at our own site, where an unsigned redirect harms no one. The
 // plugin's key comes from NEWSLETTER_LEGACY_LINK_KEY (wp option pluck
-// newsletter_main key). Without it, links to our own domains still work and
+// newsletter_statistics key). Without it, links to our own domains still work and
 // everything else lands on the homepage. Clicks are not recorded: the stats
 // they fed died with WordPress.
 
