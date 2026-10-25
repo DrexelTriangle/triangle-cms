@@ -49,6 +49,11 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    // Vitest only defaults NODE_ENV when it is unset, so a shell or hook that
+    // exports NODE_ENV=production loads React's production build, which has no
+    // act(), and every Testing Library render fails with "React.act is not a
+    // function".
+    env: { NODE_ENV: "test" },
   },
   server: {
     port: 5173,

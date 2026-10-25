@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/mail"
+	"net/url"
 	"os"
 	"os/signal"
 	"server/internal/activity"
@@ -17,7 +20,9 @@ import (
 	"server/internal/embeddings"
 	"server/internal/handlers"
 	"server/internal/imaging"
+	"server/internal/mailer"
 	"server/internal/middleware"
+	"server/internal/newsletter"
 	"server/internal/routes"
 	"server/internal/slack"
 
@@ -45,6 +50,20 @@ const (
 	slackWebhookURLEnv     = "SLACK_WEBHOOK_URL"
 	slackSigningSecretEnv  = "SLACK_SIGNING_SECRET"
 	slackQueueURLEnv       = "SLACK_CLASSIFIEDS_QUEUE_URL"
+	newsletterSMTPAddrEnv  = "NEWSLETTER_SMTP_ADDR"
+	newsletterGmailIDEnv   = "NEWSLETTER_GMAIL_CLIENT_ID"
+	newsletterGmailKeyEnv  = "NEWSLETTER_GMAIL_CLIENT_SECRET"
+	newsletterGmailTokEnv  = "NEWSLETTER_GMAIL_REFRESH_TOKEN"
+	newsletterFromEnv      = "NEWSLETTER_FROM"
+	newsletterReplyToEnv   = "NEWSLETTER_REPLY_TO"
+	newsletterPublicURLEnv = "NEWSLETTER_PUBLIC_URL"
+	newsletterLinkURLEnv   = "NEWSLETTER_LINK_URL"
+	newsletterSiteURLEnv   = "NEWSLETTER_SITE_URL"
+	newsletterSendRateEnv  = "NEWSLETTER_SEND_RATE"
+	newsletterDailyCapEnv  = "NEWSLETTER_DAILY_CAP"
+	defaultNewsletterFrom  = "The Triangle <notify@thetriangle.org>"
+	// Where WordPress's issues sent replies to the question of the day.
+	defaultNewsletterReply = "newsletter@thetriangle.org"
 	defaultShutdownTimeout = 10 * time.Second
 )
 
@@ -70,6 +89,7 @@ type runDeps struct {
 	oidcCfg         auth.OIDCConfig
 	spamChecker     akismet.Checker
 	slackNotifier   slack.Notifier
+	newsletterMail  *handlers.NewsletterMail
 }
 
 // @title Triangle CMS API
@@ -230,6 +250,10 @@ func main() {
 		slog.Error("failed to create classifieds table", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsureNewsletterTables(context.Background(), db); err != nil {
+		slog.Error("failed to create newsletter tables", "error", err)
+		os.Exit(1)
+	}
 	if err := database.EnsureWordangleTable(context.Background(), db); err != nil {
 		slog.Error("failed to create wordangle table", "error", err)
 		os.Exit(1)
@@ -336,6 +360,11 @@ func main() {
 		os.Exit(1)
 	}
 	logSlackModerationState(slackNotifier)
+	newsletterMail, err := newsletterMailFromEnv()
+	if err != nil {
+		slog.Error("invalid newsletter mail configuration", "error", err)
+		os.Exit(1)
+	}
 
 	if spamChecker == nil {
 		slog.Warn("Akismet comment spam filtering disabled: AKISMET_API_KEY not set")
@@ -343,7 +372,7 @@ func main() {
 		slog.Info("Akismet comment spam filtering enabled")
 	}
 
-	if err := run(defaultRunDeps(verifier, oidcCfg, spamChecker, slackNotifier), db); err != nil {
+	if err := run(defaultRunDeps(verifier, oidcCfg, spamChecker, slackNotifier, newsletterMail), db); err != nil {
 		slog.Error("server terminated", "error", err)
 		os.Exit(1)
 	}
@@ -376,7 +405,7 @@ func dbConfigFromEnv() (dbName, user, password, host string, port int, err error
 	return dbName, user, password, host, port, nil
 }
 
-func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier) runDeps {
+func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, newsletterMail *handlers.NewsletterMail) runDeps {
 	return runDeps{
 		loadX509KeyPair: tls.LoadX509KeyPair,
 		newServer:       newDefaultServer,
@@ -387,6 +416,7 @@ func defaultRunDeps(verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spa
 		oidcCfg:         oidcCfg,
 		spamChecker:     spamChecker,
 		slackNotifier:   slackNotifier,
+		newsletterMail:  newsletterMail,
 	}
 }
 
@@ -457,12 +487,28 @@ func run(deps runDeps, conn *sql.DB) error {
 	handlers.SetImageVariants(variantIndex)
 
 	mux := http.NewServeMux()
-	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder)
+	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder, deps.newsletterMail,
+		// Where the unsubscribe page's "Go to The Triangle" link points.
+		getenvOrDefault(newsletterSiteURLEnv, "https://www.thetriangle.org"))
 	server := deps.newServer(cert, mux, slog.Default())
 
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
 	defer stopScheduler()
 	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default())
+
+	// Scheduled newsletter issues. Every slot runs a sender; a lease on the
+	// issue lets only one of them send it. Shutdown waits for the message in
+	// hand to be sent and recorded, so a deploy can't double-send it.
+	newsletterDone := make(chan struct{})
+	if m := deps.newsletterMail; m != nil {
+		worker := &newsletter.Worker{Conn: conn, Composer: m.Composer, Sender: m.Sender, Rate: m.SendRate, DailyCap: m.DailyCap}
+		go func() {
+			defer close(newsletterDone)
+			worker.Run(schedulerCtx)
+		}()
+	} else {
+		close(newsletterDone)
+	}
 
 	// The reconciler embeds articles in the background. It gets its own client
 	// with a far longer timeout: batches of article bodies take much longer than
@@ -511,6 +557,13 @@ func run(deps runDeps, conn *sql.DB) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), deps.shutdownTimeout)
 	defer cancel()
+
+	stopScheduler()
+	select {
+	case <-newsletterDone:
+	case <-ctx.Done():
+		slog.Error("newsletter sender did not stop before the shutdown timeout")
+	}
 
 	if err := server.Shutdown(ctx); err != nil {
 		if closeErr := server.Close(); closeErr != nil {
@@ -570,6 +623,89 @@ func slackNotifierFromEnv() (slack.Notifier, error) {
 		return nil, fmt.Errorf("%s: %w", slackWebhookURLEnv, err)
 	}
 	return client, nil
+}
+
+// newsletterMailFromEnv builds the newsletter sender, or returns nil when none
+// is configured, which leaves every send answering 501. Production sends
+// through the Gmail API (the three NEWSLETTER_GMAIL_* variables); the laptop
+// sandbox sets NEWSLETTER_SMTP_ADDR to Mailpit. Setting both is refused, so a
+// sandbox can't quietly start mailing real subscribers.
+func newsletterMailFromEnv() (*handlers.NewsletterMail, error) {
+	sender, err := newsletterSenderFromEnv()
+	if err != nil || sender == nil {
+		return nil, err
+	}
+	from, err := mail.ParseAddress(getenvOrDefault(newsletterFromEnv, defaultNewsletterFrom))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", newsletterFromEnv, err)
+	}
+	replyTo, err := mail.ParseAddress(getenvOrDefault(newsletterReplyToEnv, defaultNewsletterReply))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", newsletterReplyToEnv, err)
+	}
+	publicURL := strings.TrimSpace(os.Getenv(newsletterPublicURLEnv))
+	if parsed, err := url.Parse(publicURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+		strings.Trim(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("%s must be the http(s) origin readers reach the API on", newsletterPublicURLEnv)
+	}
+	// Optional: the public site's proxy of /v1/newsletter, so the links
+	// readers see say www.thetriangle.org rather than the CMS.
+	linkURL := strings.TrimSpace(os.Getenv(newsletterLinkURLEnv))
+	if linkURL != "" {
+		if parsed, err := url.Parse(linkURL); err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" ||
+			parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("%s must be an http(s) URL with no query, e.g. https://www.thetriangle.org/newsletter", newsletterLinkURLEnv)
+		}
+	}
+	rate := newsletter.DefaultRate
+	if raw := strings.TrimSpace(os.Getenv(newsletterSendRateEnv)); raw != "" {
+		if rate, err = strconv.ParseFloat(raw, 64); err != nil || rate <= 0 || rate > 50 {
+			return nil, fmt.Errorf("%s must be messages per second, above 0 and at most 50", newsletterSendRateEnv)
+		}
+	}
+	dailyCap := newsletter.DefaultDailyCap
+	if raw := strings.TrimSpace(os.Getenv(newsletterDailyCapEnv)); raw != "" {
+		if dailyCap, err = strconv.Atoi(raw); err != nil || dailyCap <= 0 {
+			return nil, fmt.Errorf("%s must be a positive number of messages", newsletterDailyCapEnv)
+		}
+	}
+	slog.Info("newsletter sending enabled", "from", from.Address, "rate", rate, "daily_cap", dailyCap)
+	return &handlers.NewsletterMail{
+		Composer: &mailer.Newsletter{From: from, ReplyTo: replyTo, PublicURL: publicURL, LinkURL: linkURL},
+		Sender:   sender,
+		SendRate: rate,
+		DailyCap: dailyCap,
+	}, nil
+}
+
+func newsletterSenderFromEnv() (mailer.Sender, error) {
+	smtpAddr := strings.TrimSpace(os.Getenv(newsletterSMTPAddrEnv))
+	gmail := &mailer.GmailSender{
+		ClientID:     strings.TrimSpace(os.Getenv(newsletterGmailIDEnv)),
+		ClientSecret: strings.TrimSpace(os.Getenv(newsletterGmailKeyEnv)),
+		RefreshToken: strings.TrimSpace(os.Getenv(newsletterGmailTokEnv)),
+	}
+	gmailSet := gmail.ClientID != "" || gmail.ClientSecret != "" || gmail.RefreshToken != ""
+
+	switch {
+	case gmailSet && smtpAddr != "":
+		return nil, fmt.Errorf("set either %s or the NEWSLETTER_GMAIL_* variables, not both", newsletterSMTPAddrEnv)
+	case gmailSet:
+		if gmail.ClientID == "" || gmail.ClientSecret == "" || gmail.RefreshToken == "" {
+			return nil, fmt.Errorf("gmail sending needs all of %s, %s and %s", newsletterGmailIDEnv, newsletterGmailKeyEnv, newsletterGmailTokEnv)
+		}
+		slog.Info("newsletter sending through the Gmail API")
+		return gmail, nil
+	case smtpAddr != "":
+		if _, _, err := net.SplitHostPort(smtpAddr); err != nil {
+			return nil, fmt.Errorf("%s must be host:port: %w", newsletterSMTPAddrEnv, err)
+		}
+		slog.Info("newsletter sending through SMTP", "addr", smtpAddr)
+		return &mailer.SMTPSender{Addr: smtpAddr}, nil
+	default:
+		slog.Warn("newsletter sending disabled: neither " + newsletterSMTPAddrEnv + " nor the NEWSLETTER_GMAIL_* variables are set")
+		return nil, nil
+	}
 }
 
 // The two halves of Slack moderation are configured separately and half of it

@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS newsletter_deliveries (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  newsletter_id BIGINT UNSIGNED NOT NULL,
+  subscriber_id BIGINT UNSIGNED NULL,
+  is_test TINYINT(1) NOT NULL DEFAULT 0,
+  token CHAR(32) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'pending',
+  sent_at DATETIME NULL,
+  first_opened_at DATETIME NULL,
+  open_count INT UNSIGNED NOT NULL DEFAULT 0,
+  first_clicked_at DATETIME NULL,
+  click_count INT UNSIGNED NOT NULL DEFAULT 0,
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  error VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL,
+  UNIQUE KEY uq_newsletter_deliveries_token (token),
+  UNIQUE KEY uq_newsletter_deliveries_recipient (newsletter_id, subscriber_id),
+  INDEX idx_newsletter_deliveries_subscriber (subscriber_id),
+  INDEX idx_newsletter_deliveries_issue_status (newsletter_id, status),
+  INDEX idx_newsletter_deliveries_sent_at (sent_at),
+  CONSTRAINT fk_newsletter_deliveries_newsletter FOREIGN KEY (newsletter_id) REFERENCES newsletters (id) ON DELETE CASCADE,
+  CONSTRAINT fk_newsletter_deliveries_subscriber FOREIGN KEY (subscriber_id) REFERENCES newsletter_subscribers (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4

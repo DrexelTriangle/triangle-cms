@@ -213,17 +213,24 @@ file is missing.
 
 **Media lives on CephFS and is synced from WordPress by hand.** Images added to
 WP after the last sync will 404. The rsync must be **pushed from**
-`10.248.40.141`; Delta holds no key to pull:
+`10.248.40.141`; Delta holds no key to pull. The receiver runs under sudo
+because the month directories the CMS creates (`2026/08` on) belong to uid
+10001, so tadmin can't write into them; `--chown` gives synced files the owner
+the CMS's own uploads have:
 
 ```bash
-ssh tadmin@10.248.40.141 'rsync -a --no-owner --no-group --chmod=D775,F664 \
+ssh tadmin@10.248.40.141 'rsync -a --rsync-path="sudo -n rsync" \
+  --chown=10001:101 --chmod=D775,F664 \
   --exclude="*.php" --exclude="*.exe" --exclude="*.sh" \
   /var/www/html/thetriangle.org/wp-content/uploads/2026/ \
   tadmin@10.248.40.168:/mnt/cephfs/media/wp-content/uploads/2026/'
 ```
 
+Run it again with `uploads/newsletter/` for images embedded in sent issues. Last
+full sync of both: 2026-10-25.
+
 **`D775`, not `D755`: the group bit is load-bearing.** The backend runs as uid
-10001 and owns none of this tree, so its write access comes from a POSIX ACL
+10001 and doesn't own most of this tree, so its write access comes from a POSIX ACL
 (`user:10001:rwx` plus the `default:` entries new directories inherit). A chmod
 on an ACL'd directory sets the **ACL mask** from the mode's group bits, so
 `D755` clamps that entry to `#effective:r-x`. `getfacl` still prints
@@ -245,8 +252,9 @@ getfacl -pc /mnt/cephfs/media/wp-content/uploads/2026 | grep -E '10001|mask::'
 `ansible-playbook playbooks/delta-host.yml` in `triangle-infrastructure` repairs
 a clamped mask, but only on its next run; the fix belongs in the rsync above.
 
-rsync exits **23** with "failed to set times" on one directory. That is a
-directory mtime owned by another uid, not a data failure. Ignore it.
+Without the sudo receiver, rsync exits **23**: "failed to set times" on the
+CMS-owned month directories and "mkstemp ... Permission denied" for every file
+in them, so nothing new in those months lands.
 
 **Merged PRs do not always contain what you think.** Twice during this work a PR
 was auto-closed as "merged" against another branch's merge commit, leaving later
