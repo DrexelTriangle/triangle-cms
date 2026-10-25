@@ -1,9 +1,10 @@
 # Newsletter API
 
 The dashboard's Newsletter screens (`frontend/src/pages/newsletterView.tsx`,
-`editNewsletterView.tsx`) are built against this contract. By default they run on
-an in-browser mock (`frontend/src/lib/newsletter/mockStore.ts`); build with
-`VITE_NEWSLETTER_API=live` to point them at these endpoints.
+`editNewsletterView.tsx`) are built against this contract. Published images are
+built with `VITE_NEWSLETTER_API=live` (the frontend Dockerfile's default) and use
+these endpoints; local `npm run dev` without it runs on an in-browser mock
+(`frontend/src/lib/newsletter/mockStore.ts`).
 Types: `frontend/src/lib/newsletter/types.ts` (dashboard) and
 `server/internal/models/newsletter.go` (server).
 
@@ -88,7 +89,8 @@ in editorial use.
      Statistics module's option). Without it, only old links to our own domains
      are followed.
    - Leave `NEWSLETTER_SMTP_ADDR` unset: setting both refuses to start.
-3. **#258 and #260 deployed,** with the dashboard built `VITE_NEWSLETTER_API=live`.
+3. **#258 and #260 deployed.** The frontend Dockerfile defaults to
+   `VITE_NEWSLETTER_API=live`, so the published dashboard uses the real API.
    Today Delta answers 404 on `/v1/newsletter/*`.
 4. **The ad re-uploaded through the sponsor picker.** In WordPress, ads are pasted
    per issue: an image plus the advertiser's link, with no alt text. Issues 47-51 ran

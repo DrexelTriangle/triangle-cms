@@ -3,10 +3,9 @@ import { useApiFetch } from "../../hooks/useApiFetch"
 import { createMockNewsletterApi } from "./mockStore"
 import type { Newsletter, NewsletterApi, NewsletterInput, NewsletterStats, NewsletterSubscriber } from "./types"
 
-// Off until scheduled sending exists: the CRUD endpoints are live, and test
-// sends work wherever the server has a sender (501 otherwise). Set
-// VITE_NEWSLETTER_API=live to point the dashboard at /v1/newsletters instead
-// of the in-browser mock.
+// VITE_NEWSLETTER_API=live points the dashboard at /v1/newsletters; without it
+// (local `npm run dev`) it uses the in-browser mock. The frontend Dockerfile
+// defaults to live, so published images talk to the server.
 const useLiveBackend = import.meta.env.VITE_NEWSLETTER_API === "live"
 
 type ApiFetch = ReturnType<typeof useApiFetch>

@@ -7,8 +7,8 @@ WORKDIR /app
 ARG VITE_PUBLIC_SITE_URL="https://www.thetriangle.org"
 ENV VITE_PUBLIC_SITE_URL=${VITE_PUBLIC_SITE_URL}
 # "live" points the Newsletter screens at /v1/newsletters; empty keeps them on
-# the in-browser mock, which is what published images use until sending exists.
-ARG VITE_NEWSLETTER_API=""
+# the in-browser mock. Published images are live.
+ARG VITE_NEWSLETTER_API="live"
 ENV VITE_NEWSLETTER_API=${VITE_NEWSLETTER_API}
 
 COPY package.json package-lock.json .npmrc ./
