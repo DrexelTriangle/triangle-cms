@@ -114,6 +114,11 @@ export function articleCardHtml(article: TemplateArticle): string {
   ].join("")
 }
 
+// The comic: its art, linked to its post.
+export function comicHtml(comic: TemplateComic): string {
+  return imageHtml(comic.image_url, comic.image_alt || decodeEntities(comic.title), articleUrl(comic.slug))
+}
+
 export const INTRO_PLACEHOLDER =
   "It is Week [N], which means it is time for our [Nth] edition of the quarter. " +
   "Visit our website to read the most recent articles contributed by our wonderful staff. " +
@@ -133,9 +138,7 @@ export function buildTemplateBody({ articles, comic, question }: TemplateOptions
   )
   // The site's /random page, the same as the Random Article link in its header.
   parts.push(`<p><a href="${escapeHtml(`${publicSiteUrl()}/random`)}">${RANDOM_ARTICLE_LABEL}</a></p>`)
-  if (comic) {
-    parts.push(imageHtml(comic.image_url, comic.image_alt || decodeEntities(comic.title), articleUrl(comic.slug)))
-  }
+  if (comic) parts.push(comicHtml(comic))
   return parts.join("")
 }
 

@@ -7,8 +7,10 @@ import ArticlePicker from "../components/newsletter/ArticlePicker"
 import { DateTimeField } from "../components/ui/datetime-field"
 import { copyText } from "../lib/clipboard"
 import { useNewsletterApi } from "../lib/newsletter/api"
+import { toComic } from "../lib/newsletter/articles"
 import {
   articleCardHtml,
+  comicHtml,
   FOOTER_TAGLINE,
   isHttpUrl,
   mastheadHtml,
@@ -124,9 +126,9 @@ export default function EditNewsletterView() {
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [articlePickerOpen, setArticlePickerOpen] = useState(false)
-  // Set while the picker is open to swap out one card: the editor's function
-  // that replaces it.
-  const [replaceArticle, setReplaceArticle] = useState<((html: string) => void) | null>(null)
+  // Set while the picker is open to swap out one card or the comic: what it is,
+  // and the editor's function that replaces it.
+  const [swap, setSwap] = useState<{ kind: "article" | "comic"; replace: (html: string) => void } | null>(null)
   const [sponsorPickerOpen, setSponsorPickerOpen] = useState(false)
   const [htmlCopied, setHtmlCopied] = useState(false)
   const [testEmails, setTestEmails] = useState("")
@@ -170,8 +172,7 @@ export default function EditNewsletterView() {
   const articleCards = useMemo<TrixArticleCards>(
     () => ({
       endLinkText: READ_MORE_LABEL,
-      // Wrapped: a bare function passed to a state setter is called as an updater.
-      onEdit: (replace) => setReplaceArticle(() => replace),
+      onEdit: (kind, replace) => setSwap({ kind, replace }),
     }),
     [],
   )
@@ -549,15 +550,17 @@ export default function EditNewsletterView() {
         />
       ) : null}
 
-      {replaceArticle ? (
+      {swap ? (
         <ArticlePicker
-          onClose={() => setReplaceArticle(null)}
+          comics={swap.kind === "comic"}
+          onClose={() => setSwap(null)}
           onSelect={(article) => {
+            const comic = swap.kind === "comic" ? toComic(article) : null
             markBodyTouched()
-            replaceArticle(articleCardHtml(article))
-            setReplaceArticle(null)
+            swap.replace(comic ? comicHtml(comic) : articleCardHtml(article))
+            setSwap(null)
           }}
-          title="Swap article"
+          title={swap.kind === "comic" ? "Swap comic" : "Swap article"}
         />
       ) : null}
 

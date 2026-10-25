@@ -18,7 +18,7 @@ vi.hoisted(() => {
   }
 })
 
-import TrixEditor from "./TrixEditor"
+import TrixEditor, { type TrixEditorHandle } from "./TrixEditor"
 
 const OLD_URL = "/wp-content/uploads/2024/01/protest.jpg"
 // A fresh upload: a new content-addressed asset with no library alt text yet.
@@ -198,7 +198,7 @@ describe("TrixEditor article cards", () => {
 
   const renderCards = async () => {
     const onChange = vi.fn()
-    const onEdit = vi.fn<(replace: (html: string) => void) => void>()
+    const onEdit = vi.fn<(kind: string, replace: (html: string) => void) => void>()
     const { container } = render(
       <TrixEditor articleCards={{ endLinkText: READ_MORE, onEdit }} onChange={onChange} value={BODY} />,
     )
@@ -217,7 +217,7 @@ describe("TrixEditor article cards", () => {
     const { editor, onChange, onEdit } = await renderCards()
 
     fireEvent.click(screen.getByRole("button", { name: "Swap article: Beta" }))
-    act(() => onEdit.mock.calls[0][0](card("Gamma", "gamma", "/wp-content/uploads/g.jpg")))
+    act(() => onEdit.mock.calls[0][1](card("Gamma", "gamma", "/wp-content/uploads/g.jpg")))
 
     await waitFor(() => expect(lastHtml(onChange)).toContain("Gamma"))
     // Trix's own serialization: jsdom never loads the images, so the saved
@@ -244,7 +244,7 @@ describe("TrixEditor article cards", () => {
   it("is one undo step", async () => {
     const { editor, onChange, onEdit } = await renderCards()
     fireEvent.click(screen.getByRole("button", { name: "Swap article: Beta" }))
-    act(() => onEdit.mock.calls[0][0](card("Gamma", "gamma")))
+    act(() => onEdit.mock.calls[0][1](card("Gamma", "gamma")))
     await waitFor(() => expect(lastHtml(onChange)).toContain("Gamma"))
 
     act(() => editor.editor.undo())
@@ -256,7 +256,7 @@ describe("TrixEditor article cards", () => {
     const { editor, onChange, onEdit } = await renderCards()
     fireEvent.click(screen.getByRole("button", { name: "Swap article: Beta" }))
     act(() => editor.editor.loadHTML(`<p>Intro</p>${card("Alpha", "alpha")}`))
-    act(() => onEdit.mock.calls[0][0](card("Gamma", "gamma")))
+    act(() => onEdit.mock.calls[0][1](card("Gamma", "gamma")))
 
     expect(await screen.findByRole("status")).toHaveTextContent("That article changed")
     expect(onChange.mock.calls.some((call) => String(call[0]).includes("Gamma"))).toBe(false)
@@ -316,5 +316,79 @@ describe("TrixEditor article cards", () => {
     await waitFor(() =>
       expect(blockTexts(editor).slice(0, 4)).toEqual(["Intro", "Alpha", "Alpha excerpt", "[image]"]),
     )
+  })
+
+  it("keeps an inserted card's image from another host instead of importing it", async () => {
+    const fetchSpy = vi.fn(() => Promise.reject(new Error("offline")))
+    vi.stubGlobal("fetch", fetchSpy)
+    const { editor, onChange, onEdit } = await renderCards()
+    fireEvent.click(screen.getByRole("button", { name: "Swap article: Beta" }))
+    act(() => onEdit.mock.calls[0][1](card("Gamma", "gamma", "https://delta.test/wp-content/g.jpg")))
+
+    await waitFor(() => expect(lastHtml(onChange)).toContain("Gamma"))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(editor.value).toContain("https://delta.test/wp-content/g.jpg")
+  })
+
+  it("inserts a card after the card the caret is in, not inside it", async () => {
+    const handle = { current: null as TrixEditorHandle | null }
+    const { container } = render(
+      <TrixEditor
+        articleCards={{ endLinkText: READ_MORE, onEdit: vi.fn() }}
+        handleRef={handle}
+        onChange={vi.fn()}
+        value={MOVE_BODY}
+      />,
+    )
+    const editor = container.querySelector<TrixEditorElement>("trix-editor")
+    if (!editor) throw new Error("no trix-editor")
+    await waitFor(() => expect(editor.editor.getDocument().getAttachments()).toHaveLength(1))
+    // In Alpha's headline.
+    const doc = editor.editor.getDocument()
+    act(() => editor.editor.setSelectedRange(doc.positionFromLocation({ index: 1, offset: 2 })))
+
+    act(() => handle.current?.insertHTML(card("Gamma", "gamma")))
+
+    await waitFor(() =>
+      expect(blockTexts(editor)).toEqual([
+        "Intro",
+        "Alpha",
+        "[image]",
+        "Alpha excerpt",
+        READ_MORE,
+        "Gamma",
+        "Gamma excerpt",
+        READ_MORE,
+        "Beta",
+        "Beta excerpt",
+        READ_MORE,
+        "Outro",
+      ]),
+    )
+  })
+
+  it("swaps the comic, a linked image outside any card", async () => {
+    const comic = (slug: string, src: string) =>
+      `<figure><a href="https://www.thetriangle.org/article/${slug}"><img src="${src}" alt="${slug}"></a></figure>`
+    const onEdit = vi.fn<(kind: string, replace: (html: string) => void) => void>()
+    const { container } = render(
+      <TrixEditor
+        articleCards={{ endLinkText: READ_MORE, onEdit }}
+        onChange={vi.fn()}
+        value={`${card("Alpha", "alpha")}<p>Random article</p>${comic("old-comic", "/wp-content/uploads/old.png")}`}
+      />,
+    )
+    const editor = container.querySelector<TrixEditorElement>("trix-editor")
+    if (!editor) throw new Error("no trix-editor")
+
+    fireEvent.click(await screen.findByRole("button", { name: "Swap comic" }))
+    expect(onEdit.mock.calls[0][0]).toBe("comic")
+    act(() => onEdit.mock.calls[0][1](comic("new-comic", "/wp-content/uploads/new.png")))
+
+    await waitFor(() => expect(editor.value).toContain("/wp-content/uploads/new.png"))
+    expect(editor.value).not.toContain("old.png")
+    expect(editor.value).toContain("https://www.thetriangle.org/article/new-comic")
+    expect(blockTexts(editor)).toEqual(["Alpha", "Alpha excerpt", READ_MORE, "Random article", "[image]"])
   })
 })

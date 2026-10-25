@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { findCards } from "./trixCards"
+import { findCards, findSwappable } from "./trixCards"
 
 const READ_MORE = "Click Here to Read More"
 const blocks = (html: string) => Array.from(new DOMParser().parseFromString(html, "text/html").body.children)
@@ -41,5 +41,25 @@ describe("findCards", () => {
       '<div><a href="/a">Read more</a></div>',
     ].join("")
     expect(findCards(blocks(html), READ_MORE)).toEqual([])
+  })
+})
+
+describe("findSwappable", () => {
+  const linkedImage = (href: string) =>
+    `<div><figure data-trix-attachment='{"url":"c.png","href":"${href}"}'><img src="c.png"></figure></div>`
+
+  it("finds the comic as a linked image outside the cards, but not a story's own image", () => {
+    const html = [
+      "<h1>A</h1>",
+      linkedImage("/article/a"),
+      `<div><a href="/article/a">${READ_MORE}</a></div>`,
+      "<div>Random</div>",
+      linkedImage("/article/comic"),
+      '<div><figure data-trix-attachment=\'{"url":"plain.png"}\'><img src="plain.png"></figure></div>',
+    ].join("")
+    expect(findSwappable(blocks(html), READ_MORE)).toEqual([
+      { start: 0, end: 2, href: "/article/a", kind: "article" },
+      { start: 4, end: 4, href: "/article/comic", kind: "comic" },
+    ])
   })
 })

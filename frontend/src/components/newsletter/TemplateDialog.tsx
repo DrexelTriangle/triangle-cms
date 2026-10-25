@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { ArrowDown, ArrowUp, ImageOff, Pencil, Plus, X } from "lucide-react"
 import { useApiFetch } from "../../hooks/useApiFetch"
-import { fetchLatestComic, fetchPublishedArticles, type PickableArticle } from "../../lib/newsletter/articles"
+import { fetchLatestComic, fetchPublishedArticles, toComic, type PickableArticle } from "../../lib/newsletter/articles"
 import {
   buildTemplateBody,
   decodeEntities,
@@ -52,6 +52,7 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
   const [pickerOpen, setPickerOpen] = useState(false)
   // The story being swapped out while the picker is open for it.
   const [swapId, setSwapId] = useState<number | null>(null)
+  const [comicPickerOpen, setComicPickerOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -247,24 +248,35 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
             />
           </label>
 
-          <label className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
-            <input
-              checked={includeComic && Boolean(comic)}
-              className="h-4 w-4 accent-primary"
-              disabled={!comic}
-              onChange={(e) => setIncludeComic(e.target.checked)}
-              type="checkbox"
-            />
-            {comic ? (
-              <img alt="" className="h-10 w-14 rounded object-cover" referrerPolicy="no-referrer" src={comic.image_url} />
-            ) : null}
-            <span className="min-w-0 text-sm">
-              <span className="block font-medium text-foreground">Include the latest comic</span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {isLoading ? "Loading..." : comic ? decodeEntities(comic.title) : "No comic found."}
+          <div className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+            <label className="flex min-w-0 flex-1 items-center gap-3">
+              <input
+                checked={includeComic && Boolean(comic)}
+                className="h-4 w-4 accent-primary"
+                disabled={!comic}
+                onChange={(e) => setIncludeComic(e.target.checked)}
+                type="checkbox"
+              />
+              {comic ? (
+                <img alt="" className="h-10 w-14 rounded object-cover" referrerPolicy="no-referrer" src={comic.image_url} />
+              ) : null}
+              <span className="min-w-0 text-sm">
+                <span className="block font-medium text-foreground">Include the comic</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {isLoading ? "Loading..." : comic ? decodeEntities(comic.title) : "No comic found."}
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+            <button
+              aria-label="Swap comic"
+              className="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => setComicPickerOpen(true)}
+              title="Swap comic"
+              type="button"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </div>
 
           {previousSponsor ? (
             <label className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
@@ -324,6 +336,22 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
             setSwapId(null)
           }}
           title="Swap story"
+        />
+      ) : null}
+
+      {comicPickerOpen ? (
+        <ArticlePicker
+          comics
+          onClose={() => setComicPickerOpen(false)}
+          onSelect={(article) => {
+            const picked = toComic(article)
+            if (picked) {
+              setComic(picked)
+              setIncludeComic(true)
+            }
+            setComicPickerOpen(false)
+          }}
+          title="Swap comic"
         />
       ) : null}
     </div>
