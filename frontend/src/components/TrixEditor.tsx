@@ -101,7 +101,9 @@ const serializedBlocks = (editor: TrixEditorElement): Element[] =>
   );
 
 export type TrixEditorHandle = {
-  insertHTML: (html: string) => void;
+  // `afterComics`: with articleCards, put it after the last comic if there is
+  // one (new comics join the others) instead of at the caret.
+  insertHTML: (html: string, options?: { afterComics?: boolean }) => void;
 };
 
 // Opt-in swap control on article cards and the comic (see trixCards.ts).
@@ -175,10 +177,20 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
   useImperativeHandle(
     handleRef,
     () => ({
-      insertHTML: (html: string) => {
+      insertHTML: (html: string, options?: { afterComics?: boolean }) => {
         const editor = editorRef.current;
         if (!editor) return;
         editor.focus();
+        const cardText = endLinkTextRef.current;
+        if (options?.afterComics && cardText !== undefined) {
+          const lastComic = findSwappable(serializedBlocks(editor), cardText)
+            .filter((span) => span.kind === "comic")
+            .at(-1);
+          if (lastComic) {
+            spliceBlocks(lastComic.end + 1, 0, html, "Insert Comic");
+            return;
+          }
+        }
         const doc = editor.editor.getDocument();
         const [caret] = editor.editor.getSelectedRange();
         let { index } = doc.locationFromPosition(caret);
@@ -189,7 +201,6 @@ function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProp
         //
         // Nor may it land inside an article card: that split the card in
         // two and left its headline orphaned. It goes after the card.
-        const cardText = endLinkTextRef.current;
         if (cardText !== undefined) {
           const card = findCards(serializedBlocks(editor), cardText).find(
             (c) => c.start <= index && index <= c.end,

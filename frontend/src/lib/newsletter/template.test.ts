@@ -67,7 +67,10 @@ describe("buildTemplateBody", () => {
         { title: "One", slug: "one", excerpt: "" },
         { title: "Two", slug: "two", excerpt: "" },
       ],
-      comic: { title: "Abstraction juice", slug: "comic", image_url: "https://media.example/comic.png" },
+      comics: [
+        { title: "Abstraction juice", slug: "comic", image_url: "https://media.example/comic.png" },
+        { title: "Second strip", slug: "comic-two", image_url: "https://media.example/comic-two.png" },
+      ],
       question: "What is your favorite form of egg to eat?",
     })
     const doc = parse(body)
@@ -81,10 +84,12 @@ describe("buildTemplateBody", () => {
     expect(random?.getAttribute("href")).toMatch(/\/random$/)
     // The button is a line of its own, so the email renders it as a button.
     expect(random?.parentElement?.childNodes).toHaveLength(1)
-    // The comic follows the button, and links to the comic itself.
-    const last = doc.body.lastElementChild
-    expect(last?.querySelector("img")?.getAttribute("src")).toBe("https://media.example/comic.png")
-    expect(last?.querySelector("a")?.getAttribute("href")).toMatch(/\/article\/comic$/)
+    // The comics follow the button in order, each linking to itself.
+    const [first, second] = Array.from(doc.body.children).slice(-2)
+    expect(first.querySelector("img")?.getAttribute("src")).toBe("https://media.example/comic.png")
+    expect(first.querySelector("a")?.getAttribute("href")).toMatch(/\/article\/comic$/)
+    expect(second.querySelector("img")?.getAttribute("src")).toBe("https://media.example/comic-two.png")
+    expect(second.querySelector("a")?.getAttribute("href")).toMatch(/\/article\/comic-two$/)
   })
 
   it("keeps the random-article button and leaves a placeholder question when nothing else is given", () => {

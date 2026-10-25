@@ -87,12 +87,8 @@ export const toComic = (item: PickableArticle): TemplateComic | null =>
     ? { title: item.title, slug: item.slug, image_url: item.image_url, image_alt: item.image_alt }
     : null
 
-// The newest comic with art to show.
-export async function fetchLatestComic(apiFetch: ApiFetch, signal?: AbortSignal): Promise<TemplateComic | null> {
+// The newest comic post with art to show.
+export async function fetchLatestComic(apiFetch: ApiFetch, signal?: AbortSignal): Promise<PickableArticle | null> {
   const items = await fetchPublishedArticles(apiFetch, { limit: 10, sectionSlug: COMICS_SECTION, signal })
-  for (const item of items) {
-    const comic = toComic(item)
-    if (comic) return comic
-  }
-  return null
+  return items.find((item) => toComic(item)) ?? null
 }

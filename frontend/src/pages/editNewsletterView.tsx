@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowLeft, Check, Code, Eye, Image, Monitor, Newspaper, Save, Send, Smartphone, X } from "lucide-react"
+import { ArrowLeft, Check, Code, Eye, Image, Monitor, Newspaper, Save, Send, Smartphone, Smile, X } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import TrixEditor, { type TrixArticleCards, type TrixEditorHandle } from "../components/TrixEditor"
 import MediaPicker from "../components/MediaPicker"
@@ -125,7 +125,8 @@ export default function EditNewsletterView() {
   const [isSaving, setIsSaving] = useState(false)
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [articlePickerOpen, setArticlePickerOpen] = useState(false)
+  // What the picker opened from "Insert article" / "Insert comic" adds.
+  const [insertKind, setInsertKind] = useState<"article" | "comic" | null>(null)
   // Set while the picker is open to swap out one card or the comic: what it is,
   // and the editor's function that replaces it.
   const [swap, setSwap] = useState<{ kind: "article" | "comic"; replace: (html: string) => void } | null>(null)
@@ -400,14 +401,24 @@ export default function EditNewsletterView() {
             <div className="flex items-center justify-between">
               <span className={labelTextClass}>Content</span>
               {!isLocked ? (
-                <button
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-                  onClick={() => setArticlePickerOpen(true)}
-                  type="button"
-                >
-                  <Newspaper className="h-3.5 w-3.5" />
-                  Insert article
-                </button>
+                <span className="flex items-center gap-4">
+                  <button
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                    onClick={() => setInsertKind("article")}
+                    type="button"
+                  >
+                    <Newspaper className="h-3.5 w-3.5" />
+                    Insert article
+                  </button>
+                  <button
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                    onClick={() => setInsertKind("comic")}
+                    type="button"
+                  >
+                    <Smile className="h-3.5 w-3.5" />
+                    Insert comic
+                  </button>
+                </span>
               ) : null}
             </div>
             <div className="overflow-hidden rounded-lg border border-border">
@@ -539,14 +550,18 @@ export default function EditNewsletterView() {
 
       {previewOpen ? <PreviewDialog html={previewEmailHtml(emailHtml)} onClose={() => setPreviewOpen(false)} /> : null}
 
-      {articlePickerOpen ? (
+      {insertKind ? (
         <ArticlePicker
-          onClose={() => setArticlePickerOpen(false)}
+          comics={insertKind === "comic"}
+          onClose={() => setInsertKind(null)}
           onSelect={(article) => {
+            const comic = insertKind === "comic" ? toComic(article) : null
             markBodyTouched()
-            editorHandle.current?.insertHTML(articleCardHtml(article))
-            setArticlePickerOpen(false)
+            if (comic) editorHandle.current?.insertHTML(comicHtml(comic), { afterComics: true })
+            else editorHandle.current?.insertHTML(articleCardHtml(article))
+            setInsertKind(null)
           }}
+          title={insertKind === "comic" ? "Insert a comic" : "Insert an article"}
         />
       ) : null}
 

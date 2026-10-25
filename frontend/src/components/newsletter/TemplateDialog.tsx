@@ -36,6 +36,113 @@ const dateFromInput = (value: string) => new Date(`${value}T12:00:00`)
 const inputClass =
   "w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
 const labelTextClass = "text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+const iconButtonClass = "rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+
+type ListKind = "story" | "comic"
+
+// The open article picker: adding to a list, or swapping one of its entries.
+type Picker = { list: ListKind; swapId: number | null }
+
+type PickListProps = {
+  kind: ListKind
+  items: PickableArticle[]
+  isLoading: boolean
+  onAdd: () => void
+  onSwap: (id: number) => void
+  onChange: (items: PickableArticle[]) => void
+}
+
+// An ordered list of stories or comics, with swap, reorder and remove.
+function PickList({ kind, items, isLoading, onAdd, onSwap, onChange }: PickListProps) {
+  const plural = kind === "story" ? "Stories" : "Comics"
+  const move = (index: number, delta: number) => {
+    const target = index + delta
+    if (target < 0 || target >= items.length) return
+    const next = [...items]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    onChange(next)
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <span className={labelTextClass}>
+          {plural} ({items.length})
+        </span>
+        <button
+          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          onClick={onAdd}
+          type="button"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add {kind}
+        </button>
+      </div>
+      {isLoading || items.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+          {isLoading ? `Loading ${plural.toLowerCase()}...` : `No ${plural.toLowerCase()} yet.`}
+        </p>
+      ) : (
+        <ol className="flex flex-col divide-y divide-border rounded-lg border border-border">
+          {items.map((item, index) => (
+            <li className="flex items-center gap-3 px-3 py-2" key={item.id}>
+              {item.image_url ? (
+                <img
+                  alt=""
+                  className="h-10 w-14 flex-shrink-0 rounded object-cover"
+                  referrerPolicy="no-referrer"
+                  src={item.image_url}
+                />
+              ) : (
+                <span className="flex h-10 w-14 flex-shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
+                  <ImageOff className="h-4 w-4" />
+                </span>
+              )}
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground">{decodeEntities(item.title)}</span>
+              <span className="flex flex-shrink-0 items-center gap-0.5">
+                <button
+                  aria-label={`Swap ${decodeEntities(item.title)}`}
+                  className={iconButtonClass}
+                  onClick={() => onSwap(item.id)}
+                  title={`Swap ${kind}`}
+                  type="button"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  aria-label="Move up"
+                  className={iconButtonClass}
+                  disabled={index === 0}
+                  onClick={() => move(index, -1)}
+                  type="button"
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  aria-label="Move down"
+                  className={iconButtonClass}
+                  disabled={index === items.length - 1}
+                  onClick={() => move(index, 1)}
+                  type="button"
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  aria-label="Remove"
+                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => onChange(items.filter((other) => other.id !== item.id))}
+                  type="button"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
 
 export default function TemplateDialog({ previousSponsor, onCreate, onClose }: TemplateDialogProps) {
   const apiFetch = useApiFetch()
@@ -43,16 +150,12 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
   const [subject, setSubject] = useState(() => defaultSubject(new Date()))
   const [subjectEdited, setSubjectEdited] = useState(false)
   const [articles, setArticles] = useState<PickableArticle[]>([])
-  const [comic, setComic] = useState<TemplateComic | null>(null)
-  const [includeComic, setIncludeComic] = useState(true)
+  const [comics, setComics] = useState<PickableArticle[]>([])
   const [question, setQuestion] = useState("")
   const [reuseSponsor, setReuseSponsor] = useState(Boolean(previousSponsor))
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [pickerOpen, setPickerOpen] = useState(false)
-  // The story being swapped out while the picker is open for it.
-  const [swapId, setSwapId] = useState<number | null>(null)
-  const [comicPickerOpen, setComicPickerOpen] = useState(false)
+  const [picker, setPicker] = useState<Picker | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -65,34 +168,36 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
       if (controller.signal.aborted) return
       if (latest.status === "fulfilled") setArticles(latest.value)
       else setLoadError("Couldn't load the latest articles.")
-      if (latestComic.status === "fulfilled") setComic(latestComic.value)
+      if (latestComic.status === "fulfilled" && latestComic.value) setComics([latestComic.value])
       setIsLoading(false)
     })
     return () => controller.abort()
   }, [apiFetch])
 
+  // A picker on top handles its own Escape; this one would close the dialog
+  // under it too.
   useEffect(() => {
-    if (pickerOpen) return
+    if (picker) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [onClose, pickerOpen])
+  }, [onClose, picker])
 
   const changeDate = (value: string) => {
     setIssueDate(value)
     if (!subjectEdited && value) setSubject(defaultSubject(dateFromInput(value)))
   }
 
-  const move = (index: number, delta: number) => {
-    setArticles((current) => {
-      const target = index + delta
-      if (target < 0 || target >= current.length) return current
-      const next = [...current]
-      ;[next[index], next[target]] = [next[target], next[index]]
-      return next
-    })
+  const pick = (article: PickableArticle) => {
+    if (!picker) return
+    const setList = picker.list === "story" ? setArticles : setComics
+    const { swapId } = picker
+    setList((current) =>
+      swapId === null ? [...current, article] : current.map((item) => (item.id === swapId ? article : item)),
+    )
+    setPicker(null)
   }
 
   const create = async () => {
@@ -101,7 +206,7 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
     const sponsor = reuseSponsor ? previousSponsor : null
     const body_html = buildTemplateBody({
       articles,
-      comic: includeComic ? comic : null,
+      comics: comics.map(toComic).filter((comic): comic is TemplateComic => comic !== null),
       question,
     })
     const fields = { subject: subject.trim() || defaultSubject(dateFromInput(issueDate)), preheader: "", sponsor, body_html }
@@ -112,6 +217,8 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
       setIsCreating(false)
     }
   }
+
+  const pickerList = picker?.list === "story" ? articles : comics
 
   return (
     <div
@@ -158,84 +265,15 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
           </div>
 
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className={labelTextClass}>Stories ({articles.length})</span>
-              <button
-                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                onClick={() => setPickerOpen(true)}
-                type="button"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add story
-              </button>
-            </div>
             {loadError ? <p className="text-xs text-destructive">{loadError}</p> : null}
-            {isLoading ? (
-              <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-                Loading stories...
-              </p>
-            ) : articles.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-                No stories yet.
-              </p>
-            ) : (
-              <ol className="flex flex-col divide-y divide-border rounded-lg border border-border">
-                {articles.map((article, index) => (
-                  <li className="flex items-center gap-3 px-3 py-2" key={article.id}>
-                    {article.image_url ? (
-                      <img
-                        alt=""
-                        className="h-10 w-14 flex-shrink-0 rounded object-cover"
-                        referrerPolicy="no-referrer"
-                        src={article.image_url}
-                      />
-                    ) : (
-                      <span className="flex h-10 w-14 flex-shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
-                        <ImageOff className="h-4 w-4" />
-                      </span>
-                    )}
-                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">{decodeEntities(article.title)}</span>
-                    <span className="flex flex-shrink-0 items-center gap-0.5">
-                      <button
-                        aria-label={`Swap ${decodeEntities(article.title)}`}
-                        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                        onClick={() => setSwapId(article.id)}
-                        title="Swap story"
-                        type="button"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        aria-label="Move up"
-                        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-                        disabled={index === 0}
-                        onClick={() => move(index, -1)}
-                        type="button"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        aria-label="Move down"
-                        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-                        disabled={index === articles.length - 1}
-                        onClick={() => move(index, 1)}
-                        type="button"
-                      >
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        aria-label="Remove"
-                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => setArticles((current) => current.filter((a) => a.id !== article.id))}
-                        type="button"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            )}
+            <PickList
+              isLoading={isLoading}
+              items={articles}
+              kind="story"
+              onAdd={() => setPicker({ list: "story", swapId: null })}
+              onChange={setArticles}
+              onSwap={(id) => setPicker({ list: "story", swapId: id })}
+            />
           </div>
 
           <label className="flex flex-col gap-1.5">
@@ -248,35 +286,14 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
             />
           </label>
 
-          <div className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
-            <label className="flex min-w-0 flex-1 items-center gap-3">
-              <input
-                checked={includeComic && Boolean(comic)}
-                className="h-4 w-4 accent-primary"
-                disabled={!comic}
-                onChange={(e) => setIncludeComic(e.target.checked)}
-                type="checkbox"
-              />
-              {comic ? (
-                <img alt="" className="h-10 w-14 rounded object-cover" referrerPolicy="no-referrer" src={comic.image_url} />
-              ) : null}
-              <span className="min-w-0 text-sm">
-                <span className="block font-medium text-foreground">Include the comic</span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {isLoading ? "Loading..." : comic ? decodeEntities(comic.title) : "No comic found."}
-                </span>
-              </span>
-            </label>
-            <button
-              aria-label="Swap comic"
-              className="flex-shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => setComicPickerOpen(true)}
-              title="Swap comic"
-              type="button"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          </div>
+          <PickList
+            isLoading={isLoading}
+            items={comics}
+            kind="comic"
+            onAdd={() => setPicker({ list: "comic", swapId: null })}
+            onChange={setComics}
+            onSwap={(id) => setPicker({ list: "comic", swapId: id })}
+          />
 
           {previousSponsor ? (
             <label className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
@@ -315,43 +332,13 @@ export default function TemplateDialog({ previousSponsor, onCreate, onClose }: T
         </div>
       </div>
 
-      {pickerOpen ? (
+      {picker ? (
         <ArticlePicker
-          excludeIds={articles.map((a) => a.id)}
-          onClose={() => setPickerOpen(false)}
-          onSelect={(article) => {
-            setArticles((current) => [...current, article])
-            setPickerOpen(false)
-          }}
-          title="Add a story"
-        />
-      ) : null}
-
-      {swapId !== null ? (
-        <ArticlePicker
-          excludeIds={articles.map((a) => a.id)}
-          onClose={() => setSwapId(null)}
-          onSelect={(article) => {
-            setArticles((current) => current.map((a) => (a.id === swapId ? article : a)))
-            setSwapId(null)
-          }}
-          title="Swap story"
-        />
-      ) : null}
-
-      {comicPickerOpen ? (
-        <ArticlePicker
-          comics
-          onClose={() => setComicPickerOpen(false)}
-          onSelect={(article) => {
-            const picked = toComic(article)
-            if (picked) {
-              setComic(picked)
-              setIncludeComic(true)
-            }
-            setComicPickerOpen(false)
-          }}
-          title="Swap comic"
+          comics={picker.list === "comic"}
+          excludeIds={pickerList.map((item) => item.id)}
+          onClose={() => setPicker(null)}
+          onSelect={pick}
+          title={`${picker.swapId === null ? "Add" : "Swap"} ${picker.list === "story" ? "a story" : "a comic"}`}
         />
       ) : null}
     </div>

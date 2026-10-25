@@ -391,4 +391,28 @@ describe("TrixEditor article cards", () => {
     expect(editor.value).toContain("https://www.thetriangle.org/article/new-comic")
     expect(blockTexts(editor)).toEqual(["Alpha", "Alpha excerpt", READ_MORE, "Random article", "[image]"])
   })
+
+  it("adds a new comic after the last one, wherever the caret is", async () => {
+    const comic = (slug: string) =>
+      `<figure><a href="https://www.thetriangle.org/article/${slug}"><img src="/wp-content/uploads/${slug}.png" alt="${slug}"></a></figure>`
+    const handle = { current: null as TrixEditorHandle | null }
+    const { container } = render(
+      <TrixEditor
+        articleCards={{ endLinkText: READ_MORE, onEdit: vi.fn() }}
+        handleRef={handle}
+        onChange={vi.fn()}
+        value={`<p>Intro</p>${card("Alpha", "alpha")}${comic("one")}<p>Sign-off</p>`}
+      />,
+    )
+    const editor = container.querySelector<TrixEditorElement>("trix-editor")
+    if (!editor) throw new Error("no trix-editor")
+    await waitFor(() => expect(editor.editor.getDocument().getAttachments()).toHaveLength(1))
+    act(() => editor.editor.setSelectedRange(0))
+
+    act(() => handle.current?.insertHTML(comic("two"), { afterComics: true }))
+
+    await waitFor(() => expect(editor.value).toContain("/wp-content/uploads/two.png"))
+    expect(blockTexts(editor)).toEqual(["Intro", "Alpha", "Alpha excerpt", READ_MORE, "[image]", "[image]", "Sign-off"])
+    expect(editor.value.indexOf("one.png")).toBeLessThan(editor.value.indexOf("two.png"))
+  })
 })

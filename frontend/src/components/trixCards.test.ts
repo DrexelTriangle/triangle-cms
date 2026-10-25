@@ -63,3 +63,15 @@ describe("findSwappable", () => {
     ])
   })
 })
+
+describe("findSwappable with several comics", () => {
+  it("offers each comic in a run of them on its own", () => {
+    const comic = (href: string) =>
+      `<div><figure data-trix-attachment='{"url":"c.png","href":"${href}"}'><img src="c.png"></figure></div>`
+    const html = ["<div>Random</div>", comic("/article/one"), comic("/article/two")].join("")
+    expect(findSwappable(blocks(html), READ_MORE)).toEqual([
+      { start: 1, end: 1, href: "/article/one", kind: "comic" },
+      { start: 2, end: 2, href: "/article/two", kind: "comic" },
+    ])
+  })
+})

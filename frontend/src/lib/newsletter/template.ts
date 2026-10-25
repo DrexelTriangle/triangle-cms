@@ -68,7 +68,8 @@ export type TemplateComic = {
 
 export type TemplateOptions = {
   articles: TemplateArticle[]
-  comic?: TemplateComic | null
+  // In order, after the random-article button.
+  comics?: TemplateComic[]
   question?: string
 }
 
@@ -125,7 +126,7 @@ export const INTRO_PLACEHOLDER =
   "We have news about [topics], and much more. " +
   "Make sure you read to stay up to date on all of your Drexel-related information!"
 
-export function buildTemplateBody({ articles, comic, question }: TemplateOptions): string {
+export function buildTemplateBody({ articles, comics = [], question }: TemplateOptions): string {
   const parts = [
     `<p>${escapeHtml(INTRO_PLACEHOLDER)}</p>`,
     `<p><a href="${escapeHtml(publicSiteUrl())}">${READ_LATEST_LABEL}</a></p>`,
@@ -138,7 +139,7 @@ export function buildTemplateBody({ articles, comic, question }: TemplateOptions
   )
   // The site's /random page, the same as the Random Article link in its header.
   parts.push(`<p><a href="${escapeHtml(`${publicSiteUrl()}/random`)}">${RANDOM_ARTICLE_LABEL}</a></p>`)
-  if (comic) parts.push(comicHtml(comic))
+  parts.push(...comics.map(comicHtml))
   return parts.join("")
 }
 
