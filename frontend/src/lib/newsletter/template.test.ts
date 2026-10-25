@@ -4,6 +4,7 @@ import {
   bodyToEmailHtml,
   buildTemplateBody,
   defaultSubject,
+  EMAIL_ASSET_BASE,
   EMAIL_TOKENS,
   previewEmailHtml,
   RANDOM_ARTICLE_LABEL,
@@ -207,17 +208,20 @@ describe("renderNewsletterEmail", () => {
   it("includes the masthead, hidden preheader and subject title", () => {
     const doc = parse(renderNewsletterEmail(fields))
     expect(doc.title).toBe(fields.subject)
-    // The masthead is an image on the public site, named in its alt text for
-    // clients that block images.
-    const masthead = doc.querySelector('img[src$="/email/masthead.png"]')
-    expect(masthead?.getAttribute("src")).toBe("https://www.thetriangle.org/email/masthead.png")
+    // The masthead is an image on Delta's public media host (a sandbox's own
+    // site is unreachable from Gmail), named in its alt text for clients that
+    // block images.
+    const masthead = doc.querySelector('img[src$="/masthead.png"]')
+    expect(masthead?.getAttribute("src")).toBe("https://delta.thetriangle.org/wp-content/email/v1/masthead.png")
     expect(masthead?.getAttribute("alt")).toContain("To The Point")
     expect(doc.body.textContent).toContain(fields.preheader)
   })
 
-  it("links the social icons, served from the public site", () => {
+  it("links the social icons, served from Delta's public media host", () => {
     const doc = parse(renderNewsletterEmail(fields))
-    const icons = Array.from(doc.querySelectorAll('a img[src*="/email/"][width="32"]')).map((img) => img.getAttribute("alt"))
+    const icons = Array.from(doc.querySelectorAll(`a img[src^="${EMAIL_ASSET_BASE}/"][width="32"]`)).map((img) =>
+      img.getAttribute("alt"),
+    )
     expect(icons).toEqual(["X", "Instagram"])
   })
 })

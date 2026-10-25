@@ -28,10 +28,14 @@ export const READ_MORE_LABEL = "Click Here to Read More"
 export const READ_LATEST_LABEL = "Read the latest from The Triangle"
 export const RANDOM_ARTICLE_LABEL = "Check out a Random Article"
 
-// The masthead and social icons are served by the public site (Scalene's
-// public/email/), not the CMS: an image in a sent email has to keep working
-// for as long as the email sits in an inbox.
-const emailAsset = (name: string) => `${publicSiteUrl()}/email/${name}`
+// The masthead (unnamed.png) and social icons live in the CMS media tree on
+// CephFS, served publicly by Delta: an image in a sent email has to load from a
+// public URL for as long as the email sits in an inbox, whichever build sent
+// it (a sandbox's public site is not reachable from Gmail). The directory is
+// versioned because Delta serves /wp-content/ as immutable for 30 days: to
+// change an image, add v2/ rather than overwrite.
+export const EMAIL_ASSET_BASE = "https://delta.thetriangle.org/wp-content/email/v1"
+const emailAsset = (name: string) => `${EMAIL_ASSET_BASE}/${name}`
 
 export const FOOTER_TAGLINE = "The Independent Student Newspaper at Drexel University"
 export const SOCIAL_LINKS = [
