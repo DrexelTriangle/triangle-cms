@@ -2750,6 +2750,12 @@ const docTemplate = `{
                             "type": "string"
                         }
                     },
+                    "302": {
+                        "description": "latest with nothing sent yet: redirect to the public site",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
                     "404": {
                         "description": "HTML page",
                         "schema": {
