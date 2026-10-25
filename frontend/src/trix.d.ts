@@ -49,17 +49,25 @@ declare global {
           options?: { referenceElement?: Element },
         ): { getDocument(): TrixDocument };
       };
+      models: {
+        Document: new (blocks: TrixBlock[]) => TrixDocument;
+      };
     };
   }
 
   interface TrixDocument {
     getAttachments(): TrixAttachment[];
+    getBlocks(): TrixBlock[];
     locationFromPosition(position: number): { index: number; offset: number };
     getBlockAtIndex(index: number): TrixBlock | undefined;
+    positionFromLocation(location: { index: number; offset: number }): number;
   }
 
   interface TrixBlock {
     isEmpty(): boolean;
+    // Includes the block's trailing newline.
+    getLength(): number;
+    getAttributes(): string[];
   }
 
   // Not part of Trix's documented editor API, but the only way to put an
@@ -89,6 +97,7 @@ declare global {
       description: string,
       options?: { context?: unknown; consolidatable?: boolean },
     ): void;
+    undo(): void;
     getDocument(): TrixDocument;
     getSelectedRange(): [number, number];
     setSelectedRange(range: [number, number] | number): void;
@@ -96,6 +105,7 @@ declare global {
     insertHTML(html: string): void;
     insertAttachment(attachment: TrixAttachment): void;
     insertLineBreak(): void;
+    deactivateAttribute(name: string): void;
     activateAttachment(attachment: TrixAttachment): void;
   }
 

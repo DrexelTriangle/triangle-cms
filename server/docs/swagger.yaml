@@ -1086,6 +1086,136 @@ definitions:
       width:
         type: integer
     type: object
+  models.Newsletter:
+    properties:
+      body_html:
+        type: string
+      click_count:
+        type: integer
+      created_at:
+        type: string
+      email_html:
+        type: string
+      id:
+        type: integer
+      open_count:
+        description: Unique openers and unique clickers among real (not test) deliveries.
+        type: integer
+      preheader:
+        type: string
+      recipient_count:
+        type: integer
+      scheduled_for:
+        type: string
+      sent_at:
+        type: string
+      sponsor:
+        $ref: '#/definitions/models.NewsletterSponsor'
+      status:
+        type: string
+      subject:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.NewsletterInput:
+    properties:
+      body_html:
+        type: string
+      email_html:
+        type: string
+      preheader:
+        type: string
+      sponsor:
+        $ref: '#/definitions/models.NewsletterSponsor'
+      subject:
+        type: string
+    type: object
+  models.NewsletterScheduleRequest:
+    properties:
+      send_at:
+        type: string
+    type: object
+  models.NewsletterSponsor:
+    properties:
+      alt:
+        type: string
+      image_url:
+        type: string
+      link_url:
+        type: string
+    type: object
+  models.NewsletterStats:
+    properties:
+      avg_click_rate:
+        type: number
+      avg_open_rate:
+        type: number
+      recipients_reached:
+        type: integer
+      sent_count:
+        type: integer
+      subscriber_count:
+        type: integer
+    type: object
+  models.NewsletterSubscribeRequest:
+    properties:
+      email:
+        type: string
+      lists:
+        items:
+          type: integer
+        type: array
+      website:
+        type: string
+    type: object
+  models.NewsletterSubscribeResponse:
+    properties:
+      error:
+        type: string
+      success:
+        type: boolean
+    type: object
+  models.NewsletterSubscriber:
+    properties:
+      email:
+        type: string
+      id:
+        type: integer
+      lists:
+        items:
+          type: integer
+        type: array
+      name:
+        type: string
+      status:
+        type: string
+      subscribed_at:
+        type: string
+      unsubscribed_at:
+        type: string
+    type: object
+  models.NewsletterSubscribersResponse:
+    properties:
+      subscribers:
+        items:
+          $ref: '#/definitions/models.NewsletterSubscriber'
+        type: array
+    type: object
+  models.NewsletterTestRequest:
+    properties:
+      emails:
+        items:
+          type: string
+        type: array
+    type: object
+  models.NewslettersResponse:
+    properties:
+      newsletters:
+        items:
+          $ref: '#/definitions/models.Newsletter'
+        type: array
+    type: object
   models.Pagination:
     properties:
       has_more:
@@ -3101,6 +3231,539 @@ paths:
       summary: Start a media filesystem reindex
       tags:
       - media
+  /v1/newsletter-subscribers:
+    get:
+      parameters:
+      - description: Filter by status (default confirmed)
+        enum:
+        - confirmed
+        - unsubscribed
+        - bounced
+        - all
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.NewsletterSubscribersResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List newsletter subscribers
+      tags:
+      - newsletters
+  /v1/newsletter-subscribers/{id}:
+    delete:
+      parameters:
+      - description: Subscriber ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a newsletter subscriber
+      tags:
+      - newsletters
+  /v1/newsletter-subscribers/subscribe:
+    post:
+      consumes:
+      - application/json
+      description: Public, rate limited per IP. Lists are ids 1-7; none means no particular
+        list.
+      parameters:
+      - description: Address and lists
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.NewsletterSubscribeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.NewsletterSubscribeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.NewsletterSubscribeResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.NewsletterSubscribeResponse'
+      summary: Subscribe to the newsletter
+      tags:
+      - newsletters
+  /v1/newsletter/c/{token}/{link}:
+    get:
+      parameters:
+      - description: Delivery token
+        in: path
+        name: token
+        required: true
+        type: string
+      - description: Link ID
+        in: path
+        name: link
+        required: true
+        type: integer
+      responses:
+        "302":
+          description: Found
+        "404":
+          description: HTML page
+          schema:
+            type: string
+      summary: Newsletter click redirect
+      tags:
+      - newsletters
+  /v1/newsletter/issues/{id}:
+    get:
+      parameters:
+      - description: Newsletter ID, or latest
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: The issue's HTML
+          schema:
+            type: string
+        "404":
+          description: HTML page
+          schema:
+            type: string
+      summary: View a sent newsletter issue
+      tags:
+      - newsletters
+  /v1/newsletter/o/{token}:
+    get:
+      parameters:
+      - description: Delivery token
+        in: path
+        name: token
+        required: true
+        type: string
+      produces:
+      - image/gif
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: Newsletter open pixel
+      tags:
+      - newsletters
+  /v1/newsletter/resubscribe:
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      parameters:
+      - description: Subscriber token
+        in: query
+        name: t
+        type: string
+      - description: WordPress key, <id>-<token>
+        in: query
+        name: nk
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML page
+          schema:
+            type: string
+        "404":
+          description: HTML page
+          schema:
+            type: string
+      summary: Resubscribe to the newsletter
+      tags:
+      - newsletters
+  /v1/newsletter/unsubscribe:
+    get:
+      parameters:
+      - description: Subscriber token
+        in: query
+        name: t
+        type: string
+      - description: WordPress key, <id>-<token>
+        in: query
+        name: nk
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML page
+          schema:
+            type: string
+        "404":
+          description: HTML page
+          schema:
+            type: string
+      summary: Newsletter unsubscribe page
+      tags:
+      - newsletters
+    post:
+      consumes:
+      - application/x-www-form-urlencoded
+      parameters:
+      - description: Subscriber token
+        in: query
+        name: t
+        type: string
+      - description: WordPress key, <id>-<token>
+        in: query
+        name: nk
+        type: string
+      produces:
+      - text/html
+      responses:
+        "200":
+          description: HTML page
+          schema:
+            type: string
+        "404":
+          description: HTML page
+          schema:
+            type: string
+      summary: Unsubscribe from the newsletter
+      tags:
+      - newsletters
+  /v1/newsletters:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.NewslettersResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List newsletter issues
+      tags:
+      - newsletters
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Issue content
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.NewsletterInput'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Newsletter'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a newsletter issue
+      tags:
+      - newsletters
+  /v1/newsletters/{id}:
+    delete:
+      parameters:
+      - description: Newsletter ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a newsletter issue
+      tags:
+      - newsletters
+    get:
+      parameters:
+      - description: Newsletter ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Newsletter'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a newsletter issue
+      tags:
+      - newsletters
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Newsletter ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Issue content
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.NewsletterInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Newsletter'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Save a newsletter issue
+      tags:
+      - newsletters
+  /v1/newsletters/{id}/schedule:
+    delete:
+      parameters:
+      - description: Newsletter ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Newsletter'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Unschedule a newsletter issue
+      tags:
+      - newsletters
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Newsletter ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Send time (RFC 3339)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.NewsletterScheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Newsletter'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Schedule a newsletter issue
+      tags:
+      - newsletters
+  /v1/newsletters/{id}/test:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Newsletter ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Recipients
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.NewsletterTestRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Send a test of a newsletter issue
+      tags:
+      - newsletters
+  /v1/newsletters/stats:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.NewsletterStats'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Newsletter summary stats
+      tags:
+      - newsletters
   /v1/poll:
     get:
       produces:
