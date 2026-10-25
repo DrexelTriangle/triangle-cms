@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS legacy_redirects (
   source_kind VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   -- Stored exactly as WordPress stored it: lowercase, with any non-ASCII
   -- character percent-encoded (post_name is never decoded in wp_posts). ASCII
-  -- keeps the unique key inside a 767-byte index prefix, and the exporter on
-  -- the web edge decodes it into the form nginx's $uri compares against.
+  -- keeps the unique key inside a 767-byte index prefix, and the nginx map
+  -- sync decodes it into the form nginx's $uri compares against.
   source VARCHAR(750) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   -- A path on www.thetriangle.org (/article/<slug>), empty when status is 410.
   target VARCHAR(1024) NOT NULL DEFAULT '',

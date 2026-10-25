@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fill `legacy_redirects` with a redirect for every published WordPress post.
 
-When the legacy WordPress at cms.thetriangle.org is switched off, the web edge
-answers its URLs from this table instead (GET /v1/legacy-redirects, turned into
-nginx maps there). This script is what fills it: it reads the WordPress
+When the legacy WordPress is switched off, cms.thetriangle.org moves to Delta,
+whose nginx answers the old URLs from this table (GET /v1/legacy-redirects,
+turned into nginx maps by sync-legacy-redirects; see triangle-infrastructure
+docs/legacy-redirects.md). This script is what fills it: it reads the WordPress
 database directly, works out each post's canonical permalink exactly the way
 WordPress did, finds the same article in the CMS, and writes three rows per
 post:
@@ -14,7 +15,7 @@ post:
 
 The slug row is for the other spellings WordPress accepted and 301'd to the
 canonical one (a post filed under a second category, an attachment page under
-it); the edge falls back to it when no path row matches.
+it); nginx falls back to it when no path row matches.
 
   python ./scripts/build_legacy_redirects.py \\
       --wp-dsn 'wordpressuser@tcp(10.248.42.122:3306)/wordpress' \\

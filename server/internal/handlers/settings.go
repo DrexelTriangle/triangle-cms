@@ -219,7 +219,7 @@ func GetFooterSettings(conn *sql.DB) http.Handler {
 }
 
 // @Summary List the redirects for retired WordPress URLs
-// @Description Every legacy_redirects row, for the web edge to turn into nginx maps for the old WordPress host.
+// @Description Every legacy_redirects row, for Delta's nginx sync to turn into maps for the old WordPress host (cms.thetriangle.org).
 // @Tags settings
 // @Produce json
 // @Success 200 {object} models.LegacyRedirectsResponse

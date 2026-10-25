@@ -12,8 +12,9 @@ import (
 // newsletters and other sites hold keep working once WordPress is switched
 // off. The CMS only creates and serves the table; the rows are written by
 // scripts/build_legacy_redirects.py, which reads the WordPress database
-// directly, and consumed by the web edge, which turns them into nginx maps.
-// See schema/legacy_redirects.sql.
+// directly, and consumed by Delta's sync-legacy-redirects, which turns them
+// into the nginx maps cms.thetriangle.org is answered from. See
+// schema/legacy_redirects.sql.
 
 func EnsureLegacyRedirectsTable(ctx context.Context, conn *sql.DB) error {
 	if _, err := conn.ExecContext(ctx, TableSchema("legacy_redirects")); err != nil {
@@ -40,7 +41,7 @@ func EnsureLegacyRedirectsTable(ctx context.Context, conn *sql.DB) error {
 }
 
 // ListLegacyRedirects returns every redirect, ordered so the export is stable
-// from one fetch to the next and the edge can skip a reload when nothing
+// from one fetch to the next and the sync can skip a reload when nothing
 // changed.
 func ListLegacyRedirects(ctx context.Context, conn *sql.DB) ([]models.LegacyRedirect, error) {
 	rows, err := conn.QueryContext(ctx,

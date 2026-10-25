@@ -1982,7 +1982,7 @@ const docTemplate = `{
         },
         "/v1/legacy-redirects": {
             "get": {
-                "description": "Every legacy_redirects row, for the web edge to turn into nginx maps for the old WordPress host.",
+                "description": "Every legacy_redirects row, for Delta's nginx sync to turn into maps for the old WordPress host (cms.thetriangle.org).",
                 "produces": [
                     "application/json"
                 ],
