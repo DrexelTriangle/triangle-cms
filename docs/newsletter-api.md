@@ -76,14 +76,17 @@ in editorial use.
 
 1. **Scalene #172 merged and deployed to production.** Without it, every reader link
    in an email 404s, including click tracking, unsubscribe and view online.
-2. **Delta's backend env.**
-   - `NEWSLETTER_GMAIL_CLIENT_ID`, `_CLIENT_SECRET` and `_REFRESH_TOKEN`. Get them
-     from WordPress with `wp option get wp_mail_smtp`, the `gmail` keys, and copy
-     them before WordPress is turned off.
+2. **Delta's backend env. Done 2026-10-25** in `/etc/triangle-cms/cms.env`
+   (backup `cms.env.bak-20261025`). Containers read it at deploy, so it takes
+   effect when #258 ships.
+   - `NEWSLETTER_GMAIL_CLIENT_ID`, `_CLIENT_SECRET` and `_REFRESH_TOKEN`, from
+     WordPress's `wp option get wp_mail_smtp`, the `gmail` keys.
    - `NEWSLETTER_PUBLIC_URL=https://delta.thetriangle.org`.
    - `NEWSLETTER_LINK_URL=https://www.thetriangle.org/newsletter`.
-   - `NEWSLETTER_LEGACY_LINK_KEY`, the plugin's `newsletter_main.key`. Without it,
-     only old links to our own domains are followed.
+   - `NEWSLETTER_LEGACY_LINK_KEY`, the plugin's `newsletter_statistics.key` (not
+     `newsletter_main`, which has no key: `statistics.php` signs with the
+     Statistics module's option). Without it, only old links to our own domains
+     are followed.
    - Leave `NEWSLETTER_SMTP_ADDR` unset: setting both refuses to start.
 3. **#258 and #260 deployed,** with the dashboard built `VITE_NEWSLETTER_API=live`.
    Today Delta answers 404 on `/v1/newsletter/*`.
