@@ -456,6 +456,22 @@ type FooterSettingsResponse = FooterSettings
 
 type FooterSettingsPatchRequest = FooterSettings
 
+// LegacyRedirect is one old WordPress URL and where it now lives on the public
+// site. SourceKind says what Source is matched against: "path" (the request
+// path), "post_id" (the ?p= value) or "slug" (a post's last path segment).
+// Source is lowercase and percent-encoded, exactly as WordPress stored it.
+// Target is a path on the public site, empty when Status is 410.
+type LegacyRedirect struct {
+	SourceKind string `json:"source_kind"`
+	Source     string `json:"source"`
+	Target     string `json:"target"`
+	Status     int    `json:"status"`
+}
+
+type LegacyRedirectsResponse struct {
+	Redirects []LegacyRedirect `json:"redirects"`
+}
+
 // SEOSettings holds the site-wide SEO / social defaults.
 type SEOSettings struct {
 	OGTitle       string `json:"og_title"`

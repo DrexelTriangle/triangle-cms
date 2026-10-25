@@ -218,6 +218,25 @@ func GetFooterSettings(conn *sql.DB) http.Handler {
 	})
 }
 
+// @Summary List the redirects for retired WordPress URLs
+// @Description Every legacy_redirects row, for the web edge to turn into nginx maps for the old WordPress host.
+// @Tags settings
+// @Produce json
+// @Success 200 {object} models.LegacyRedirectsResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /v1/legacy-redirects [get]
+func GetLegacyRedirects(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirects, err := db.ListLegacyRedirects(r.Context(), conn)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to fetch legacy redirects")
+			return
+		}
+		setAlwaysPublicCache(w)
+		writeJSON(w, http.StatusOK, models.LegacyRedirectsResponse{Redirects: redirects})
+	})
+}
+
 // @Summary Update the public-site footer menu
 // @Tags settings
 // @Accept json

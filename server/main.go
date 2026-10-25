@@ -230,6 +230,10 @@ func main() {
 		slog.Error("failed to create classifieds table", "error", err)
 		os.Exit(1)
 	}
+	if err := database.EnsureLegacyRedirectsTable(context.Background(), db); err != nil {
+		slog.Error("failed to create legacy redirects table", "error", err)
+		os.Exit(1)
+	}
 	if err := database.EnsureWordangleTable(context.Background(), db); err != nil {
 		slog.Error("failed to create wordangle table", "error", err)
 		os.Exit(1)

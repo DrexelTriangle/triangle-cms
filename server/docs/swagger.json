@@ -1977,6 +1977,32 @@
                 }
             }
         },
+        "/v1/legacy-redirects": {
+            "get": {
+                "description": "Every legacy_redirects row, for the web edge to turn into nginx maps for the old WordPress host.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "List the redirects for retired WordPress URLs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.LegacyRedirectsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/media": {
             "get": {
                 "security": [
@@ -6024,6 +6050,34 @@
                 },
                 "width": {
                     "type": "integer"
+                }
+            }
+        },
+        "models.LegacyRedirect": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                },
+                "target": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.LegacyRedirectsResponse": {
+            "type": "object",
+            "properties": {
+                "redirects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.LegacyRedirect"
+                    }
                 }
             }
         },

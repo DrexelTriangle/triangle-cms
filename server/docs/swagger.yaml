@@ -926,6 +926,24 @@ definitions:
       width:
         type: integer
     type: object
+  models.LegacyRedirect:
+    properties:
+      source:
+        type: string
+      source_kind:
+        type: string
+      status:
+        type: integer
+      target:
+        type: string
+    type: object
+  models.LegacyRedirectsResponse:
+    properties:
+      redirects:
+        items:
+          $ref: '#/definitions/models.LegacyRedirect'
+        type: array
+    type: object
   models.Media:
     properties:
       alt_text:
@@ -2723,6 +2741,24 @@ paths:
       summary: Slack interactivity callback for classified moderation
       tags:
       - classifieds
+  /v1/legacy-redirects:
+    get:
+      description: Every legacy_redirects row, for the web edge to turn into nginx
+        maps for the old WordPress host.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.LegacyRedirectsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: List the redirects for retired WordPress URLs
+      tags:
+      - settings
   /v1/media:
     get:
       parameters:
