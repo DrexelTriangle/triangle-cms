@@ -148,8 +148,7 @@ export default function NewsletterView() {
 
       {api.backend === "mock" ? (
         <p className="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-300">
-          Preview build: campaigns are saved in this browser only, and subscribers and stats are sample data until the
-          newsletter backend is connected.
+          Preview build: campaigns stay in this browser, and subscribers and stats are sample data.
         </p>
       ) : null}
 

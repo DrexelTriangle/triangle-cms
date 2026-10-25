@@ -4,6 +4,7 @@ import {
   bodyToEmailHtml,
   buildTemplateBody,
   defaultSubject,
+  EMAIL_ASSET_BASE,
   EMAIL_TOKENS,
   previewEmailHtml,
   RANDOM_ARTICLE_LABEL,
@@ -66,7 +67,10 @@ describe("buildTemplateBody", () => {
         { title: "One", slug: "one", excerpt: "" },
         { title: "Two", slug: "two", excerpt: "" },
       ],
-      comic: { title: "Abstraction juice", slug: "comic", image_url: "https://media.example/comic.png" },
+      comics: [
+        { title: "Abstraction juice", slug: "comic", image_url: "https://media.example/comic.png" },
+        { title: "Second strip", slug: "comic-two", image_url: "https://media.example/comic-two.png" },
+      ],
       question: "What is your favorite form of egg to eat?",
     })
     const doc = parse(body)
@@ -80,10 +84,12 @@ describe("buildTemplateBody", () => {
     expect(random?.getAttribute("href")).toMatch(/\/random$/)
     // The button is a line of its own, so the email renders it as a button.
     expect(random?.parentElement?.childNodes).toHaveLength(1)
-    // The comic follows the button, and links to the comic itself.
-    const last = doc.body.lastElementChild
-    expect(last?.querySelector("img")?.getAttribute("src")).toBe("https://media.example/comic.png")
-    expect(last?.querySelector("a")?.getAttribute("href")).toMatch(/\/article\/comic$/)
+    // The comics follow the button in order, each linking to itself.
+    const [first, second] = Array.from(doc.body.children).slice(-2)
+    expect(first.querySelector("img")?.getAttribute("src")).toBe("https://media.example/comic.png")
+    expect(first.querySelector("a")?.getAttribute("href")).toMatch(/\/article\/comic$/)
+    expect(second.querySelector("img")?.getAttribute("src")).toBe("https://media.example/comic-two.png")
+    expect(second.querySelector("a")?.getAttribute("href")).toMatch(/\/article\/comic-two$/)
   })
 
   it("keeps the random-article button and leaves a placeholder question when nothing else is given", () => {
@@ -207,17 +213,20 @@ describe("renderNewsletterEmail", () => {
   it("includes the masthead, hidden preheader and subject title", () => {
     const doc = parse(renderNewsletterEmail(fields))
     expect(doc.title).toBe(fields.subject)
-    // The masthead is an image on the public site, named in its alt text for
-    // clients that block images.
-    const masthead = doc.querySelector('img[src$="/email/masthead.png"]')
-    expect(masthead?.getAttribute("src")).toBe("https://www.thetriangle.org/email/masthead.png")
+    // The masthead is an image on Delta's public media host (a sandbox's own
+    // site is unreachable from Gmail), named in its alt text for clients that
+    // block images.
+    const masthead = doc.querySelector('img[src$="/masthead.png"]')
+    expect(masthead?.getAttribute("src")).toBe("https://delta.thetriangle.org/wp-content/email/v1/masthead.png")
     expect(masthead?.getAttribute("alt")).toContain("To The Point")
     expect(doc.body.textContent).toContain(fields.preheader)
   })
 
-  it("links the social icons, served from the public site", () => {
+  it("links the social icons, served from Delta's public media host", () => {
     const doc = parse(renderNewsletterEmail(fields))
-    const icons = Array.from(doc.querySelectorAll('a img[src*="/email/"][width="32"]')).map((img) => img.getAttribute("alt"))
+    const icons = Array.from(doc.querySelectorAll(`a img[src^="${EMAIL_ASSET_BASE}/"][width="32"]`)).map((img) =>
+      img.getAttribute("alt"),
+    )
     expect(icons).toEqual(["X", "Instagram"])
   })
 })

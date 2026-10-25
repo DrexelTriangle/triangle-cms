@@ -12,11 +12,14 @@ type ListedArticle = {
   featured_image?: string
   featured_image_alt?: string
   photo_alt?: string
+  status?: string
 }
 
 export type PickableArticle = TemplateArticle & {
   id: number
+  // For a scheduled article, when it is due to go up.
   published_date?: string
+  scheduled?: boolean
 }
 
 const toPickable = (item: ListedArticle): PickableArticle => ({
@@ -27,6 +30,7 @@ const toPickable = (item: ListedArticle): PickableArticle => ({
   image_url: item.featured_image || undefined,
   image_alt: item.featured_image_alt ?? item.photo_alt ?? "",
   published_date: item.published_date,
+  scheduled: item.status === "scheduled",
 })
 
 type Query = {
@@ -36,13 +40,15 @@ type Query = {
   signal?: AbortSignal
 }
 
-// Published stories, newest first: the only ones a newsletter should link to.
-// Developing stories are left out; their landing pages aren't articles.
-export async function fetchPublishedArticles(apiFetch: ApiFetch, query: Query): Promise<PickableArticle[]> {
+const fetchByStatus = async (
+  apiFetch: ApiFetch,
+  status: "published" | "scheduled",
+  query: Query,
+): Promise<PickableArticle[]> => {
   const params = new URLSearchParams({
     limit: String(query.limit),
     page: "1",
-    status: "published",
+    status,
     sort_by: "published_date",
     sort_direction: "desc",
     exclude_type: "developing-stories",
@@ -55,13 +61,34 @@ export async function fetchPublishedArticles(apiFetch: ApiFetch, query: Query): 
   return (payload.articles ?? []).map(toPickable)
 }
 
-const COMICS_SECTION = "comics-puzzles"
+// Published stories, newest first: the only ones a newsletter should link to.
+// Developing stories are left out; their landing pages aren't articles.
+export async function fetchPublishedArticles(apiFetch: ApiFetch, query: Query): Promise<PickableArticle[]> {
+  return fetchByStatus(apiFetch, "published", query)
+}
 
-// The newest comic with art to show. Comics & Puzzles also holds word searches
-// and other text-only posts, so skip anything without a featured image.
-export async function fetchLatestComic(apiFetch: ApiFetch, signal?: AbortSignal): Promise<TemplateComic | null> {
+// What the picker offers: stories scheduled to go up (soonest first, since an
+// issue often goes out alongside them), then published ones, newest first. A
+// scheduled story's link works once it publishes, which is on the editor.
+export async function fetchPickableArticles(apiFetch: ApiFetch, query: Query): Promise<PickableArticle[]> {
+  const [scheduled, published] = await Promise.all([
+    fetchByStatus(apiFetch, "scheduled", query),
+    fetchByStatus(apiFetch, "published", query),
+  ])
+  return [...scheduled.reverse(), ...published]
+}
+
+export const COMICS_SECTION = "comics-puzzles"
+
+// A Comics & Puzzles post as the issue's comic, or null if it has no art to
+// show: the section also holds word searches and other text-only posts.
+export const toComic = (item: PickableArticle): TemplateComic | null =>
+  item.image_url && !/word search/i.test(item.title)
+    ? { title: item.title, slug: item.slug, image_url: item.image_url, image_alt: item.image_alt }
+    : null
+
+// The newest comic post with art to show.
+export async function fetchLatestComic(apiFetch: ApiFetch, signal?: AbortSignal): Promise<PickableArticle | null> {
   const items = await fetchPublishedArticles(apiFetch, { limit: 10, sectionSlug: COMICS_SECTION, signal })
-  const comic = items.find((item) => item.image_url && !/word search/i.test(item.title))
-  if (!comic?.image_url) return null
-  return { title: comic.title, slug: comic.slug, image_url: comic.image_url, image_alt: comic.image_alt }
+  return items.find((item) => toComic(item)) ?? null
 }

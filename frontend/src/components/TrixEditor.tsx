@@ -14,6 +14,7 @@ import {
   replacementAttachmentAttributes,
   trixHtmlToArticle,
 } from "./trixImageHtml";
+import { findCards, findSwappable, type SwappableSpan } from "./trixCards";
 
 // Leave the caption area of an image empty until it has a real caption. Trix's
 // default is to fill it with the filename and file size, which reads as a
@@ -93,51 +94,130 @@ const isOwnMediaUrl = (url: string): boolean => {
 
 // Lets a page drop prepared content in at the caret (the newsletter's "Insert
 // article" card) without reaching into the Trix element itself.
+// The editor's content as Trix serializes it, one top-level element per block.
+const serializedBlocks = (editor: TrixEditorElement): Element[] =>
+  Array.from(
+    new DOMParser().parseFromString(editor.value, "text/html").body.children,
+  );
+
 export type TrixEditorHandle = {
-  insertHTML: (html: string) => void;
+  // `afterComics`: with articleCards, put it after the last comic if there is
+  // one (new comics join the others) instead of at the caret.
+  insertHTML: (html: string, options?: { afterComics?: boolean }) => void;
+};
+
+// Opt-in swap control on article cards and the comic (see trixCards.ts).
+// onEdit is handed what is being swapped and a function that replaces it with
+// new HTML; the caller decides what that HTML is, typically by opening a
+// picker and calling it on selection.
+export type TrixArticleCards = {
+  endLinkText: string;
+  onEdit: (
+    kind: SwappableSpan["kind"],
+    replace: (html: string) => void,
+  ) => void;
 };
 
 type TrixEditorProps = {
   value: string;
   onChange: (html: string) => void;
   handleRef?: React.Ref<TrixEditorHandle>;
+  articleCards?: TrixArticleCards;
 };
 
-function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
+function TrixEditor({ value, onChange, handleRef, articleCards }: TrixEditorProps) {
   const toolbarId = useId();
   const editorRef = useRef<TrixEditorElement>(null);
+
+  // Set while this editor puts in content built from the CMS's own data (an
+  // article card, the comic). Those images are already in the media library,
+  // whatever host their URL names, so trix-attachment-add must not import
+  // them again: where that import can't reach the host it deletes the image.
+  const trustedInsertRef = useRef(false);
+
+  // Replace `deleteCount` blocks at `start` with the blocks of `html`, as one
+  // undo entry, leaving the caret at the end of the new content. It splices
+  // the document's own blocks, like commitMove, so nothing else in the
+  // document is reparsed: the images already there stay the same attachments.
+  const spliceBlocks = useCallback(
+    (start: number, deleteCount: number, html: string, label: string) => {
+      const editor = editorRef.current;
+      const Trix = window.Trix;
+      if (!editor || !Trix) return;
+      const blocks = editor.editor.getDocument().getBlocks();
+      // Same load path as the value prop, so figures arrive as attachments.
+      const added = Trix.HTMLParser.parse(articleHtmlToTrix(html), {
+        referenceElement: editor,
+      })
+        .getDocument()
+        .getBlocks();
+      blocks.splice(start, deleteCount, ...added);
+      editor.editor.composition.stopEditingAttachment();
+      editor.editor.recordUndoEntry(label);
+      trustedInsertRef.current = true;
+      try {
+        editor.editor.composition.setDocument(new Trix.models.Document(blocks));
+      } finally {
+        trustedInsertRef.current = false;
+      }
+      const doc = editor.editor.getDocument();
+      const last = start + added.length - 1;
+      const lastBlock = doc.getBlockAtIndex(last);
+      if (lastBlock) {
+        editor.editor.setSelectedRange(
+          doc.positionFromLocation({ index: last, offset: 0 }) +
+            lastBlock.getLength() -
+            1,
+        );
+      }
+    },
+    [],
+  );
 
   useImperativeHandle(
     handleRef,
     () => ({
-      insertHTML: (html: string) => {
+      insertHTML: (html: string, options?: { afterComics?: boolean }) => {
         const editor = editorRef.current;
         if (!editor) return;
         editor.focus();
+        const cardText = endLinkTextRef.current;
+        if (options?.afterComics && cardText !== undefined) {
+          const lastComic = findSwappable(serializedBlocks(editor), cardText)
+            .filter((span) => span.kind === "comic")
+            .at(-1);
+          if (lastComic) {
+            spliceBlocks(lastComic.end + 1, 0, html, "Insert Comic");
+            return;
+          }
+        }
         const doc = editor.editor.getDocument();
         const [caret] = editor.editor.getSelectedRange();
-        const { index } = doc.locationFromPosition(caret);
+        let { index } = doc.locationFromPosition(caret);
+        // Inserted content is whole blocks, placed after the caret's block.
+        // Dropped mid-block it would split the block and merge its first
+        // paragraph in, so a card inserted inside a headline became part of
+        // the headline. An empty block (a fresh line) is taken over instead.
+        //
+        // Nor may it land inside an article card: that split the card in
+        // two and left its headline orphaned. It goes after the card.
+        if (cardText !== undefined) {
+          const card = findCards(serializedBlocks(editor), cardText).find(
+            (c) => c.start <= index && index <= c.end,
+          );
+          if (card) index = card.end;
+        }
         const block = doc.getBlockAtIndex(index);
-        // Inserted content is whole blocks. Dropped mid-block it would split
-        // the block, and its first paragraph would merge into it, so a card
-        // inserted inside a headline became part of the headline. Open a
-        // fresh, unformatted block after the caret's block instead.
-        if (block && !block.isEmpty()) {
-          const blockEnd = doc.positionFromLocation({ index, offset: 0 }) + block.getLength() - 1;
-          editor.editor.setSelectedRange(blockEnd);
-          editor.editor.composition.insertBlockBreak();
+        if (!block) {
+          spliceBlocks(doc.getBlocks().length, 0, html, "Insert Article");
+        } else if (block.isEmpty()) {
+          spliceBlocks(index, 1, html, "Insert Article");
+        } else {
+          spliceBlocks(index + 1, 0, html, "Insert Article");
         }
-        const current = editor.editor.getDocument();
-        const [at] = editor.editor.getSelectedRange();
-        const opened = current.getBlockAtIndex(current.locationFromPosition(at).index);
-        for (const attribute of opened?.getAttributes() ?? []) {
-          editor.editor.deactivateAttribute(attribute);
-        }
-        // Same load path as the value prop, so figures arrive as attachments.
-        editor.editor.insertHTML(articleHtmlToTrix(html));
       },
     }),
-    [],
+    [spliceBlocks],
   );
   const wrapperRef = useRef<HTMLDivElement>(null);
   // Every HTML string we have emitted since the last load from outside, so we
@@ -179,6 +259,91 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
   } | null>(null);
   // The image being replaced, by attachment id, while the picker is open for it.
   const [replaceTarget, setReplaceTarget] = useState<number | null>(null);
+  // Article cards and the comic currently in the document, with where each
+  // one's swap button sits in the wrapper.
+  const [cards, setCards] = useState<
+    (SwappableSpan & { top: number; label: string })[]
+  >([]);
+  const endLinkText = articleCards?.endLinkText;
+  // For the image-move effect below, which is set up once.
+  const endLinkTextRef = useRef(endLinkText);
+  useEffect(() => {
+    endLinkTextRef.current = endLinkText;
+  }, [endLinkText]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const wrapper = wrapperRef.current;
+    // Disabled: the render ignores `cards` without articleCards.
+    if (!editor || !wrapper || endLinkText === undefined) return;
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const live = Array.from(editor.children) as HTMLElement[];
+        const serialized = serializedBlocks(editor);
+        // Rendered and serialized blocks line up by index (see commitMove).
+        if (live.length !== serialized.length) {
+          setCards([]);
+          return;
+        }
+        const wrapperTop = wrapper.getBoundingClientRect().top;
+        setCards(
+          findSwappable(serialized, endLinkText).map((card) => ({
+            ...card,
+            top: live[card.start].getBoundingClientRect().top - wrapperTop,
+            label:
+              card.kind === "comic"
+                ? "Swap comic"
+                : `Swap article: ${serialized[card.start].textContent?.trim() ?? ""}`,
+          })),
+        );
+      });
+    };
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(editor);
+    editor.addEventListener("trix-render", measure);
+    editor.addEventListener("trix-change", measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      editor.removeEventListener("trix-render", measure);
+      editor.removeEventListener("trix-change", measure);
+    };
+  }, [endLinkText]);
+
+  // Swap one card's (or the comic's) blocks for new HTML, as one undo entry.
+  const replaceCard = useCallback(
+    (target: SwappableSpan, html: string) => {
+      const editor = editorRef.current;
+      if (!editor || endLinkText === undefined) return;
+      const serialized = serializedBlocks(editor);
+      // The serialization has one element per block (see commitMove).
+      if (editor.editor.getDocument().getBlocks().length !== serialized.length) return;
+      // The picker was open while the author could still edit, so find the
+      // card again: where it was, or else the only one with its link.
+      const sameLink = findSwappable(serialized, endLinkText).filter(
+        (card) => card.kind === target.kind && card.href === target.href,
+      );
+      const card =
+        sameLink.find((c) => c.start === target.start) ??
+        (sameLink.length === 1 ? sameLink[0] : undefined);
+      if (!card) {
+        setNotice(
+          `That ${target.kind} changed before a replacement was chosen. Insert the new one where you want it.`,
+        );
+        return;
+      }
+      spliceBlocks(
+        card.start,
+        card.end - card.start + 1,
+        html,
+        card.kind === "comic" ? "Replace Comic" : "Replace Article",
+      );
+    },
+    [endLinkText, spliceBlocks],
+  );
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -402,6 +567,8 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
 
     const handleAttachmentAdd = (event: Event) => {
       const { attachment } = event as TrixAttachmentAddEvent;
+      // Content built from the CMS's own data; see trustedInsertRef.
+      if (trustedInsertRef.current) return;
 
       if (attachment.file) {
         uploadFile(attachment, attachment.file);
@@ -654,10 +821,42 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
       return null;
     };
 
-    // Where the dragged block would land, as a boundary index, or null if it
+    // ── What a move carries ────────────────────────────────────────────────
+    // The document as the runs of blocks that move as one: with articleCards,
+    // each article card is one unit (an image inside it carries the whole card
+    // along, and nothing can be dropped into the middle of one), and every
+    // other block is a unit of its own. Without articleCards every block is.
+    type Unit = { start: number; end: number };
+
+    const unitsOf = (): Unit[] => {
+      const count = editor.children.length;
+      const cardText = endLinkTextRef.current;
+      const cards =
+        cardText === undefined ? [] : findCards(serializedBlocks(editor), cardText);
+      const units: Unit[] = [];
+      let index = 0;
+      for (const card of cards) {
+        for (; index < card.start; index++) units.push({ start: index, end: index });
+        units.push({ start: card.start, end: card.end });
+        index = card.end + 1;
+      }
+      for (; index < count; index++) units.push({ start: index, end: index });
+      return units;
+    };
+
+    // The unit holding the figure, and the units it sits among, or null.
+    const unitOf = (figure: HTMLElement): { unit: Unit; units: Unit[] } | null => {
+      const from = blockIndexOf(figure);
+      if (from < 0) return null;
+      const units = unitsOf();
+      const unit = units.find((u) => u.start <= from && from <= u.end);
+      return unit ? { unit, units } : null;
+    };
+
+    // Where the dragged unit would land, as a boundary index, or null if it
     // cannot go anywhere from here.
     //
-    // Only boundaries clear of the dragged block itself are candidates: the two
+    // Only boundaries clear of the dragged unit itself are candidates: the two
     // touching it leave the document exactly as it was. They used to be offered,
     // and since an image block is as tall as the image, the pointer spent the
     // whole of a short drag inside them: the indicator appeared, tracked the
@@ -667,22 +866,26 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
     // exists to remove: every boundary drawn is now one that moves something.
     const findDropIndex = (
       clientY: number,
-      fromIndex: number,
+      figure: HTMLElement,
       originY: number,
     ): number | null => {
       const blocks = Array.from(editor.children) as HTMLElement[];
       if (blocks.length === 0) return null;
+      const found = unitOf(figure);
+      const units = found?.units ?? unitsOf();
+      const boundaries = [...units.map((u) => u.start), blocks.length];
 
       let first = 0;
       let last = blocks.length;
-      if (fromIndex >= 0) {
-        if (clientY < originY) last = fromIndex - 1;
-        else first = fromIndex + 2;
+      if (found) {
+        if (clientY < originY) last = found.unit.start - 1;
+        else first = found.unit.end + 2;
       }
 
       let best: number | null = null;
       let bestDist = Infinity;
-      for (let index = first; index <= last; index++) {
+      for (const index of boundaries) {
+        if (index < first || index > last) continue;
         const dist = Math.abs(clientY - boundaryY(blocks, index));
         if (dist < bestDist) {
           bestDist = dist;
@@ -758,41 +961,46 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
       if (attachment) editor.editor.composition.editAttachment(attachment);
     };
 
-    // Move the figure's whole block to sit before or after the target block.
+    // Move the figure's unit (its block, or its whole article card) to the
+    // target boundary.
     //
-    // This reorders Trix's serialized HTML and reloads it, rather than splicing
-    // the live document through Trix's mutation APIs. The obvious approach,
-    // removing the attachment then inserting it at a captured DOM Range, cannot
-    // work: the Attachment objects on editor.getDocument() are plain models
-    // with no remove() of their own (only the ManagedAttachment passed to
-    // trix-attachment-add has one), and any removal re-renders the blocks the
-    // captured Range was anchored to. Reordering the serialization sidesteps
-    // both problems and is order-of-blocks-in, order-of-blocks-out.
+    // This reorders the document's own blocks and sets a new document built
+    // from them, rather than editing the live document through Trix's mutation
+    // APIs. The obvious approach, removing the attachment then inserting it at
+    // a captured DOM Range, cannot work: the Attachment objects on
+    // editor.getDocument() are plain models with no remove() of their own
+    // (only the ManagedAttachment passed to trix-attachment-add has one), and
+    // any removal re-renders the blocks the captured Range was anchored to.
+    //
+    // Nor does it reparse the serialized HTML, as it once did: that made every
+    // image in the document a new attachment, and trix-attachment-add then
+    // re-imported each one not on our media host (deleting it when that
+    // failed). Reused blocks keep their attachments.
     //
     // A move is one undo step that restores the whole document rather than a
     // fine-grained edit, which for a whole-block move is what the author would
     // expect to get back anyway.
     const commitMove = (figure: HTMLElement, target: DropTarget) => {
       const liveBlocks = Array.from(editor.children) as HTMLElement[];
-      const from = blockIndexOf(figure);
-      if (from < 0) return;
+      const figureIndex = blockIndexOf(figure);
+      const found = unitOf(figure);
+      if (!found) return;
+      const { start, end } = found.unit;
       if (target.index < 0 || target.index > liveBlocks.length) return;
+      if (target.index > start && target.index <= end) return;
 
-      const serialized = Array.from(
-        new DOMParser().parseFromString(editor.value, "text/html").body
-          .children,
-      );
-      // The serialized blocks line up with the rendered ones by index. If that
+      const blocks = editor.editor.getDocument().getBlocks();
+      // The document's blocks line up with the rendered ones by index. If that
       // ever stops holding, bail rather than reorder the wrong block.
-      if (serialized.length !== liveBlocks.length) return;
+      if (blocks.length !== liveBlocks.length) return;
 
-      // Where the block lands once it has been lifted out of the list.
-      let insertAt = target.index;
-      if (from < insertAt) insertAt -= 1;
-      if (insertAt === from) return;
+      // Where the unit starts once it has been lifted out of the list.
+      const length = end - start + 1;
+      const insertAt = target.index > end ? target.index - length : target.index;
+      if (insertAt === start) return;
 
-      const [moved] = serialized.splice(from, 1);
-      serialized.splice(insertAt, 0, moved);
+      const moved = blocks.splice(start, length);
+      blocks.splice(insertAt, 0, ...moved);
 
       // Take the attachment editor down before swapping the document out from
       // under it. Its controller holds a reference to the figure it was
@@ -809,15 +1017,9 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
       // stack, and Composition#setDocument then mutates without disturbing it.
       const Trix = window.Trix;
       if (!Trix) return;
-      const movedDocument = Trix.HTMLParser.parse(
-        serialized.map((block) => block.outerHTML).join(""),
-        {
-          referenceElement: editor,
-        },
-      ).getDocument();
-
       editor.editor.recordUndoEntry("Move Image");
-      editor.editor.composition.setDocument(movedDocument);
+      editor.editor.composition.setDocument(new Trix.models.Document(blocks));
+      const figureAt = insertAt + (figureIndex - start);
 
       // Re-select the image at its new home. Without this every nudge costs the
       // author the selection, and with it the toolbar they are clicking, so
@@ -836,7 +1038,7 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
         requestAnimationFrame(() => {
           if (!editor.isConnected) return;
           editAttachmentForFigure(
-            editor.children[insertAt]?.querySelector("[data-trix-id]"),
+            editor.children[figureAt]?.querySelector("[data-trix-id]"),
           );
         });
       });
@@ -867,7 +1069,7 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
       // and the indicator must exclude the boundaries around wherever the
       // block is *now*, or it offers no-op drops again.
       const updateDropTarget = () => {
-        const index = findDropIndex(lastClientY, blockIndexOf(figure), startY);
+        const index = findDropIndex(lastClientY, figure, startY);
         if (index === null) {
           dropIndicator.style.display = "none";
           dropTarget = null;
@@ -1084,16 +1286,18 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
     // Trix already shows over a selected attachment, next to Remove.
 
     // One step in `direction` as a boundary index: up is the boundary above the
-    // previous block, down is the boundary below the next one. Null at the ends,
+    // previous unit, down is the boundary below the next one. Null at the ends,
     // where there is nothing to swap with.
     const stepTarget = (
       figure: HTMLElement,
       direction: "up" | "down",
     ): DropTarget | null => {
-      const from = blockIndexOf(figure);
-      if (from < 0) return null;
-      const index = direction === "up" ? from - 1 : from + 2;
-      return index >= 0 && index <= editor.children.length ? { index } : null;
+      const found = unitOf(figure);
+      if (!found) return null;
+      const at = found.units.indexOf(found.unit);
+      const neighbour = found.units[direction === "up" ? at - 1 : at + 1];
+      if (!neighbour) return null;
+      return { index: direction === "up" ? neighbour.start : neighbour.end + 1 };
     };
 
     const onBeforeToolbar = (event: Event) => {
@@ -1108,11 +1312,13 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
       const group = document.createElement("span");
       group.className = "trix-button-group trix-button-group--move";
 
+      const unit = unitOf(figure)?.unit;
+      const what = unit && unit.end > unit.start ? "article" : "image";
       for (const direction of ["up", "down"] as const) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = `trix-button trix-button--move trix-button--move-${direction}`;
-        button.title = direction === "up" ? "Move image up" : "Move image down";
+        button.title = `Move ${what} ${direction}`;
         button.textContent = direction === "up" ? "↑" : "↓";
         // Nothing to swap with at the top or bottom of the document.
         button.disabled = !stepTarget(figure, direction);
@@ -1387,7 +1593,10 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
   }, []);
 
   return (
-    <div ref={wrapperRef} className="trix-editor-wrapper">
+    <div
+      ref={wrapperRef}
+      className={`trix-editor-wrapper${articleCards ? " trix-editor-wrapper--cards" : ""}`}
+    >
       <svg style={{ display: "none" }} aria-hidden="true">
         <symbol
           id={`${toolbarId}-undo`}
@@ -1770,6 +1979,37 @@ function TrixEditor({ value, onChange, handleRef }: TrixEditorProps) {
         toolbar={toolbarId}
         className="trix-content"
       />
+
+      {/* Outside the contenteditable, like the image overlay, so Trix leaves
+          them alone. */}
+      {articleCards &&
+        cards.map((card) => (
+          <button
+            aria-label={card.label}
+            className="trix-card-swap"
+            key={`${card.start.toString()}-${card.href}`}
+            onClick={() =>
+              articleCards.onEdit(card.kind, (html) => replaceCard(card, html))
+            }
+            style={{ top: card.top }}
+            title={card.kind === "comic" ? "Swap comic" : "Swap article"}
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              viewBox="0 0 24 24"
+            >
+              {/* lucide's Pencil, matching the hand-built toolbar icons. */}
+              <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+              <path d="m15 5 4 4" />
+            </svg>
+          </button>
+        ))}
 
       {notice && (
         <div className="trix-editor-notice" role="status">

@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react"
 import { ImageOff, Search, X } from "lucide-react"
 import { useApiFetch } from "../../hooks/useApiFetch"
-import { fetchPublishedArticles, type PickableArticle } from "../../lib/newsletter/articles"
+import { COMICS_SECTION, fetchPickableArticles, toComic, type PickableArticle } from "../../lib/newsletter/articles"
 import { decodeEntities } from "../../lib/newsletter/template"
 
 type ArticlePickerProps = {
   title?: string
   // Already in the issue; shown as added rather than offered twice.
   excludeIds?: number[]
+  // Only comics with art (see toComic).
+  comics?: boolean
   onSelect: (article: PickableArticle) => void
   onClose: () => void
 }
@@ -15,7 +17,13 @@ type ArticlePickerProps = {
 const formatDate = (value?: string) =>
   value ? new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""
 
-export default function ArticlePicker({ title = "Insert an article", excludeIds = [], onSelect, onClose }: ArticlePickerProps) {
+export default function ArticlePicker({
+  title = "Insert an article",
+  excludeIds = [],
+  comics = false,
+  onSelect,
+  onClose,
+}: ArticlePickerProps) {
   const apiFetch = useApiFetch()
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<PickableArticle[]>([])
@@ -28,8 +36,13 @@ export default function ArticlePicker({ title = "Insert an article", excludeIds 
     const timer = window.setTimeout(() => {
       setIsLoading(true)
       setError(null)
-      fetchPublishedArticles(apiFetch, { limit: 20, title: query, signal: controller.signal })
-        .then(setResults)
+      fetchPickableArticles(apiFetch, {
+        limit: 20,
+        title: query,
+        sectionSlug: comics ? COMICS_SECTION : undefined,
+        signal: controller.signal,
+      })
+        .then((items) => setResults(comics ? items.filter((item) => toComic(item)) : items))
         .catch((err: unknown) => {
           if (controller.signal.aborted) return
           setError(err instanceof Error ? err.message : "Could not load articles.")
@@ -42,7 +55,7 @@ export default function ArticlePicker({ title = "Insert an article", excludeIds 
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [apiFetch, query])
+  }, [apiFetch, comics, query])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -81,7 +94,7 @@ export default function ArticlePicker({ title = "Insert an article", excludeIds 
               autoFocus
               className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-4 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search published articles by title"
+              placeholder={comics ? "Search comics by title" : "Search published articles by title"}
               value={query}
             />
           </div>
@@ -92,7 +105,9 @@ export default function ArticlePicker({ title = "Insert an article", excludeIds 
           ) : isLoading && results.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-muted-foreground">Loading articles...</p>
           ) : results.length === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-muted-foreground">No published articles match.</p>
+            <p className="px-5 py-8 text-center text-sm text-muted-foreground">
+              {comics ? "No comics match." : "No published articles match."}
+            </p>
           ) : (
             <ul>
               {results.map((article) => {
@@ -122,7 +137,11 @@ export default function ArticlePicker({ title = "Insert an article", excludeIds 
                           {decodeEntities(article.title)}
                         </span>
                         <span className="block text-xs text-muted-foreground">
-                          {added ? "Already in this issue" : formatDate(article.published_date)}
+                          {added
+                            ? "Already in this issue"
+                            : article.scheduled
+                              ? `Scheduled for ${formatDate(article.published_date)}`
+                              : formatDate(article.published_date)}
                         </span>
                       </span>
                     </button>

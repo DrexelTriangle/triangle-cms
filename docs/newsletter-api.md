@@ -7,65 +7,127 @@ an in-browser mock (`frontend/src/lib/newsletter/mockStore.ts`); build with
 Types: `frontend/src/lib/newsletter/types.ts` (dashboard) and
 `server/internal/models/newsletter.go` (server).
 
-**Status (2026-10-24):** CRUD, scheduling state, stats, the subscriber list, test
+**Status (2026-10-25):** CRUD, scheduling state, stats, the subscriber list, test
 sends and the public unsubscribe page are implemented in Go
 (`server/internal/handlers/newsletters.go`, `newsletter_unsubscribe.go`,
 `server/internal/mailer/`). The send worker (`server/internal/newsletter/`, see
-"Sending" below) sends scheduled issues, through the Gmail API in production
-(`mailer.GmailSender`) and SMTP to Mailpit in the laptop sandbox. Open/click
-tracking, the view-online page and public subscribe are in; WordPress's legacy
-unsubscribe links are mapped in Delta's nginx (triangle-infrastructure, branch
-`feat/legacy-newsletter-unsubscribe`). Not built: the view-online form of
-WordPress's legacy links (below).
+"Sending" below) sends scheduled issues through the Gmail API
+(`mailer.GmailSender`), or SMTP to Mailpit in the laptop sandbox. Open/click
+tracking, the view-online page and public subscribe are in. Links in emails
+WordPress already sent are handled at Delta's nginx (see the handoff). Not built:
+the view-online form of WordPress's legacy links.
 
-## Handoff (2026-10-24)
+## Handoff (2026-10-25)
 
-Where the cutover from WordPress's Newsletter plugin stands.
+Where the cutover from WordPress's Newsletter plugin stands. This replaces the
+2026-10-24 handoff. Nothing is merged or deployed yet. WordPress is still live and
+in editorial use.
 
-**Done.** The Gmail API sender, using WordPress's own OAuth token for notify@
-(test-sent to a real inbox: SPF, DKIM and DMARC pass). The email template matches the
-issues WordPress sent: image masthead, white page, `#256f9c` buttons, `#0092ff`
-dividers, Reply-To newsletter@. Every image is linked: a story photo to its story, the
-comic to the comic, and the editor keeps an image's link (the attachment `href`). Links
-readers see go to `www.thetriangle.org/newsletter/...`. The concurrent public-subscribe
-deadlock is fixed.
+### Open PRs, in merge order
 
-**Lives in Scalene** (branch `feat/newsletter-email-assets`, PR into `dev`): the
-masthead and social icons in `public/email/` (the template loads them from the public
-site, so they outlive WordPress), and the `/newsletter/*` proxy. Scalene's
-`feat/cms-newsletter-subscribe` (the `/subscribe` form posting to this CMS) is a local
-commit, not pushed yet.
+| PR | Branch → base | What |
+|---|---|---|
+| triangle-cms #258 | `feat/newsletter-editor` → `main` | Editor, send worker, Gmail sender, template, tracking, public pages |
+| triangle-cms #260 | `feat/newsletter-editor-email-assets` → #258's branch | Masthead and icons served from Delta, trimmed editor copy, the editing tools below |
+| triangle-cms #259 | `feat/legacy-redirects` → `main` | `legacy_redirects` table, `/v1/legacy-redirects`, the redirect builder, old-email click links |
+| triangle-infrastructure #17 | `feat/legacy-newsletter-unsubscribe` → `main` | Delta nginx: old emails' unsubscribe links |
+| triangle-infrastructure #18 | `feat/legacy-redirects-vhost` → #17's branch | Delta nginx: cms.thetriangle.org redirects, map sync timer, old emails' click links |
+| Scalene #172 | `feat/newsletter-email-assets` → `dev` | `/newsletter/*` proxy to the CMS (every reader link goes through it) |
+| Scalene #173 | `feat/cms-newsletter-subscribe` → `dev` | `/subscribe` form posts to the CMS |
+| triangle-sandbox #1 | `feat/newsletter-sandbox` | Mailpit, Gmail test sends with the VPN up, no-login dashboard |
 
-**Before the first Delta send:**
-1. Scalene `feat/newsletter-email-assets` deployed to production. Without it, the
-   masthead and icons break and every reader link 404s.
-2. Delta's backend env: `NEWSLETTER_GMAIL_CLIENT_ID`, `_CLIENT_SECRET` and
-   `_REFRESH_TOKEN` (from WordPress: `wp option get wp_mail_smtp`, the `gmail` keys;
-   copy them before WordPress is turned off), `NEWSLETTER_PUBLIC_URL`, and
-   `NEWSLETTER_LINK_URL=https://www.thetriangle.org/newsletter`. Leave
-   `NEWSLETTER_SMTP_ADDR` unset: setting both refuses to start.
-3. This branch deployed, with the dashboard built `VITE_NEWSLETTER_API=live`.
-4. The ad re-uploaded through the sponsor picker. Ads are pasted per issue in
-   WordPress: an image plus the advertiser's link (issues 47-51 Google Gemini, with
-   Google's `dclid` tracking URL; issue 52 vote.pa), with no alt text.
-5. `/subscribe`'s iframe pointed at `/v1/newsletter/issues/latest` once Delta has sent
-   an issue.
+### Done
 
-**Open decisions:**
-- **WordPress subscribers.** The sandbox import was removed on 2026-10-24 on purpose.
-  Re-importing (`cmd/import-newsletter-subscribers`) is what makes the old emails'
-  unsubscribe links (the nginx mapping above) work. Without it, the list starts from
+- **Sending.** Gmail API with WordPress's own OAuth token for notify@. Test-sent to
+  a real inbox: SPF, DKIM and DMARC pass, and Reply-To is newsletter@.
+- **Template.** It matches the issues WordPress sent. The masthead (`unnamed.png`)
+  and the X and Instagram icons load from
+  `https://delta.thetriangle.org/wp-content/email/v1/`. They're already published on
+  CephFS. The folder is versioned because `/wp-content/` is cached for 30 days, so to
+  change an image, add `v2/`. Every image links somewhere (a story photo to its
+  story, a comic to its post), and reader links say `www.thetriangle.org/newsletter/...`.
+- **New-issue dialog.** Stories and comics are each an ordered list: add, swap
+  (pencil), reorder and remove. It starts with the five latest stories and the
+  latest comic.
+- **Editor.** Article cards are found by their shape: a headline down to its "Click
+  Here to Read More" link. Comics are linked images outside any card. The code is in
+  `frontend/src/components/trixCards.ts`, and the controls are opt-in through
+  `TrixEditor`'s `articleCards` prop.
+  - Swapping: each card and comic has a pencil that swaps it in place.
+  - Moving: dragging a card's photo, or using its toolbar arrows, moves the whole
+    card. A drop can only land between cards.
+  - Inserting: "Insert article" goes after the card the cursor is in. "Insert comic"
+    goes after the last comic.
+  - Each action is one undo step.
+  - The article picker lists scheduled stories (soonest first) above published
+    ones.
+- **Image moves in all editors.** Moves splice Trix's blocks instead of reparsing
+  the document. Reparsing used to re-import every off-site image, and delete any
+  image it couldn't fetch. Images the newsletter inserts itself are never imported.
+- **Tracking.** Tested end to end in the sandbox: every link becomes
+  `/c/<token>/<link>`, and an open pixel is added. Test copies are tracked per copy
+  but never counted in an issue's totals.
+- **Old emails.** WordPress tracker links (`admin-ajax.php?action=tnptr&nltr=...`)
+  go through `/v1/legacy-redirects/newsletter-click` (#259, routed by infra #18). It
+  checks the plugin's signature, or allows unsigned links to our own domains.
+  Unsubscribe links (`action=tnp`) are rewritten by infra #17.
+
+### Before the first Delta send
+
+1. **Scalene #172 merged and deployed to production.** Without it, every reader link
+   in an email 404s, including click tracking, unsubscribe and view online.
+2. **Delta's backend env. Done 2026-10-25** in `/etc/triangle-cms/cms.env`
+   (backup `cms.env.bak-20261025`). Containers read it at deploy, so it takes
+   effect when #258 ships.
+   - `NEWSLETTER_GMAIL_CLIENT_ID`, `_CLIENT_SECRET` and `_REFRESH_TOKEN`, from
+     WordPress's `wp option get wp_mail_smtp`, the `gmail` keys.
+   - `NEWSLETTER_PUBLIC_URL=https://delta.thetriangle.org`.
+   - `NEWSLETTER_LINK_URL=https://www.thetriangle.org/newsletter`.
+   - `NEWSLETTER_LEGACY_LINK_KEY`, the plugin's `newsletter_statistics.key` (not
+     `newsletter_main`, which has no key: `statistics.php` signs with the
+     Statistics module's option). Without it, only old links to our own domains
+     are followed.
+   - Leave `NEWSLETTER_SMTP_ADDR` unset: setting both refuses to start.
+3. **#258 and #260 deployed,** with the dashboard built `VITE_NEWSLETTER_API=live`.
+   Today Delta answers 404 on `/v1/newsletter/*`.
+4. **The ad re-uploaded through the sponsor picker.** In WordPress, ads are pasted
+   per issue: an image plus the advertiser's link, with no alt text. Issues 47-51 ran
+   Google Gemini (with Google's `dclid` tracking URL), and issue 52 ran vote.pa.
+5. **`/subscribe`'s iframe pointed at `/v1/newsletter/issues/latest`** once Delta has
+   sent an issue.
+
+Taking WordPress offline is a separate step: run the redirect builder with `--apply`,
+rsync media (including `newsletter/`), get editors off WordPress, and change the
+tunnel route (needs approval). The steps are in triangle-infrastructure's
+`docs/legacy-redirects.md`.
+
+### Open decisions
+
+- **WordPress subscribers.** The sandbox import was removed on purpose on
+  2026-10-24. Re-importing (`cmd/import-newsletter-subscribers`) is what makes the
+  old emails' unsubscribe links mean anything. Without it, the list starts from
   people who subscribe on the new form.
-- **Old emails' other links.** Every link in a WordPress-sent body goes through the
-  plugin's tracker, `admin-ajax.php?action=tnptr&nltr=<base64 email;user;url;;md5>`,
-  including the visible Unsubscribe link and every article link. The nginx mapping
-  covers only `action=tnp`, the List-Unsubscribe header form. Once WordPress is off,
-  those links 404 unless something decodes `nltr`. The signature is
-  `md5(email;user;url;anchor + newsletter_main.key)`, so verifying it, and not becoming
-  an open redirect, needs that key copied from WordPress first.
 - **Staging.** `dev.thetriangle.org` isn't in Scalene's `security.allowedDomains`, so
-  the unsubscribe button's POST through the proxy is refused there (links and pages
-  work).
+  the unsubscribe button's POST through the proxy is refused there. Links and pages
+  work.
+
+### Testing in the laptop sandbox (triangle-sandbox #1)
+
+- **Current images.** Both CMS slots run images built from this worktree. To pick up
+  frontend changes, rebuild:
+  `docker build -t triangle-sandbox/cms-frontend:<CMS_IMAGE_TAG from data/local.env> --build-arg VITE_PUBLIC_SITE_URL=http://www.127.0.0.1.sslip.io:18100 --build-arg VITE_NEWSLETTER_API=live frontend`.
+  Then recreate `frontend-blue` and `frontend-green`.
+- **Dashboard.** It's at `http://cms.127.0.0.1.sslip.io:18100/newsletter` and is
+  signed in automatically (`SANDBOX_AUTOLOGIN_SID`).
+- **Test sends** go through Gmail and only to ssavutu@gmail.com. They need
+  `python3 -I scripts/gmail-proxy.py --unix data/run/gmail-proxy.sock` running from
+  triangle-sandbox. With the VPN up, that proxy is the only way out.
+- **Opens from Gmail never register in the sandbox.** Google's image proxy can't
+  reach the laptop. Clicks do register.
+- **Images.** Article images point at delta.thetriangle.org, whose Cloudflare
+  hotlink protection refuses other sites' Referers. The sandbox gateway sends
+  `Referrer-Policy: no-referrer` so they load.
+- **Test drafts.** Leftover test drafts are #13 and #14.
 
 ## Model
 
@@ -318,6 +380,5 @@ three ticks the copy at the head of the queue fails; mint a new token for notify
   Delta. `WP_DSN` needs `parseTime=true`. wp-config writes
   `define( 'DB_USER', '…' );` with spaces inside the parentheses; strip the quotes
   when scripting against it.
-- **Opens.** Open tracking needs a pixel or the ESP's webhooks; `open_count` stays 0 until then.
 - **Sanitising.** `body_html`/`email_html` come from trusted dashboard users, but the
   view-online page should still serve them under a CSP, as article content is.

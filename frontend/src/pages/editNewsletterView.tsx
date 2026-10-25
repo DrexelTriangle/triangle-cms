@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowLeft, Check, Code, Eye, Image, Monitor, Newspaper, Save, Send, Smartphone, X } from "lucide-react"
+import { ArrowLeft, Check, Code, Eye, Image, Monitor, Newspaper, Save, Send, Smartphone, Smile, X } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
-import TrixEditor, { type TrixEditorHandle } from "../components/TrixEditor"
+import TrixEditor, { type TrixArticleCards, type TrixEditorHandle } from "../components/TrixEditor"
 import MediaPicker from "../components/MediaPicker"
 import ArticlePicker from "../components/newsletter/ArticlePicker"
 import { DateTimeField } from "../components/ui/datetime-field"
 import { copyText } from "../lib/clipboard"
 import { useNewsletterApi } from "../lib/newsletter/api"
+import { toComic } from "../lib/newsletter/articles"
 import {
   articleCardHtml,
+  comicHtml,
   FOOTER_TAGLINE,
   isHttpUrl,
   mastheadHtml,
@@ -123,7 +125,11 @@ export default function EditNewsletterView() {
   const [isSaving, setIsSaving] = useState(false)
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [articlePickerOpen, setArticlePickerOpen] = useState(false)
+  // What the picker opened from "Insert article" / "Insert comic" adds.
+  const [insertKind, setInsertKind] = useState<"article" | "comic" | null>(null)
+  // Set while the picker is open to swap out one card or the comic: what it is,
+  // and the editor's function that replaces it.
+  const [swap, setSwap] = useState<{ kind: "article" | "comic"; replace: (html: string) => void } | null>(null)
   const [sponsorPickerOpen, setSponsorPickerOpen] = useState(false)
   const [htmlCopied, setHtmlCopied] = useState(false)
   const [testEmails, setTestEmails] = useState("")
@@ -164,6 +170,13 @@ export default function EditNewsletterView() {
   const markBodyTouched = useCallback(() => {
     bodyTouchedRef.current = true
   }, [])
+  const articleCards = useMemo<TrixArticleCards>(
+    () => ({
+      endLinkText: READ_MORE_LABEL,
+      onEdit: (kind, replace) => setSwap({ kind, replace }),
+    }),
+    [],
+  )
   const setBody = useCallback(
     (body_html: string) => {
       // Trix re-serialises the template HTML when it loads it, and again as
@@ -279,13 +292,13 @@ export default function EditNewsletterView() {
 
       {backendPending ? (
         <p className="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-300">
-          Preview build: drafts are saved in this browser only, and sending isn't connected yet.
+          Preview build: drafts stay in this browser and sending is off.
         </p>
       ) : null}
 
       {isLocked ? (
         <p className="rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          This issue has been sent and can no longer be edited. Duplicate it from the list to reuse it.
+          Sent issues can't be edited. Duplicate it to reuse it.
         </p>
       ) : null}
 
@@ -307,7 +320,7 @@ export default function EditNewsletterView() {
               className={inputClass}
               disabled={isLocked}
               onChange={(e) => patch({ preheader: e.target.value })}
-              placeholder="The line inboxes show after the subject"
+              placeholder="Shown after the subject in inboxes"
               value={draft.preheader}
             />
           </label>
@@ -356,7 +369,7 @@ export default function EditNewsletterView() {
                       value={sponsor.link_url}
                     />
                     {sponsorLinkInvalid ? (
-                      <span className="text-xs text-destructive">Use a full http(s) address, or the banner won't link.</span>
+                      <span className="text-xs text-destructive">Needs a full https:// link.</span>
                     ) : null}
                   </label>
                   <label className="flex flex-col gap-1">
@@ -365,7 +378,7 @@ export default function EditNewsletterView() {
                       className={inputClass}
                       disabled={isLocked}
                       onChange={(e) => patch({ sponsor: { ...sponsor, alt: e.target.value } })}
-                      placeholder="e.g. Google Gemini, free for college students"
+                      placeholder="What the banner says"
                       value={sponsor.alt}
                     />
                   </label>
@@ -379,7 +392,7 @@ export default function EditNewsletterView() {
                 type="button"
               >
                 <Image className="h-5 w-5" />
-                <span className="text-xs font-medium">Add a sponsor banner (optional)</span>
+                <span className="text-xs font-medium">Add sponsor banner</span>
               </button>
             )}
           </div>
@@ -388,14 +401,24 @@ export default function EditNewsletterView() {
             <div className="flex items-center justify-between">
               <span className={labelTextClass}>Content</span>
               {!isLocked ? (
-                <button
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-                  onClick={() => setArticlePickerOpen(true)}
-                  type="button"
-                >
-                  <Newspaper className="h-3.5 w-3.5" />
-                  Insert article
-                </button>
+                <span className="flex items-center gap-4">
+                  <button
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                    onClick={() => setInsertKind("article")}
+                    type="button"
+                  >
+                    <Newspaper className="h-3.5 w-3.5" />
+                    Insert article
+                  </button>
+                  <button
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                    onClick={() => setInsertKind("comic")}
+                    type="button"
+                  >
+                    <Smile className="h-3.5 w-3.5" />
+                    Insert comic
+                  </button>
+                </span>
               ) : null}
             </div>
             <div className="overflow-hidden rounded-lg border border-border">
@@ -410,7 +433,12 @@ export default function EditNewsletterView() {
                 onMouseDownCapture={markBodyTouched}
                 onPasteCapture={markBodyTouched}
               >
-                <TrixEditor handleRef={editorHandle} onChange={setBody} value={draft.body_html} />
+                <TrixEditor
+                  articleCards={isLocked ? undefined : articleCards}
+                  handleRef={editorHandle}
+                  onChange={setBody}
+                  value={draft.body_html}
+                />
               </div>
               <div className="border-t border-border bg-muted/30 px-4 py-3 text-center text-xs text-muted-foreground">
                 <div className="text-foreground">{FOOTER_TAGLINE}</div>
@@ -445,7 +473,7 @@ export default function EditNewsletterView() {
           <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-6">
             <h2 className="text-base font-semibold text-foreground">Send</h2>
             {backendPending ? (
-              <p className="text-xs text-muted-foreground">Sending arrives with the newsletter backend.</p>
+              <p className="text-xs text-muted-foreground">Sending is off in this build.</p>
             ) : null}
             <label className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">Send a test to</span>
@@ -453,7 +481,7 @@ export default function EditNewsletterView() {
                 className={inputClass}
                 disabled={backendPending}
                 onChange={(e) => setTestEmails(e.target.value)}
-                placeholder="you@drexel.edu, editor@drexel.edu"
+                placeholder="Emails, separated by commas"
                 value={testEmails}
               />
             </label>
@@ -470,7 +498,7 @@ export default function EditNewsletterView() {
                   "Test sent.",
                 )
               }
-              title={isDirty ? "Save first; the test sends the saved version." : undefined}
+              title={isDirty ? "Save before sending a test" : undefined}
               type="button"
             >
               <Send className="h-4 w-4" />
@@ -511,27 +539,43 @@ export default function EditNewsletterView() {
 
           <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-6 text-xs text-muted-foreground">
             <h2 className="text-base font-semibold text-foreground">Formatting</h2>
-            <p>The editor's formats map onto the email template:</p>
-            <ul className="flex list-disc flex-col gap-1 pl-4">
-              <li><span className="font-medium text-foreground">Heading</span> — a story headline, with a divider above.</li>
-              <li><span className="font-medium text-foreground">Quote</span> — a centred section label.</li>
-              <li><span className="font-medium text-foreground">A line that is only a link</span> — a button: a small one for a link to an article, like "{READ_MORE_LABEL}", and a wide centred one for anything else.</li>
+            <ul className="flex flex-col gap-1">
+              <li><span className="font-medium text-foreground">Heading:</span> story headline</li>
+              <li><span className="font-medium text-foreground">Quote:</span> section label</li>
+              <li><span className="font-medium text-foreground">Link on its own line:</span> button</li>
             </ul>
-            <p>Insert article adds a story card at the cursor.</p>
           </div>
         </aside>
       </div>
 
       {previewOpen ? <PreviewDialog html={previewEmailHtml(emailHtml)} onClose={() => setPreviewOpen(false)} /> : null}
 
-      {articlePickerOpen ? (
+      {insertKind ? (
         <ArticlePicker
-          onClose={() => setArticlePickerOpen(false)}
+          comics={insertKind === "comic"}
+          onClose={() => setInsertKind(null)}
           onSelect={(article) => {
+            const comic = insertKind === "comic" ? toComic(article) : null
             markBodyTouched()
-            editorHandle.current?.insertHTML(articleCardHtml(article))
-            setArticlePickerOpen(false)
+            if (comic) editorHandle.current?.insertHTML(comicHtml(comic), { afterComics: true })
+            else editorHandle.current?.insertHTML(articleCardHtml(article))
+            setInsertKind(null)
           }}
+          title={insertKind === "comic" ? "Insert a comic" : "Insert an article"}
+        />
+      ) : null}
+
+      {swap ? (
+        <ArticlePicker
+          comics={swap.kind === "comic"}
+          onClose={() => setSwap(null)}
+          onSelect={(article) => {
+            const comic = swap.kind === "comic" ? toComic(article) : null
+            markBodyTouched()
+            swap.replace(comic ? comicHtml(comic) : articleCardHtml(article))
+            setSwap(null)
+          }}
+          title={swap.kind === "comic" ? "Swap comic" : "Swap article"}
         />
       ) : null}
 

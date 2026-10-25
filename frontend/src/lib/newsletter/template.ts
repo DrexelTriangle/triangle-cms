@@ -28,10 +28,14 @@ export const READ_MORE_LABEL = "Click Here to Read More"
 export const READ_LATEST_LABEL = "Read the latest from The Triangle"
 export const RANDOM_ARTICLE_LABEL = "Check out a Random Article"
 
-// The masthead and social icons are served by the public site (Scalene's
-// public/email/), not the CMS: an image in a sent email has to keep working
-// for as long as the email sits in an inbox.
-const emailAsset = (name: string) => `${publicSiteUrl()}/email/${name}`
+// The masthead (unnamed.png) and social icons live in the CMS media tree on
+// CephFS, served publicly by Delta: an image in a sent email has to load from a
+// public URL for as long as the email sits in an inbox, whichever build sent
+// it (a sandbox's public site is not reachable from Gmail). The directory is
+// versioned because Delta serves /wp-content/ as immutable for 30 days: to
+// change an image, add v2/ rather than overwrite.
+export const EMAIL_ASSET_BASE = "https://delta.thetriangle.org/wp-content/email/v1"
+const emailAsset = (name: string) => `${EMAIL_ASSET_BASE}/${name}`
 
 export const FOOTER_TAGLINE = "The Independent Student Newspaper at Drexel University"
 export const SOCIAL_LINKS = [
@@ -64,7 +68,8 @@ export type TemplateComic = {
 
 export type TemplateOptions = {
   articles: TemplateArticle[]
-  comic?: TemplateComic | null
+  // In order, after the random-article button.
+  comics?: TemplateComic[]
   question?: string
 }
 
@@ -110,13 +115,18 @@ export function articleCardHtml(article: TemplateArticle): string {
   ].join("")
 }
 
+// The comic: its art, linked to its post.
+export function comicHtml(comic: TemplateComic): string {
+  return imageHtml(comic.image_url, comic.image_alt || decodeEntities(comic.title), articleUrl(comic.slug))
+}
+
 export const INTRO_PLACEHOLDER =
   "It is Week [N], which means it is time for our [Nth] edition of the quarter. " +
   "Visit our website to read the most recent articles contributed by our wonderful staff. " +
   "We have news about [topics], and much more. " +
   "Make sure you read to stay up to date on all of your Drexel-related information!"
 
-export function buildTemplateBody({ articles, comic, question }: TemplateOptions): string {
+export function buildTemplateBody({ articles, comics = [], question }: TemplateOptions): string {
   const parts = [
     `<p>${escapeHtml(INTRO_PLACEHOLDER)}</p>`,
     `<p><a href="${escapeHtml(publicSiteUrl())}">${READ_LATEST_LABEL}</a></p>`,
@@ -129,9 +139,7 @@ export function buildTemplateBody({ articles, comic, question }: TemplateOptions
   )
   // The site's /random page, the same as the Random Article link in its header.
   parts.push(`<p><a href="${escapeHtml(`${publicSiteUrl()}/random`)}">${RANDOM_ARTICLE_LABEL}</a></p>`)
-  if (comic) {
-    parts.push(imageHtml(comic.image_url, comic.image_alt || decodeEntities(comic.title), articleUrl(comic.slug)))
-  }
+  parts.push(...comics.map(comicHtml))
   return parts.join("")
 }
 
