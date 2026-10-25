@@ -57,6 +57,7 @@ func publicIssueHTML(n models.Newsletter) string {
 // @Produce html
 // @Param id path string true "Newsletter ID, or latest"
 // @Success 200 {string} string "The issue's HTML"
+// @Success 302 {string} string "latest with nothing sent yet: redirect to the public site"
 // @Failure 404 {string} string "HTML page"
 // @Router /v1/newsletter/issues/{id} [get]
 func GetNewsletterIssue(conn *sql.DB, siteURL string) http.Handler {
@@ -69,6 +70,13 @@ func GetNewsletterIssue(conn *sql.DB, siteURL string) http.Handler {
 		)
 		if r.PathValue("id") == "latest" {
 			issue, err = db.LatestSentNewsletter(r.Context(), conn)
+			// Nothing sent yet: old WordPress issues' "view online" links land
+			// here (Delta's nginx), so send the reader to the site, not a dead end.
+			if errors.Is(err, sql.ErrNoRows) {
+				w.Header().Set("Cache-Control", "no-store")
+				http.Redirect(w, r, siteURL, http.StatusFound)
+				return
+			}
 		} else {
 			id, parseErr := strconv.ParseInt(r.PathValue("id"), 10, 64)
 			if parseErr != nil || id <= 0 {

@@ -41,8 +41,8 @@ func TestNewsletterIssuePage(t *testing.T) {
 		return n.ID
 	}
 
-	if rec := viewRequest(t, conn, "/v1/newsletter/issues/latest"); rec.Code != http.StatusNotFound {
-		t.Fatalf("latest with nothing sent: %d", rec.Code)
+	if rec := viewRequest(t, conn, "/v1/newsletter/issues/latest"); rec.Code != http.StatusFound || rec.Header().Get("Location") != unsubscribeSite+"/" {
+		t.Fatalf("latest with nothing sent: %d to %q, want a redirect to the site", rec.Code, rec.Header().Get("Location"))
 	}
 	older := time.Now().UTC().Add(-48 * time.Hour)
 	newer := time.Now().UTC().Add(-time.Hour)
