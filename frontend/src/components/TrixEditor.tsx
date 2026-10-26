@@ -308,6 +308,11 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange, onQuizStatesChan
   const [embedOpen, setEmbedOpen] = useState(false);
   const [quizOpen, setQuizOpen] = useState(false);
   const quizStatesRef = useRef<Map<number, QuizCardState>>(new Map());
+  // Bumped on every load from outside. The editor outlives the article it
+  // shows (the edit routes reuse one page), so each load starts the quiz
+  // lookups over and drops answers still in flight for the previous one.
+  const [loadGeneration, setLoadGeneration] = useState(0);
+  const loadGenerationRef = useRef(0);
   // useApiFetch returns a new function whenever its notice context object
   // changes, which is every render; read it through refs so the lookup effect
   // runs on the document's quiz ids alone.
@@ -456,6 +461,11 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange, onQuizStatesChan
     // nothing emitted before it can still be worth honouring.
     emittedRef.current.clear();
     emittedRef.current.add(value);
+    // A quiz's status may differ from what the last document saw.
+    quizStatesRef.current = new Map();
+    onQuizStatesChangeRef.current?.(new Map());
+    loadGenerationRef.current += 1;
+    setLoadGeneration(loadGenerationRef.current);
     ownInsertRef.current = true;
     try {
       editor.editor.loadHTML(articleHtmlToTrix(value));
@@ -483,8 +493,10 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange, onQuizStatesChan
     }
     if (ids.size === 0) return;
     // Claimed now so a re-run while the request is in flight does not repeat it.
-    // The results are applied even if the key has changed since: the ids are still in the map.
+    // The results are applied even if the key has changed since: the ids are
+    // still in the map. Not across a load, which replaced the map.
     for (const id of ids) quizStatesRef.current.set(id, "pending");
+    const generation = loadGenerationRef.current;
     void Promise.all(
       Array.from(ids).map(async (id) => {
         let state: QuizCardState = "unknown";
@@ -503,6 +515,7 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange, onQuizStatesChan
         return { id, state, title };
       }),
     ).then((results) => {
+      if (generation !== loadGenerationRef.current) return;
       for (const { id, state, title } of results) {
         quizStatesRef.current.set(id, state);
         // Re-read the document: Trix replaces attachment objects on re-render.
@@ -521,7 +534,7 @@ function TrixEditor({ value, onChange, apiRef, onPendingChange, onQuizStatesChan
       }
       onQuizStatesChangeRef.current?.(new Map(quizStatesRef.current));
     });
-  }, [quizIdsKey]);
+  }, [quizIdsKey, loadGeneration]);
 
   useEffect(() => {
     const editor = editorRef.current;
