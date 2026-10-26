@@ -138,6 +138,21 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/poll", handlers.GetPoll(conn))
 	mux.Handle("GET /v1/poll/title", handlers.GetPollTitle(conn))
 	mux.Handle("POST /v1/poll", middleware.RateLimitByIP(5, time.Minute)(handlers.PostPoll(conn)))
+
+	// Quizzes. Public reads and the answer counter live under the singular
+	// /v1/quiz so they never share a pattern with the editor CRUD under
+	// /v1/quizzes. The answer limiter is its own: a full play posts once per
+	// question, which the 5/min poll limit would cut off at question six.
+	mux.Handle("GET /v1/quiz", handlers.GetQuizzesByIDs(conn))
+	mux.Handle("GET /v1/quiz/{slug}", handlers.GetQuizBySlug(conn))
+	mux.Handle("POST /v1/quiz/{id}/answers", middleware.RateLimitByIP(60, time.Minute)(handlers.PostQuizAnswer(conn)))
+	// Quiz CRUD is editorial work like polls, so any signed-in editor may do it.
+	mux.Handle("GET /v1/quizzes", authMW(handlers.GetQuizzes(conn)))
+	mux.Handle("GET /v1/quizzes/{id}", authMW(handlers.GetQuiz(conn)))
+	mux.Handle("GET /v1/quizzes/{id}/references", authMW(handlers.GetQuizReferences(conn)))
+	mux.Handle("POST /v1/quizzes", authMW(handlers.PostQuiz(conn)))
+	mux.Handle("PATCH /v1/quizzes/{id}", authMW(handlers.PatchQuiz(conn)))
+	mux.Handle("DELETE /v1/quizzes/{id}", authMW(handlers.DeleteQuiz(conn)))
 	mux.Handle("GET /v1/poll/options", handlers.GetPollOptions(conn))
 
 	// Poll archive. GET /v1/polls is public and hides drafts; the editor-facing

@@ -62,6 +62,25 @@
       ""
     ]
   },
+  "quiz": {
+    "accept": [
+      { "input": "[quiz id=\"12\"]", "id": 12 },
+      { "input": "  [quiz id=\"7\" /]  ", "id": 7 },
+      { "input": "[QUIZ id=\"3\"]", "id": 3 }
+    ],
+    "reject": [
+      "[quiz id=\"0\"]",
+      "[quiz id=\"-1\"]",
+      "[quiz id=\"abc\"]",
+      "[quiz id=12]",
+      "[quiz id=\"12\"] trailing",
+      "[quiz slug=\"x\"]",
+      "[quizzes id=\"12\"]",
+      "[quiz\u00a0id=\"12\"]",
+      "[quiz id=\"12345678901234567890\"]",
+      "[quiz id=\"9007199254740993\"]"
+    ]
+  },
   "shortcodes": [
     { "text": "[youtube https://www.youtube.com/watch?v=dQw4w9WgXcQ]", "provider": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
     { "text": "[soundcloud url=\"https://soundcloud.com/thetriangle/episode-one\" /]", "provider": "soundcloud", "url": "https://soundcloud.com/thetriangle/episode-one" },

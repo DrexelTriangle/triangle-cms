@@ -55,6 +55,7 @@ const navGroups: NavGroup[] = [
       { icon: TrendingUp, label: "Developing Stories", path: "/developing-stories" },
       { icon: BarChart3, label: "Poll", path: "/poll" },
       { icon: Puzzle, label: "Wordangle", path: "/wordangle" },
+      { icon: ClipboardList, label: "Quizzes", path: "/quizzes" },
       { icon: Image, label: "Media", path: "/media" },
       { icon: Mail, label: "Newsletter", path: "/newsletter" },
     ],

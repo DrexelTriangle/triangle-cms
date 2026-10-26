@@ -239,3 +239,18 @@ export function parseAudioShortcode(text: string, mediaBaseUrl: string): AudioSh
 export function shortcodeToAudio(text: string, mediaBaseUrl: string): string | null {
   return parseAudioShortcode(text, mediaBaseUrl)?.src ?? null;
 }
+
+/** The quiz shortcode carries only a CMS id; the site fetches the rest. */
+export function quizToShortcode(id: number): string {
+  return `[quiz id="${id}"]`;
+}
+
+// Whitespace is spelled out because JS \s also matches U+00A0 and Go's does not.
+const QUIZ_SHORTCODE = /^\[quiz[ \t\n\f\r]+id="(\d+)"[ \t\n\f\r]*\/?\]$/i;
+
+export function shortcodeToQuizId(text: string): number | null {
+  const m = QUIZ_SHORTCODE.exec(text.trim());
+  if (!m) return null;
+  const id = Number(m[1]);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}

@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { articleUrl } from "../auth/urls"
 import TrixEditor, { type TrixEditorApi } from "../components/TrixEditor"
-import { findInvalidEmbeds } from "../components/trixArticleHtml"
+import { findInvalidEmbeds, type QuizCardState } from "../components/trixArticleHtml"
 import MediaPicker from "../components/MediaPicker"
 import { copyText } from "../lib/clipboard"
 import { srcSetFor, type ImageVariant } from "../lib/imageVariants"
@@ -22,6 +22,10 @@ async function readErrorMessage(response: Response, fallback: string) {
     return fallback
   }
 }
+
+// A 422 on autosave is the server refusing this content (a draft quiz in a live
+// article, say), not a failed request, so the reason is shown to the editor.
+class AutosavePausedError extends Error {}
 
 type EditableStatus = "draft" | "published"
 type PublishTiming = "draft" | "now" | "schedule"
@@ -287,6 +291,9 @@ function EditArticleView() {
   const [slugRegenerating, setSlugRegenerating] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const editorApiRef = useRef<TrixEditorApi | null>(null)
+  // The editor reports each quiz card's lookup state; publish hands it back.
+  const [quizStates, setQuizStates] = useState<Map<number, QuizCardState>>(() => new Map())
+  const [quizWarning, setQuizWarning] = useState<string | null>(null)
   const [hasPendingUploads, setHasPendingUploads] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isAutoSaving, setIsAutoSaving] = useState(false)
@@ -780,6 +787,40 @@ function EditArticleView() {
       )
       return
     }
+    // A story may be drafted around a quiz that is not live yet, but may not
+    // go out pointing at one the site would 404. Pending or failed lookups
+    // warn and let the save through; the server re-checks on publish.
+    if (!autosave) {
+      setQuizWarning(null)
+      if (effectiveStatus === "published") {
+        let quizCards = editorApiRef.current?.checkQuizCards(quizStates)
+        if (quizCards && quizCards.blocking.length > 0) {
+          // The editor looks each quiz up once, so a quiz published since then
+          // still reads as unpublished. Ask again before refusing the publish.
+          const fresh = new Map(quizStates)
+          await Promise.all(
+            quizCards.flaggedIds
+              .filter((id) => fresh.get(id) !== "published")
+              .map(async (id) => {
+                try {
+                  const res = await apiFetch(`/v1/quizzes/${id}`)
+                  if (res.status === 404) fresh.set(id, "deleted")
+                  else if (res.ok) fresh.set(id, ((await res.json()) as { status?: string }).status === "published" ? "published" : "unpublished")
+                } catch {
+                  // Keep the earlier state; the server decides on publish.
+                }
+              }),
+          )
+          setQuizStates(fresh)
+          quizCards = editorApiRef.current?.checkQuizCards(fresh)
+        }
+        if (quizCards && quizCards.blocking.length > 0) {
+          validationError(quizCards.blocking[0])
+          return
+        }
+        if (quizCards && quizCards.warnings.length > 0) setQuizWarning(quizCards.warnings.join(" "))
+      }
+    }
     // Only an explicit save sends a date, so a half-edited schedule date must not
     // hold the content autosave hostage.
     const publishedDateISO = !autosave && effectiveTiming === "schedule" && publishedAt ? localInputToISO(publishedAt) : ""
@@ -901,7 +942,8 @@ function EditArticleView() {
         // A rename onto a slug another article holds comes back 409 with a
         // message worth showing: the generic text would read as a save that
         // failed for no reason.
-        throw new Error(await readErrorMessage(response, `Save failed (${response.status})`))
+        const message = await readErrorMessage(response, `Save failed (${response.status})`)
+        throw autosave && response.status === 422 ? new AutosavePausedError(message) : new Error(message)
       }
       if (nextTiming) {
         setPublishTiming(nextTiming)
@@ -929,7 +971,7 @@ function EditArticleView() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save article."
       if (autosave) {
-        setAutoSaveMessage("Autosave failed.")
+        setAutoSaveMessage(err instanceof AutosavePausedError ? `Autosave paused: ${message}` : "Autosave failed.")
       } else {
         setError(message)
       }
@@ -1388,6 +1430,7 @@ function EditArticleView() {
                 apiRef={editorApiRef}
                 onChange={setContent}
                 onPendingChange={setHasPendingUploads}
+                onQuizStatesChange={setQuizStates}
                 value={content}
               />
             </div>
@@ -1813,6 +1856,11 @@ function EditArticleView() {
             {error && (
               <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
                 {error}
+              </p>
+            )}
+            {quizWarning && (
+              <p className="text-xs text-foreground border border-border rounded-lg px-3 py-2">
+                {quizWarning}
               </p>
             )}
             {successMessage && (

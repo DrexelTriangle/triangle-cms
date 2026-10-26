@@ -676,3 +676,9 @@ trix-editor.trix-content .embed-card--invalid {
   border-color: hsl(var(--destructive, 0 84% 60%));
   color: hsl(var(--destructive, 0 84% 60%));
 }
+trix-editor.trix-content .embed-card--quiz strong { display: block; }
+/* A quiz card the publish check stopped on, blocking or only unchecked. */
+trix-editor.trix-content .embed-card--flagged {
+  border-style: solid;
+  border-color: hsl(var(--destructive, 0 84% 60%));
+}

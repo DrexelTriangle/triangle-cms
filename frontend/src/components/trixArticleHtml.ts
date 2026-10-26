@@ -19,8 +19,10 @@ import {
   embedToShortcode,
   parseAudioUrl,
   parseEmbedUrl,
+  quizToShortcode,
   shortcodeToAudio,
   shortcodeToEmbed,
+  shortcodeToQuizId,
   type Embed,
 } from "../lib/embedUrl"
 
@@ -65,6 +67,47 @@ const isImageContentType = (contentType: string): boolean =>
   contentType === "image" || contentType.startsWith("image/")
 
 export const EMBED_CONTENT_TYPE = "application/x-triangle-embed"
+
+export const QUIZ_CONTENT_TYPE = "application/vnd.triangle.quiz"
+
+export type QuizCardState = "pending" | "published" | "unpublished" | "deleted" | "unknown"
+
+/** The card text for a quiz attachment, from what the editor knows so far. */
+export const quizCardLabel = (id: number, title: string | null, state: QuizCardState): string => {
+  const named = title ? `Quiz: ${title}` : `Quiz #${id}`
+  switch (state) {
+    case "published":
+      return named
+    case "unpublished":
+      return `${named} (unpublished)`
+    case "deleted":
+      return `${named} (deleted)`
+    case "unknown":
+      return `${named} (could not check)`
+    default:
+      return named
+  }
+}
+
+// Same shell as the embed card. The label holds an editor-typed title, so it
+// only ever goes in through textContent.
+const createQuizCard = (doc: Document, label: string, flagged: boolean): HTMLElement => {
+  const card = doc.createElement("div")
+  card.className = flagged ? "embed-card embed-card--quiz embed-card--flagged" : "embed-card embed-card--quiz"
+  const strong = doc.createElement("strong")
+  strong.textContent = label
+  const note = doc.createElement("div")
+  note.textContent = "The quiz renders on the live site."
+  card.append(strong, note)
+  return card
+}
+
+/** The quiz card as an attachment `content` string. flagged highlights a card the publish check stopped on. */
+export const buildQuizCardHtml = (label: string, flagged = false): string =>
+  createQuizCard(document, label, flagged).outerHTML
+
+const quizIdFrom = (value: unknown): number | null =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null
 
 const isAudioContentType = (contentType: string): boolean => contentType.startsWith("audio/")
 
@@ -199,6 +242,42 @@ const buildAudioFigure = (doc: Document, url: string, source = ""): HTMLElement 
   return figure
 }
 
+const buildQuizFigure = (doc: Document, id: number, title: string, original?: string): HTMLElement => {
+  const card = createQuizCard(doc, quizCardLabel(id, title || null, title ? "published" : "pending"), false)
+  const data: AttachmentData = {
+    contentType: QUIZ_CONTENT_TYPE,
+    quizId: id,
+    quizTitle: title,
+    content: card.outerHTML,
+  }
+  if (original) data.quizOriginal = original
+  const figure = doc.createElement("figure")
+  figure.setAttribute("data-trix-attachment", JSON.stringify(data))
+  figure.setAttribute("data-trix-attributes", "{}")
+  figure.appendChild(card)
+  return figure
+}
+
+/**
+ * The attributes a pasted quiz attachment is rebuilt from, by the same rule as
+ * the load pass: a safe integer id keeps the card, anything else becomes the
+ * invalid card that findInvalidEmbeds refuses on save. Stored content and
+ * quizOriginal are never kept.
+ */
+export const pastedQuizAttributes = (quizId: unknown, quizTitle: unknown): Record<string, unknown> => {
+  const id = quizIdFrom(quizId)
+  if (!id) {
+    return { contentType: EMBED_CONTENT_TYPE, quizId: undefined, quizTitle: undefined, quizOriginal: undefined, content: buildInvalidCardHtml() }
+  }
+  const title = typeof quizTitle === "string" ? quizTitle : ""
+  return {
+    quizId: id,
+    quizTitle: title,
+    quizOriginal: undefined,
+    content: buildQuizCardHtml(quizCardLabel(id, title || null, title ? "published" : "pending")),
+  }
+}
+
 /** Wrap a figure in the <div> Trix uses for an attachment block. */
 const wrapBlock = (doc: Document, figure: HTMLElement): HTMLElement => {
   const block = doc.createElement("div")
@@ -220,6 +299,9 @@ type AttachmentData = {
   embedProvider?: string
   embedUrl?: string
   embedOriginal?: string
+  quizId?: unknown
+  quizTitle?: unknown
+  quizOriginal?: string
   embedMedia?: string[]
 }
 
@@ -260,7 +342,7 @@ export const replacementAttachmentAttributes = (
   currentAlt: string,
   image: ReplacementImage,
   source: "library" | "upload",
-): Partial<AttachmentData> => {
+): Partial<Omit<AttachmentData, "quizId" | "quizTitle">> => {
   const libraryAlt = source === "library" ? (image.alt_text?.trim() ?? "") : ""
   const alt = libraryAlt || currentAlt.trim()
   return {
@@ -374,6 +456,11 @@ export const articleHtmlToTrix = (html: string): string => {
       const valid = parsed.ok && parsed.embed.provider === data?.embedProvider
       figure.replaceWith(valid ? buildEmbedFigure(doc, withMedia(parsed.embed, data?.embedMedia), data?.embedOriginal) : buildInvalidFigure(doc))
       changed = true
+    } else if (contentType === QUIZ_CONTENT_TYPE) {
+      const id = quizIdFrom(data?.quizId)
+      const title = typeof data?.quizTitle === "string" ? data.quizTitle : ""
+      figure.replaceWith(id ? buildQuizFigure(doc, id, title, data?.quizOriginal) : buildInvalidFigure(doc))
+      changed = true
     } else if (isAudioContentType(contentType)) {
       const url = isAcceptableAudioUrl(data?.url ?? "")
       const source = parseJSONAttribute<AttachmentAttributes>(figure, "data-trix-attributes")?.caption?.trim() ?? ""
@@ -400,6 +487,17 @@ export const articleHtmlToTrix = (html: string): string => {
       canonical.textContent = embedToShortcode(embed)
       const original = block.outerHTML === canonical.outerHTML ? undefined : block.outerHTML
       block.replaceWith(wrapBlock(doc, buildEmbedFigure(doc, embed, original)))
+      changed = true
+      continue
+    }
+    const quizId = shortcodeToQuizId(text)
+    if (quizId) {
+      // A block already in the canonical <p> form needs no original: save
+      // rebuilds it byte-for-byte from the id alone.
+      const canonical = doc.createElement("p")
+      canonical.textContent = quizToShortcode(quizId)
+      const original = block.outerHTML === canonical.outerHTML ? undefined : block.outerHTML
+      block.replaceWith(wrapBlock(doc, buildQuizFigure(doc, quizId, "", original)))
       changed = true
       continue
     }
@@ -516,11 +614,11 @@ const replaceAttachmentBlock = (figure: Element, replacement: Node): void => {
 /**
  * The stored legacy block to emit for an unedited embed, or null. It is only
  * trusted when it is one allowed wrapper around one shortcode that resolves to
- * the same embed the attachment holds, so a crafted embedOriginal cannot carry
+ * the same embed or quiz the attachment holds, so a crafted embedOriginal cannot carry
  * other markup or point somewhere else. It is parsed in the inert DOMParser
  * document, never the live page.
  */
-const unchangedOriginalBlock = (doc: Document, original: string, embed: Embed): Node | null => {
+const unchangedOriginalBlock = (doc: Document, original: string, matches: (shortcode: string) => boolean): Node | null => {
   if (!ORIGINAL_BLOCK_SHAPE.test(original)) return null
   const holder = doc.createElement("div")
   holder.innerHTML = original
@@ -533,8 +631,7 @@ const unchangedOriginalBlock = (doc: Document, original: string, embed: Embed): 
     if (wrapper.children.length > 0) return null
     if (!Array.from(wrapper.attributes).every(isCorpusWrapperAttribute)) return null
   }
-  const stored = shortcodeToEmbed(node.textContent ?? "")
-  return stored && stored.provider === embed.provider && stored.url === embed.url ? node : null
+  return matches(node.textContent ?? "") ? node : null
 }
 
 /**
@@ -566,9 +663,26 @@ export const trixHtmlToArticle = (html: string): string => {
     if (data.contentType === EMBED_CONTENT_TYPE) {
       const parsed = parseEmbedUrl(data.embedUrl ?? "")
       if (!parsed.ok || parsed.embed.provider !== data.embedProvider) continue // invalid: left for findInvalidEmbeds
-      const original = data.embedOriginal ? unchangedOriginalBlock(doc, data.embedOriginal, parsed.embed) : null
+      const original = data.embedOriginal
+        ? unchangedOriginalBlock(doc, data.embedOriginal, (text) => {
+            const stored = shortcodeToEmbed(text)
+            return !!stored && stored.provider === parsed.embed.provider && stored.url === parsed.embed.url
+          })
+        : null
       const out = original ?? doc.createElement("div")
       if (!original) out.textContent = embedToShortcode(withMedia(parsed.embed, data.embedMedia))
+      replaceAttachmentBlock(figure, out)
+      changed = true
+      continue
+    }
+    if (data.contentType === QUIZ_CONTENT_TYPE) {
+      const id = quizIdFrom(data.quizId)
+      if (!id) continue // invalid: findDeadQuizCards refuses it on publish
+      const original = data.quizOriginal
+        ? unchangedOriginalBlock(doc, data.quizOriginal, (text) => shortcodeToQuizId(text) === id)
+        : null
+      const out = original ?? doc.createElement("p")
+      if (!original) out.textContent = quizToShortcode(id)
       replaceAttachmentBlock(figure, out)
       changed = true
       continue
@@ -680,4 +794,40 @@ export const findInvalidEmbeds = (articleHtml: string): string[] => {
     }
   }
   return messages
+}
+
+export type QuizCardProblems = { blocking: string[]; warnings: string[]; flaggedIds: number[] }
+
+/**
+ * The publish check for quiz cards. Runs on the editor's own document (Trix's
+ * editor.value), not the converted article: trixHtmlToArticle turns every valid
+ * card into a bare shortcode, so only the editor still knows which block is
+ * which quiz. Deleted, unpublished and invalid cards block. A card whose lookup
+ * is pending or failed only warns, because the server checks again on publish.
+ * flaggedIds lists every card the author should look at, blocking or not.
+ */
+export const findDeadQuizCards = (editorHtml: string, quizStates: Map<number, QuizCardState>): QuizCardProblems => {
+  const problems: QuizCardProblems = { blocking: [], warnings: [], flaggedIds: [] }
+  if (!editorHtml.includes("data-trix-attachment")) return problems
+  const doc = parseDocument(editorHtml)
+  if (!doc) return problems
+  const seen = new Set<number>()
+  for (const el of Array.from(doc.querySelectorAll("[data-trix-attachment]"))) {
+    const data = parseJSONAttribute<AttachmentData>(el, "data-trix-attachment")
+    if (data?.contentType !== QUIZ_CONTENT_TYPE) continue
+    const id = quizIdFrom(data.quizId)
+    if (!id) {
+      problems.blocking.push("A quiz card is invalid. Remove it and insert it again.")
+      continue
+    }
+    if (seen.has(id)) continue
+    seen.add(id)
+    const state = quizStates.get(id) ?? "pending"
+    if (state === "published") continue
+    problems.flaggedIds.push(id)
+    if (state === "unpublished") problems.blocking.push(`Quiz #${id} is unpublished. Remove it or publish the quiz first.`)
+    else if (state === "deleted") problems.blocking.push(`Quiz #${id} was deleted. Remove it from the article.`)
+    else problems.warnings.push(`Quiz #${id} could not be checked yet. The server checks it again when you publish.`)
+  }
+  return problems
 }

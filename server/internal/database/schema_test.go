@@ -17,7 +17,7 @@ import (
 func TestTableSchema_CoversEveryCMSOwnedTable(t *testing.T) {
 	for _, table := range []string{"classifieds", "comments", "cms_poll_counts", "legacy_redirects", "site_taxonomy", "wordangle_words",
 		"newsletters", "newsletter_lists", "newsletter_subscribers", "newsletter_subscriber_lists",
-		"newsletter_deliveries", "newsletter_links"} {
+		"newsletter_deliveries", "newsletter_links", "cms_quizzes", "cms_quiz_answer_counts"} {
 		t.Run(table, func(t *testing.T) {
 			got := TableSchema(table)
 

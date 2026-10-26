@@ -777,7 +777,7 @@ var captionMarkupPattern = regexp.MustCompile(
 // puzzleme attribution is a link), which would otherwise be torn out from
 // inside the brackets first.
 var shortcodePattern = regexp.MustCompile(
-	`(?is)\[/?(?:puzzleme|caption|gallery|embed|playlist|audio|video)\b[^\]]*\]` +
+	`(?is)\[/?(?:puzzleme|caption|gallery|embed|playlist|audio|video|quiz)\b[^\]]*\]` +
 		`|\[[a-z][a-z0-9_-]*\s+[^\]]*=[^\]]*\]`)
 
 // deriveExcerpt builds a plain-text excerpt from HTML article content by
@@ -982,21 +982,30 @@ func ArticleInputToDBFields(body models.ArticleInput) []any {
 	}
 }
 
+// ArticleIsLive reports whether a full-replacement save stamps a pub_date or
+// scheduled_pub_date, which is what puts an article on the site. A draft wins
+// over any stale published_date in the payload; a blank or scheduled status
+// with no date stamps nothing. The quiz publish gate shares this so it never
+// disagrees with what the row becomes.
+func ArticleIsLive(status models.ArticleStatus, publishedAt *time.Time) bool {
+	if status == models.ArticleStatusDraft {
+		return false
+	}
+	return publishedAt != nil || status == models.ArticleStatusPublished
+}
+
 func ArticleToDBFields(body models.Article) []any {
 	var publishedAt any
 	var scheduledAt any
-	if body.Status == models.ArticleStatusDraft {
-		// Draft wins over any stale published_date in a full replacement payload.
-	} else if body.Status == models.ArticleStatusScheduled && body.PublishedAt != nil {
-		scheduledAt = body.PublishedAt.UTC().Format("2006-01-02 15:04:05")
-	} else if body.PublishedAt != nil {
-		if body.PublishedAt.After(time.Now().UTC()) {
+	if ArticleIsLive(body.Status, body.PublishedAt) {
+		switch {
+		case body.PublishedAt == nil:
+			publishedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
+		case body.Status == models.ArticleStatusScheduled || body.PublishedAt.After(time.Now().UTC()):
 			scheduledAt = body.PublishedAt.UTC().Format("2006-01-02 15:04:05")
-		} else {
+		default:
 			publishedAt = body.PublishedAt.UTC().Format("2006-01-02 15:04:05")
 		}
-	} else if body.Status == models.ArticleStatusPublished {
-		publishedAt = time.Now().UTC().Format("2006-01-02 15:04:05")
 	}
 	canonicalURL, _ := NormalizeCanonicalURL(body.CanonicalURL)
 	return []any{

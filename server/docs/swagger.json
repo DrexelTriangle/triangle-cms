@@ -4190,6 +4190,394 @@
                 }
             }
         },
+        "/v1/quiz": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "quiz"
+                ],
+                "summary": "Get published quizzes by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Comma-separated ids, at most 10",
+                        "name": "ids",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "$ref": "#/definitions/models.Quiz"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/quiz/{id}/answers": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "quiz"
+                ],
+                "summary": "Record a quiz answer",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Quiz id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Answer",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizAnswerInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizAnswerCountsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Unsupported Media Type",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/quiz/{slug}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "quiz"
+                ],
+                "summary": "Get a published quiz by slug",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Quiz slug",
+                        "name": "slug",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Quiz"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/quizzes": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "quiz"
+                ],
+                "summary": "List quizzes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "draft or published",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.QuizListItem"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "quiz"
+                ],
+                "summary": "Create a quiz",
+                "parameters": [
+                    {
+                        "description": "Quiz",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizSaveResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizValidationResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/quizzes/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "quiz"
+                ],
+                "summary": "Get a quiz in any status",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Quiz id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Quiz"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "quiz"
+                ],
+                "summary": "Delete a quiz",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Quiz id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Only edit_version is read",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizConflictResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "quiz"
+                ],
+                "summary": "Update a quiz",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Quiz id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Allow a structural change to reset counts",
+                        "name": "reset_counts",
+                        "in": "query"
+                    },
+                    {
+                        "description": "Quiz with the loaded edit_version",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizSaveResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizConflictResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizValidationResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/quizzes/{id}/references": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "quiz"
+                ],
+                "summary": "Count articles that embed a quiz",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Quiz id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.QuizReferencesResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/sections/{section_slug}/articles": {
             "get": {
                 "produces": [
@@ -7605,6 +7993,322 @@
                 },
                 "total_votes": {
                     "type": "integer"
+                }
+            }
+        },
+        "models.Quiz": {
+            "type": "object",
+            "properties": {
+                "counts": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                },
+                "cover_media_id": {
+                    "type": "integer"
+                },
+                "cover_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "definition": {
+                    "$ref": "#/definitions/models.QuizDefinition"
+                },
+                "definition_version": {
+                    "type": "integer"
+                },
+                "edit_version": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "intro": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.QuizAnswer": {
+            "type": "object",
+            "properties": {
+                "correct": {
+                    "type": "boolean"
+                },
+                "result_key": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.QuizAnswerCountsResponse": {
+            "type": "object",
+            "properties": {
+                "counts": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "models.QuizAnswerInput": {
+            "type": "object",
+            "properties": {
+                "answer_index": {
+                    "type": "integer"
+                },
+                "definition_version": {
+                    "type": "integer"
+                },
+                "question_index": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.QuizConflictResponse": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.QuizDefinition": {
+            "type": "object",
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.QuizQuestion"
+                    }
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.QuizResult"
+                    }
+                }
+            }
+        },
+        "models.QuizInput": {
+            "type": "object",
+            "properties": {
+                "cover_media_id": {
+                    "type": "integer"
+                },
+                "definition": {
+                    "$ref": "#/definitions/models.QuizDefinition"
+                },
+                "edit_version": {
+                    "type": "integer"
+                },
+                "intro": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.QuizListItem": {
+            "type": "object",
+            "properties": {
+                "edit_version": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "starts": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.QuizQuestion": {
+            "type": "object",
+            "properties": {
+                "answers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.QuizAnswer"
+                    }
+                },
+                "explanation": {
+                    "type": "string"
+                },
+                "image_media_id": {
+                    "type": "integer"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.QuizReferencesResponse": {
+            "type": "object",
+            "properties": {
+                "draft": {
+                    "type": "integer"
+                },
+                "published": {
+                    "type": "integer"
+                },
+                "scheduled": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.QuizResult": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "image_media_id": {
+                    "type": "integer"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "max": {
+                    "type": "integer"
+                },
+                "min": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.QuizSaveResponse": {
+            "type": "object",
+            "properties": {
+                "counts": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                },
+                "cover_media_id": {
+                    "type": "integer"
+                },
+                "cover_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "definition": {
+                    "$ref": "#/definitions/models.QuizDefinition"
+                },
+                "definition_version": {
+                    "type": "integer"
+                },
+                "edit_version": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "intro": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "models.QuizValidationResponse": {
+            "type": "object",
+            "properties": {
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
