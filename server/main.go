@@ -24,6 +24,7 @@ import (
 	"server/internal/middleware"
 	"server/internal/newsletter"
 	"server/internal/routes"
+	"server/internal/scraper"
 	"server/internal/slack"
 
 	"strconv"
@@ -491,9 +492,13 @@ func run(deps runDeps, conn *sql.DB) error {
 	handlers.SetImageVariants(variantIndex)
 
 	mux := http.NewServeMux()
+	// Instagram image import. An unset SCRAPER_URL disables the route with a
+	// clear message in the editor; the rest of the embeds keep working.
+	instagramScraper := scraper.New(os.Getenv("SCRAPER_URL"), 45*time.Second)
 	routes.Register(mux, conn, deps.oidcVerifier, deps.oidcCfg, deps.spamChecker, deps.slackNotifier, embedder, deps.newsletterMail,
 		// Where the unsubscribe page's "Go to The Triangle" link points.
-		getenvOrDefault(newsletterSiteURLEnv, "https://www.thetriangle.org"))
+		getenvOrDefault(newsletterSiteURLEnv, "https://www.thetriangle.org"),
+		instagramScraper)
 	server := deps.newServer(cert, mux, slog.Default())
 
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())

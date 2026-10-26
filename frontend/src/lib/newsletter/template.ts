@@ -96,7 +96,7 @@ export function defaultSubject(date: Date): string {
   return `${NEWSLETTER_NAME} — ${formatted}`
 }
 
-// The link rides through the editor as the image's href (trixImageHtml), so a
+// The link rides through the editor as the image's href (trixArticleHtml), so a
 // story's photo opens the story and the comic opens the comic.
 const imageHtml = (url: string | undefined, alt: string | undefined, href: string) =>
   url

@@ -4,7 +4,8 @@ import { ArrowLeft, Save, Image, Search, X, Copy, Check, RefreshCw, Plus } from 
 import { useNavigate, useParams } from "react-router-dom"
 import { useApiFetch } from "../hooks/useApiFetch"
 import { articleUrl } from "../auth/urls"
-import TrixEditor from "../components/TrixEditor"
+import TrixEditor, { type TrixEditorApi } from "../components/TrixEditor"
+import { findInvalidEmbeds } from "../components/trixArticleHtml"
 import MediaPicker from "../components/MediaPicker"
 import { copyText } from "../lib/clipboard"
 import { srcSetFor, type ImageVariant } from "../lib/imageVariants"
@@ -285,6 +286,8 @@ function EditArticleView() {
   const [pendingSlug, setPendingSlug] = useState<string | null>(null)
   const [slugRegenerating, setSlugRegenerating] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const editorApiRef = useRef<TrixEditorApi | null>(null)
+  const [hasPendingUploads, setHasPendingUploads] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isAutoSaving, setIsAutoSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -730,6 +733,17 @@ function EditArticleView() {
         setError(message)
       }
       setSavingState(false)
+    }
+
+    // Synchronous, on every path into a save: the button is only a cue.
+    if (editorApiRef.current?.hasPendingUploads()) {
+      validationError("Waiting for upload to finish before saving.", "Waiting for upload to finish.")
+      return
+    }
+    const invalidEmbeds = findInvalidEmbeds(content)
+    if (invalidEmbeds.length > 0) {
+      validationError(invalidEmbeds[0], "Autosave paused: fix the invalid embed.")
+      return
     }
 
     setSavingState(true)
@@ -1370,7 +1384,12 @@ function EditArticleView() {
 
             <div className={labelClass}>
               <span className={labelTextClass}>Content</span>
-              <TrixEditor onChange={setContent} value={content} />
+              <TrixEditor
+                apiRef={editorApiRef}
+                onChange={setContent}
+                onPendingChange={setHasPendingUploads}
+                value={content}
+              />
             </div>
           </div>
 
@@ -1804,7 +1823,7 @@ function EditArticleView() {
             <div className="flex flex-col gap-2 pt-1">
               <button
                 className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isSaving}
+                disabled={isSaving || hasPendingUploads}
                 onClick={() => void saveArticle(publishTiming)}
                 type="button"
               >
@@ -1843,6 +1862,7 @@ function EditArticleView() {
           featured image gets the same upload, search and alt-text handling. */}
       {imagePickerOpen && (
         <MediaPicker
+          imagesOnly
           initialUrl={photoURL}
           onClose={() => setImagePickerOpen(false)}
           onSelect={(item, source) => {

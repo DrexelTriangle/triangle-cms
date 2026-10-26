@@ -637,3 +637,42 @@ trix-editor.trix-content a:hover::after {
 .trix-editor-notice button:hover {
   color: hsl(var(--foreground, 224 71% 4%));
 }
+
+/* Embed cards and audio chips serialize to shortcodes, which have no caption.
+   Hide the field so nothing can be typed there and then dropped on save. */
+trix-editor.trix-content figure[data-trix-content-type="application/x-triangle-embed"] .attachment__caption,
+trix-editor.trix-content figure[data-trix-content-type^="audio/"] .attachment__caption {
+  display: none;
+}
+
+/* The embed card itself. Static: no iframe, no third-party script in the
+   admin app. */
+trix-editor.trix-content .embed-card {
+  display: block;
+  padding: 12px 16px;
+  border: 1px dashed hsl(var(--border, 214 32% 91%));
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground, 215 16% 47%));
+}
+trix-editor.trix-content .embed-card strong {
+  color: hsl(var(--foreground, 222 47% 11%));
+}
+/* Trix's .attachment a rule resets links inside an attachment to plain text
+   and outranks the editor's link rule, so the card link says so itself. */
+trix-editor.trix-content .embed-card a {
+  display: block;
+  overflow-wrap: anywhere;
+  color: hsl(var(--primary, 243 75% 59%));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* The link's text is already the URL; the hover tooltip would show it twice. */
+trix-editor.trix-content .embed-card a:hover::after {
+  content: none;
+}
+trix-editor.trix-content .embed-card--invalid {
+  border-color: hsl(var(--destructive, 0 84% 60%));
+  color: hsl(var(--destructive, 0 84% 60%));
+}

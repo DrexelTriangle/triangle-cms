@@ -625,6 +625,18 @@ type MediaGalleryResponse struct {
 	Media []MediaOverview `json:"media"`
 }
 
+// InstagramEmbedRequest names the post whose images the editor wants copied
+// into the media library before it writes the [instagram] shortcode.
+type InstagramEmbedRequest struct {
+	URL string `json:"url"`
+}
+
+// InstagramEmbedResponse lists the stored copies as site-relative wp-content
+// paths, in the post's order, ready for the shortcode's media attribute.
+type InstagramEmbedResponse struct {
+	Media []string `json:"media"`
+}
+
 // MediaFetchRequest asks the server to copy a remote image into the library.
 // URL must be an absolute http(s) URL; see PostMediaFetch for what is refused.
 type MediaFetchRequest struct {

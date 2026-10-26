@@ -14,6 +14,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"server/internal/models"
 )
@@ -879,5 +881,77 @@ func TestEnsureTraversable_WidensNarrowDirectory(t *testing.T) {
 		if perm := info.Mode().Perm(); perm != 0o775 {
 			t.Fatalf("%s mode = %#o, want 0775", target, perm)
 		}
+	}
+}
+
+func TestPostMedia_RejectsBareMP3BytesWithWrongExtension(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+	rec := httptest.NewRecorder()
+	// A real frame sync, but the client called it .bin: not an MP3 we accept.
+	head := append([]byte{0xFF, 0xFB, 0x90, 0x64}, bytes.Repeat([]byte{0}, 600)...)
+	PostMedia(nil).ServeHTTP(rec, uploadRequest(t, "audio.bin", head))
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPostMedia_RejectsAACNamedMP3(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+	rec := httptest.NewRecorder()
+	head := append([]byte{0xFF, 0xF1, 0x50, 0x80}, bytes.Repeat([]byte{0}, 600)...)
+	PostMedia(nil).ServeHTTP(rec, uploadRequest(t, "audio.mp3", head))
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRemoteFetchTimeoutFor(t *testing.T) {
+	cases := map[string]time.Duration{
+		"https://x.test/a.jpg":         remoteFetchTimeout,
+		"https://x.test/a.mp3":         remoteAudioFetchTimeout,
+		"https://x.test/A.MP3?v=1":     remoteAudioFetchTimeout,
+		"https://x.test/a.mp3.html":    remoteFetchTimeout,
+		"https://x.test/dir.mp3/a.jpg": remoteFetchTimeout,
+	}
+	for raw, want := range cases {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := remoteFetchTimeoutFor(u); got != want {
+			t.Errorf("%s: got %v want %v", raw, got, want)
+		}
+	}
+}
+
+func TestPostMedia_AudioWithoutHTTPSBaseURLIs422(t *testing.T) {
+	t.Setenv("MEDIA_ROOT", t.TempDir())
+	t.Setenv("MEDIA_BASE_URL", "")
+	mp3, err := os.ReadFile("../mediatype/testdata/bare.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	PostMedia(nil).ServeHTTP(rec, uploadRequest(t, "clip.mp3", mp3))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAudioURLUsable(t *testing.T) {
+	cases := map[string]bool{
+		"":                    false,
+		"http://media.test":   false,
+		"https://media.test":  true,
+		"https://media.test/": true,
+		"//media.test":        false,
+	}
+	for base, want := range cases {
+		t.Run(base, func(t *testing.T) {
+			t.Setenv("MEDIA_BASE_URL", base)
+			if got := audioURLUsable(); got != want {
+				t.Fatalf("audioURLUsable() = %v, want %v", got, want)
+			}
+		})
 	}
 }
