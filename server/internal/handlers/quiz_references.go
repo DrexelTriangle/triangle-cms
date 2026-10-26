@@ -18,10 +18,22 @@ import (
 // checks them against embed-vectors.json.
 const quizShortcodeBody = `\[quiz[ \t\n\f\r]+id="(\d+)"[ \t\n\f\r]*/?\]`
 
-var (
-	quizShortcodeInText = regexp.MustCompile(`(?i)` + quizShortcodeBody)
-	quizShortcodeWhole  = regexp.MustCompile(`(?i)^` + quizShortcodeBody + `$`)
-)
+// jsTrimSpace is what JavaScript's String.prototype.trim strips, which is what
+// Scalene trims a block's content with before matching the shortcode.
+const jsTrimSpace = `[\t\n\v\f\r \x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}]*`
+
+// quizShortcodeBlock matches a <p> or <div> whose whole content is one quiz
+// shortcode, the only place Scalene (expandBlockShortcode in shortcodes.ts)
+// renders a quiz. The tag syntax follows Scalene's TAG pattern in articleHtml.ts.
+// It is deliberately a little wider than Scalene, so the gate can refuse a
+// block the site would not render but never miss one it would: any depth
+// rather than top level only, and any closing tag, which is all Scalene's
+// depth count checks.
+var quizShortcodeBlock = regexp.MustCompile(`(?i)<(?:p|div)(?:(?:"[^"]*"|'[^']*'|[^\w'">-])(?:"[^"]*"|'[^']*'|[^'">])*)?>` +
+	jsTrimSpace + `(` + quizShortcodeBody + `)` + jsTrimSpace +
+	`</[a-z][\w-]*(?:"[^"]*"|'[^']*'|[^'">])*>`)
+
+var quizShortcodeWhole = regexp.MustCompile(`(?i)^` + quizShortcodeBody + `$`)
 
 // maxQuizID is Number.MAX_SAFE_INTEGER, the largest id JavaScript reads exactly.
 const maxQuizID = 1<<53 - 1
@@ -40,13 +52,14 @@ func quizShortcodeID(text string) (int64, bool) {
 	return id, true
 }
 
-// quizIDsInContent finds quiz shortcodes anywhere in the body, not only in a
-// block of their own, so the gate refuses rather than misses.
+// quizIDsInContent finds the quiz shortcodes the site would render. A
+// shortcode quoted in a sentence or a code sample stays text on the site, so
+// it does not hold up publishing.
 func quizIDsInContent(html string) []int64 {
 	var ids []int64
 	seen := map[int64]bool{}
-	for _, match := range quizShortcodeInText.FindAllString(html, -1) {
-		id, ok := quizShortcodeID(match)
+	for _, match := range quizShortcodeBlock.FindAllStringSubmatch(html, -1) {
+		id, ok := quizShortcodeID(match[1])
 		if !ok || seen[id] {
 			continue
 		}

@@ -351,6 +351,24 @@ describe("quizzes in the editor", () => {
     expect(cards[1]).toContain("Quiz #8 (deleted)")
   })
 
+  // The edit routes reuse one page, so going from one article to the next
+  // keeps the editor mounted. The next article's quiz must be looked up
+  // again, not shown with what the previous article saw.
+  it("looks quiz cards up again when another article loads", async () => {
+    let status = "published"
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ id: 7, title: "Campus trivia", status }))
+    const onQuizStatesChange = vi.fn()
+    const { rerender } = render(<TrixEditor value='<p>A</p><p>[quiz id="7"]</p>' onChange={() => {}} onQuizStatesChange={onQuizStatesChange} />)
+    await waitFor(() => expect(lastStates(onQuizStatesChange)?.get(7)).toBe("published"))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    status = "draft"
+    rerender(<TrixEditor value='<p>B</p><p>[quiz id="7"]</p>' onChange={() => {}} onQuizStatesChange={onQuizStatesChange} />)
+    await waitFor(() => expect(lastStates(onQuizStatesChange)?.get(7)).toBe("unpublished"))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(document.querySelector("trix-editor .embed-card--quiz")?.textContent).toContain("(unpublished)")
+  })
+
   it("marks a card unknown when the lookup fails", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("network"))
     const onQuizStatesChange = vi.fn()
