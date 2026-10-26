@@ -16,7 +16,7 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger"
 )
 
-func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder, instagramScraper *scraper.Client) {
+func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, oidcCfg auth.OIDCConfig, spamChecker akismet.Checker, slackNotifier slack.Notifier, queryEmbedder handlers.QueryEmbedder, newsletterMail *handlers.NewsletterMail, newsletterSiteURL string, instagramScraper *scraper.Client) {
 	mux.Handle("/swagger/", httpSwagger.WrapHandler)
 	// Prometheus scrape target. Unauthenticated by design, and safe only
 	// because Nginx proxies just /v1 and /swagger: nothing routes /metrics in
@@ -76,6 +76,19 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("PATCH /v1/classifieds/{id}", authMW(handlers.PatchClassified(conn)))
 	mux.Handle("DELETE /v1/classifieds/{id}", authMW(adminOnly(handlers.DeleteClassified(conn))))
 	mux.Handle("POST /v1/integrations/slack/classifieds", middleware.RateLimitByIP(30, time.Minute)(handlers.PostSlackClassifiedAction(conn)))
+	// The links in every newsletter issue. Public, and not rate limited: see
+	// handlers/newsletter_unsubscribe.go.
+	mux.Handle("GET /v1/newsletter/unsubscribe", handlers.GetNewsletterUnsubscribe(conn, newsletterSiteURL))
+	mux.Handle("POST /v1/newsletter/unsubscribe", handlers.PostNewsletterUnsubscribe(conn, newsletterSiteURL))
+	mux.Handle("POST /v1/newsletter/resubscribe", handlers.PostNewsletterResubscribe(conn, newsletterSiteURL))
+	mux.Handle("GET /v1/newsletter/issues/{id}", handlers.GetNewsletterIssue(conn, newsletterSiteURL))
+	mux.Handle("GET /v1/newsletter/o/{token}", handlers.GetNewsletterOpen(conn))
+	mux.Handle("GET /v1/newsletter/c/{token}/{link}", handlers.GetNewsletterClick(conn, newsletterSiteURL))
+	// The public site's subscribe form, through Scalene's /api proxy, which
+	// forwards the reader's address so this limit is per reader.
+	// "subscribe" is a literal segment, so Go's mux prefers it over
+	// /v1/newsletter-subscribers/{id}.
+	mux.Handle("POST /v1/newsletter-subscribers/subscribe", middleware.RateLimitByIP(5, time.Minute)(handlers.PostNewsletterSubscribe(conn)))
 	// The public photo gallery. The editor-facing catalogue at
 	// /v1/media/gallery stays authenticated; this one is images-only.
 	mux.Handle("GET /v1/gallery", handlers.GetPublicGallery(conn))
@@ -115,6 +128,8 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/settings/breaking-news", handlers.GetBreakingNews(conn))
 	mux.Handle("GET /v1/settings/homepage-carousel", handlers.GetHomepageCarousel(conn))
 	mux.Handle("GET /v1/settings/footer", handlers.GetFooterSettings(conn))
+	mux.Handle("GET /v1/legacy-redirects", handlers.GetLegacyRedirects(conn))
+	mux.Handle("GET /v1/legacy-redirects/newsletter-click", handlers.GetLegacyNewsletterClick())
 	mux.Handle("GET /v1/seo/audit", authMW(handlers.GetSEOAudit(conn)))
 	mux.Handle("GET /v1/activity", authMW(adminOnly(handlers.GetActivity())))
 	mux.Handle("GET /v1/users/me", authMW(http.HandlerFunc(handlers.GetMe)))
@@ -173,6 +188,20 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/wordangle/manage", authMW(handlers.GetWordangleManage(conn)))
 	mux.Handle("POST /v1/wordangle/generate", authMW(handlers.PostWordangleGenerate(conn)))
 	mux.Handle("GET /v1/wordangle/check", authMW(handlers.GetWordangleCheck(conn)))
+	// Newsletter (To The Point). Writing and scheduling issues is editorial
+	// work; erasing a subscriber is not reversible, so it is admin-only. "stats"
+	// is a literal segment, so Go's mux prefers it over /v1/newsletters/{id}.
+	mux.Handle("GET /v1/newsletters", authMW(editorOrAdmin(handlers.GetNewsletters(conn))))
+	mux.Handle("GET /v1/newsletters/stats", authMW(editorOrAdmin(handlers.GetNewsletterStats(conn))))
+	mux.Handle("GET /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.GetNewsletter(conn))))
+	mux.Handle("POST /v1/newsletters", authMW(editorOrAdmin(handlers.PostNewsletter(conn))))
+	mux.Handle("PUT /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.PutNewsletter(conn))))
+	mux.Handle("DELETE /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.DeleteNewsletter(conn))))
+	mux.Handle("POST /v1/newsletters/{id}/schedule", authMW(editorOrAdmin(handlers.PostNewsletterSchedule(conn))))
+	mux.Handle("DELETE /v1/newsletters/{id}/schedule", authMW(editorOrAdmin(handlers.DeleteNewsletterSchedule(conn))))
+	mux.Handle("POST /v1/newsletters/{id}/test", authMW(editorOrAdmin(handlers.PostNewsletterTest(conn, newsletterMail))))
+	mux.Handle("GET /v1/newsletter-subscribers", authMW(editorOrAdmin(handlers.GetNewsletterSubscribers(conn))))
+	mux.Handle("DELETE /v1/newsletter-subscribers/{id}", authMW(adminOnly(handlers.DeleteNewsletterSubscriber(conn))))
 	mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))
 	mux.Handle("PUT /v1/developing-stories", authMW(adminOnly(handlers.PutDevelopingStory(conn))))
 	mux.Handle("DELETE /v1/developing-stories", authMW(adminOnly(handlers.DeleteDevelopingStory(conn))))
@@ -180,6 +209,10 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("PATCH /v1/settings/seo", authMW(adminOnly(handlers.PatchSEOSettings(conn))))
 	mux.Handle("PATCH /v1/settings/breaking-news", authMW(adminOnly(handlers.PatchBreakingNews(conn))))
 	mux.Handle("PATCH /v1/settings/homepage-carousel", authMW(adminOnly(handlers.PatchHomepageCarousel(conn))))
+	// The schedule holds unreviewed drafts, so reading it is admin-only too;
+	// the public site gets today's entry from /v1/homepage.
+	mux.Handle("GET /v1/settings/exhibit-spotlights", authMW(adminOnly(handlers.GetExhibitSpotlights(conn))))
+	mux.Handle("PATCH /v1/settings/exhibit-spotlights", authMW(adminOnly(handlers.PatchExhibitSpotlights(conn))))
 	mux.Handle("PATCH /v1/settings/footer", authMW(adminOnly(handlers.PatchFooterSettings(conn))))
 	mux.Handle("POST /v1/settings/taxonomy/rebuild", authMW(adminOnly(handlers.PostRebuildTaxonomyCounts(conn))))
 	mux.Handle("POST /v1/taxonomy", authMW(editorOrAdmin(handlers.PostTaxonomy(conn))))

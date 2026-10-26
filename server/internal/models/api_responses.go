@@ -231,6 +231,7 @@ type HomepageResponse struct {
 	BreakingNews      BreakingNewsSettings      `json:"breaking_news"`
 	Carousel          []HomepageCarouselSlide   `json:"carousel"`
 	DevelopingStories []HomepageDevelopingStory `json:"developingstories"`
+	ExhibitSpotlight  *ExhibitSpotlight         `json:"exhibit_spotlight,omitempty"`
 	News              []ArticleListItem         `json:"news"`
 	Opinion           []ArticleListItem         `json:"opinion"`
 	Sports            []ArticleListItem         `json:"sports"`
@@ -386,6 +387,33 @@ type HomepageCarouselSettingsResponse struct {
 
 type HomepageCarouselSettingsPatchRequest = HomepageCarouselSettingsResponse
 
+// ExhibitSpotlight is one entry in the Academy of Natural Sciences farewell
+// series. FeatureDate is a calendar date (YYYY-MM-DD) read in New York time;
+// the homepage serves the first enabled entry dated today.
+type ExhibitSpotlight struct {
+	Slug        string   `json:"slug"`
+	FeatureDate string   `json:"feature_date"`
+	Enabled     bool     `json:"enabled"`
+	Title       string   `json:"title"`
+	Kicker      string   `json:"kicker"`
+	Body        string   `json:"body"`
+	Tenure      string   `json:"tenure"`
+	FunFacts    []string `json:"fun_facts"`
+	// LinkURL is where the homepage picture links; empty means the Academy site.
+	LinkURL        string   `json:"link_url"`
+	ImageURL       string   `json:"image_url"`
+	ImageAlt       string   `json:"image_alt"`
+	ImageCredit    string   `json:"image_credit"`
+	ImageCreditURL string   `json:"image_credit_url"`
+	Sources        []string `json:"sources"`
+}
+
+type ExhibitSpotlightSettingsResponse struct {
+	Entries []ExhibitSpotlight `json:"entries"`
+}
+
+type ExhibitSpotlightSettingsPatchRequest = ExhibitSpotlightSettingsResponse
+
 // Footer entry kinds. A column is a flat ordered list rather than a heading
 // plus children because the live footer stacks two groups in one column
 // ("Columns" under "Opinion", "Special Editions" under "Comics & Puzzles"),
@@ -427,6 +455,22 @@ type FooterSettings struct {
 type FooterSettingsResponse = FooterSettings
 
 type FooterSettingsPatchRequest = FooterSettings
+
+// LegacyRedirect is one old WordPress URL and where it now lives on the public
+// site. SourceKind says what Source is matched against: "path" (the request
+// path), "post_id" (the ?p= value) or "slug" (a post's last path segment).
+// Source is lowercase and percent-encoded, exactly as WordPress stored it.
+// Target is a path on the public site, empty when Status is 410.
+type LegacyRedirect struct {
+	SourceKind string `json:"source_kind"`
+	Source     string `json:"source"`
+	Target     string `json:"target"`
+	Status     int    `json:"status"`
+}
+
+type LegacyRedirectsResponse struct {
+	Redirects []LegacyRedirect `json:"redirects"`
+}
 
 // SEOSettings holds the site-wide SEO / social defaults.
 type SEOSettings struct {

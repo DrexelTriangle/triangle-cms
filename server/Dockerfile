@@ -1,4 +1,6 @@
-FROM golang:1.25-alpine AS builder
+# 1.26.10+ carries the crypto/x509 block of the compromised eMudhra
+# intermediates (CVE-2026-111943).
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 
 COPY go.mod go.sum ./
@@ -14,8 +16,11 @@ RUN swag init --parseDependency --parseInternal
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -o /bin/cms ./main.go
 
-FROM alpine:3.21
+FROM alpine:3.24
 WORKDIR /app
+
+# Pull in security fixes newer than the base image (e.g. musl CVE-2026-107891).
+RUN apk upgrade --no-cache
 
 # ca-certificates: the CMS makes outbound HTTPS calls at startup (OIDC provider
 # discovery against Authentik). The base alpine image ships no root CA bundle, so

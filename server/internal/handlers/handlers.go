@@ -3233,6 +3233,10 @@ func assembleHomepage(r *http.Request, conn *sql.DB) (models.HomepageResponse, e
 	if err != nil {
 		return models.HomepageResponse{}, err
 	}
+	spotlights, err := db.GetExhibitSpotlights(r.Context(), conn)
+	if err != nil {
+		return models.HomepageResponse{}, err
+	}
 	developingStories := make([]models.HomepageDevelopingStory, 0, len(stories))
 	for idx, story := range stories {
 		slug := db.CanonicalizeSlug(story.Title)
@@ -3264,6 +3268,7 @@ func assembleHomepage(r *http.Request, conn *sql.DB) (models.HomepageResponse, e
 		BreakingNews:      breakingNews,
 		Carousel:          db.PublishedHomepageCarousel(carousel),
 		DevelopingStories: developingStories,
+		ExhibitSpotlight:  db.TodaysExhibitSpotlight(spotlights, time.Now()),
 	}
 
 	// Captured from the news pass so the featured article, which may come

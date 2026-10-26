@@ -31,7 +31,7 @@ func TestRegister_ReadEndpointsPublicWithVerifier(t *testing.T) {
 	defer conn.Close()
 
 	mux := http.NewServeMux()
-	Register(mux, conn, verifier, auth.OIDCConfig{}, nil, nil, nil, nil)
+	Register(mux, conn, verifier, auth.OIDCConfig{}, nil, nil, nil, nil, "", nil)
 
 	public := []string{
 		"/v1/articles",
@@ -79,7 +79,7 @@ func TestRegister_SettingsWriteEndpointsGated(t *testing.T) {
 	})
 
 	mux := http.NewServeMux()
-	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil, nil, nil)
+	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil, nil, nil, "", nil)
 
 	tests := []struct {
 		method string
@@ -107,7 +107,7 @@ func TestRegister_SettingsWriteEndpointsGated(t *testing.T) {
 
 func TestRegister_PublicRoute(t *testing.T) {
 	mux := http.NewServeMux()
-	Register(mux, nil, nil, auth.OIDCConfig{}, nil, nil, nil, nil)
+	Register(mux, nil, nil, auth.OIDCConfig{}, nil, nil, nil, nil, "", nil)
 
 	tests := []struct {
 		name       string
@@ -173,7 +173,7 @@ func TestRegister_MediaEndpointsGated(t *testing.T) {
 	})
 
 	mux := http.NewServeMux()
-	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil, nil, nil)
+	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil, nil, nil, "", nil)
 
 	tests := []struct {
 		method string
@@ -212,7 +212,7 @@ func TestRegister_QuizAnswerLimiterIsItsOwn(t *testing.T) {
 	}
 	defer conn.Close()
 	mux := http.NewServeMux()
-	Register(mux, conn, nil, auth.OIDCConfig{}, nil, nil, nil, nil)
+	Register(mux, conn, nil, auth.OIDCConfig{}, nil, nil, nil, nil, "", nil)
 
 	post := func(path string) int {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"definition_version":1,"question_index":0,"answer_index":0}`))
@@ -232,5 +232,60 @@ func TestRegister_QuizAnswerLimiterIsItsOwn(t *testing.T) {
 	}
 	if code := post("/v1/poll"); code == http.StatusTooManyRequests {
 		t.Fatal("the poll limiter must not share the quiz bucket")
+	}
+}
+
+// Subscriber addresses and unsent issues are private, so every newsletter
+// route, reads included, must answer 401 without a session. Same nil-conn
+// reasoning as the media test above.
+func TestRegister_NewsletterEndpointsGated(t *testing.T) {
+	verifier := oidc.NewVerifier("https://issuer.example", nil, &oidc.Config{
+		ClientID:          "test",
+		SkipClientIDCheck: true,
+	})
+
+	mux := http.NewServeMux()
+	Register(mux, nil, verifier, auth.OIDCConfig{}, nil, nil, nil, nil, "", nil)
+
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v1/newsletters"},
+		{http.MethodGet, "/v1/newsletters/stats"},
+		{http.MethodGet, "/v1/newsletters/1"},
+		{http.MethodPost, "/v1/newsletters"},
+		{http.MethodPut, "/v1/newsletters/1"},
+		{http.MethodDelete, "/v1/newsletters/1"},
+		{http.MethodPost, "/v1/newsletters/1/schedule"},
+		{http.MethodDelete, "/v1/newsletters/1/schedule"},
+		{http.MethodPost, "/v1/newsletters/1/test"},
+		{http.MethodGet, "/v1/newsletter-subscribers"},
+		{http.MethodDelete, "/v1/newsletter-subscribers/1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected %d, got %d", http.StatusUnauthorized, rec.Code)
+			}
+		})
+	}
+
+	// The links in an issue are opened by readers with no CMS session. A key
+	// that can't be valid is answered before the database, so a nil conn
+	// shows the route is reachable without a login.
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		req := httptest.NewRequest(method, "/v1/newsletter/unsubscribe?t=not-a-token", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s unsubscribe: expected the public 404 page, got %d", method, rec.Code)
+		}
 	}
 }

@@ -4,7 +4,7 @@ import {
   LayoutDashboard,
   FileText,
   TrendingUp,
-  // Mail, // used by the disabled Newsletter nav item
+  Mail,
   Image,
   Users,
   Layers,
@@ -57,9 +57,7 @@ const navGroups: NavGroup[] = [
       { icon: Puzzle, label: "Wordangle", path: "/wordangle" },
       { icon: ClipboardList, label: "Quizzes", path: "/quizzes" },
       { icon: Image, label: "Media", path: "/media" },
-      // Newsletter is temporarily disabled; re-enable this entry (and the Mail
-      // import above) to bring it back.
-      // { icon: Mail, label: "Newsletter", path: "/newsletter" },
+      { icon: Mail, label: "Newsletter", path: "/newsletter" },
     ],
   },
   {
