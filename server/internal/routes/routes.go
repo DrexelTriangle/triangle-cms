@@ -202,9 +202,11 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("POST /v1/newsletters/{id}/test", authMW(editorOrAdmin(handlers.PostNewsletterTest(conn, newsletterMail))))
 	mux.Handle("GET /v1/newsletter-subscribers", authMW(editorOrAdmin(handlers.GetNewsletterSubscribers(conn))))
 	mux.Handle("DELETE /v1/newsletter-subscribers/{id}", authMW(adminOnly(handlers.DeleteNewsletterSubscriber(conn))))
-	mux.Handle("POST /v1/developing-stories", authMW(adminOnly(handlers.PostDevelopingStory(conn))))
-	mux.Handle("PUT /v1/developing-stories", authMW(adminOnly(handlers.PutDevelopingStory(conn))))
-	mux.Handle("DELETE /v1/developing-stories", authMW(adminOnly(handlers.DeleteDevelopingStory(conn))))
+	// The homepage's developing-stories list is curated by the desk as news
+	// breaks, so editors maintain it. Site-wide settings below stay admin-only.
+	mux.Handle("POST /v1/developing-stories", authMW(editorOrAdmin(handlers.PostDevelopingStory(conn))))
+	mux.Handle("PUT /v1/developing-stories", authMW(editorOrAdmin(handlers.PutDevelopingStory(conn))))
+	mux.Handle("DELETE /v1/developing-stories", authMW(editorOrAdmin(handlers.DeleteDevelopingStory(conn))))
 	mux.Handle("PATCH /v1/settings/site", authMW(adminOnly(handlers.PatchSiteSettings(conn))))
 	mux.Handle("PATCH /v1/settings/seo", authMW(adminOnly(handlers.PatchSEOSettings(conn))))
 	mux.Handle("PATCH /v1/settings/breaking-news", authMW(adminOnly(handlers.PatchBreakingNews(conn))))
@@ -220,7 +222,9 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("DELETE /v1/taxonomy/{type}/{slug}", authMW(editorOrAdmin(handlers.DeleteTaxonomyItem(conn))))
 
 	if verifier != nil {
-		mux.Handle("POST /v1/authors", authMW(adminOnly(handlers.PostAuthors(conn))))
+		// Editors add a byline when a new writer files; changing, archiving,
+		// restoring or deleting an existing author stays admin-only.
+		mux.Handle("POST /v1/authors", authMW(editorOrAdmin(handlers.PostAuthors(conn))))
 		mux.Handle("PUT /v1/authors/{slug}", authMW(adminOnly(handlers.PutAuthor(conn))))
 		mux.Handle("PATCH /v1/authors/{slug}", authMW(adminOnly(handlers.PatchAuthor(conn))))
 		mux.Handle("PATCH /v1/authors/{slug}/restore", authMW(adminOnly(handlers.RestoreAuthor(conn))))
