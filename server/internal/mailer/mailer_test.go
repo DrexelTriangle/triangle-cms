@@ -120,7 +120,7 @@ func TestCompose_TracksLinksButNotUnsubscribe(t *testing.T) {
 	if strings.Count(m.HTML, click) != 2 {
 		t.Errorf("both copies of the link should redirect: %s", m.HTML)
 	}
-	for _, kept := range []string{`href="mailto:tips@example.org"`, `href="https://untracked.example"`, `href="https://cms.example.org/v1/newsletter/unsubscribe?t=tok"`} {
+	for _, kept := range []string{`href="mailto:tips@example.org"`, `href="https://untracked.example"`, `href="https://cms.example.org/v1/newsletter/unsubscribe?t=tok&amp;d=dlv"`} {
 		if !strings.Contains(m.HTML, kept) {
 			t.Errorf("HTML lost %s", kept)
 		}
@@ -137,7 +137,7 @@ func TestCompose_ReaderLinksGoThroughThePublicSite(t *testing.T) {
 	m := n.Compose(issue, testTo, "tok", &Tracking{Delivery: "dlv", Links: map[string]int64{"https://www.example.org/article/a": 3}})
 	for _, want := range []string{
 		`href="https://www.example.org/newsletter/c/dlv/3"`,
-		`href="https://www.example.org/newsletter/unsubscribe?t=tok"`,
+		`href="https://www.example.org/newsletter/unsubscribe?t=tok&amp;d=dlv"`,
 		`href="https://www.example.org/newsletter/issues/7"`,
 	} {
 		if !strings.Contains(m.HTML, want) {
@@ -148,11 +148,40 @@ func TestCompose_ReaderLinksGoThroughThePublicSite(t *testing.T) {
 		t.Errorf("a reader-facing link still goes to the CMS: %s", m.HTML)
 	}
 	// One-click unsubscribe and the pixel, which no reader sees, stay on the CMS.
-	if m.UnsubscribeURL != "https://cms.example.org/v1/newsletter/unsubscribe?t=tok" {
+	if m.UnsubscribeURL != "https://cms.example.org/v1/newsletter/unsubscribe?t=tok&d=dlv" {
 		t.Errorf("UnsubscribeURL = %q", m.UnsubscribeURL)
 	}
 	if !strings.Contains(m.HTML, `<img src="https://cms.example.org/v1/newsletter/o/dlv"`) {
 		t.Errorf("pixel moved off the CMS: %s", m.HTML)
+	}
+}
+
+// A tracked copy's unsubscribe and manage links carry the delivery token too,
+// so an unsubscribe can be put down to the issue it came from. The subscriber
+// token stays first: it is what authorises the change.
+func TestCompose_UnsubscribeLinksCarryTheDelivery(t *testing.T) {
+	n := testComposer()
+	n.LinkURL = "https://www.example.org/newsletter"
+	issue := Issue{ID: 7, EmailHTML: `<a href="{{unsubscribe_url}}">Unsubscribe</a> <a href="{{manage_subscription_url}}">Manage</a>`}
+	m := n.Compose(issue, testTo, "tok", &Tracking{Delivery: "dlv"})
+
+	const page = "https://www.example.org/newsletter/unsubscribe?t=tok&amp;d=dlv"
+	if strings.Count(m.HTML, `href="`+page+`"`) != 2 {
+		t.Errorf("unsubscribe and manage should both carry the delivery: %s", m.HTML)
+	}
+	if m.UnsubscribeURL != "https://cms.example.org/v1/newsletter/unsubscribe?t=tok&d=dlv" {
+		t.Errorf("UnsubscribeURL = %q", m.UnsubscribeURL)
+	}
+	if !strings.Contains(m.Text, "Unsubscribe: https://www.example.org/newsletter/unsubscribe?t=tok&d=dlv\n") {
+		t.Errorf("text part: %q", m.Text)
+	}
+
+	// An untracked copy, and a test copy even when tracked, keep the plain link.
+	if m := n.Compose(issue, testTo, "tok", nil); m.UnsubscribeURL != "https://cms.example.org/v1/newsletter/unsubscribe?t=tok" {
+		t.Errorf("untracked UnsubscribeURL = %q", m.UnsubscribeURL)
+	}
+	if m := n.Compose(issue, testTo, TestToken, &Tracking{Delivery: "dlv"}); strings.Contains(m.HTML+m.UnsubscribeURL, "d=dlv") {
+		t.Errorf("a test copy's unsubscribe link names its delivery: %s %s", m.UnsubscribeURL, m.HTML)
 	}
 }
 

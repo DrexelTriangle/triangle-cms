@@ -20,6 +20,19 @@ type SubscriberKey struct {
 	Token       string
 	LegacyID    int64
 	LegacyToken string
+	// Delivery is the token of the copy the link came in (d=), when it says.
+	// It only attributes an unsubscribe to that copy's issue, and only if the
+	// copy went to this same subscriber; it never authorises anything.
+	Delivery string
+}
+
+// WithDelivery adds a d= delivery token to the key. A malformed one is
+// dropped: it must not stop a reader unsubscribing.
+func (k SubscriberKey) WithDelivery(delivery string) SubscriberKey {
+	if subscriberTokenPattern.MatchString(delivery) {
+		k.Delivery = delivery
+	}
+	return k
 }
 
 var subscriberTokenPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -129,6 +142,19 @@ func changeSubscription(ctx context.Context, conn *sql.DB, key SubscriberKey, fr
 		to, unsubscribedAt, now, s.ID,
 	); err != nil {
 		return nil, false, err
+	}
+	// Put the unsubscribe down to the copy it came from, in the same
+	// transaction as the change, so it counts once per actual unsubscribe.
+	// subscriber_id must match: a delivery token from someone else's copy
+	// attributes nothing. COALESCE keeps the first time a reader left from
+	// this copy, should they resubscribe and leave from it again.
+	if to == models.SubscriberStatusUnsubscribed && key.Delivery != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE newsletter_deliveries SET unsubscribed_at = COALESCE(unsubscribed_at, ?)
+			WHERE token = ? AND subscriber_id = ? AND is_test = 0
+		`, now, key.Delivery, s.ID); err != nil {
+			return nil, false, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, false, err

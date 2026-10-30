@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Search, Plus, Trash2, Eye, Clock, CheckCircle, Copy, Pencil, Send } from "lucide-react"
+import CampaignStats from "../components/newsletter/CampaignStats"
 import TemplateDialog from "../components/newsletter/TemplateDialog"
 import { useNewsletterApi } from "../lib/newsletter/api"
 import { NEWSLETTER_NAME, renderNewsletterEmail } from "../lib/newsletter/template"
@@ -48,7 +49,7 @@ function CountWithRate({ count, of }: { count: number; of: number }) {
 export default function NewsletterView() {
   const navigate = useNavigate()
   const api = useNewsletterApi()
-  const [tab, setTab] = useState<"campaigns" | "subscribers">("campaigns")
+  const [tab, setTab] = useState<"campaigns" | "subscribers" | "stats">("campaigns")
   const [search, setSearch] = useState("")
   const [newsletters, setNewsletters] = useState<Newsletter[]>([])
   const [subscribers, setSubscribers] = useState<NewsletterSubscriber[]>([])
@@ -173,28 +174,47 @@ export default function NewsletterView() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-border">
-        {(["campaigns", "subscribers"] as const).map((t) => (
+      <div className="flex gap-1 border-b border-border" role="tablist" aria-label="Newsletter">
+        {(
+          [
+            ["campaigns", "Campaigns"],
+            ["subscribers", "Subscribers"],
+            ["stats", "Stats"],
+          ] as const
+        ).map(([t, label]) => (
           <button
             key={t}
             type="button"
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px ${tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           >
-            {t}
+            {label}
           </button>
         ))}
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-        <input
-          className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
-          placeholder={tab === "campaigns" ? "Search campaigns" : "Search subscribers"}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
+      {tab !== "stats" ? (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <input
+            type="search"
+            aria-label={tab === "campaigns" ? "Search campaigns" : "Search subscribers"}
+            className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition"
+            placeholder={tab === "campaigns" ? "Search campaigns" : "Search subscribers"}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      ) : null}
+
+      {tab === "stats" &&
+        (isLoading ? (
+          <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">Loading campaigns...</div>
+        ) : (
+          <CampaignStats api={api} campaigns={newsletters} />
+        ))}
 
       {tab === "campaigns" && (
         isLoading ? (

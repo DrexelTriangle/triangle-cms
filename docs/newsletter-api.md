@@ -179,8 +179,9 @@ stores it verbatim and, at send time, substitutes per recipient:
 
 These are generic tokens, not provider merge tags, so any sender (SMTP or an ESP)
 can fill them. `server/internal/mailer` fills them: unsubscribe and manage both go
-to `{NEWSLETTER_PUBLIC_URL}/v1/newsletter/unsubscribe?t=<token>` (there is no
-separate preferences page), view online to `/v1/newsletter/issues/{id}`. Test sends
+to `{NEWSLETTER_PUBLIC_URL}/v1/newsletter/unsubscribe?t=<token>&d=<delivery token>` (there
+is no separate preferences page; `d` only attributes the unsubscribe to the issue), view
+online to `/v1/newsletter/issues/{id}`. Test sends
 use the token `test`, which the unsubscribe page treats as a no-op.
 
 The template is laid out for desktop Outlook (Word): an MSO-only 600px table, block
@@ -197,6 +198,7 @@ Deleting a subscriber is admin-only. The unsubscribe routes below are public.
 | GET | `/v1/newsletters` | | `{newsletters: Newsletter[]}` newest-updated first |
 | GET | `/v1/newsletters/stats` | | `{subscriber_count, sent_count, recipients_reached, avg_open_rate}` (`avg_open_rate` 0..1 or null) |
 | GET | `/v1/newsletters/{id}` | | `Newsletter` |
+| GET | `/v1/newsletters/{id}/stats` | | `NewsletterCampaignStats` (see "Campaign stats" below); 404 unknown, 409 for a draft or scheduled issue |
 | POST | `/v1/newsletters` | `NewsletterInput` | 201 `Newsletter` (status `draft`) |
 | PUT | `/v1/newsletters/{id}` | `NewsletterInput` | `Newsletter`; a scheduled issue stays scheduled; 409 once `sending`/`sent` |
 | DELETE | `/v1/newsletters/{id}` | | 204; 409 once `sending`/`sent` |
@@ -207,7 +209,7 @@ Deleting a subscriber is admin-only. The unsubscribe routes below are public.
 | DELETE | `/v1/newsletter-subscribers/{id}` | | 204; erases the row (not an unsubscribe) |
 | POST | `/v1/newsletter-subscribers/subscribe` | `{email, lists?: int[], website?}` | **public**, 5/min per IP; `{success: true}` for every valid submit (new, already subscribed, or unsubscribed/bounced, which stays so); 400 `{success: false, error}` for a bad address or list id; a filled `website` honeypot answers success and stores nothing |
 | GET | `/v1/newsletter/unsubscribe?t=` or `?nk=<wp id>-<wp token>` | | public HTML page; **never changes anything** (mail scanners open every link) |
-| POST | `/v1/newsletter/unsubscribe?t=`/`?nk=` | form, or RFC 8058 `List-Unsubscribe=One-Click` | public HTML page; confirmed → unsubscribed; repeating it is harmless |
+| POST | `/v1/newsletter/unsubscribe?t=`/`?nk=` (`&d=`) | form, or RFC 8058 `List-Unsubscribe=One-Click` | public HTML page; confirmed → unsubscribed; repeating it is harmless. `d` (the copy's delivery token) only attributes the unsubscribe to that issue, see "Campaign stats" |
 | POST | `/v1/newsletter/resubscribe?t=`/`?nk=` | | public HTML page; unsubscribed → confirmed; bounced stays bounced |
 | GET | `/v1/newsletter/o/{delivery}` | | public; 1×1 GIF, always (even for unknown tokens); counts an open |
 | GET | `/v1/newsletter/c/{delivery}/{link}` | | public; 302 to the link, counting a click (and an open); 404 unless the link belongs to the delivery's issue, so it is not an open redirect |
@@ -220,6 +222,51 @@ and adds the pixel before `</body>`; unsubscribe and view-online links are not r
 copies are tracked but never counted. HEAD requests are never counted (scanners send
 them). Opens read high with Apple Mail Privacy Protection and low where images are
 blocked; link scanners inflate clicks.
+
+### Campaign stats
+
+`GET /v1/newsletters/{id}/stats` gives the numbers the WordPress plugin's reports (and
+the hand-made Obsidian reports) had, for an issue that is `sending` or `sent`. The
+dashboard shows it in the Newsletter page's **Stats** tab. Every count is over real
+copies; test sends never count.
+
+| field | meaning |
+| --- | --- |
+| `id`, `subject`, `status`, `sent_at` | the issue |
+| `detailed_tracking` | every copy that went out had per-link and unsubscribe tracking (below) |
+| `recipients` | `{queued, sent, failed, skipped, in_flight}`: copies the send started with, delivered, refused/unknown, skipped (unsubscribed or erased before their turn), still pending or mid-send |
+| `unique_opens`, `unique_clickers` | copies opened / clicked at least once; a click counts as an open |
+| `total_clicks` | every click, repeats included |
+| `unsubscribes` | unsubscribes from this issue's own links; **null** without detailed tracking |
+| `open_rate`, `click_rate`, `unsubscribe_rate` | over `recipients.sent`; 0..1, null when nothing was sent (or unsubscribes is null) |
+| `click_to_open_rate` | `unique_clickers / unique_opens`; null with no opens |
+| `links[]` | `{id, url, total_clicks, unique_clickers}`, most clicked first; `unique_clickers` is **null** without detailed tracking |
+| `errors[]` | `{message, count}`: final errors of failed copies, grouped after masking anything shaped like an address as `[address]`, most frequent first |
+| `recent[]` | summaries (the same fields minus links/errors/recent) of this issue and up to 7 sent before it, newest first |
+
+**Detailed tracking (2026-10-30).** Two things could not be reconstructed for earlier
+issues, so they are only counted for issues sent since:
+
+- **Unique clickers per link.** Each click also bumps a `newsletter_delivery_links` row
+  (`delivery_id`, `link_id`, `click_count`, `first_clicked_at`, `last_clicked_at`), in
+  the same transaction that bumps `newsletter_links.click_count`.
+- **Unsubscribes per issue.** A sent copy's unsubscribe and manage links (and its
+  `List-Unsubscribe` header) are `unsubscribe?t=<subscriber token>&d=<delivery token>`.
+  `t` alone still authorises the change; `d` is dropped if malformed and only sets
+  `newsletter_deliveries.unsubscribed_at` when that delivery belongs to the same
+  subscriber, in the same transaction as an actual confirmed → unsubscribed change. A
+  repeated one-click POST changes nothing, so it can't count twice, and a reader who
+  resubscribes and leaves again from the same copy still counts once. Links in older
+  issues (no `d`) and WordPress `nk=` links work as before, unattributed.
+
+An issue is detailed when `newsletters.tracking_version` was set (to 1) as its send
+started *and* every copy recorded `sent` has `newsletter_deliveries.tracking_version` 1,
+which is written together with the `sent` status. The idle blue/green slot keeps
+running the previous release, and a copy it sends has no `d` in its links, so it
+leaves the issue partial rather than undercounting. Older issues stay partial for
+good: the API returns null and the dashboard says "Unavailable", never 0. Clicks
+handled while a rollback to a release without this tracking is live are also missed
+by the per-link table (`newsletter_links.click_count` still counts them).
 
 Sender config (backend env): either `NEWSLETTER_GMAIL_CLIENT_ID`,
 `NEWSLETTER_GMAIL_CLIENT_SECRET` and `NEWSLETTER_GMAIL_REFRESH_TOKEN` (production:
@@ -307,6 +354,14 @@ Tables are created at startup by `EnsureNewsletterTables` from
   idempotent import from `wp_newsletter`.
 - `newsletter_lists`: lists 1-7 seeded with the WordPress names and ids.
 - `newsletter_subscriber_lists`: membership, cascading on subscriber delete.
+- `newsletter_deliveries`: one row per copy (see Tracking), with `tracking_version`
+  and `unsubscribed_at` for campaign stats.
+- `newsletter_links`: an issue's tracked links and their total clicks.
+- `newsletter_delivery_links`: clicks per copy per link, for unique clickers per link.
+
+New columns reach existing databases through `ADD COLUMN IF NOT EXISTS` in
+`EnsureNewsletterTables`, defaulting to "not tracked" (0/NULL), so existing issues
+read as partial.
 
 Status-guarded writes (save, delete, schedule) run in a transaction that takes
 `SELECT ... FOR UPDATE` on the issue first. MaxScale routes the whole transaction

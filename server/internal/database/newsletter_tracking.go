@@ -156,13 +156,35 @@ func RecordNewsletterClick(ctx context.Context, conn *sql.DB, token string, link
 	if err != nil {
 		return "", err
 	}
+	// Rows are locked in one order, the delivery, then the link, then the
+	// issue (as RecordNewsletterOpen does), so two readers clicking the same
+	// link can't deadlock. The link's X lock is taken here, before the
+	// newsletter_delivery_links insert, whose foreign key would otherwise
+	// take a shared lock on it that two clicks then both try to upgrade. It
+	// must be a locking read: a plain SELECT opens a snapshot, and the
+	// click_count UPDATE below then fails with Error 1020 when another click
+	// committed to the row since (innodb_snapshot_isolation).
 	var url string
 	if err := tx.QueryRowContext(ctx,
-		"SELECT url FROM newsletter_links WHERE id = ? AND newsletter_id = ?", linkID, d.newsletterID,
+		"SELECT url FROM newsletter_links WHERE id = ? AND newsletter_id = ? FOR UPDATE", linkID, d.newsletterID,
 	).Scan(&url); err != nil {
 		return "", err
 	}
 	now := time.Now().UTC()
+	if !d.isTest {
+		if _, err := tx.ExecContext(ctx, "UPDATE newsletter_links SET click_count = click_count + 1 WHERE id = ?", linkID); err != nil {
+			return "", err
+		}
+	}
+	// The reader's own count for this link, so unique clickers per link are
+	// exact. The delivery's lock makes this insert-or-bump race-free.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO newsletter_delivery_links (delivery_id, link_id, click_count, first_clicked_at, last_clicked_at)
+		VALUES (?, ?, 1, ?, ?)
+		ON DUPLICATE KEY UPDATE click_count = click_count + 1, last_clicked_at = VALUES(last_clicked_at)
+	`, d.id, linkID, now, now); err != nil {
+		return "", err
+	}
 	if !d.opened {
 		if err := markOpened(ctx, tx, d, now); err != nil {
 			return "", err
@@ -174,9 +196,6 @@ func RecordNewsletterClick(ctx context.Context, conn *sql.DB, token string, link
 		return "", err
 	}
 	if !d.isTest {
-		if _, err := tx.ExecContext(ctx, "UPDATE newsletter_links SET click_count = click_count + 1 WHERE id = ?", linkID); err != nil {
-			return "", err
-		}
 		if !d.clicked {
 			if _, err := tx.ExecContext(ctx, "UPDATE newsletters SET click_count = click_count + 1 WHERE id = ?", d.newsletterID); err != nil {
 				return "", err
