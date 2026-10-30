@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS newsletter_deliveries (
   click_count INT UNSIGNED NOT NULL DEFAULT 0,
   attempts INT UNSIGNED NOT NULL DEFAULT 0,
   error VARCHAR(255) NULL,
+  tracking_version TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  unsubscribed_at DATETIME NULL,
   created_at DATETIME NOT NULL,
   UNIQUE KEY uq_newsletter_deliveries_token (token),
   UNIQUE KEY uq_newsletter_deliveries_recipient (newsletter_id, subscriber_id),

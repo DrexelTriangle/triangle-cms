@@ -110,8 +110,8 @@ func StartDueNewsletter(ctx context.Context, conn *sql.DB) (int64, error) {
 	}
 
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE newsletters SET status = ?, send_lease_owner = NULL, send_lease_until = NULL WHERE id = ?
-	`, models.NewsletterStatusSending, id); err != nil {
+		UPDATE newsletters SET status = ?, tracking_version = ?, send_lease_owner = NULL, send_lease_until = NULL WHERE id = ?
+	`, models.NewsletterStatusSending, NewsletterTrackingVersion, id); err != nil {
 		return 0, err
 	}
 	return id, tx.Commit()
@@ -344,9 +344,12 @@ func FinishNewsletterDelivery(ctx context.Context, conn *sql.DB, d ClaimedDelive
 	var err error
 	switch {
 	case result == DeliverySent:
+		// The version is written with the sent status, which is final, so
+		// it marks a copy this code sent. A copy the other slot sent while
+		// still running older code keeps 0 and makes the issue partial.
 		_, err = conn.ExecContext(ctx, `
-			UPDATE newsletter_deliveries SET status = ?, sent_at = UTC_TIMESTAMP(), error = NULL WHERE id = ?
-		`, DeliveryStatusSent, d.ID)
+			UPDATE newsletter_deliveries SET status = ?, sent_at = UTC_TIMESTAMP(), error = NULL, tracking_version = ? WHERE id = ?
+		`, DeliveryStatusSent, NewsletterTrackingVersion, d.ID)
 	case result == DeliveryDeferred && d.Attempts < MaxDeliveryAttempts:
 		_, err = conn.ExecContext(ctx, `
 			UPDATE newsletter_deliveries SET status = ?, error = ? WHERE id = ?

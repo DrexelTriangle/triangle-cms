@@ -10,6 +10,7 @@ import (
 	"net/mail"
 	"net/textproto"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func workerTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { conn.Close() })
 
 	ctx := context.Background()
-	for _, table := range []string{"newsletter_deliveries", "newsletter_links", "newsletter_subscriber_lists", "newsletter_subscribers", "newsletter_lists", "newsletters"} {
+	for _, table := range []string{"newsletter_delivery_links", "newsletter_deliveries", "newsletter_links", "newsletter_subscriber_lists", "newsletter_subscribers", "newsletter_lists", "newsletters"} {
 		if _, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
 			t.Fatalf("drop %s: %v", table, err)
 		}
@@ -204,6 +205,58 @@ func TestWorker_SendsADueIssueToEveryConfirmedSubscriber(t *testing.T) {
 	}
 	if len(sender.sent) != 3 {
 		t.Fatalf("a sent issue was sent again: %d messages", len(sender.sent))
+	}
+}
+
+// An issue this code sends is fully tracked: its copies' unsubscribe links
+// name the delivery, and the campaign says its detailed numbers are complete.
+func TestWorker_SendsWithDetailedTracking(t *testing.T) {
+	conn := workerTestDB(t)
+	for i := range 2 {
+		addSubscriber(t, conn, fmt.Sprintf("reader%d@example.org", i), models.SubscriberStatusConfirmed)
+	}
+	id := scheduleIssue(t, conn, time.Minute)
+	sender := &fakeSender{}
+	if err := newWorker(conn, sender, "a").Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	rows, err := conn.Query("SELECT token, tracking_version FROM newsletter_deliveries WHERE newsletter_id = ? AND is_test = 0", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	tokens := map[string]bool{}
+	for rows.Next() {
+		var token string
+		var version int
+		if err := rows.Scan(&token, &version); err != nil {
+			t.Fatal(err)
+		}
+		if version != db.NewsletterTrackingVersion {
+			t.Errorf("delivery %s sent at tracking version %d", token, version)
+		}
+		tokens[token] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.sent) != 2 {
+		t.Fatalf("sent %d", len(sender.sent))
+	}
+	for _, m := range sender.sent {
+		_, delivery, ok := strings.Cut(m.UnsubscribeURL, "&d=")
+		if !ok || !tokens[delivery] || !strings.Contains(m.HTML, "&amp;d="+delivery) {
+			t.Errorf("copy to %s: unsubscribe links don't name its delivery: %s", m.To.Address, m.UnsubscribeURL)
+		}
+	}
+
+	stats, err := db.GetNewsletterCampaignStats(context.Background(), conn, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.DetailedTracking || stats.Recipients.Sent != 2 || stats.Unsubscribes == nil || len(stats.Links) != 1 || stats.Links[0].UniqueClickers == nil {
+		t.Fatalf("campaign stats: %+v links %+v", stats.NewsletterCampaignSummary, stats.Links)
 	}
 }
 

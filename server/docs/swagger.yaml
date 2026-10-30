@@ -1130,6 +1130,104 @@ definitions:
       updated_at:
         type: string
     type: object
+  models.NewsletterCampaignLink:
+    properties:
+      id:
+        type: integer
+      total_clicks:
+        type: integer
+      unique_clickers:
+        type: integer
+      url:
+        type: string
+    type: object
+  models.NewsletterCampaignRecipients:
+    properties:
+      failed:
+        type: integer
+      in_flight:
+        type: integer
+      queued:
+        type: integer
+      sent:
+        type: integer
+      skipped:
+        type: integer
+    type: object
+  models.NewsletterCampaignStats:
+    properties:
+      click_rate:
+        type: number
+      click_to_open_rate:
+        type: number
+      detailed_tracking:
+        type: boolean
+      errors:
+        items:
+          $ref: '#/definitions/models.NewsletterSendError'
+        type: array
+      id:
+        type: integer
+      links:
+        items:
+          $ref: '#/definitions/models.NewsletterCampaignLink'
+        type: array
+      open_rate:
+        type: number
+      recent:
+        items:
+          $ref: '#/definitions/models.NewsletterCampaignSummary'
+        type: array
+      recipients:
+        $ref: '#/definitions/models.NewsletterCampaignRecipients'
+      sent_at:
+        type: string
+      status:
+        type: string
+      subject:
+        type: string
+      total_clicks:
+        type: integer
+      unique_clickers:
+        type: integer
+      unique_opens:
+        type: integer
+      unsubscribe_rate:
+        type: number
+      unsubscribes:
+        type: integer
+    type: object
+  models.NewsletterCampaignSummary:
+    properties:
+      click_rate:
+        type: number
+      click_to_open_rate:
+        type: number
+      detailed_tracking:
+        type: boolean
+      id:
+        type: integer
+      open_rate:
+        type: number
+      recipients:
+        $ref: '#/definitions/models.NewsletterCampaignRecipients'
+      sent_at:
+        type: string
+      status:
+        type: string
+      subject:
+        type: string
+      total_clicks:
+        type: integer
+      unique_clickers:
+        type: integer
+      unique_opens:
+        type: integer
+      unsubscribe_rate:
+        type: number
+      unsubscribes:
+        type: integer
+    type: object
   models.NewsletterInput:
     properties:
       body_html:
@@ -1146,6 +1244,13 @@ definitions:
   models.NewsletterScheduleRequest:
     properties:
       send_at:
+        type: string
+    type: object
+  models.NewsletterSendError:
+    properties:
+      count:
+        type: integer
+      message:
         type: string
     type: object
   models.NewsletterSponsor:
@@ -3717,6 +3822,10 @@ paths:
         in: query
         name: nk
         type: string
+      - description: Delivery token of the copy the link came in
+        in: query
+        name: d
+        type: string
       produces:
       - text/html
       responses:
@@ -3964,6 +4073,42 @@ paths:
       security:
       - BearerAuth: []
       summary: Schedule a newsletter issue
+      tags:
+      - newsletters
+  /v1/newsletters/{id}/stats:
+    get:
+      parameters:
+      - description: Newsletter ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.NewsletterCampaignStats'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Not sent yet
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Newsletter campaign stats
       tags:
       - newsletters
   /v1/newsletters/{id}/test:

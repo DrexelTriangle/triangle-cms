@@ -2958,6 +2958,12 @@ const docTemplate = `{
                         "description": "WordPress key, \u003cid\u003e-\u003ctoken\u003e",
                         "name": "nk",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Delivery token of the copy the link came in",
+                        "name": "d",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3365,6 +3371,63 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/newsletters/{id}/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "newsletters"
+                ],
+                "summary": "Newsletter campaign stats",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Newsletter ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.NewsletterCampaignStats"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Not sent yet",
                         "schema": {
                             "$ref": "#/definitions/models.ErrorResponse"
                         }
@@ -7670,6 +7733,155 @@ const docTemplate = `{
                 }
             }
         },
+        "models.NewsletterCampaignLink": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "total_clicks": {
+                    "type": "integer"
+                },
+                "unique_clickers": {
+                    "type": "integer"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.NewsletterCampaignRecipients": {
+            "type": "object",
+            "properties": {
+                "failed": {
+                    "type": "integer"
+                },
+                "in_flight": {
+                    "type": "integer"
+                },
+                "queued": {
+                    "type": "integer"
+                },
+                "sent": {
+                    "type": "integer"
+                },
+                "skipped": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.NewsletterCampaignStats": {
+            "type": "object",
+            "properties": {
+                "click_rate": {
+                    "type": "number"
+                },
+                "click_to_open_rate": {
+                    "type": "number"
+                },
+                "detailed_tracking": {
+                    "type": "boolean"
+                },
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.NewsletterSendError"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "links": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.NewsletterCampaignLink"
+                    }
+                },
+                "open_rate": {
+                    "type": "number"
+                },
+                "recent": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.NewsletterCampaignSummary"
+                    }
+                },
+                "recipients": {
+                    "$ref": "#/definitions/models.NewsletterCampaignRecipients"
+                },
+                "sent_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "total_clicks": {
+                    "type": "integer"
+                },
+                "unique_clickers": {
+                    "type": "integer"
+                },
+                "unique_opens": {
+                    "type": "integer"
+                },
+                "unsubscribe_rate": {
+                    "type": "number"
+                },
+                "unsubscribes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.NewsletterCampaignSummary": {
+            "type": "object",
+            "properties": {
+                "click_rate": {
+                    "type": "number"
+                },
+                "click_to_open_rate": {
+                    "type": "number"
+                },
+                "detailed_tracking": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "open_rate": {
+                    "type": "number"
+                },
+                "recipients": {
+                    "$ref": "#/definitions/models.NewsletterCampaignRecipients"
+                },
+                "sent_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                },
+                "total_clicks": {
+                    "type": "integer"
+                },
+                "unique_clickers": {
+                    "type": "integer"
+                },
+                "unique_opens": {
+                    "type": "integer"
+                },
+                "unsubscribe_rate": {
+                    "type": "number"
+                },
+                "unsubscribes": {
+                    "type": "integer"
+                }
+            }
+        },
         "models.NewsletterInput": {
             "type": "object",
             "properties": {
@@ -7694,6 +7906,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "send_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.NewsletterSendError": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "message": {
                     "type": "string"
                 }
             }

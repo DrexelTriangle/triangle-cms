@@ -51,7 +51,7 @@ func newsletterTestDB(t *testing.T) *sql.DB {
 
 	ctx := context.Background()
 	// Children first; the foreign keys block the reverse.
-	for _, table := range []string{"newsletter_deliveries", "newsletter_links", "newsletter_subscriber_lists", "newsletter_subscribers", "newsletter_lists", "newsletters"} {
+	for _, table := range []string{"newsletter_delivery_links", "newsletter_deliveries", "newsletter_links", "newsletter_subscriber_lists", "newsletter_subscribers", "newsletter_lists", "newsletters"} {
 		if _, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
 			t.Fatalf("drop %s: %v", table, err)
 		}

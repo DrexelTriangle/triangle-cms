@@ -194,6 +194,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/newsletters", authMW(editorOrAdmin(handlers.GetNewsletters(conn))))
 	mux.Handle("GET /v1/newsletters/stats", authMW(editorOrAdmin(handlers.GetNewsletterStats(conn))))
 	mux.Handle("GET /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.GetNewsletter(conn))))
+	mux.Handle("GET /v1/newsletters/{id}/stats", authMW(editorOrAdmin(handlers.GetNewsletterCampaignStats(conn))))
 	mux.Handle("POST /v1/newsletters", authMW(editorOrAdmin(handlers.PostNewsletter(conn))))
 	mux.Handle("PUT /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.PutNewsletter(conn))))
 	mux.Handle("DELETE /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.DeleteNewsletter(conn))))
