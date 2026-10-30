@@ -98,6 +98,12 @@ func TestGmailSender_ClassifiesFailuresForRetry(t *testing.T) {
 		reason    string
 	}{
 		{"bad recipient", 400, `{"error":{"code":400,"errors":[{"reason":"invalidArgument"}],"status":"INVALID_ARGUMENT"}}`, true, "invalidArgument"},
+		{"invalid to header", 400, `{"error":{"code":400,"message":"Invalid To header","errors":[{"message":"Invalid To header","domain":"global","reason":"invalidArgument"}],"status":"INVALID_ARGUMENT"}}`, true, "invalidArgument"},
+		{"unparseable 400", 400, `<html>bad request</html>`, true, ""},
+		// Gmail answers a valid recipient this way now and then; the same
+		// delivery goes through when sent again.
+		{"precondition check failed", 400, `{"error":{"code":400,"message":"Precondition check failed.","errors":[{"message":"Precondition check failed.","domain":"global","reason":"failedPrecondition"}],"status":"FAILED_PRECONDITION"}}`, false, "failedPrecondition"},
+		{"precondition status only", 400, `{"error":{"code":400,"message":"Precondition check failed.","status":"FAILED_PRECONDITION"}}`, false, "FAILED_PRECONDITION"},
 		{"rate limited", 429, `{"error":{"code":429,"errors":[{"reason":"rateLimitExceeded"}]}}`, false, "rateLimitExceeded"},
 		{"daily quota", 403, `{"error":{"code":403,"errors":[{"reason":"dailyLimitExceeded"}]}}`, false, "dailyLimitExceeded"},
 		{"gmail down", 503, `{"error":{"code":503,"status":"UNAVAILABLE"}}`, false, "UNAVAILABLE"},
