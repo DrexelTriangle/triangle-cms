@@ -352,3 +352,27 @@ const (
 	WordangleSourceGenerated = "generated"
 	WordangleSourceCustom    = "custom"
 )
+
+// TrimelineHeadline is one article pick of a Tri-meline puzzle. PubDate is
+// the article's publication time (RFC3339); the puzzle is solved by putting
+// the five headlines in PubDate order.
+type TrimelineHeadline struct {
+	Title   string `json:"title"`
+	Slug    string `json:"slug"`
+	PubDate string `json:"pub_date"`
+}
+
+// TrimelinePuzzle is one row of the Tri-meline queue: the five headline
+// picks drawn for a calendar day. The database stores the picks in
+// chronological order; the public day endpoint shuffles them before
+// responding so the answer isn't pre-sorted.
+type TrimelinePuzzle struct {
+	Date      string              `json:"date,omitempty"`
+	Number    int                 `json:"number"` // Tri-meline #N; #0 is launch day, 2026-11-10
+	Headlines []TrimelineHeadline `json:"headlines"`
+	Source    string              `json:"source"`
+	SetBy     string              `json:"set_by,omitempty"`
+	UpdatedAt time.Time           `json:"updated_at"`
+}
+
+const TrimelineSourceGenerated = "generated"
