@@ -1,0 +1,127 @@
+- generic [ref=f3e3]:
+  - complementary [ref=f3e4]:
+    - link "Dashboard" [ref=f3e5] [cursor=pointer]:
+      - /url: /
+      - img "Delta CMS" [ref=f3e6]
+    - navigation [ref=f3e7]:
+      - button "Dashboard" [ref=f3e10] [cursor=pointer]
+      - generic [ref=f3e17]:
+        - paragraph [ref=f3e18]: Content
+        - button "Articles" [ref=f3e20] [cursor=pointer]
+        - button "Developing Stories" [ref=f3e26] [cursor=pointer]
+        - button "Poll" [ref=f3e32] [cursor=pointer]
+        - button "Wordangle" [ref=f3e37] [cursor=pointer]
+        - button "Media" [ref=f3e42] [cursor=pointer]
+        - button "Newsletter" [ref=f3e49] [cursor=pointer]
+      - generic [ref=f3e54]:
+        - paragraph [ref=f3e55]: Manage
+        - button "Authors" [ref=f3e57] [cursor=pointer]
+        - button "Sections" [ref=f3e65] [cursor=pointer]
+        - button "Comments" [ref=f3e72] [cursor=pointer]
+        - button "Classifieds" [ref=f3e77] [cursor=pointer]
+        - button "SEO" [ref=f3e83] [cursor=pointer]
+      - generic [ref=f3e88]:
+        - paragraph [ref=f3e89]: Admin
+        - button "Activity" [ref=f3e91] [cursor=pointer]
+        - button "Users" [ref=f3e96] [cursor=pointer]
+        - button "Settings" [ref=f3e111] [cursor=pointer]
+    - generic [ref=f3e116]:
+      - button "Log out" [ref=f3e117] [cursor=pointer]
+      - button "Collapse" [ref=f3e122] [cursor=pointer]
+  - generic [ref=f3e126]:
+    - banner [ref=f3e127]:
+      - button "SA Sandbox Admin Admin" [ref=f3e129] [cursor=pointer]:
+        - generic [ref=f3e130]: SA
+        - generic [ref=f3e132]:
+          - paragraph [ref=f3e133]: Sandbox Admin
+          - paragraph [ref=f3e134]: Admin
+    - main [ref=f3e135]:
+      - generic [ref=f3e138]:
+        - generic [ref=f3e139]:
+          - generic [ref=f3e140]:
+            - heading "Newsletter" [level=1] [ref=f3e141]
+            - paragraph [ref=f3e142]: To The Point · 594 subscribers · — avg open rate
+          - button "New Campaign" [active] [ref=f3e143] [cursor=pointer]
+        - generic [ref=f3e145]:
+          - generic [ref=f3e146]:
+            - paragraph [ref=f3e147]: Total Subscribers
+            - paragraph [ref=f3e148]: "594"
+          - generic [ref=f3e149]:
+            - paragraph [ref=f3e150]: Campaigns Sent
+            - paragraph [ref=f3e151]: "0"
+          - generic [ref=f3e152]:
+            - paragraph [ref=f3e153]: Avg Open Rate
+            - paragraph [ref=f3e154]: —
+          - generic [ref=f3e155]:
+            - paragraph [ref=f3e156]: Recipients Reached
+            - paragraph [ref=f3e157]: "0"
+        - generic [ref=f3e158]:
+          - button "campaigns" [ref=f3e159] [cursor=pointer]
+          - button "subscribers" [ref=f3e160] [cursor=pointer]
+        - textbox "Search campaigns" [ref=f3e6118]
+        - generic [ref=f3e6119]:
+          - paragraph [ref=f3e6120]: No campaigns yet
+          - paragraph [ref=f3e6121]: Start the next To The Point issue from the template. It fills in this week's stories and the latest comic.
+          - button "Create from template" [ref=f3e6122] [cursor=pointer]
+        - dialog [ref=f3e6124]:
+          - generic [ref=f3e6125]:
+            - generic [ref=f3e6126]:
+              - generic [ref=f3e6127]:
+                - heading "New To The Point issue" [level=2] [ref=f3e6128]
+                - paragraph [ref=f3e6129]: Starts from the template. Everything here stays editable afterwards.
+              - button "Close" [ref=f3e6130] [cursor=pointer]
+            - generic [ref=f3e6134]:
+              - generic [ref=f3e6135]:
+                - generic [ref=f3e6136]:
+                  - generic [ref=f3e6137]: Issue date
+                  - textbox "Issue date" [ref=f3e6138]: 2026-10-23
+                - generic [ref=f3e6139]:
+                  - generic [ref=f3e6140]: Subject
+                  - textbox "Subject" [ref=f3e6141]: To The Point — October 23, 2026
+              - generic [ref=f3e6142]:
+                - generic [ref=f3e6143]:
+                  - generic [ref=f3e6144]: Stories (5)
+                  - button "Add story" [ref=f3e6145] [cursor=pointer]
+                - list [ref=f3e6147]:
+                  - listitem [ref=f3e6148]:
+                    - generic [ref=f3e6149]: Breakaway Music Festival brings big names and lackluster visuals
+                    - generic [ref=f3e6150]:
+                      - button "Move up" [disabled] [ref=f3e6151]
+                      - button "Move down" [ref=f3e6154] [cursor=pointer]
+                      - button "Remove" [ref=f3e6157] [cursor=pointer]
+                  - listitem [ref=f3e6161]:
+                    - generic [ref=f3e6162]: "The Overall Score: 'Wolverine' falls flat"
+                    - generic [ref=f3e6163]:
+                      - button "Move up" [ref=f3e6164] [cursor=pointer]
+                      - button "Move down" [ref=f3e6167] [cursor=pointer]
+                      - button "Remove" [ref=f3e6170] [cursor=pointer]
+                  - listitem [ref=f3e6174]:
+                    - generic [ref=f3e6175]: "The Overall Score: 'The Blood of Dawnwalker' revives the vampire genre"
+                    - generic [ref=f3e6176]:
+                      - button "Move up" [ref=f3e6177] [cursor=pointer]
+                      - button "Move down" [ref=f3e6180] [cursor=pointer]
+                      - button "Remove" [ref=f3e6183] [cursor=pointer]
+                  - listitem [ref=f3e6187]:
+                    - generic [ref=f3e6188]: Netanyahu’s UN visit sparks NYC protests
+                    - generic [ref=f3e6189]:
+                      - button "Move up" [ref=f3e6190] [cursor=pointer]
+                      - button "Move down" [ref=f3e6193] [cursor=pointer]
+                      - button "Remove" [ref=f3e6196] [cursor=pointer]
+                  - listitem [ref=f3e6200]:
+                    - generic [ref=f3e6201]: Reflecting on the Academy's last hours
+                    - generic [ref=f3e6202]:
+                      - button "Move up" [ref=f3e6203] [cursor=pointer]
+                      - button "Move down" [disabled] [ref=f3e6206]
+                      - button "Remove" [ref=f3e6209] [cursor=pointer]
+              - generic [ref=f3e6213]:
+                - generic [ref=f3e6214]: Question of the day
+                - textbox "Question of the day" [ref=f3e6215]:
+                  - /placeholder: What is your favorite form of egg to eat?
+              - generic [ref=f3e6216]:
+                - checkbox "Include the latest comic Fall Mini" [checked] [ref=f3e6217]
+                - generic [ref=f3e6218]:
+                  - generic [ref=f3e6219]: Include the latest comic
+                  - generic [ref=f3e6220]: Fall Mini
+            - generic [ref=f3e6221]:
+              - button "Cancel" [ref=f3e6222] [cursor=pointer]
+              - button "Create draft" [ref=f3e6223] [cursor=pointer]

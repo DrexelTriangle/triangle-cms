@@ -1,0 +1,39 @@
+- generic [ref=f4e3]:
+  - complementary [ref=f4e4]:
+    - link "Dashboard" [ref=f4e5] [cursor=pointer]:
+      - /url: /
+      - img "Delta CMS" [ref=f4e6]
+    - navigation [ref=f4e7]:
+      - button "Dashboard" [ref=f4e10] [cursor=pointer]
+      - generic [ref=f4e17]:
+        - paragraph [ref=f4e18]: Content
+        - button "Articles" [ref=f4e20] [cursor=pointer]
+        - button "Developing Stories" [ref=f4e26] [cursor=pointer]
+        - button "Poll" [ref=f4e32] [cursor=pointer]
+        - button "Wordangle" [ref=f4e37] [cursor=pointer]
+        - button "Media" [ref=f4e42] [cursor=pointer]
+        - button "Newsletter" [ref=f4e49] [cursor=pointer]
+      - generic [ref=f4e54]:
+        - paragraph [ref=f4e55]: Manage
+        - button "Authors" [ref=f4e57] [cursor=pointer]
+        - button "Sections" [ref=f4e65] [cursor=pointer]
+        - button "Comments" [ref=f4e72] [cursor=pointer]
+        - button "Classifieds" [ref=f4e77] [cursor=pointer]
+        - button "SEO" [ref=f4e83] [cursor=pointer]
+      - generic [ref=f4e88]:
+        - paragraph [ref=f4e89]: Admin
+        - button "Activity" [ref=f4e91] [cursor=pointer]
+        - button "Users" [ref=f4e96] [cursor=pointer]
+        - button "Settings" [ref=f4e111] [cursor=pointer]
+    - generic [ref=f4e116]:
+      - button "Log out" [ref=f4e117] [cursor=pointer]
+      - button "Collapse" [ref=f4e122] [cursor=pointer]
+  - generic [ref=f4e126]:
+    - banner [ref=f4e127]:
+      - button "SA Sandbox Admin Admin" [ref=f4e129] [cursor=pointer]:
+        - generic [ref=f4e130]: SA
+        - generic [ref=f4e132]:
+          - paragraph [ref=f4e133]: Sandbox Admin
+          - paragraph [ref=f4e134]: Admin
+    - main [ref=f4e135]:
+      - paragraph [ref=f4e137]: Loading...

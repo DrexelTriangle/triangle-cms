@@ -21,7 +21,7 @@ func TestPuzzleNumberCountsFromLaunch(t *testing.T) {
 
 func TestValidTitleRejectsDateLeaks(t *testing.T) {
 	bad := []string{
-		"Drexel unveils new plan",                      // 14 runes, too short
+		"Drexel cuts",                                  // 11 runes, too short
 		strings.Repeat("a", 121),                       // too long
 		"Drexel wins big in 2019 championship",         // year
 		"Campus reacts to the 1999 merger",             // year

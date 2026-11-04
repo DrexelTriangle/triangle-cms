@@ -1,0 +1,2 @@
+[  898253ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://cms.127.0.0.1.sslip.io:18100/v1/newsletter/unsubscribe?t=garbage:0
+[  898287ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://cms.127.0.0.1.sslip.io:18100/v1/newsletter/unsubscribe?nk=1-x:0

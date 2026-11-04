@@ -1,0 +1,2 @@
+[      32ms] [WARNING] AdSense head tag doesn't support data-astro-exec attribute. @ https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3937492883909624:310
+[    4069ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:4399/api/newsletter-subscribe:0

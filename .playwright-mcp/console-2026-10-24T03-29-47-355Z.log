@@ -1,0 +1,2 @@
+[   17070ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://cms.127.0.0.1.sslip.io:18100/v1/newsletters/2/test:0
+[   19112ms] [ERROR] Failed to load resource: the server responded with a status of 502 (Bad Gateway) @ http://cms.127.0.0.1.sslip.io:18100/v1/media/fetch:0
