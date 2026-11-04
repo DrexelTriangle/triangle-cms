@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -73,8 +74,11 @@ func GetTrimelineDay(conn *sql.DB) http.Handler {
 		// stored order stays chronological for the archive.
 		shuffled := trimeline.Shuffle(headlineSlice(puzzle.Headlines))
 		puzzle.Headlines = modelHeadlines(shuffled)
+		// The public response carries only what a reader needs; internal
+		// fields (who set it, when it was written) stay in the dashboard.
 		puzzle.Source = ""
 		puzzle.SetBy = ""
+		puzzle.UpdatedAt = time.Time{}
 		w.Header().Set("Cache-Control", publicReadCacheControl)
 		writeJSON(w, http.StatusOK, puzzle)
 	})
@@ -160,7 +164,11 @@ func headlineSlice(headlines []models.TrimelineHeadline) []trimeline.Headline {
 	for _, h := range headlines {
 		pubDate, err := time.Parse(time.RFC3339, h.PubDate)
 		if err != nil {
-			pubDate = time.Time{}
+			// A corrupt stored pub_date must not ship to readers as year 1;
+			// skip the headline so a broken row surfaces as a short puzzle
+			// rather than a nonsense one.
+			slog.Warn("trimeline headline has unparseable pub_date", "slug", h.Slug, "pub_date", h.PubDate, "error", err)
+			continue
 		}
 		out = append(out, trimeline.Headline{Slug: h.Slug, Title: h.Title, PubDate: pubDate})
 	}

@@ -89,10 +89,15 @@ func GenerateTrimelinePuzzles(ctx context.Context, conn *sql.DB, from, to time.T
 			return filled, err
 		}
 		puzzle.Date = day.Format(time.DateOnly)
-		if err := insertTrimelinePuzzle(ctx, conn, day, puzzle, setBy); err != nil {
+		inserted, err := insertTrimelinePuzzle(ctx, conn, day, puzzle, setBy)
+		if err != nil {
 			return filled, err
 		}
-		filled++
+		// A concurrent fill won the race for this day: their puzzle stands,
+		// and this day must not be counted as one we created.
+		if inserted {
+			filled++
+		}
 	}
 	return filled, nil
 }
@@ -150,18 +155,31 @@ func drawTrimelinePuzzle(ctx context.Context, conn *sql.DB) (models.TrimelinePuz
 	return puzzle, nil
 }
 
-// insertTrimelinePuzzle writes one day's puzzle. A day someone else filled
-// between the read and the write is a happy race: IGNORE keeps their puzzle
-// and the caller's day is simply already filled.
-func insertTrimelinePuzzle(ctx context.Context, conn *sql.DB, day time.Time, puzzle models.TrimelinePuzzle, setBy string) error {
+// insertTrimelinePuzzle writes one day's puzzle, reporting whether this call
+// created the row. A day someone else filled between the read and the write is
+// a happy race: IGNORE keeps their puzzle, so the caller's day is simply
+// already filled and insertTrimelinePuzzle reports false.
+//
+// RowsAffected is consulted for the ignored case even though the server
+// connects with clientFoundRows=true, because that flag only inflates
+// matched-row counts for UPDATE-style statements; INSERT IGNORE still reports
+// 0 for a row the unique key silently discarded.
+func insertTrimelinePuzzle(ctx context.Context, conn *sql.DB, day time.Time, puzzle models.TrimelinePuzzle, setBy string) (bool, error) {
 	picks, err := json.Marshal(puzzle.Headlines)
 	if err != nil {
-		return err
+		return false, err
 	}
-	_, err = conn.ExecContext(ctx, "INSERT IGNORE INTO "+trimelineTable+
+	res, err := conn.ExecContext(ctx, "INSERT IGNORE INTO "+trimelineTable+
 		" (puzzle_date, picks, source, set_by) VALUES (?, ?, ?, ?)",
 		day.Format(time.DateOnly), picks, puzzle.Source, setBy)
-	return err
+	if err != nil {
+		return false, err
+	}
+	inserted, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return inserted == 1, nil
 }
 
 func scanTrimelinePuzzle(row interface{ Scan(...any) error }) (models.TrimelinePuzzle, error) {

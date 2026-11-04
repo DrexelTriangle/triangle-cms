@@ -135,7 +135,7 @@ func TestTrimeline_SeededDayIsLeftAlone(t *testing.T) {
 	ctx := context.Background()
 
 	day2 := time.Date(2026, time.November, 12, 0, 0, 0, 0, time.UTC)
-	if err := insertTrimelinePuzzle(ctx, conn, day2, trimelinePlaceholderPuzzle("kept"), "ed"); err != nil {
+	if _, err := insertTrimelinePuzzle(ctx, conn, day2, trimelinePlaceholderPuzzle("kept"), "ed"); err != nil {
 		t.Fatalf("seed day 2 puzzle: %v", err)
 	}
 
