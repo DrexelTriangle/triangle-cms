@@ -188,6 +188,12 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/wordangle/manage", authMW(handlers.GetWordangleManage(conn)))
 	mux.Handle("POST /v1/wordangle/generate", authMW(handlers.PostWordangleGenerate(conn)))
 	mux.Handle("GET /v1/wordangle/check", authMW(handlers.GetWordangleCheck(conn)))
+	// Tri-meline. Same shape as Wordangle: the public read serves only today
+	// and earlier so the queue can't be spoiled; drawing puzzles from the
+	// archive is editorial work.
+	mux.Handle("GET /v1/trimeline/days/{date}", handlers.GetTrimelineDay(conn))
+	mux.Handle("GET /v1/trimeline/manage", authMW(handlers.GetTrimelineManage(conn)))
+	mux.Handle("POST /v1/trimeline/generate", authMW(handlers.PostTrimelineGenerate(conn)))
 	// Newsletter (To The Point). Writing and scheduling issues is editorial
 	// work; erasing a subscriber is not reversible, so it is admin-only. "stats"
 	// is a literal segment, so Go's mux prefers it over /v1/newsletters/{id}.

@@ -1,0 +1,2 @@
+[     234ms] [ERROR] Framing 'http://cms.127.0.0.1.sslip.io:18100/' violates the following Content Security Policy directive: "frame-src 'self'". The request has been blocked.
+ @ :0

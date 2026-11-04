@@ -1,0 +1,2 @@
+[      67ms] [ERROR] Framing 'http://cms.127.0.0.1.sslip.io:18100/v1/newsletter/issues/latest' violates the following Content Security Policy directive: "default-src 'none'". The request has been blocked. Note that 'frame-src' was not explicitly set, so 'default-src' is used as a fallback.
+ @ :0

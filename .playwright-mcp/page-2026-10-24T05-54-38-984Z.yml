@@ -1,0 +1,327 @@
+- generic [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - button "Search" [ref=e5] [cursor=pointer]
+        - generic:
+          - textbox "Search"
+      - link [ref=e8] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e10] [cursor=pointer]:
+        - navigation [ref=e11]:
+          - link "About Us" [ref=e12]:
+            - /url: /about
+          - link "Media Kit" [ref=e13]:
+            - /url: /proxy/wp-content/uploads/2026/01/The-Triangle-Media-Kit.pdf
+          - link "Classifieds" [ref=e14]:
+            - /url: /classifieds
+          - link "Donate" [ref=e15]:
+            - /url: https://alumni.drexel.edu/s/1683/form/16/form.aspx?sid=1683&gid=2&pgid=4355&content_id=4154
+          - link "Contact" [ref=e16]:
+            - /url: /contact
+        - button "Menu" [ref=e17]
+    - generic [ref=e20] [cursor=pointer]:
+      - navigation [ref=e21]:
+        - link "News" [ref=e22]:
+          - /url: /news
+        - link "Opinion" [ref=e23]:
+          - /url: /opinion
+        - link "Sports" [ref=e24]:
+          - /url: /sports
+        - link "Entertainment" [ref=e25]:
+          - /url: /entertainment
+        - link "Comics" [ref=e26]:
+          - /url: /comics-puzzles
+        - link "Games" [ref=e27]:
+          - /url: /wordangle
+          - generic [aria-hidden] [ref=e28]:
+            - generic [ref=e29]: G
+            - generic [ref=e30]: a
+            - generic [ref=e31]: m
+            - generic [ref=e32]: e
+            - generic [ref=e33]: s
+      - generic:
+        - separator
+    - generic [ref=e34]:
+      - heading "Subscribe to our Newsletter" [level=1] [ref=e35]
+      - generic [ref=e36]: Get The Triangle right to your inbox!
+      - generic [ref=e37]:
+        - generic [ref=e38]:
+          - heading "Example" [level=1] [ref=e39]
+          - iframe [ref=e40]:
+            - generic [ref=f1e1]:
+              - table [ref=f1e2]:
+                - rowgroup [ref=f1e3]:
+                  - row [ref=f1e4]:
+                    - cell "Happy week 5! Check out the latest edition of The Triangle, covering Denim Day, resignation of Drexel’s tennis coach, Philadelphia desserts, the mob in Philly, and more!" [ref=f1e5]:
+                      - paragraph [ref=f1e6]:
+                        - generic [ref=f1e7]: Happy week 5! Check out the latest edition of The Triangle, covering Denim Day, resignation of Drexel’s tennis coach, Philadelphia desserts, the mob in Philly, and more!
+              - link "Read the latest from The Triangle" [ref=f1e8] [cursor=pointer]:
+                - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3d3dy50aGV0cmlhbmdsZS5vcmc7O2FkZWRiMDhlNjdjOGYzNDBkODExN2I3NTdmNTU5Njcy
+              - 'heading "''It felt surreal'': Broad Street Baadshahz win second at nationals" [level=1] [ref=f1e9]'
+              - table [ref=f1e10]:
+                - rowgroup [ref=f1e11]:
+                  - row [ref=f1e12]:
+                    - cell [ref=f1e13]:
+                      - paragraph [ref=f1e14]:
+                        - generic [ref=f1e16]:
+                          - text: Philly’s premier South Asian dance team, Broad Street Baadshahz, placed second at the Desi Dance Network national circuit after the
+                          - link "strongest competitive season in the team’s 18-year history" [ref=f1e17] [cursor=pointer]:
+                            - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3d3dy50aGV0cmlhbmdsZS5vcmcvYXJ0aWNsZS9pdC1mZWx0LXN1cnJlYWwtYnJvYWQtc3RyZWV0LWJhYWRzaGFoei13aW4tc2Vjb25kLWF0LW5hdGlvbmFsczs7MjNiNDNkYzk3Yzk3MWExMzFiMGU4ZTlhYTBmZmM3NzI%3D
+                          - text: .
+              - heading "More From News" [ref=f1e18]
+              - table [ref=f1e19]:
+                - rowgroup [ref=f1e20]:
+                  - row [ref=f1e21]:
+                    - cell [ref=f1e22]:
+                      - paragraph [ref=f1e23]:
+                        - generic [ref=f1e25]:
+                          - text: Every year, on the last Wednesday of April, Denim Day serves as a reminder and a worldwide campaign to raise awareness about sexual violence while having
+                          - link "conversations about sex education" [ref=f1e26] [cursor=pointer]:
+                            - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3RoZXRyaWFuZ2xlLm9yZy9hcnRpY2xlL2RlbmltLWRheS1yYWlzZXMtYXdhcmVuZXNzLW9mLXNleHVhbC12aW9sZW5jZS1vbi1jYW1wdXM7O2VkYjExMDE0OWRhZDlkYWJkZGRjYjdlZWI4NjA3NzFl
+                          - text: .
+              - table [ref=f1e27]:
+                - rowgroup [ref=f1e28]:
+                  - row [ref=f1e29]:
+                    - cell [ref=f1e30]:
+                      - paragraph [ref=f1e31]:
+                        - generic [ref=f1e33]:
+                          - text: Philadelphia Mayor Cherelle Parker has
+                          - link "proposed a tax intended to bolster funds for the local school district" [ref=f1e34] [cursor=pointer]:
+                            - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3RoZXRyaWFuZ2xlLm9yZy9hcnRpY2xlL2NpdHktY291bmNpbC10by12b3RlLW9uLXJpZGVzaGFyZS10YXg7O2I3NGNiYWE1YjEyOTBiM2M5Yjg2ODkyYjJkN2Y3YmM0
+                          - text: to prevent staffing cuts. Colloquially known as “the dollar tax,” Parker intends to include an additional one dollar on rideshare fares in the city, hoping to generate $48 million in revenue for Philly public schools.
+              - link [ref=f1e35] [cursor=pointer]:
+                - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3d3dy50aGV0cmlhbmdsZS5vcmcvY2xhc3NpZmllZHM7OzIyNzRlM2NlNzI2Y2I0NjA5YTY5ZWFmMjk0OWRlNjA5
+              - heading "Recapping Drexel spring sports" [level=1] [ref=f1e36]
+              - table [ref=f1e37]:
+                - rowgroup [ref=f1e38]:
+                  - row [ref=f1e39]:
+                    - cell [ref=f1e40]:
+                      - paragraph [ref=f1e41]:
+                        - generic [ref=f1e44]:
+                          - text: Spring is a busy time for sports, especially with the eight sports that are in season. As teams begin to wrap up their seasons and
+                          - link "championship tournaments are underway, here is where all of them stand" [ref=f1e45] [cursor=pointer]:
+                            - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3d3dy50aGV0cmlhbmdsZS5vcmcvYXJ0aWNsZS9yZWNhcHBpbmctZHJleGVsLXNwcmluZy1zcG9ydHM7O2IyMmE0NjMzNDk5ODY5NjRiZWEzNTA4YTY1OGE1ZmIx
+                          - text: .
+              - heading "From Arts & Entertainment" [ref=f1e46]
+              - 'heading "Tri this Sweet Treat: Malai''s unique scoops" [level=1] [ref=f1e47]'
+              - table [ref=f1e48]:
+                - rowgroup [ref=f1e49]:
+                  - row [ref=f1e50]:
+                    - cell [ref=f1e51]:
+                      - paragraph [ref=f1e52]:
+                        - generic [ref=f1e54]:
+                          - text: Walking through Rittenhouse on a warm Spring night, it is not unusual to see a long line spilling out of a colorful doorway on South 18th Street, attributed to none other than
+                          - link "Brooklyn-based artisanal ice cream shop, Malai." [ref=f1e55] [cursor=pointer]:
+                            - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3d3dy50aGV0cmlhbmdsZS5vcmcvYXJ0aWNsZS90cmktdGhpcy1zd2VldC10cmVhdC1tYWxhaXMtdW5pcXVlLXNjb29wczs7ODM1OTc1ZmYwN2EwYmFhODk3YmYxNzU2OWJmMjUxY2U%3D
+              - link [ref=f1e56] [cursor=pointer]:
+                - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL2xpbmt0ci5lZS9kcmV4ZWx0cmlwb2Q%2FdXRtX3NvdXJjZT1saW5rdHJlZV9wcm9maWxlX3NoYXJlJmx0c2lkPWU1ZGQzNWU2LTFjYjctNDg1Zi1hZjZhLTk1YTg0YjM2ODAxODs7ZjE3ZDJjNTk5NjliMWFlYjczYjlmYmM0MTAzZTQzMDg%3D
+              - heading "Why Drexel students should take this environmental class" [level=1] [ref=f1e57]
+              - table [ref=f1e58]:
+                - rowgroup [ref=f1e59]:
+                  - row [ref=f1e60]:
+                    - cell [ref=f1e61]:
+                      - paragraph [ref=f1e62]:
+                        - generic [ref=f1e63]:
+                          - text: Taught by Dr. Alberto Morales — an anthropologist who works at the intersection of science, technology, and culture —
+                          - link "Multispecies Perspectives on Science, Environment, and Health" [ref=f1e64] [cursor=pointer]:
+                            - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3d3dy50aGV0cmlhbmdsZS5vcmcvYXJ0aWNsZS93aHktZHJleGVsLXN0dWRlbnRzLXNob3VsZC10YWtlLXRoaXMtZW52aXJvbm1lbnRhbC1jbGFzczs7M2NhZjAzMjNkMDBjMDgzODE2ODU4NjBkMTdiZjMwMzE%3D
+                          - text: offers an explosion of newness to the way in which students may understand the world around them and inside them.
+              - heading "Has the mob in Philadelphia really changed?" [level=1] [ref=f1e65]
+              - table [ref=f1e66]:
+                - rowgroup [ref=f1e67]:
+                  - row [ref=f1e68]:
+                    - cell [ref=f1e69]:
+                      - paragraph [ref=f1e70]:
+                        - generic [ref=f1e72]:
+                          - text: These days, when someone is murdered in Philly, you can see it everywhere. Something that was an isolated event, something that was, in a way, once quite local, now
+                          - link "spreads through social media with incredible tenacity" [ref=f1e73] [cursor=pointer]:
+                            - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3d3dy50aGV0cmlhbmdsZS5vcmcvYXJ0aWNsZS90aGUtbW9iLWluLXBoaWxseTs7MjczNTMxMGE2ZjUyODc3YzNlNmFhZTcwMGJmODEwN2Y%3D
+                          - text: .
+              - generic [ref=f1e74]: The Independent Student Newspaper at Drexel University
+              - link [ref=f1e75] [cursor=pointer]:
+                - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3R3aXR0ZXIuY29tL2RyZXhlbHRyaWFuZ2xlP2xhbmc9ZW47O2Y3MTUzMDA1NDg4OGRlZTIzNzI2YzQ4N2QyNDQ3OWZh
+                - img "twitter" [ref=f1e76]
+              - link [ref=f1e77] [cursor=pointer]:
+                - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL3d3dy5pbnN0YWdyYW0uY29tL2RyZXhlbHRyaWFuZ2xlLz9obD1lbjs7YzI2OTUzNGZmYjQ1OGNjOTI4MzQ5NzRmN2VmYzJlMGQ%3D
+                - img "instagram" [ref=f1e78]
+              - link "Unsubscribe" [ref=f1e79] [cursor=pointer]:
+                - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL2Ntcy50aGV0cmlhbmdsZS5vcmcvd3AtYWRtaW4vYWRtaW4tYWpheC5waHA%2FYWN0aW9uPXRucCZuYT11Jm5rPTMtMjUxMWZiM2Y1NCZuZWs9MzEtOzsxMDMxOTdmZTEyODMwNDQ4NTJmZTExODY1MTY2ZTJiMw%3D%3D
+              - text: "|"
+              - link "Manage your subscription" [ref=f1e80] [cursor=pointer]:
+                - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL2Ntcy50aGV0cmlhbmdsZS5vcmcvd3AtYWRtaW4vYWRtaW4tYWpheC5waHA%2FYWN0aW9uPXRucCZuYT1wJm5rPTMtMjUxMWZiM2Y1NCZuZWs9MzEtOztiMGUzM2E0NGFkMGQyMDA2M2E0Y2FkYmUwNTE4MjA0Mg%3D%3D
+              - text: "|"
+              - link "View online" [ref=f1e81] [cursor=pointer]:
+                - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL2Ntcy50aGV0cmlhbmdsZS5vcmcvd3AtYWRtaW4vYWRtaW4tYWpheC5waHA%2FYWN0aW9uPXRucCZuYT12Jm5rPTMtMjUxMWZiM2Y1NCZpZD0zMTs7ZGU1NWMxZjBhNmRkY2Q3YTdlNGQwYmNjYmQ5YTFlMWI%3D
+              - generic [ref=f1e82]:
+                - emphasis
+              - link [ref=f1e83] [cursor=pointer]:
+                - /url: https://cms.thetriangle.org/wp-admin/admin-ajax.php?action=tnptr&nltr=MzE7MztodHRwczovL2FkLmRvdWJsZWNsaWNrLm5ldC9kZG0vdHJhY2tjbGsvTjUyOTUuNTc1OTQxNUNPTExFR0VJTkMuL0IzNTM4OTYzMy40NDQ2MTM1MzA7ZGNfdHJrX2FpZD02Mzc3MDg5MjM7ZGNfdHJrX2NpZD0yNTMxNDM2OTc7ZGNfbGF0PTtkY19yZGlkPTt0YWdfZm9yX2NoaWxkX2RpcmVjdGVkX3RyZWF0bWVudD07dGZ1YT07Z2Rwcj0ke0dEUFJ9O2dkcHJfY29uc2VudD0ke0dEUFJfQ09OU0VOVF83NTV9O2x0ZD07ZGNfdGR2PTE7O2YxNjgyZjI3ZDBiMzg5ZjE3NTcwZmIyNjdkOTUyN2Ex
+        - generic [ref=e41]:
+          - heading "Subscribe" [level=1] [ref=e42]
+          - generic [ref=e43]:
+            - generic [ref=e44]:
+              - generic [ref=e45]: Email*
+              - textbox "Email*" [ref=e46]
+            - generic [aria-hidden] [ref=e47]:
+              - text: Website
+              - textbox [ref=e48]
+            - generic [ref=e49]:
+              - generic [ref=e50]: Lists*
+              - generic [ref=e51]:
+                - checkbox "Drexel Students" [active] [ref=e52]
+                - text: Drexel Students
+              - generic [ref=e53]:
+                - checkbox "Alumni" [ref=e54]
+                - text: Alumni
+              - generic [ref=e55]:
+                - checkbox "Parents" [ref=e56]
+                - text: Parents
+              - generic [ref=e57]:
+                - checkbox "Drexel Administrators, Directors and Trustees" [ref=e58]
+                - text: Drexel Administrators, Directors and Trustees
+              - generic [ref=e59]:
+                - checkbox "Drexel Faculty" [ref=e60]
+                - text: Drexel Faculty
+              - generic [ref=e61]:
+                - checkbox "Advertisers" [ref=e62]
+                - text: Advertisers
+              - generic [ref=e63]:
+                - checkbox "Other" [ref=e64]
+                - text: Other
+            - button "Subscribe" [ref=e65] [cursor=pointer]
+  - contentinfo [ref=e66]:
+    - img "The Triangle logo" [ref=e67]
+    - navigation [ref=e68]:
+      - generic [ref=e69]:
+        - link "About" [ref=e70] [cursor=pointer]:
+          - /url: /about
+        - link "Contact Us" [ref=e71] [cursor=pointer]:
+          - /url: /contact
+        - link "Join The Triangle" [ref=e72] [cursor=pointer]:
+          - /url: https://docs.google.com/forms/d/e/1FAIpQLScra_6sUenvmpIuQ5FjmMyWO0a2sz9z36HkrqfnYQvJGH9BGQ/viewform
+        - link "Staff" [ref=e73] [cursor=pointer]:
+          - /url: /staff
+        - link "Find-A-Triangle" [ref=e74] [cursor=pointer]:
+          - /url: /find
+        - link "Photo Gallery" [ref=e75] [cursor=pointer]:
+          - /url: /photo
+        - link "Print Archive" [ref=e76] [cursor=pointer]:
+          - /url: https://drexel.primo.exlibrisgroup.com/discovery/collectionDiscovery?vid=01DRXU_INST:01DRXU&inst=01DRXU_INST&collectionId=81448731180004721
+        - link "Constitution" [ref=e77] [cursor=pointer]:
+          - /url: /proxy/wp-content/uploads/2026/03/The-Triangle-Constitution-3.pdf
+      - generic [ref=e78]:
+        - link "News" [ref=e79] [cursor=pointer]:
+          - /url: /news
+        - link "Academic Transformation" [ref=e80] [cursor=pointer]:
+          - /url: /academic-transformation
+        - link "Transit" [ref=e81] [cursor=pointer]:
+          - /url: /transit
+        - link "Public Safety" [ref=e82] [cursor=pointer]:
+          - /url: /public-safety
+        - link "Campus" [ref=e83] [cursor=pointer]:
+          - /url: /campus
+        - link "City" [ref=e84] [cursor=pointer]:
+          - /url: /city
+        - link "National" [ref=e85] [cursor=pointer]:
+          - /url: /national
+        - link "World" [ref=e86] [cursor=pointer]:
+          - /url: /world
+      - generic [ref=e87]:
+        - link "Sports" [ref=e88] [cursor=pointer]:
+          - /url: /sports
+        - link "Men's Basketball" [ref=e89] [cursor=pointer]:
+          - /url: /mens-basketball
+        - link "Women's Basketball" [ref=e90] [cursor=pointer]:
+          - /url: /womens-basketball
+        - link "Big 5" [ref=e91] [cursor=pointer]:
+          - /url: /big-5
+        - link "Philly Sports" [ref=e92] [cursor=pointer]:
+          - /url: /philly-sports
+        - link "Field Hockey" [ref=e93] [cursor=pointer]:
+          - /url: /field-hockey
+        - link "Men's Soccer" [ref=e94] [cursor=pointer]:
+          - /url: /mens-soccer
+        - link "Women's Soccer" [ref=e95] [cursor=pointer]:
+          - /url: /womens-soccer
+        - link "NIL" [ref=e96] [cursor=pointer]:
+          - /url: /nil
+        - link "Squash" [ref=e97] [cursor=pointer]:
+          - /url: /squash
+      - generic [ref=e98]:
+        - link "Opinion" [ref=e99] [cursor=pointer]:
+          - /url: /opinion
+        - link "Politics" [ref=e100] [cursor=pointer]:
+          - /url: /politics
+        - link "Science & Tech" [ref=e101] [cursor=pointer]:
+          - /url: /science-tech
+        - link "From the Editor" [ref=e102] [cursor=pointer]:
+          - /url: /from-the-editor
+        - link "Lifestyle" [ref=e103] [cursor=pointer]:
+          - /url: /lifestyle
+        - link "Columns" [ref=e104] [cursor=pointer]:
+          - /url: /columns
+        - link "The Love Triangle" [ref=e105] [cursor=pointer]:
+          - /url: /the-love-triangle
+        - link "Tri This Sweet Treat" [ref=e106] [cursor=pointer]:
+          - /url: /tri-this-sweet-treat
+        - link "From the Playbook" [ref=e107] [cursor=pointer]:
+          - /url: /from-the-playbook
+        - link "Jack of All Takes" [ref=e108] [cursor=pointer]:
+          - /url: /jack-of-all-takes
+        - link "The Green Angle" [ref=e109] [cursor=pointer]:
+          - /url: /the-green-angle
+        - link "The Overall Score" [ref=e110] [cursor=pointer]:
+          - /url: /the-overall-score
+      - generic [ref=e111]:
+        - link "Entertainment" [ref=e112] [cursor=pointer]:
+          - /url: /entertainment
+        - link "Movies" [ref=e113] [cursor=pointer]:
+          - /url: /movies
+        - link "Music" [ref=e114] [cursor=pointer]:
+          - /url: /music
+        - link "Happening in Philly" [ref=e115] [cursor=pointer]:
+          - /url: /happening-in-philly
+        - link "Gaming" [ref=e116] [cursor=pointer]:
+          - /url: /gaming
+        - link "Performing Arts" [ref=e117] [cursor=pointer]:
+          - /url: /performing-arts
+        - link "The Drawing Board" [ref=e118] [cursor=pointer]:
+          - /url: /the-drawing-board
+        - link "TV" [ref=e119] [cursor=pointer]:
+          - /url: /tv
+        - link "Food" [ref=e120] [cursor=pointer]:
+          - /url: /food
+      - generic [ref=e121]:
+        - link "Comics & Puzzles" [ref=e122] [cursor=pointer]:
+          - /url: /comics-puzzles
+        - link "Political Cartoons" [ref=e123] [cursor=pointer]:
+          - /url: /political-cartoons
+        - link "Crossword" [ref=e124] [cursor=pointer]:
+          - /url: /crossword
+        - link "Sudoku" [ref=e125] [cursor=pointer]:
+          - /url: /sudoku
+        - link "Comics" [ref=e126] [cursor=pointer]:
+          - /url: /comics
+        - link "Puzzles" [ref=e127] [cursor=pointer]:
+          - /url: /puzzles
+        - link "Satire" [ref=e128] [cursor=pointer]:
+          - /url: /satire
+        - link "Horoscopes" [ref=e129] [cursor=pointer]:
+          - /url: /horoscopes
+        - link "Special Editions" [ref=e130] [cursor=pointer]:
+          - /url: /
+        - link "Graduation" [ref=e131] [cursor=pointer]:
+          - /url: /graduation
+        - link "Welcome Week" [ref=e132] [cursor=pointer]:
+          - /url: /welcome-week
+        - link "The Rectangle" [ref=e133] [cursor=pointer]:
+          - /url: https://therectangle.org
+        - link "100 Year Anniversary" [ref=e134] [cursor=pointer]:
+          - /url: /one-hundred
+    - separator
+    - generic [ref=e135]: © 2026 The Triangle. All rights are reserved, except where otherwise noted.
+    - generic [ref=e136]: The Triangle is an independent student organization and is not owned nor operated by Drexel University.
+    - link [ref=e137] [cursor=pointer]:
+      - /url: https://danielepstein.netlify.app
+      - img "Site credit" [ref=e138]

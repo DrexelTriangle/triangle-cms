@@ -1,0 +1,4 @@
+# Gitignored files Claude Code copies into new worktrees (claude -w)
+.env
+frontend/.env.development.local
+server/certs/

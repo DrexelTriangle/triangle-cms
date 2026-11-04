@@ -1,0 +1,60 @@
+- generic [ref=f18e2]:
+  - generic [ref=f18e3]:
+    - link [ref=f18e5] [cursor=pointer]:
+      - /url: /
+      - img "Mailpit" [ref=f18e6]
+      - text: Mailpit
+    - generic [ref=f18e9]:
+      - textbox "Search" [ref=f18e11]:
+        - /placeholder: Search mailbox
+      - button "" [ref=f18e12] [cursor=pointer]
+    - generic [ref=f18e14]:
+      - text: 
+      - combobox [ref=f18e15]:
+        - option "25"
+        - option "50" [selected]
+        - option "100"
+        - option "200"
+      - generic [ref=f18e16]: 1-2 of 2
+      - button "" [disabled]
+      - button "" [disabled]
+  - text:     
+  - generic [ref=f18e17]:
+    - generic [ref=f18e18]:
+      - generic [ref=f18e20]:
+        - button " Inbox 1" [ref=f18e21] [cursor=pointer]:
+          - generic [ref=f18e22]: 
+          - text: Inbox
+          - generic "Unread messages" [ref=f18e23]: "1"
+        - button " Mark all read" [ref=f18e24] [cursor=pointer]:
+          - generic [ref=f18e25]: 
+          - text: Mark all read
+        - button " Delete all" [ref=f18e26] [cursor=pointer]:
+          - generic [ref=f18e27]: 
+          - text: Delete all
+      - generic [ref=f18e28]:
+        - button " About" [ref=f18e29] [cursor=pointer]:
+          - generic [ref=f18e30]: 
+          - text: About
+        - button "" [ref=f18e31] [cursor=pointer]
+    - generic [ref=f18e35]:
+      - 'link "The Triangle To: second@example.com [Test] Sandbox send check THE TRIANGLE To The Point It is Week [N], which means it is time for our [Nth] edition of the quarter. Visit our website to read the most recent articles contributed by our wonderful staff. We have ne... 12.5 kB a few seconds ago" [ref=f18e36] [cursor=pointer]':
+        - /url: /view/5cgLWQQyuNeiBj3RGi2S5u
+        - generic [ref=f18e37]:
+          - generic [ref=f18e38]: The Triangle
+          - generic [ref=f18e40]: "To: second@example.com"
+        - generic [ref=f18e42]:
+          - generic [ref=f18e43]: "[Test] Sandbox send check"
+          - generic [ref=f18e44]: THE TRIANGLE To The Point It is Week [N], which means it is time for our [Nth] edition of the quarter. Visit our website to read the most recent articles contributed by our wonderful staff. We have ne...
+        - generic [ref=f18e45]: 12.5 kB
+        - generic [ref=f18e46]: a few seconds ago
+      - 'link "The Triangle To: sandbox-check@example.com [Test] Sandbox send check THE TRIANGLE To The Point It is Week [N], which means it is time for our [Nth] edition of the quarter. Visit our website to read the most recent articles contributed by our wonderful staff. We have ne... 12.5 kB a few seconds ago" [ref=f18e47] [cursor=pointer]':
+        - /url: /view/h24wH9FHN6d2UJuJHQxJKD
+        - generic [ref=f18e48]:
+          - generic [ref=f18e49]: The Triangle
+          - generic [ref=f18e51]: "To: sandbox-check@example.com"
+        - generic [ref=f18e53]:
+          - generic [ref=f18e54]: "[Test] Sandbox send check"
+          - generic [ref=f18e55]: THE TRIANGLE To The Point It is Week [N], which means it is time for our [Nth] edition of the quarter. Visit our website to read the most recent articles contributed by our wonderful staff. We have ne...
+        - generic [ref=f18e56]: 12.5 kB
+        - generic [ref=f18e57]: a few seconds ago

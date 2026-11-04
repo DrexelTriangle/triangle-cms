@@ -20,6 +20,24 @@ definitions:
       slug:
         type: string
     type: object
+  handlers.trimelineGenerateRequest:
+    properties:
+      span:
+        type: string
+    type: object
+  handlers.trimelineManageResponse:
+    properties:
+      past:
+        items:
+          $ref: '#/definitions/models.TrimelinePuzzle'
+        type: array
+      queue:
+        items:
+          $ref: '#/definitions/models.TrimelinePuzzle'
+        type: array
+      today:
+        type: string
+    type: object
   handlers.wordangleCheckResponse:
     properties:
       entry:
@@ -1873,6 +1891,33 @@ definitions:
       name:
         type: string
       slug:
+        type: string
+    type: object
+  models.TrimelineHeadline:
+    properties:
+      pub_date:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
+  models.TrimelinePuzzle:
+    properties:
+      date:
+        type: string
+      headlines:
+        items:
+          $ref: '#/definitions/models.TrimelineHeadline'
+        type: array
+      number:
+        description: 'Tri-meline #N; #0 is launch day, 2026-11-10'
+        type: integer
+      set_by:
+        type: string
+      source:
+        type: string
+      updated_at:
         type: string
     type: object
   models.User:
@@ -5567,6 +5612,87 @@ paths:
       summary: Update a taxonomy item
       tags:
       - taxonomy
+  /v1/trimeline/days/{date}:
+    get:
+      description: Public. Only days from launch (#0, 2026-11-10) through today are
+        served; a future day reads as 404 so the queue cannot be spoiled, and a day
+        before launch reads as 404 because no public puzzle exists for it. An empty
+        today is drawn on first read. The five headlines are returned in randomized
+        order with each article's pub_date (RFC3339), following Wordangle's decision
+        that shipping the answer to the client is acceptable; the client-side check
+        is against a shuffled list, so view-source does not hand over the sorted answer.
+      parameters:
+      - description: Puzzle date (YYYY-MM-DD)
+        in: path
+        name: date
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.TrimelinePuzzle'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get a day's Tri-meline puzzle
+      tags:
+      - trimeline
+  /v1/trimeline/generate:
+    post:
+      consumes:
+      - application/json
+      description: For each empty day in the span, draws five archive headlines as
+        a puzzle. Days that already have a puzzle are left alone; past puzzles never
+        change.
+      parameters:
+      - description: 'span: day, week or month'
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.trimelineGenerateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.trimelineManageResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Fill empty Tri-meline days with generated puzzles
+      tags:
+      - trimeline
+  /v1/trimeline/manage:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.trimelineManageResponse'
+      security:
+      - BearerAuth: []
+      summary: Tri-meline queue and past puzzles
+      tags:
+      - trimeline
   /v1/users:
     get:
       produces:
@@ -5821,4 +5947,5 @@ tags:
 - name: health
 - name: authors
 - name: articles
+- name: trimeline
 - name: activity

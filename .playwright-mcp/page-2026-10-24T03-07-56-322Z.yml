@@ -1,0 +1,10 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - generic [ref=e6]: T
+    - generic [ref=e8]: Delta CMS
+  - generic [ref=e9]:
+    - paragraph [ref=e10]: Triangle CMS
+    - heading "Sign in" [level=1] [ref=e11]
+    - paragraph [ref=e12]: Use your newsroom account to edit and publish stories.
+    - button "Continue with Authentik" [ref=e13] [cursor=pointer]
+  - paragraph [ref=e16]: © 2025 The Triangle · Drexel University

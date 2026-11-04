@@ -103,6 +103,7 @@ type runDeps struct {
 // @tag.name health
 // @tag.name authors
 // @tag.name articles
+// @tag.name trimeline
 // @tag.name activity
 // @securityDefinitions.apikey BearerAuth
 // @in header
@@ -265,6 +266,10 @@ func main() {
 	}
 	if err := database.EnsureWordangleTable(context.Background(), db); err != nil {
 		slog.Error("failed to create wordangle table", "error", err)
+		os.Exit(1)
+	}
+	if err := database.EnsureTrimelineTable(context.Background(), db); err != nil {
+		slog.Error("failed to create trimeline table", "error", err)
 		os.Exit(1)
 	}
 

@@ -1,0 +1,2 @@
+[  480140ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://cms.127.0.0.1.sslip.io:18100/v1/newsletter/issues/999999:0
+[  480181ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://cms.127.0.0.1.sslip.io:18100/v1/newsletter/issues/abc:0

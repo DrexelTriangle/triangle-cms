@@ -1,0 +1,160 @@
+- generic [ref=f19e2]:
+  - generic [ref=f19e3]:
+    - link [ref=f19e5] [cursor=pointer]:
+      - /url: /
+      - img "Mailpit" [ref=f19e6]
+      - text: Mailpit
+    - generic [ref=f19e7]:
+      - text: 
+      - button " Mark unread" [ref=f19e8] [cursor=pointer]:
+        - generic [ref=f19e9]: 
+        - generic [ref=f19e10]: Mark unread
+      - button " Delete" [ref=f19e11] [cursor=pointer]:
+        - generic [ref=f19e12]: 
+        - text: Delete
+    - generic [ref=f19e13]:
+      - button " Download" [ref=f19e15] [cursor=pointer]:
+        - generic [ref=f19e16]: 
+        - text: Download
+      - link "" [ref=f19e17] [cursor=pointer]:
+        - /url: /view/5cgLWQQyuNeiBj3RGi2S5u
+      - link "":
+        - /url: /view/false
+        - generic "View next message": 
+  - generic [ref=f19e19]:
+    - generic [ref=f19e20]:
+      - button " Return to inbox" [ref=f19e22] [cursor=pointer]:
+        - generic [ref=f19e23]: 
+        - generic [ref=f19e24]: Return to inbox
+      - generic [ref=f19e26]:
+        - 'link "The Triangle a few seconds ago To: second@example.com [Test] Sandbox send check" [ref=f19e27] [cursor=pointer]':
+          - /url: /view/5cgLWQQyuNeiBj3RGi2S5u
+          - strong [ref=f19e30]: The Triangle
+          - generic [ref=f19e31]: a few seconds ago
+          - generic [ref=f19e32]: "To: second@example.com"
+          - generic [ref=f19e34]: "[Test] Sandbox send check"
+        - 'link "The Triangle a few seconds ago To: sandbox-check@example.com [Test] Sandbox send check" [ref=f19e36] [cursor=pointer]':
+          - /url: /view/h24wH9FHN6d2UJuJHQxJKD
+          - strong [ref=f19e39]: The Triangle
+          - generic [ref=f19e40]: a few seconds ago
+          - generic [ref=f19e41]: "To: sandbox-check@example.com"
+          - generic [ref=f19e43]: "[Test] Sandbox send check"
+      - generic [ref=f19e45]:
+        - button " About" [ref=f19e46] [cursor=pointer]:
+          - generic [ref=f19e47]: 
+          - text: About
+        - button "" [ref=f19e48] [cursor=pointer]
+    - generic [ref=f19e52]:
+      - table [ref=f19e55]:
+        - rowgroup [ref=f19e56]:
+          - row [ref=f19e57]:
+            - rowheader "From" [ref=f19e58]
+            - cell "The Triangle <notify@thetriangle.org> Unsubscribe " [ref=f19e59]:
+              - generic [ref=f19e60]:
+                - text: The Triangle
+                - generic [ref=f19e61]:
+                  - text: <
+                  - link "notify@thetriangle.org" [ref=f19e62] [cursor=pointer]:
+                    - /url: /search?q=notify%40thetriangle.org
+                  - text: ">"
+              - generic "Show unsubscribe information" [ref=f19e63] [cursor=pointer]:
+                - text: Unsubscribe
+                - generic [ref=f19e64]: 
+          - row [ref=f19e65]:
+            - rowheader "To" [ref=f19e66]
+            - cell [ref=f19e67]:
+              - generic [ref=f19e69]:
+                - text: <
+                - link "sandbox-check@example.com" [ref=f19e70] [cursor=pointer]:
+                  - /url: /search?q=sandbox-check%40example.com
+                - text: ">"
+          - row [ref=f19e71]:
+            - rowheader "Subject" [ref=f19e72]
+            - cell [ref=f19e73]:
+              - strong [ref=f19e74]: "[Test] Sandbox send check"
+          - row [ref=f19e75]:
+            - rowheader "Date" [ref=f19e76]
+            - cell "Fri, 23 Oct 2026, 11:29 pm (12.5 kB)" [ref=f19e77]
+          - row [ref=f19e78]:
+            - rowheader "Tags" [ref=f19e79]
+            - cell [ref=f19e80]:
+              - combobox "Type a value" [ref=f19e83]
+          - text: 
+      - tablist [ref=f19e84]:
+        - tab "HTML" [selected] [ref=f19e86] [cursor=pointer]
+        - tab "HTML Source" [ref=f19e87] [cursor=pointer]
+        - tab "Text" [ref=f19e88] [cursor=pointer]
+        - tab "Headers" [ref=f19e89] [cursor=pointer]
+        - tab "Raw" [ref=f19e90] [cursor=pointer]
+        - tab "HTML Check 87%" [ref=f19e91] [cursor=pointer]:
+          - text: HTML Check
+          - generic [ref=f19e92]: 87%
+        - tab "Link Check" [ref=f19e93] [cursor=pointer]
+        - generic [ref=f19e94]:
+          - button "" [ref=f19e95] [cursor=pointer]
+          - button "" [ref=f19e97] [cursor=pointer]
+          - button "" [disabled]
+      - generic [ref=f19e99]:
+        - tabpanel "HTML" [ref=f19e100]:
+          - iframe [ref=f19e102]:
+            - generic [ref=f20e1]:
+              - generic [ref=f20e2]: THE TRIANGLE
+              - generic [ref=f20e3]: To The Point
+              - generic [ref=f20e4]: It is Week [N], which means it is time for our [Nth] edition of the quarter. Visit our website to read the most recent articles contributed by our wonderful staff. We have news about [topics], and much more. Make sure you read to stay up to date on all of your Drexel-related information!
+              - blockquote [ref=f20e5]: Read the latest from The Triangle
+              - heading "Breakaway Music Festival brings big names and lackluster visuals" [level=1] [ref=f20e6]
+              - figure [ref=f20e8]:
+                - img "Breakaway Music Festival brings big names and lackluster visuals" [ref=f20e9]
+              - generic [ref=f20e10]: Spanning 14 cities over the course of 2026, the Breakaway Music Festival tour kicked off in Dallas, Texas, in mid-April, touring cross-country before it will conclude its run in Houston this November. Marketed as a premier fusion of electronic music icons and smaller regional talent, the festival aims to create…
+              - link "Click Here to Read More" [ref=f20e11] [cursor=pointer]:
+                - /url: http://www.127.0.0.1.sslip.io:18100/article/breakaway-festival
+              - 'heading "The Overall Score: ''Wolverine'' falls flat" [level=1] [ref=f20e13]'
+              - figure [ref=f20e15]:
+                - 'img "The Overall Score: ''Wolverine'' falls flat" [ref=f20e16]'
+              - generic [ref=f20e17]: Insomniac Games has no trouble making a fun, interactive, and engaging superhero experience — “Spider-Man” (2018) and its following games were very popular. Once it was announced that they would be developing a “Wolverine” game, one of the most well-known X-Men from Marvel, people were very excited. After the trailers,…
+              - link "Click Here to Read More" [ref=f20e18] [cursor=pointer]:
+                - /url: http://www.127.0.0.1.sslip.io:18100/article/the-overall-score-wolverine-falls-flat
+              - 'heading "The Overall Score: ''The Blood of Dawnwalker'' revives the vampire genre" [level=1] [ref=f20e20]'
+              - figure [ref=f20e22]:
+                - 'img "The Overall Score: ''The Blood of Dawnwalker'' revives the vampire genre" [ref=f20e23]'
+              - generic [ref=f20e24]: “The Blood of Dawnwalker” is a vampire game for people who are fans of these monsters and have not been able to feel the power of one in an immense open-world setting. With the game, new studio Rebel Wolves breaks into the industry with their first game, meeting any fan’s…
+              - link "Click Here to Read More" [ref=f20e25] [cursor=pointer]:
+                - /url: http://www.127.0.0.1.sslip.io:18100/article/the-overall-score-the-blood-of-dawnwalker-revives-the-vampire-genre
+              - heading "Netanyahu’s UN visit sparks NYC protests" [level=1] [ref=f20e27]
+              - figure [ref=f20e29]:
+                - img "Netanyahu’s UN visit sparks NYC protests" [ref=f20e30]
+              - generic [ref=f20e31]: As of January, the Mayor of New York City, Zohran Mamdani, has publicly demanded that the U.S. federal government honor International Criminal Court warrants and arrest Netanyahu if he enters the country. In a video that was posted on his social media accounts, he publicly condemned Netanyahu for inciting genocide
+              - link "Click Here to Read More" [ref=f20e32] [cursor=pointer]:
+                - /url: http://www.127.0.0.1.sslip.io:18100/article/netanyahu-s-un-visit-sparks-nyc-protests
+              - heading "Reflecting on the Academy's last hours" [level=1] [ref=f20e34]
+              - figure [ref=f20e36]:
+                - img "Reflecting on the Academy's last hours" [ref=f20e37]
+              - generic [ref=f20e38]: On Sunday, Sept. 27, crowds surged through the halls of the Academy of Natural Sciences of Drexel University.
+              - link "Click Here to Read More" [ref=f20e39] [cursor=pointer]:
+                - /url: http://www.127.0.0.1.sslip.io:18100/article/reflecting-on-the-academy-s-last-hours
+              - generic [ref=f20e40]:
+                - strong [ref=f20e41]: "Question of the day:"
+                - text: "[Your question here] (Reply to this email with your response!)"
+              - link "Check out a Random Article" [ref=f20e42] [cursor=pointer]:
+                - /url: http://www.127.0.0.1.sslip.io:18100/random
+              - generic [ref=f20e43]:
+                - figure [ref=f20e44]:
+                  - img "Fall Mini" [ref=f20e45]
+                - text: x
+              - generic [ref=f20e46]: The Independent Student Newspaper at Drexel University
+              - generic [ref=f20e47]:
+                - link "X" [ref=f20e48] [cursor=pointer]:
+                  - /url: https://x.com/DrexelTriangle
+                - text: ·
+                - link "Instagram" [ref=f20e49] [cursor=pointer]:
+                  - /url: https://www.instagram.com/drexeltriangle/
+              - generic [ref=f20e50]:
+                - link "Unsubscribe" [ref=f20e51] [cursor=pointer]:
+                  - /url: http://cms.127.0.0.1.sslip.io:18100/v1/newsletter/unsubscribe?t=test
+                - text: "|"
+                - link "Manage your subscription" [ref=f20e52] [cursor=pointer]:
+                  - /url: http://cms.127.0.0.1.sslip.io:18100/v1/newsletter/unsubscribe?t=test
+                - text: "|"
+                - link "View online" [ref=f20e53] [cursor=pointer]:
+                  - /url: http://cms.127.0.0.1.sslip.io:18100/v1/newsletter/issues/2
+        - text:                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                

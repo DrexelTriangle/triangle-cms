@@ -1,0 +1,159 @@
+- generic [ref=f3e3]:
+  - complementary [ref=f3e4]:
+    - link "Dashboard" [ref=f3e5] [cursor=pointer]:
+      - /url: /
+      - img "Delta CMS" [ref=f3e6]
+    - navigation [ref=f3e7]:
+      - button "Dashboard" [ref=f3e10] [cursor=pointer]
+      - generic [ref=f3e17]:
+        - paragraph [ref=f3e18]: Content
+        - button "Articles" [ref=f3e20] [cursor=pointer]
+        - button "Developing Stories" [ref=f3e26] [cursor=pointer]
+        - button "Poll" [ref=f3e32] [cursor=pointer]
+        - button "Wordangle" [ref=f3e37] [cursor=pointer]
+        - button "Media" [ref=f3e42] [cursor=pointer]
+        - button "Newsletter" [ref=f3e49] [cursor=pointer]
+      - generic [ref=f3e54]:
+        - paragraph [ref=f3e55]: Manage
+        - button "Authors" [ref=f3e57] [cursor=pointer]
+        - button "Sections" [ref=f3e65] [cursor=pointer]
+        - button "Comments" [ref=f3e72] [cursor=pointer]
+        - button "Classifieds" [ref=f3e77] [cursor=pointer]
+        - button "SEO" [ref=f3e83] [cursor=pointer]
+      - generic [ref=f3e88]:
+        - paragraph [ref=f3e89]: Admin
+        - button "Activity" [ref=f3e91] [cursor=pointer]
+        - button "Users" [ref=f3e96] [cursor=pointer]
+        - button "Settings" [ref=f3e111] [cursor=pointer]
+    - generic [ref=f3e116]:
+      - button "Log out" [ref=f3e117] [cursor=pointer]
+      - button "Collapse" [ref=f3e122] [cursor=pointer]
+  - generic [ref=f3e126]:
+    - banner [ref=f3e127]:
+      - button "SA Sandbox Admin Admin" [ref=f3e129] [cursor=pointer]:
+        - generic [ref=f3e130]: SA
+        - generic [ref=f3e132]:
+          - paragraph [ref=f3e133]: Sandbox Admin
+          - paragraph [ref=f3e134]: Admin
+    - main [ref=f3e135]:
+      - generic [ref=f3e6224]:
+        - generic [ref=f3e6225]:
+          - generic [ref=f3e6226]:
+            - button "Back" [ref=f3e6227] [cursor=pointer]
+            - heading "Edit Newsletter" [level=1] [ref=f3e6230]
+          - status [ref=f3e6231]: Saved.
+        - generic [ref=f3e6232]:
+          - generic [ref=f3e6233]:
+            - generic [ref=f3e6234]:
+              - generic [ref=f3e6235]: Subject
+              - textbox "Subject" [ref=f3e6236]: Sandbox UI check edited
+            - generic [ref=f3e6237]:
+              - generic [ref=f3e6238]: Preview text
+              - textbox "Preview text" [ref=f3e6239]:
+                - /placeholder: The line inboxes show after the subject
+            - generic [ref=f3e6240]:
+              - generic [ref=f3e6241]: Sponsor banner
+              - button "Add a sponsor banner (optional)" [ref=f3e6242] [cursor=pointer]
+            - generic [ref=f3e6248]:
+              - generic [ref=f3e6249]:
+                - generic [ref=f3e6250]: Content
+                - button "Insert article" [ref=f3e6251] [cursor=pointer]
+              - generic [ref=f3e6255]:
+                - generic [ref=f3e6256]:
+                  - generic [ref=f3e6257]: THE TRIANGLE
+                  - generic [ref=f3e6258]: To The Point
+                - generic [ref=f3e6260]:
+                  - generic [ref=f3e6262]:
+                    - generic [ref=f3e6263]:
+                      - button "Bold" [ref=f3e6264] [cursor=pointer]
+                      - button "Italic" [ref=f3e6267] [cursor=pointer]
+                      - button "Strikethrough" [ref=f3e6270] [cursor=pointer]
+                      - button "Link" [ref=f3e6273] [cursor=pointer]
+                    - generic [ref=f3e6276]:
+                      - button "Heading" [ref=f3e6277] [cursor=pointer]
+                      - button "Quote" [ref=f3e6280] [cursor=pointer]
+                      - button "Code" [ref=f3e6283] [cursor=pointer]
+                      - button "Bullets" [ref=f3e6286] [cursor=pointer]
+                      - button "Numbers" [ref=f3e6289] [cursor=pointer]
+                      - button "Decrease indent" [disabled] [ref=f3e6292]
+                      - button "Increase indent" [disabled] [ref=f3e6295]
+                    - generic [ref=f3e6298]:
+                      - button "Insert image from library" [ref=f3e6299] [cursor=pointer]
+                      - button "Attach files" [ref=f3e6302] [cursor=pointer]
+                    - generic [ref=f3e6305]:
+                      - button "Undo" [ref=f3e6306] [cursor=pointer]
+                      - button "Redo" [disabled] [ref=f3e6309]
+                  - textbox [ref=f3e6312]:
+                    - generic [ref=f3e6480]: It is Week [N], which means it is time for our [Nth] edition of the quarter. Visit our website to read the most recent articles contributed by our wonderful staff. We have news about [topics], and much more. Make sure you read to stay up to date on all of your Drexel-related information!
+                    - blockquote [ref=f3e6481]: Read the latest from The Triangle
+                    - heading "Breakaway Music Festival brings big names and lackluster visuals" [level=1] [ref=f3e6482]
+                    - figure "Add a caption…" [ref=f3e6485]:
+                      - img "Breakaway Music Festival brings big names and lackluster visuals" [ref=f3e6319]
+                    - generic [ref=f3e6488]: Spanning 14 cities over the course of 2026, the Breakaway Music Festival tour kicked off in Dallas, Texas, in mid-April, touring cross-country before it will conclude its run in Houston this November. Marketed as a premier fusion of electronic music icons and smaller regional talent, the festival aims to create…
+                    - link "Click Here to Read More" [ref=f3e6490] [cursor=pointer]:
+                      - /url: http://www.127.0.0.1.sslip.io:18100/article/breakaway-festival
+                    - 'heading "The Overall Score: ''Wolverine'' falls flat" [level=1] [ref=f3e6491]'
+                    - figure "Add a caption…" [ref=f3e6494]:
+                      - 'img "The Overall Score: ''Wolverine'' falls flat" [ref=f3e6329]'
+                    - generic [ref=f3e6497]: Insomniac Games has no trouble making a fun, interactive, and engaging superhero experience — “Spider-Man” (2018) and its following games were very popular. Once it was announced that they would be developing a “Wolverine” game, one of the most well-known X-Men from Marvel, people were very excited. After the trailers,…
+                    - link "Click Here to Read More" [ref=f3e6499] [cursor=pointer]:
+                      - /url: http://www.127.0.0.1.sslip.io:18100/article/the-overall-score-wolverine-falls-flat
+                    - 'heading "The Overall Score: ''The Blood of Dawnwalker'' revives the vampire genre" [level=1] [ref=f3e6500]'
+                    - figure "Add a caption…" [ref=f3e6503]:
+                      - 'img "The Overall Score: ''The Blood of Dawnwalker'' revives the vampire genre" [ref=f3e6339]'
+                    - generic [ref=f3e6506]: “The Blood of Dawnwalker” is a vampire game for people who are fans of these monsters and have not been able to feel the power of one in an immense open-world setting. With the game, new studio Rebel Wolves breaks into the industry with their first game, meeting any fan’s…
+                    - link "Click Here to Read More" [ref=f3e6508] [cursor=pointer]:
+                      - /url: http://www.127.0.0.1.sslip.io:18100/article/the-overall-score-the-blood-of-dawnwalker-revives-the-vampire-genre
+                    - heading "Netanyahu’s UN visit sparks NYC protests" [level=1] [ref=f3e6509]
+                    - figure "Add a caption…" [ref=f3e6512]:
+                      - img "Netanyahu’s UN visit sparks NYC protests" [ref=f3e6349]
+                    - generic [ref=f3e6515]: As of January, the Mayor of New York City, Zohran Mamdani, has publicly demanded that the U.S. federal government honor International Criminal Court warrants and arrest Netanyahu if he enters the country. In a video that was posted on his social media accounts, he publicly condemned Netanyahu for inciting genocide
+                    - link "Click Here to Read More" [ref=f3e6517] [cursor=pointer]:
+                      - /url: http://www.127.0.0.1.sslip.io:18100/article/netanyahu-s-un-visit-sparks-nyc-protests
+                    - heading "Reflecting on the Academy's last hours" [level=1] [ref=f3e6518]
+                    - figure "Add a caption…" [ref=f3e6521]:
+                      - img "Reflecting on the Academy's last hours" [ref=f3e6359]
+                    - generic [ref=f3e6524]: On Sunday, Sept. 27, crowds surged through the halls of the Academy of Natural Sciences of Drexel University.
+                    - link "Click Here to Read More" [ref=f3e6526] [cursor=pointer]:
+                      - /url: http://www.127.0.0.1.sslip.io:18100/article/reflecting-on-the-academy-s-last-hours
+                    - generic [ref=f3e6527]:
+                      - strong [ref=f3e6528]: "Question of the day:"
+                      - text: "[Your question here] (Reply to this email with your response!)"
+                    - link "Check out a Random Article" [ref=f3e6530] [cursor=pointer]:
+                      - /url: http://www.127.0.0.1.sslip.io:18100/random
+                  - status [ref=f3e6532]:
+                    - generic [ref=f3e6533]: "Could not import the pasted image: could not fetch the image from that URL"
+                    - button "Dismiss" [ref=f3e6534] [cursor=pointer]: ×
+                - generic [ref=f3e6375]:
+                  - generic [ref=f3e6376]: The Independent Student Newspaper at Drexel University
+                  - generic [ref=f3e6377]: X · Instagram
+                  - generic [ref=f3e6378]: Unsubscribe | Manage your subscription | View online
+          - complementary [ref=f3e6379]:
+            - generic [ref=f3e6380]:
+              - heading "Issue" [level=2] [ref=f3e6381]
+              - paragraph [ref=f3e6382]: "Status: draft"
+              - button "Save draft" [disabled] [ref=f3e6383]
+              - button "Preview email" [ref=f3e6388] [cursor=pointer]
+              - button "Copy email HTML" [ref=f3e6392] [cursor=pointer]
+            - generic [ref=f3e6396]:
+              - heading "Send" [level=2] [ref=f3e6397]
+              - generic [ref=f3e6398]:
+                - generic [ref=f3e6399]: Send a test to
+                - textbox "Send a test to" [ref=f3e6400]:
+                  - /placeholder: you@drexel.edu, editor@drexel.edu
+              - button "Send test" [disabled] [ref=f3e6401]
+              - generic [ref=f3e6405]:
+                - generic [ref=f3e6406]: Send at
+                - generic [ref=f3e6407]:
+                  - textbox "Send at" [ref=f3e6408]:
+                    - /placeholder: Aug 3, 2026, 9:00 AM
+                  - button "Open send at picker" [ref=f3e6409] [cursor=pointer]
+              - button "Schedule" [disabled] [ref=f3e6414]
+            - generic [ref=f3e6415]:
+              - heading "Formatting" [level=2] [ref=f3e6416]
+              - paragraph [ref=f3e6417]: "The editor's formats map onto the email template:"
+              - list [ref=f3e6418]:
+                - listitem [ref=f3e6419]: Heading — a story headline, with a divider above.
+                - listitem [ref=f3e6420]: Quote — a centred section label.
+                - listitem [ref=f3e6421]: A line that is only a link — a button, like "Click Here to Read More".
+              - paragraph [ref=f3e6422]: Insert article adds a story card at the cursor.
