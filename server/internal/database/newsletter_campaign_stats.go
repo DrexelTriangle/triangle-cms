@@ -22,9 +22,9 @@ import (
 //
 //   - newsletters.tracking_version is set when the send starts, and
 //   - newsletter_deliveries.tracking_version is set when a copy is recorded
-//     sent. Both slots run a sender, and the idle one keeps running the
-//     previous release until the next deploy, so a copy it sends (whose
-//     unsubscribe link carries no delivery token) leaves its version at 0.
+//     sent. The idle slot keeps running the previous release until the next
+//     deploy, and before newsletter.SlotGate it sent too, so a copy it sent
+//     (whose unsubscribe link carries no delivery token) left its version at 0.
 //
 // For any other issue the unknown numbers are null, never zero.
 

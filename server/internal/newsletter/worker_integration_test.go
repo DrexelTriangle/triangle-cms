@@ -295,6 +295,75 @@ func TestWorker_TwoSlotsNeverSendTheSameCopy(t *testing.T) {
 	}
 }
 
+// Only the live slot sends, and a switch mid-issue hands the rest to the
+// newly live slot without resending anything. On 2026-11-07 the idle slot,
+// still on the previous release, sent a whole issue untracked.
+func TestWorker_OnlyTheLiveSlotSends(t *testing.T) {
+	conn := workerTestDB(t)
+	for i := range 6 {
+		addSubscriber(t, conn, fmt.Sprintf("reader%d@example.org", i), models.SubscriberStatusConfirmed)
+	}
+	id := scheduleIssue(t, conn, time.Minute)
+
+	var mu sync.Mutex
+	live := "green"
+	gate := func(slot string) func() (bool, error) {
+		return func() (bool, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return live == slot, nil
+		}
+	}
+	blueSender, greenSender := &fakeSender{}, &fakeSender{}
+	blue := newWorker(conn, blueSender, "blue")
+	blue.Active = gate("blue")
+	green := newWorker(conn, greenSender, "green")
+	green.Active = gate("green")
+
+	// Blue is idle: it neither starts the issue nor sends from it.
+	if err := blue.Tick(context.Background()); err != nil {
+		t.Fatalf("blue tick: %v", err)
+	}
+	if status, _ := issueState(t, conn, id); status != models.NewsletterStatusScheduled || len(blueSender.sent) != 0 {
+		t.Fatalf("the idle slot acted on the issue: %s, %d sent", status, len(blueSender.sent))
+	}
+
+	// Green sends two copies, then traffic moves to blue mid-issue.
+	greenSender.fail = func(string) error {
+		if len(greenSender.sent) == 2 {
+			mu.Lock()
+			live = "blue"
+			mu.Unlock()
+		}
+		return nil
+	}
+	if err := green.Tick(context.Background()); err != nil {
+		t.Fatalf("green tick: %v", err)
+	}
+	if n := len(greenSender.sent); n != 3 {
+		t.Fatalf("green should stop after the copy in hand once it is no longer live, sent %d", n)
+	}
+	if err := blue.Tick(context.Background()); err != nil {
+		t.Fatalf("blue tick after the switch: %v", err)
+	}
+
+	got := blueSender.recipients()
+	for addr, n := range greenSender.recipients() {
+		got[addr] += n
+	}
+	if len(got) != 6 {
+		t.Fatalf("expected all 6 readers between the two slots, got %v", got)
+	}
+	for addr, n := range got {
+		if n != 1 {
+			t.Fatalf("%s got %d copies", addr, n)
+		}
+	}
+	if status, recipients := issueState(t, conn, id); status != models.NewsletterStatusSent || recipients != 6 {
+		t.Fatalf("expected sent to 6, got %s to %d", status, recipients)
+	}
+}
+
 func TestWorker_PausesAtTheDailyCapAndResumes(t *testing.T) {
 	conn := workerTestDB(t)
 	for i := range 5 {
