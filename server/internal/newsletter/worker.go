@@ -2,8 +2,8 @@
 //
 // The state lives in the database (see database/newsletter_send.go): the
 // worker here only paces the sends and turns a sender's errors into a retry
-// or a failure. Every backend slot runs one; the issue's lease decides which
-// of them sends.
+// or a failure. Every backend slot runs one, but only the live slot sends (see
+// SlotGate); the issue's lease keeps two from sending at once across a switch.
 package newsletter
 
 import (
@@ -45,11 +45,18 @@ type Worker struct {
 	// Owner names this worker on the lease. It must differ per process.
 	Owner  string
 	Logger *slog.Logger
+	// Active, when set, says whether this process may send right now (see
+	// SlotGate). It is asked before every tick and every copy, so a slot
+	// switch mid-issue hands the rest of it to the newly live slot.
+	Active func() (bool, error)
 
 	// pausedIssue is the issue last stopped at the daily cap, so the pause
 	// and the resume are each logged once.
 	pausedIssue  int64
 	overdueNoted map[int64]bool
+	// standby is the last reason this worker stood by ("" while sending), so
+	// each change is logged once rather than every tick.
+	standby string
 }
 
 // NewOwner names a worker for its lease: the host (the container id, under
@@ -115,6 +122,9 @@ func (w *Worker) Run(ctx context.Context) {
 // reports a transient failure, or ctx is cancelled.
 func (w *Worker) Tick(ctx context.Context) error {
 	w.defaults()
+	if !w.maySend() {
+		return nil
+	}
 	if err := w.noteOverdue(ctx); err != nil {
 		return err
 	}
@@ -157,6 +167,10 @@ func (w *Worker) Tick(ctx context.Context) error {
 			case <-time.After(gap):
 			}
 		} else if ctx.Err() != nil {
+			return nil
+		}
+		if !w.maySend() {
+			// The deferred release lets the live slot carry on at once.
 			return nil
 		}
 
@@ -218,6 +232,35 @@ func (w *Worker) deliver(ctx context.Context, issue mailer.Issue, links map[stri
 		w.Logger.Error("record newsletter delivery", "newsletter_id", issue.ID, "delivery_id", d.ID, "sent", result == db.DeliverySent, "error", err)
 	}
 	return result == db.DeliveryDeferred
+}
+
+// maySend asks Active, logging each change between sending and standing by.
+// An error stands by too: a slot that can't tell whether it is live must not
+// assume it is.
+func (w *Worker) maySend() bool {
+	if w.Active == nil {
+		return true
+	}
+	active, err := w.Active()
+	reason := ""
+	switch {
+	case err != nil:
+		reason = err.Error()
+	case !active:
+		reason = "not the live slot"
+	}
+	if reason != w.standby {
+		switch {
+		case err != nil:
+			w.Logger.Error("newsletter sender standing by: cannot tell whether this slot is live", "owner", w.Owner, "error", err)
+		case !active:
+			w.Logger.Info("newsletter sender standing by: this is not the live slot", "owner", w.Owner)
+		default:
+			w.Logger.Info("newsletter sender active: this is the live slot", "owner", w.Owner)
+		}
+		w.standby = reason
+	}
+	return reason == ""
 }
 
 // noteOverdue logs, once per issue, a scheduled issue too late to go out on

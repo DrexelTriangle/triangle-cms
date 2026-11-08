@@ -21,7 +21,47 @@ EMBEDDINGS_HEALTH_TIMEOUT="${EMBEDDINGS_HEALTH_TIMEOUT:-240}"
 IMAGING_HEALTH_TIMEOUT="${IMAGING_HEALTH_TIMEOUT:-60}"
 
 compose() {
-	docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" "$@"
+	CMS_SLOT_STATE_DIR="$(slot_state_dir)" docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" "$@"
+}
+
+# slot_state_dir holds the backends' copy of the live slot (a file named
+# "active"), bind-mounted read-only into both backends. Only the live slot
+# sends newsletters; the idle one keeps the previous release and must not.
+# It sits beside the Nginx include because the runner can already write
+# there, and is a world-readable subdirectory because the include's own
+# directory is not readable by the backend's container user.
+slot_state_dir() {
+	echo "${SLOT_STATE_DIR:-$(dirname "${NGINX_ACTIVE_INCLUDE}")/slot}"
+}
+
+# publish_active_slot copies the slot the Nginx include names into the
+# backends' marker, atomically, so a backend never reads a half-written file.
+publish_active_slot() {
+	local slot dir tmp
+	slot="$(active_slot)" || return 1
+	dir="$(slot_state_dir)"
+	mkdir -p "${dir}" || return 1
+	chmod 0755 "${dir}" || return 1
+	tmp="$(mktemp "${dir}/.active.XXXXXX")" || return 1
+	if ! { echo "${slot}" > "${tmp}" && chmod 0644 "${tmp}" && mv -f "${tmp}" "${dir}/active"; }; then
+		rm -f "${tmp}"
+		return 1
+	fi
+}
+
+# publish_active_slot_on_exit is deploy.sh's and rollback.sh's EXIT trap: on
+# every way out, success, failure or restoration, the marker ends up naming
+# whatever the include now names. A failure here fails the run, so a stale
+# marker can't hide behind a green deploy.
+publish_active_slot_on_exit() {
+	local status=$?
+	if ! publish_active_slot; then
+		echo "CRITICAL: could not publish the active slot to $(slot_state_dir); newsletters may send from the wrong slot, or not at all, until it is fixed" >&2
+		if (( status == 0 )); then
+			status=30
+		fi
+	fi
+	exit "${status}"
 }
 
 require_file() {

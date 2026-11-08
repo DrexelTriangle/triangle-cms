@@ -240,6 +240,66 @@ test_failed_readiness_leaves_active_slot() {
   assert_file_contains "${NGINX_ACTIVE_INCLUDE}" 'triangle_cms_slot blue'
 }
 
+assert_slot_marker() {
+  local expected="$1"
+  local marker
+  marker="$(slot_state_dir)/active"
+  [[ -f "${marker}" ]] || fail "expected the slot marker at ${marker}"
+  [[ "$(cat "${marker}")" == "${expected}" ]] || fail "expected the slot marker to name ${expected}, got $(cat "${marker}")"
+  [[ "$(stat -c %a "${marker}")" == "644" ]] || fail "the slot marker must be world-readable"
+  [[ "$(stat -c %a "$(slot_state_dir)")" == "755" ]] || fail "the slot marker directory must be world-readable"
+}
+
+test_successful_deploy_publishes_new_slot() {
+  local dir sha
+  make_case publish_success
+  dir="${CASE_DIR}"
+  write_fake_bin "${dir}"
+  write_include_file blue "${NGINX_ACTIVE_INCLUDE}"
+  sha="0123456789abcdef0123456789abcdef01234567"
+  "${SCRIPT_DIR}/deploy.sh" "${sha}" || fail "expected deploy to succeed"
+  assert_file_contains "${NGINX_ACTIVE_INCLUDE}" 'triangle_cms_slot green'
+  assert_slot_marker green
+}
+
+test_failed_deploy_keeps_marker_on_old_slot() {
+  local dir sha
+  make_case publish_failure
+  dir="${CASE_DIR}"
+  write_fake_bin "${dir}"
+  write_include_file blue "${NGINX_ACTIVE_INCLUDE}"
+  # A stale marker from before: the run must correct it, not leave it.
+  mkdir -p "$(slot_state_dir)"
+  echo green > "$(slot_state_dir)/active"
+  FAIL_PUBLIC=1
+  export FAIL_PUBLIC
+  sha="0123456789abcdef0123456789abcdef01234567"
+  if "${SCRIPT_DIR}/deploy.sh" "${sha}"; then
+    fail "expected public smoke failure"
+  fi
+  assert_slot_marker blue
+}
+
+test_rollback_publishes_target_slot() {
+  local dir
+  make_case publish_rollback
+  dir="${CASE_DIR}"
+  write_fake_bin "${dir}"
+  write_include_file green "${NGINX_ACTIVE_INCLUDE}"
+  "${SCRIPT_DIR}/rollback.sh" blue || fail "expected rollback to succeed"
+  assert_slot_marker blue
+}
+
+test_unwritable_marker_fails_deploy_before_pull() {
+  local dir
+  make_case publish_unwritable
+  dir="${CASE_DIR}"
+  write_include_file blue "${NGINX_ACTIVE_INCLUDE}"
+  # A file where the directory should be: publishing can't get past it.
+  : > "$(slot_state_dir)"
+  run_deploy_expect_failure_without_docker
+}
+
 test_failed_public_smoke_rolls_back() {
   local dir sha
   make_case smoke
@@ -311,6 +371,10 @@ test_successful_deployment_preflight
 test_nginx_reload_privilege_preflight_fails_before_pull
 test_failed_readiness_leaves_active_slot
 test_failed_public_smoke_rolls_back
+test_successful_deploy_publishes_new_slot
+test_failed_deploy_keeps_marker_on_old_slot
+test_rollback_publishes_target_slot
+test_unwritable_marker_fails_deploy_before_pull
 test_invalid_and_malicious_sha
 test_lock_contention
 test_no_old_production_include_path_references

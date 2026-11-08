@@ -292,6 +292,16 @@ under either prefix),
 With a sender configured, every backend slot runs `newsletter.Worker` (every 15s);
 the state is all in the database (`server/internal/database/newsletter_send.go`).
 
+- **Live slot only.** Only the slot Nginx is serving sends. Each production backend
+  knows its own slot (`CMS_SLOT`) and reads the live one from a marker that
+  `deploy.sh` and `rollback.sh` write on every switch
+  (`/etc/nginx/triangle-cms/slot/active` on Delta, mounted read-only at
+  `/run/triangle-cms-slot/active`). The idle slot keeps the previous release, and on
+  2026-11-07 it sent a whole issue without per-link tracking. The worker checks before
+  every copy, so a switch mid-issue hands the rest to the new slot. A missing or
+  malformed marker stops sending and is logged ("cannot tell whether this slot is
+  live"). With `CMS_SLOT` unset (local stack, tests) the backend always sends.
+
 - **Start.** A `scheduled` issue whose `scheduled_for` has passed moves to `sending`
   and gets one `pending` delivery per confirmed subscriber, in one transaction.
   Campaigns go to all confirmed subscribers, not per list, as in WordPress. An

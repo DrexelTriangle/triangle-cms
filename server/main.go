@@ -62,7 +62,11 @@ const (
 	newsletterSiteURLEnv   = "NEWSLETTER_SITE_URL"
 	newsletterSendRateEnv  = "NEWSLETTER_SEND_RATE"
 	newsletterDailyCapEnv  = "NEWSLETTER_DAILY_CAP"
-	defaultNewsletterFrom  = "The Triangle <notify@thetriangle.org>"
+	// The backend's own slot, and the deploy scripts' marker naming the live
+	// one. Only the live slot sends newsletters; see newsletter.SlotGate.
+	cmsSlotEnv            = "CMS_SLOT"
+	cmsActiveSlotFileEnv  = "CMS_ACTIVE_SLOT_FILE"
+	defaultNewsletterFrom = "The Triangle <notify@thetriangle.org>"
 	// Where WordPress's issues sent replies to the question of the day.
 	defaultNewsletterReply = "newsletter@thetriangle.org"
 	defaultShutdownTimeout = 10 * time.Second
@@ -509,12 +513,18 @@ func run(deps runDeps, conn *sql.DB) error {
 	defer stopScheduler()
 	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default())
 
-	// Scheduled newsletter issues. Every slot runs a sender; a lease on the
-	// issue lets only one of them send it. Shutdown waits for the message in
-	// hand to be sent and recorded, so a deploy can't double-send it.
+	// Scheduled newsletter issues. Every slot runs a sender, but only the one
+	// Nginx is serving sends; the issue's lease keeps two from sending the same
+	// copy across a switch. Shutdown waits for the message in hand to be sent
+	// and recorded, so a deploy can't double-send it.
+	slotGate, err := newsletterSlotGateFromEnv()
+	if err != nil {
+		return err
+	}
 	newsletterDone := make(chan struct{})
 	if m := deps.newsletterMail; m != nil {
-		worker := &newsletter.Worker{Conn: conn, Composer: m.Composer, Sender: m.Sender, Rate: m.SendRate, DailyCap: m.DailyCap}
+		worker := &newsletter.Worker{Conn: conn, Composer: m.Composer, Sender: m.Sender, Rate: m.SendRate, DailyCap: m.DailyCap,
+			Active: slotGate.Active}
 		go func() {
 			defer close(newsletterDone)
 			worker.Run(schedulerCtx)
@@ -689,6 +699,22 @@ func newsletterMailFromEnv() (*handlers.NewsletterMail, error) {
 		SendRate: rate,
 		DailyCap: dailyCap,
 	}, nil
+}
+
+// newsletterSlotGateFromEnv reads which slot this backend is. Unset means a
+// lone backend (development, tests), which always sends; anything but blue or
+// green stops the backend, so a typo fails the deploy instead of silently
+// leaving no slot that sends.
+func newsletterSlotGateFromEnv() (newsletter.SlotGate, error) {
+	slot := strings.TrimSpace(os.Getenv(cmsSlotEnv))
+	if slot != "" && !newsletter.ValidSlot(slot) {
+		return newsletter.SlotGate{}, fmt.Errorf("%s must be blue, green or empty, got %q", cmsSlotEnv, slot)
+	}
+	gate := newsletter.SlotGate{Slot: slot, File: strings.TrimSpace(os.Getenv(cmsActiveSlotFileEnv))}
+	if slot != "" {
+		slog.Info("newsletter sending limited to the live slot", "slot", slot)
+	}
+	return gate, nil
 }
 
 func newsletterSenderFromEnv() (mailer.Sender, error) {

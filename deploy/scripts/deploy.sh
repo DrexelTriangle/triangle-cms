@@ -55,6 +55,13 @@ echo "imaging image tag: ${CMS_IMAGING_TAG}"
 require_file "${COMPOSE_FILE}"
 acquire_deploy_lock
 deployment_preflight
+# Before any compose call: the backends bind-mount this directory, and if it
+# were missing Docker would refuse to start them.
+if ! publish_active_slot; then
+  echo "deployment preflight failed: cannot publish the active slot to $(slot_state_dir)" >&2
+  exit 1
+fi
+trap publish_active_slot_on_exit EXIT
 
 current_slot="$(active_slot)"
 validate_slot "${current_slot}"
