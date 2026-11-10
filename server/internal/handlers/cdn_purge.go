@@ -70,6 +70,19 @@ func purgeHomepage() {
 	currentCDNPurger().Enqueue("/")
 }
 
+// purgeSiteChrome is for writes that change what every page wraps its content
+// in: the footer menu and the site title. Scalene caches article pages at the
+// edge for up to 30 days, so without this they would keep the old footer for a
+// month; "/article/" goes as a prefix and evicts every article at once. Section,
+// author and other pages expire within minutes and are left to do so.
+//
+// It costs a re-render of each article as it is next read, which is why it is
+// kept to these two rare admin edits.
+func purgeSiteChrome() {
+	invalidateHomepageCaches()
+	currentCDNPurger().Enqueue("/", "/article/")
+}
+
 // articleSurface is every public URL whose content depends on one article.
 type articleSurface struct {
 	live  bool

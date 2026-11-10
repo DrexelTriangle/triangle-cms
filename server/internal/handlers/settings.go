@@ -62,6 +62,7 @@ func PatchSiteSettings(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to update site settings")
 			return
 		}
+		purgeSiteChrome()
 		activity.LogRequest(r, "settings_changed", "Site title updated", "site_title", siteTitle)
 		writeJSON(w, http.StatusOK, models.SiteSettingsResponse{SiteTitle: siteTitle})
 	})
@@ -273,6 +274,7 @@ func PatchFooterSettings(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to fetch footer settings")
 			return
 		}
+		purgeSiteChrome()
 		activity.LogRequest(r, "settings_changed", "Footer menu updated")
 		writeJSON(w, http.StatusOK, saved)
 	})
