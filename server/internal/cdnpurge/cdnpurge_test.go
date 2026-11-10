@@ -34,21 +34,31 @@ func newFakeCloudflare(t *testing.T) *fakeCloudflare {
 		var payload struct {
 			Files    []string `json:"files"`
 			Prefixes []string `json:"prefixes"`
+			Tags     []string `json:"tags"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Errorf("decode: %v", err)
 		}
-		if len(payload.Files) > 0 && len(payload.Prefixes) > 0 {
-			t.Errorf("one request mixed files and prefixes; Cloudflare takes one purge type per call")
+		kinds := 0
+		for _, n := range []int{len(payload.Files), len(payload.Prefixes), len(payload.Tags)} {
+			if n > 0 {
+				kinds++
+			}
+		}
+		if kinds > 1 {
+			t.Errorf("one request mixed purge types; Cloudflare takes one per call")
 		}
 		f.mu.Lock()
-		// Recorded with a marker so tests can tell the two purge types apart.
+		// Recorded with a marker so tests can tell the purge types apart.
 		var call []string
 		for _, u := range payload.Files {
 			call = append(call, "file:"+u)
 		}
 		for _, u := range payload.Prefixes {
 			call = append(call, "prefix:"+u)
+		}
+		for _, tag := range payload.Tags {
+			call = append(call, "tag:"+tag)
 		}
 		f.calls = append(f.calls, call)
 		status := http.StatusOK
@@ -149,13 +159,15 @@ func TestSendUsesPrefixesExceptForTheRoot(t *testing.T) {
 
 	calls := f.snapshot()
 	if len(calls) != 2 {
-		t.Fatalf("calls = %v, want a prefix call and a file call", calls)
+		t.Fatalf("calls = %v, want a prefix call and a tag call", calls)
 	}
 	if want := []string{"prefix:www.thetriangle.org/article/fork", "prefix:www.thetriangle.org/author/jane-doe"}; !slices.Equal(calls[0], want) {
 		t.Fatalf("prefix call = %v, want %v", calls[0], want)
 	}
-	if want := []string{"file:https://www.thetriangle.org/"}; !slices.Equal(calls[1], want) {
-		t.Fatalf("root call = %v, want %v (never a prefix)", calls[1], want)
+	// The root goes as the homepage's cache tag: never a prefix (the whole
+	// site), and a URL purge evicts nothing for HTML on this zone.
+	if want := []string{"tag:" + HomepageCacheTag}; !slices.Equal(calls[1], want) {
+		t.Fatalf("root call = %v, want %v", calls[1], want)
 	}
 }
 

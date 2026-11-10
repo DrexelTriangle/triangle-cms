@@ -1,10 +1,18 @@
 // Package cdnpurge evicts public-site pages from Cloudflare's cache when the
 // content behind them changes.
 //
-// Scalene's pages tell Cloudflare it may keep them: an article for 30 minutes
-// (s-maxage=1800), a section or author page for 5, the homepage for 60s plus
-// stale-while-revalidate. Without a purge, a correction, a retraction or an
-// unpublish stays on the public site for that long after the editor saved it.
+// Scalene's pages tell Cloudflare it may keep them: an article for 30 days
+// (src/layouts/ArticleLayout.astro), the homepage for a day (src/pages/
+// index.astro), a section or author page for 5 minutes. Those edge lifetimes
+// are only safe because this package purges on every write; without it a
+// correction, a retraction or an unpublish would stay public that long.
+//
+// The contract with Scalene, which nothing in this repo can check: the
+// homepage response carries "Cache-Tag: homepage" (HomepageCacheTag), because
+// on this zone only prefix, tag and host purges evict HTML; a URL purge returns
+// success and evicts nothing. If the homepage lost that header, its purges
+// would silently do nothing and it would be up to a day stale. Verify with a
+// cf-cache-status HIT, a purge, then a MISS -- never from success:true alone.
 //
 // Purges are queued, not sent inline: an editor's save must never wait on, or
 // fail because of, Cloudflare. The queue collects URLs for a short window and
@@ -332,22 +340,24 @@ func retryable(err error) bool {
 // purge-by-URL reports success for an HTML page and evicts nothing, while a
 // prefix purge evicts it (verified in production 2026-11-10 against cached
 // articles, section pages and /about; robots.txt and images purge either way).
-// The root cannot go as a prefix, which would be the whole site. It is sent as
-// a file URL, which today evicts nothing for the same reason, so the homepage
-// in practice catches up on its own 60s s-maxage; the call is kept so the
-// root is purged the day Cloudflare's URL purge starts matching HTML here.
+// The root cannot go as a prefix, which would be the whole site, and a URL
+// purge evicts nothing for the reason above. So it goes as the cache tag the
+// homepage response carries (Scalene index.astro sends "Cache-Tag: homepage"),
+// which evicts that page alone. Scalene caches the homepage for a day on the
+// strength of this purge.
 //
 // Cloudflare takes one purge type per request, so a batch holding the root is
 // two calls.
 func (p *Purger) send(ctx context.Context, batch []string) error {
-	var files, prefixes []string
+	var prefixes []string
+	root := false
 	for _, raw := range batch {
 		u, err := url.Parse(raw)
 		if err != nil {
 			continue
 		}
 		if u.Path == "" || u.Path == "/" {
-			files = append(files, raw)
+			root = true
 			continue
 		}
 		prefixes = append(prefixes, u.Host+u.EscapedPath())
@@ -357,11 +367,15 @@ func (p *Purger) send(ctx context.Context, batch []string) error {
 			return err
 		}
 	}
-	if len(files) > 0 {
-		return p.post(ctx, map[string][]string{"files": files})
+	if root {
+		return p.post(ctx, map[string][]string{"tags": {HomepageCacheTag}})
 	}
 	return nil
 }
+
+// HomepageCacheTag is the Cache-Tag Scalene's homepage response carries. Keep
+// it in step with src/pages/index.astro there.
+const HomepageCacheTag = "homepage"
 
 func (p *Purger) post(ctx context.Context, purge map[string][]string) error {
 	payload, err := json.Marshal(purge)
