@@ -4819,6 +4819,49 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/settings/cache/purge": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Emergency lever: evicts every cached page, image and asset on the public site's host, for when something stale or wrong is public and an article save does not clear it. The origin then serves each first request again while the cache refills, so it is limited to once a minute.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Purge the whole public site from Cloudflare",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.CachePurgeResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/settings/exhibit-spotlights": {
             "get": {
                 "security": [
@@ -6916,6 +6959,19 @@ const docTemplate = `{
                 "window_hours": {
                     "description": "WindowHours is 0 (the default) when a flagged article holds the banner\nindefinitely.",
                     "type": "integer"
+                }
+            }
+        },
+        "models.CachePurgeResponse": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "description": "Host is the public hostname whose whole Cloudflare cache was evicted.",
+                    "type": "string"
+                },
+                "purged_at": {
+                    "description": "PurgedAt is when the purge was accepted by Cloudflare (RFC 3339, UTC).",
+                    "type": "string"
                 }
             }
         },

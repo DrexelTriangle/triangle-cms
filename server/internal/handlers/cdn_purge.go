@@ -4,12 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
+	"time"
 
+	"server/internal/activity"
 	"server/internal/cdnpurge"
 	db "server/internal/database"
+	"server/internal/models"
 )
 
 // After a write that changes what the public site shows, two caches stand
@@ -81,6 +86,60 @@ func purgeHomepage() {
 func purgeSiteChrome() {
 	invalidateHomepageCaches()
 	currentCDNPurger().Enqueue("/", "/article/")
+}
+
+// emergencyPurgeCooldown spaces site-wide purges. Each one sends every reader's
+// next request for every page and image to the origin; a second click while the
+// cache is still refilling adds load and fixes nothing the first didn't.
+const emergencyPurgeCooldown = time.Minute
+
+var (
+	emergencyPurgeMu   sync.Mutex
+	lastEmergencyPurge time.Time
+)
+
+// @Summary Purge the whole public site from Cloudflare
+// @Description Emergency lever: evicts every cached page, image and asset on the public site's host, for when something stale or wrong is public and an article save does not clear it. The origin then serves each first request again while the cache refills, so it is limited to once a minute.
+// @Tags settings
+// @Produce json
+// @Success 200 {object} models.CachePurgeResponse
+// @Failure 429 {object} models.ErrorResponse
+// @Failure 502 {object} models.ErrorResponse
+// @Failure 503 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/settings/cache/purge [post]
+func PostEmergencyCachePurge() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		purger := currentCDNPurger()
+		if !purger.Enabled() {
+			writeError(w, http.StatusServiceUnavailable, "Cloudflare purging is not configured on this server")
+			return
+		}
+
+		emergencyPurgeMu.Lock()
+		defer emergencyPurgeMu.Unlock()
+		if wait := emergencyPurgeCooldown - time.Since(lastEmergencyPurge); wait > 0 {
+			writeError(w, http.StatusTooManyRequests,
+				fmt.Sprintf("the site was purged moments ago; try again in %ds", int(wait.Seconds())+1))
+			return
+		}
+
+		// Own deadline: the purge should finish even if the admin's tab closes.
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := purger.PurgeSite(ctx); err != nil {
+			slog.Error("emergency cache purge failed", "error", err)
+			writeError(w, http.StatusBadGateway, "Cloudflare did not accept the purge; nothing was evicted")
+			return
+		}
+		now := time.Now().UTC()
+		lastEmergencyPurge = now
+		// After the purge, so the homepage reload it triggers reads current data.
+		invalidateHomepageCaches()
+
+		activity.LogRequest(r, "cache_purged", "Whole site purged from Cloudflare", "host", purger.SiteHost())
+		writeJSON(w, http.StatusOK, models.CachePurgeResponse{Host: purger.SiteHost(), PurgedAt: now.Format(time.RFC3339)})
+	})
 }
 
 // articleSurface is every public URL whose content depends on one article.
