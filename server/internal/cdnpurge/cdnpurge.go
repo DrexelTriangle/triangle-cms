@@ -294,10 +294,44 @@ func retryable(err error) bool {
 	return true
 }
 
+// send purges one batch. Each URL except the site root goes as a prefix
+// ("www.thetriangle.org/article/x"), not as a file URL: on this zone a
+// purge-by-URL reports success for an HTML page and evicts nothing, while a
+// prefix purge evicts it (verified in production 2026-11-10 against cached
+// articles, section pages and /about; robots.txt and images purge either way).
+// The root cannot go as a prefix, which would be the whole site. It is sent as
+// a file URL, which today evicts nothing for the same reason, so the homepage
+// in practice catches up on its own 60s s-maxage; the call is kept so the
+// root is purged the day Cloudflare's URL purge starts matching HTML here.
+//
+// Cloudflare takes one purge type per request, so a batch holding the root is
+// two calls.
 func (p *Purger) send(ctx context.Context, batch []string) error {
-	payload, err := json.Marshal(struct {
-		Files []string `json:"files"`
-	}{Files: batch})
+	var files, prefixes []string
+	for _, raw := range batch {
+		u, err := url.Parse(raw)
+		if err != nil {
+			continue
+		}
+		if u.Path == "" || u.Path == "/" {
+			files = append(files, raw)
+			continue
+		}
+		prefixes = append(prefixes, u.Host+u.EscapedPath())
+	}
+	if len(prefixes) > 0 {
+		if err := p.post(ctx, map[string][]string{"prefixes": prefixes}); err != nil {
+			return err
+		}
+	}
+	if len(files) > 0 {
+		return p.post(ctx, map[string][]string{"files": files})
+	}
+	return nil
+}
+
+func (p *Purger) post(ctx context.Context, purge map[string][]string) error {
+	payload, err := json.Marshal(purge)
 	if err != nil {
 		return err
 	}

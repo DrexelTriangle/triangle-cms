@@ -36,11 +36,16 @@ func installTestPurger(t *testing.T) (*purgeRecorder, func()) {
 	rec := &purgeRecorder{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
-			Files []string `json:"files"`
+			Files    []string `json:"files"`
+			Prefixes []string `json:"prefixes"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		rec.mu.Lock()
 		rec.urls = append(rec.urls, payload.Files...)
+		// Prefixes carry no scheme; record them as the URL they evict.
+		for _, p := range payload.Prefixes {
+			rec.urls = append(rec.urls, "https://"+p)
+		}
 		rec.mu.Unlock()
 		_, _ = w.Write([]byte(`{"success":true}`))
 	}))
