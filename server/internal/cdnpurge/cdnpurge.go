@@ -1,10 +1,18 @@
 // Package cdnpurge evicts public-site pages from Cloudflare's cache when the
 // content behind them changes.
 //
-// Scalene's pages tell Cloudflare it may keep them: an article for 30 minutes
-// (s-maxage=1800), a section or author page for 5, the homepage for 60s plus
-// stale-while-revalidate. Without a purge, a correction, a retraction or an
-// unpublish stays on the public site for that long after the editor saved it.
+// Scalene's pages tell Cloudflare it may keep them: an article for 30 days
+// (src/layouts/ArticleLayout.astro), the homepage for a day (src/pages/
+// index.astro), a section or author page for 5 minutes. Those edge lifetimes
+// are only safe because this package purges on every write; without it a
+// correction, a retraction or an unpublish would stay public that long.
+//
+// The contract with Scalene, which nothing in this repo can check: the
+// homepage response carries "Cache-Tag: homepage" (HomepageCacheTag), because
+// on this zone only prefix, tag and host purges evict HTML; a URL purge returns
+// success and evicts nothing. If the homepage lost that header, its purges
+// would silently do nothing and it would be up to a day stale. Verify with a
+// cf-cache-status HIT, a purge, then a MISS -- never from success:true alone.
 //
 // Purges are queued, not sent inline: an editor's save must never wait on, or
 // fail because of, Cloudflare. The queue collects URLs for a short window and
