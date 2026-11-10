@@ -32,13 +32,25 @@ func newFakeCloudflare(t *testing.T) *fakeCloudflare {
 			t.Errorf("Authorization = %q", got)
 		}
 		var payload struct {
-			Files []string `json:"files"`
+			Files    []string `json:"files"`
+			Prefixes []string `json:"prefixes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Errorf("decode: %v", err)
 		}
+		if len(payload.Files) > 0 && len(payload.Prefixes) > 0 {
+			t.Errorf("one request mixed files and prefixes; Cloudflare takes one purge type per call")
+		}
 		f.mu.Lock()
-		f.calls = append(f.calls, payload.Files)
+		// Recorded with a marker so tests can tell the two purge types apart.
+		var call []string
+		for _, u := range payload.Files {
+			call = append(call, "file:"+u)
+		}
+		for _, u := range payload.Prefixes {
+			call = append(call, "prefix:"+u)
+		}
+		f.calls = append(f.calls, call)
 		status := http.StatusOK
 		if len(f.status) > 0 {
 			status, f.status = f.status[0], f.status[1:]
@@ -118,12 +130,32 @@ func TestEnqueueResolvesPathsAndDropsForeignHosts(t *testing.T) {
 		t.Fatalf("calls = %v, want one", calls)
 	}
 	want := []string{
-		"https://www.thetriangle.org/article/a",
-		"https://www.thetriangle.org/news",
-		"https://www.thetriangle.org/wp-content/uploads/2026/11/x.jpg",
+		"prefix:www.thetriangle.org/article/a",
+		"prefix:www.thetriangle.org/news",
+		"prefix:www.thetriangle.org/wp-content/uploads/2026/11/x.jpg",
 	}
 	if !slices.Equal(calls[0], want) {
 		t.Fatalf("purged %v, want %v", calls[0], want)
+	}
+}
+
+// HTML pages on this zone are evicted only by a prefix purge, and the root may
+// never be a prefix: "www.thetriangle.org/" would purge the whole site.
+func TestSendUsesPrefixesExceptForTheRoot(t *testing.T) {
+	f := newFakeCloudflare(t)
+	p := newTestPurger(t, f, nil)
+	p.Enqueue("/", "/article/fork", "/author/jane-doe")
+	p.flush(context.Background(), true)
+
+	calls := f.snapshot()
+	if len(calls) != 2 {
+		t.Fatalf("calls = %v, want a prefix call and a file call", calls)
+	}
+	if want := []string{"prefix:www.thetriangle.org/article/fork", "prefix:www.thetriangle.org/author/jane-doe"}; !slices.Equal(calls[0], want) {
+		t.Fatalf("prefix call = %v, want %v", calls[0], want)
+	}
+	if want := []string{"file:https://www.thetriangle.org/"}; !slices.Equal(calls[1], want) {
+		t.Fatalf("root call = %v, want %v (never a prefix)", calls[1], want)
 	}
 }
 
