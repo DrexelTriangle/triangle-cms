@@ -1015,6 +1015,7 @@ func PutAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "author not found")
 			return
 		}
+		purgeAuthorPages(conn, slug, nextSlug)
 		activity.LogRequest(r, "author_updated", body.DisplayName, "old_slug", slug, "new_slug", nextSlug)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -1087,6 +1088,9 @@ func PatchAuthor(conn *sql.DB) http.HandlerFunc {
 		if rawSlug, ok := body["slug"].(string); ok && strings.TrimSpace(rawSlug) != "" {
 			target = strings.TrimSpace(rawSlug)
 		}
+		// target is the slug the row has now; it is overwritten with the
+		// display name below only for the activity log.
+		purgeAuthorPages(conn, slug, target)
 		if displayName, ok := body["display_name"].(string); ok && strings.TrimSpace(displayName) != "" {
 			target = strings.TrimSpace(displayName)
 		}
@@ -1125,6 +1129,7 @@ func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "author not found")
 			return
 		}
+		purgeAuthorPages(conn, slug)
 		activity.LogRequest(r, "author_deleted", slug)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -1160,6 +1165,7 @@ func RestoreAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "author not found")
 			return
 		}
+		purgeAuthorPages(conn, slug)
 		activity.LogRequest(r, "author_restored", slug)
 		w.WriteHeader(http.StatusNoContent)
 	}

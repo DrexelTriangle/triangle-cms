@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -140,6 +141,122 @@ func PostEmergencyCachePurge() http.Handler {
 		activity.LogRequest(r, "cache_purged", "Whole site purged from Cloudflare", "host", purger.SiteHost())
 		writeJSON(w, http.StatusOK, models.CachePurgeResponse{Host: purger.SiteHost(), PurgedAt: now.Format(time.RFC3339)})
 	})
+}
+
+// maxAuthorArticlePurges is where an author edit stops naming articles one by
+// one and evicts every article page with the single "/article/" prefix. Past a
+// few hundred, one prefix purge is cheaper for Cloudflare's rate limits than
+// many, and the re-renders it costs are spread over whatever readers request.
+const maxAuthorArticlePurges = 200
+
+// purgeAuthorPages runs after an author write. Article pages carry the byline
+// -- the display name, linking to /author/<slug> -- and Scalene caches them for
+// 30 days, so a rename or a slug change would otherwise stay wrong on every one
+// of their stories for a month. slugs are the author's slug before and after
+// the write (the same value when it did not change); the articles are looked up
+// under the last one, which is the row's slug now.
+//
+// The lookup runs on its own context, after the write committed, like the
+// article purges: the editor closing the tab must not cancel it.
+func purgeAuthorPages(conn *sql.DB, slugs ...string) {
+	invalidateHomepageCaches()
+	purger := currentCDNPurger()
+	if !purger.Enabled() || len(slugs) == 0 {
+		return
+	}
+	paths := []string{"/"}
+	for _, s := range slugs {
+		if s = strings.TrimSpace(s); s != "" {
+			paths = append(paths, "/author/"+s)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), homepageLoadTimeout)
+	defer cancel()
+	current := strings.TrimSpace(slugs[len(slugs)-1])
+	rows, err := conn.QueryContext(ctx, `
+		SELECT a.slug
+		FROM articles a
+		JOIN articles_authors aa ON aa.articles_id = a.id
+		JOIN authors au ON au.id = aa.author_id
+		WHERE au.login = ? AND a.pub_date IS NOT NULL AND a.archived_at IS NULL
+		LIMIT ?`, current, maxAuthorArticlePurges+1)
+	if err != nil {
+		// Purge everything rather than nothing: a byline that stays wrong for a
+		// month is the failure this exists to prevent.
+		slog.Warn("cdn purge: listing author's articles failed; purging all articles", "author", current, "error", err)
+		purger.Enqueue(append(paths, "/article/")...)
+		return
+	}
+	defer rows.Close()
+	var articles []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err == nil && strings.TrimSpace(slug) != "" {
+			articles = append(articles, "/article/"+strings.TrimSpace(slug))
+		}
+	}
+	if err := rows.Err(); err != nil || len(articles) > maxAuthorArticlePurges {
+		paths = append(paths, "/article/")
+	} else {
+		paths = append(paths, articles...)
+	}
+	purger.Enqueue(paths...)
+}
+
+// purgeQuizArticles runs after a quiz is created, edited or deleted. Scalene
+// renders an embedded quiz into the article page, which Cloudflare holds for 30
+// days and nothing else purges. It finds the live articles whose body embeds
+// the quiz -- with quizIDsInContent, the same reading of the shortcode the
+// publish check and the site use -- and purges each.
+//
+// In the background: the candidates are found by scanning article bodies, which
+// a quiz save should not wait on.
+func purgeQuizArticles(conn *sql.DB, quizID int64) {
+	if !currentCDNPurger().Enabled() || conn == nil || quizID <= 0 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		slugs, err := liveArticlesEmbeddingQuiz(ctx, conn, quizID)
+		if err != nil {
+			slog.Warn("cdn purge: finding articles that embed a quiz failed", "quiz_id", quizID, "error", err)
+			return
+		}
+		if len(slugs) == 0 {
+			return
+		}
+		paths := make([]string, 0, len(slugs))
+		for _, s := range slugs {
+			paths = append(paths, "/article/"+s)
+		}
+		currentCDNPurger().Enqueue(paths...)
+	}()
+}
+
+func liveArticlesEmbeddingQuiz(ctx context.Context, conn *sql.DB, quizID int64) ([]string, error) {
+	// The LIKE only narrows the scan; quizIDsInContent decides. The column's
+	// collation is case-insensitive, matching the shortcode's (?i).
+	rows, err := conn.QueryContext(ctx, `
+		SELECT slug, text FROM articles
+		WHERE pub_date IS NOT NULL AND archived_at IS NULL AND text LIKE '%[quiz%'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var slugs []string
+	for rows.Next() {
+		var slug string
+		var body sql.NullString
+		if err := rows.Scan(&slug, &body); err != nil {
+			return nil, err
+		}
+		if slices.Contains(quizIDsInContent(body.String), quizID) {
+			slugs = append(slugs, strings.TrimSpace(slug))
+		}
+	}
+	return slugs, rows.Err()
 }
 
 // articleSurface is every public URL whose content depends on one article.
