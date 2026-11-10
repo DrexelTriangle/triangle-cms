@@ -82,6 +82,12 @@ type Config struct {
 	Delay      time.Duration // DefaultDelay when zero
 	Endpoint   string        // DefaultEndpoint when empty
 	HTTPClient *http.Client  // a client with requestTimeout when nil
+
+	// NoWarm turns off re-requesting purged pages through Cloudflare after a
+	// purge (warm.go). WarmClient is the client those requests use; nil gives
+	// one with warmTimeout.
+	NoWarm     bool
+	WarmClient *http.Client
 }
 
 // Purger queues and sends Cloudflare purge-by-URL requests.
@@ -93,6 +99,7 @@ type Purger struct {
 	endpoint string
 	client   *http.Client
 	before   func()
+	warmer   *warmer       // nil when warming is off
 	backoff  time.Duration // before the one in-flush retry
 
 	mu      sync.Mutex
@@ -125,6 +132,10 @@ func New(cfg Config) (*Purger, error) {
 	if client == nil {
 		client = &http.Client{Timeout: requestTimeout}
 	}
+	var w *warmer
+	if !cfg.NoWarm {
+		w = newWarmer(cfg.WarmClient)
+	}
 	return &Purger{
 		zoneID:   zone,
 		token:    token,
@@ -133,6 +144,7 @@ func New(cfg Config) (*Purger, error) {
 		endpoint: endpoint,
 		client:   client,
 		before:   cfg.BeforeFlush,
+		warmer:   w,
 		backoff:  retryBackoff,
 		pending:  make(map[string]struct{}),
 		wake:     make(chan struct{}, 1),
@@ -224,6 +236,10 @@ func (p *Purger) PurgeSite(ctx context.Context) error {
 	}
 	metrics.CDNPurgeURLs.WithLabelValues("purged").Inc()
 	slog.Warn("cdn purge: whole site purged", "host", p.site.Host)
+	// Everything now misses; refill the page most readers land on first.
+	if p.warmer != nil {
+		p.warmer.warm([]string{p.site.String() + "/"})
+	}
 	return nil
 }
 
@@ -288,7 +304,7 @@ func (p *Purger) flush(ctx context.Context, requeue bool) {
 	}
 	sort.Strings(urls) // deterministic batches, for logs and tests
 
-	var failed []string
+	var failed, purged []string
 	for start := 0; start < len(urls); start += BatchSize {
 		batch := urls[start:min(start+BatchSize, len(urls))]
 		err := p.send(ctx, batch)
@@ -309,9 +325,14 @@ func (p *Purger) flush(ctx context.Context, requeue bool) {
 		}
 		metrics.CDNPurgeURLs.WithLabelValues("purged").Add(float64(len(batch)))
 		slog.Info("cdn purge sent", "urls", len(batch))
+		purged = append(purged, batch...)
 	}
 	if requeue && len(failed) > 0 && ctx.Err() == nil {
 		p.Enqueue(failed...)
+	}
+	// Not on the shutdown drain: the process is exiting.
+	if requeue && p.warmer != nil {
+		p.warmer.warm(purged)
 	}
 }
 

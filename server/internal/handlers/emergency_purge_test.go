@@ -40,7 +40,7 @@ func newHostPurgeServer(t *testing.T) (*hostPurgeServer, *cdnpurge.Purger) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	p, err := cdnpurge.New(cdnpurge.Config{ZoneID: "z", APIToken: "t", SiteURL: "https://www.thetriangle.org", Endpoint: srv.URL})
+	p, err := cdnpurge.New(cdnpurge.Config{ZoneID: "z", APIToken: "t", SiteURL: "https://www.thetriangle.org", Endpoint: srv.URL, NoWarm: true})
 	if err != nil {
 		t.Fatal(err)
 	}

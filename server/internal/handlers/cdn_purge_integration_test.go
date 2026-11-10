@@ -61,7 +61,7 @@ func installTestPurger(t *testing.T) (*purgeRecorder, func()) {
 	const delay = 20 * time.Millisecond
 	p, err := cdnpurge.New(cdnpurge.Config{
 		ZoneID: "z", APIToken: "t", SiteURL: "https://www.thetriangle.org",
-		Endpoint: srv.URL, Delay: delay,
+		Endpoint: srv.URL, Delay: delay, NoWarm: true,
 	})
 	if err != nil {
 		t.Fatal(err)

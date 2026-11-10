@@ -35,6 +35,16 @@ var CDNPurgeURLs = promauto.NewCounterVec(
 	[]string{"result"},
 )
 
+// CDNWarmRequests counts the cache warmer's re-requests of purged pages by
+// result: warmed (2xx through Cloudflare) or failed.
+var CDNWarmRequests = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "cdn_warm_requests_total",
+		Help: "Purged public pages re-requested through Cloudflare to refill its cache, by result",
+	},
+	[]string{"result"},
+)
+
 var RequestDuration = promauto.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name: "http_request_duration_seconds",

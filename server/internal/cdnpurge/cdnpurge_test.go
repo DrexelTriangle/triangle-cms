@@ -88,6 +88,7 @@ func newTestPurger(t *testing.T, f *fakeCloudflare, before func()) *Purger {
 	p, err := New(Config{
 		ZoneID: "zone-1", APIToken: "tok", SiteURL: "https://www.thetriangle.org",
 		Endpoint: f.server.URL, Delay: 10 * time.Millisecond, BeforeFlush: before,
+		NoWarm: true, // warm_test.go covers warming; never reach the real site
 	})
 	if err != nil {
 		t.Fatal(err)
