@@ -194,6 +194,39 @@ func (p *Purger) resolve(raw string) (string, bool) {
 	return u.String(), true
 }
 
+// PurgeSite evicts everything Cloudflare holds for the site's host -- every
+// page, image and asset on www -- right now, bypassing the queue. It is the
+// emergency lever for when something stale or wrong is public and a targeted
+// purge isn't enough; the origin then serves every first request again until
+// the cache refills, which is why it is an admin action and not automatic.
+//
+// Other hosts in the zone (delta, the legacy subdomains) are left alone. The
+// queued URLs are not dropped: a whole-host purge covers them, and sending
+// them later as well is harmless.
+func (p *Purger) PurgeSite(ctx context.Context) error {
+	if p == nil {
+		return errors.New("cdnpurge: purging is not configured")
+	}
+	if p.before != nil {
+		p.before()
+	}
+	if err := p.post(ctx, map[string][]string{"hosts": {p.site.Host}}); err != nil {
+		metrics.CDNPurgeURLs.WithLabelValues("failed").Inc()
+		return err
+	}
+	metrics.CDNPurgeURLs.WithLabelValues("purged").Inc()
+	slog.Warn("cdn purge: whole site purged", "host", p.site.Host)
+	return nil
+}
+
+// SiteHost is the host PurgeSite evicts.
+func (p *Purger) SiteHost() string {
+	if p == nil {
+		return ""
+	}
+	return p.site.Host
+}
+
 // Run sends queued purges until ctx ends. Whatever is still queued then is
 // flushed once more on a short deadline, so a deploy's shutdown does not
 // swallow the last save.

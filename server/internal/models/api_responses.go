@@ -310,6 +310,14 @@ type SiteSettingsResponse struct {
 	SiteTitle string `json:"site_title"`
 }
 
+// CachePurgeResponse reports a site-wide emergency purge.
+type CachePurgeResponse struct {
+	// Host is the public hostname whose whole Cloudflare cache was evicted.
+	Host string `json:"host"`
+	// PurgedAt is when the purge was accepted by Cloudflare (RFC 3339, UTC).
+	PurgedAt string `json:"purged_at"`
+}
+
 type SiteSettingsPatchRequest struct {
 	SiteTitle string `json:"site_title"`
 }

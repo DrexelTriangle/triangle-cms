@@ -590,6 +590,17 @@ definitions:
           indefinitely.
         type: integer
     type: object
+  models.CachePurgeResponse:
+    properties:
+      host:
+        description: Host is the public hostname whose whole Cloudflare cache was
+          evicted.
+        type: string
+      purged_at:
+        description: PurgedAt is when the purge was accepted by Cloudflare (RFC 3339,
+          UTC).
+        type: string
+    type: object
   models.CategorySummary:
     properties:
       name:
@@ -5007,6 +5018,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Update breaking-news banner settings
+      tags:
+      - settings
+  /v1/settings/cache/purge:
+    post:
+      description: 'Emergency lever: evicts every cached page, image and asset on
+        the public site''s host, for when something stale or wrong is public and an
+        article save does not clear it. The origin then serves each first request
+        again while the cache refills, so it is limited to once a minute.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.CachePurgeResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Purge the whole public site from Cloudflare
       tags:
       - settings
   /v1/settings/exhibit-spotlights:
