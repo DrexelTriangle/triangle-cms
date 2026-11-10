@@ -136,6 +136,7 @@ func PatchBreakingNews(conn *sql.DB) http.Handler {
 		if body.Enabled {
 			logState = "enabled"
 		}
+		purgeHomepage()
 		activity.LogRequest(r, "settings_changed", "Breaking-news banner updated", "breaking_news", logState)
 
 		// Re-resolved rather than echoed: a flagged article may be overriding
@@ -195,6 +196,7 @@ func PatchHomepageCarousel(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to update homepage carousel settings")
 			return
 		}
+		purgeHomepage()
 		activity.LogRequest(r, "settings_changed", "Homepage carousel updated", "homepage_carousel", strconv.Itoa(len(slides)))
 		writeJSON(w, http.StatusOK, models.HomepageCarouselSettingsResponse{Slides: slides})
 	})
@@ -410,6 +412,7 @@ func PatchExhibitSpotlights(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "failed to update exhibit spotlights")
 			return
 		}
+		purgeHomepage()
 		activity.LogRequest(r, "settings_changed", "Exhibit spotlights updated", "exhibit_spotlights", strconv.Itoa(len(entries)))
 		writeJSON(w, http.StatusOK, models.ExhibitSpotlightSettingsResponse{Entries: entries})
 	})

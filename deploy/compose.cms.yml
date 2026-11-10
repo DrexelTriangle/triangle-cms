@@ -56,6 +56,14 @@ x-backend-base: &backend-base
     NEWSLETTER_SITE_URL: ${NEWSLETTER_SITE_URL:-}
     NEWSLETTER_SEND_RATE: ${NEWSLETTER_SEND_RATE:-}
     NEWSLETTER_DAILY_CAP: ${NEWSLETTER_DAILY_CAP:-}
+    # Cloudflare cache purge (main.go, cdnPurgerFromEnv). After an article or
+    # homepage write the backend evicts the affected public pages from
+    # Cloudflare so edits show at once instead of after the 30-minute article
+    # s-maxage. The token needs only Zone > Cache Purge on thetriangle.org. Both
+    # empty disables purging; one without the other stops the backend.
+    CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
+    CLOUDFLARE_PURGE_TOKEN: ${CLOUDFLARE_PURGE_TOKEN:-}
+    CDN_PURGE_SITE_URL: ${CDN_PURGE_SITE_URL:-}
     # Media: legacy WP uploads migrated to CephFS. The upload endpoint writes new
     # assets under MEDIA_ROOT; MEDIA_BASE_URL is the public host that serves them.
     MEDIA_ROOT: ${MEDIA_ROOT:-/mnt/cephfs/media}
