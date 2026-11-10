@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -878,6 +879,81 @@ func possessiveVariant(phrase string) string {
 		return ""
 	}
 	return strings.Join(words, " ")
+}
+
+// SectionPagesForCategories returns the slug of every section and subsection
+// page that lists an article filed under categories: each taxonomy row whose
+// CategoryMatchValues meets one of them, plus every ancestor of such a row,
+// because a section page lists its subsections' articles too (see
+// taxonomyMatchSlugs).
+//
+// It runs the listing's own definition in reverse rather than guessing from
+// the category text, so the pages it names are exactly the ones whose content
+// changes when the article does. categories may be raw or normalized; they are
+// normalized the way article_categories stores them.
+func SectionPagesForCategories(ctx context.Context, conn *sql.DB, categories []string) ([]string, error) {
+	wanted := normalizeCategoryList(categories)
+	if conn == nil || len(wanted) == 0 {
+		return nil, nil
+	}
+	rows, err := conn.QueryContext(ctx, `
+		SELECT slug, COALESCE(parent_slug, '')
+		FROM site_taxonomy
+		WHERE kind IN ('section', 'subsection')
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	parents := make(map[string]string)
+	var slugs []string
+	for rows.Next() {
+		var slug, parent string
+		if err := rows.Scan(&slug, &parent); err != nil {
+			return nil, err
+		}
+		slug = strings.TrimSpace(slug)
+		if slug == "" {
+			continue
+		}
+		slugs = append(slugs, slug)
+		if p := strings.TrimSpace(parent); p != "" {
+			parents[slug] = p
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{})
+	var pages []string
+	add := func(slug string) {
+		if _, ok := seen[slug]; ok {
+			return
+		}
+		seen[slug] = struct{}{}
+		pages = append(pages, slug)
+	}
+	for _, slug := range slugs {
+		if !categoriesMeet(CategoryMatchValues(slug), wanted) {
+			continue
+		}
+		add(slug)
+		for _, ancestor := range ancestorChain(parents, slug) {
+			add(ancestor)
+		}
+	}
+	return pages, nil
+}
+
+func categoriesMeet(a, b []string) bool {
+	for _, x := range a {
+		if slices.Contains(b, x) {
+			return true
+		}
+	}
+	return false
 }
 
 // MaxTaxonomyDepth is how many levels the section tree may hold, counting the

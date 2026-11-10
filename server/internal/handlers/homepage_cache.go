@@ -96,11 +96,14 @@ type responseCache struct {
 	body     string // last successful load; "" until there is one
 	loadedAt time.Time
 	call     *cacheCall // the load in flight, if any
+	gen      uint64     // bumped by invalidate; a load from an older gen is not stored
+	bodyGen  uint64     // the gen body was loaded in; body is fresh only while it equals gen
 }
 
 type cacheCall struct {
 	done    chan struct{}
-	waiters int // guarded by responseCache.mu
+	waiters int    // guarded by responseCache.mu
+	gen     uint64 // the cache's gen when the load started
 
 	// Written once before done is closed, read only after.
 	body     string
@@ -119,7 +122,7 @@ func newResponseCache(cfg responseCacheConfig, load func(context.Context) (strin
 
 func (c *responseCache) get(ctx context.Context) (cachedResponse, error) {
 	c.mu.Lock()
-	if c.body != "" && c.cfg.now().Sub(c.loadedAt) < c.cfg.fresh {
+	if c.body != "" && c.bodyGen == c.gen && c.cfg.now().Sub(c.loadedAt) < c.cfg.fresh {
 		res := cachedResponse{body: c.body, loadedAt: c.loadedAt, outcome: cacheHit}
 		c.mu.Unlock()
 		return res, nil
@@ -127,7 +130,7 @@ func (c *responseCache) get(ctx context.Context) (cachedResponse, error) {
 	outcome := cacheShared
 	call := c.call
 	if call == nil {
-		call = &cacheCall{done: make(chan struct{})}
+		call = &cacheCall{done: make(chan struct{}), gen: c.gen}
 		c.call = call
 		outcome = cacheMiss
 		go c.run(call)
@@ -173,13 +176,28 @@ func (c *responseCache) run(call *cacheCall) {
 	}
 
 	c.mu.Lock()
-	if err == nil {
-		c.body, c.loadedAt = body, started
+	// A load that began before an invalidate may have read the old data, so it
+	// answers the callers already waiting on it but is not kept for later ones.
+	if err == nil && call.gen == c.gen {
+		c.body, c.loadedAt, c.bodyGen = body, started, call.gen
 	}
 	call.body, call.loadedAt, call.err = body, started, err
-	c.call = nil
+	if c.call == call {
+		c.call = nil
+	}
 	c.mu.Unlock()
 	close(call.done)
+}
+
+// invalidate makes the next get load afresh, and stops a load already in
+// flight from refilling the cache or being joined by new callers. The last
+// good body is kept as the maxStale fallback: a write that changed the homepage
+// is no reason to serve an error if the reload then fails.
+func (c *responseCache) invalidate() {
+	c.mu.Lock()
+	c.gen++
+	c.call = nil
+	c.mu.Unlock()
 }
 
 // loadBounded runs the loader on its own deadline. A panic is turned into an
@@ -271,6 +289,7 @@ func newHomepageHandler(assemble func(*http.Request) (models.HomepageResponse, e
 		}
 		return body.String(), nil
 	})
+	registerHomepageCache(cache)
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !isCanonicalHomepageRequest(r) {

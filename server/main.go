@@ -16,6 +16,7 @@ import (
 	"server/internal/activity"
 	"server/internal/akismet"
 	"server/internal/auth"
+	"server/internal/cdnpurge"
 	"server/internal/database"
 	"server/internal/embeddings"
 	"server/internal/handlers"
@@ -62,6 +63,10 @@ const (
 	newsletterSiteURLEnv   = "NEWSLETTER_SITE_URL"
 	newsletterSendRateEnv  = "NEWSLETTER_SEND_RATE"
 	newsletterDailyCapEnv  = "NEWSLETTER_DAILY_CAP"
+	// Cloudflare cache purge; see cdnPurgerFromEnv.
+	cloudflareZoneIDEnv     = "CLOUDFLARE_ZONE_ID"
+	cloudflarePurgeTokenEnv = "CLOUDFLARE_PURGE_TOKEN"
+	cdnPurgeSiteURLEnv      = "CDN_PURGE_SITE_URL"
 	// The backend's own slot, and the deploy scripts' marker naming the live
 	// one. Only the live slot sends newsletters; see newsletter.SlotGate.
 	cmsSlotEnv            = "CMS_SLOT"
@@ -499,6 +504,15 @@ func run(deps runDeps, conn *sql.DB) error {
 	variantIndex := imaging.NewIndex(conn, os.Getenv("MEDIA_BASE_URL"))
 	handlers.SetImageVariants(variantIndex)
 
+	purger, err := cdnPurgerFromEnv()
+	if err != nil {
+		return err
+	}
+	handlers.SetCDNPurger(purger)
+	if purger.Enabled() {
+		slog.Info("cms startup", "event", "startup", "stage", "cdn_purge", "enabled", true)
+	}
+
 	mux := http.NewServeMux()
 	// Instagram image import. An unset SCRAPER_URL disables the route with a
 	// clear message in the editor; the rest of the embeds keep working.
@@ -511,7 +525,19 @@ func run(deps runDeps, conn *sql.DB) error {
 
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
 	defer stopScheduler()
-	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default())
+	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default(),
+		func(ids []int64) { handlers.PurgePublishedArticles(conn, ids) })
+
+	// The purger outlives the scheduler and the HTTP server, so a save that
+	// lands during shutdown is still flushed; Run sends what is queued when its
+	// context ends.
+	purgeCtx, stopPurger := context.WithCancel(context.Background())
+	defer stopPurger()
+	purgerDone := make(chan struct{})
+	go func() {
+		defer close(purgerDone)
+		purger.Run(purgeCtx)
+	}()
 
 	// Scheduled newsletter issues. Every slot runs a sender, but only the one
 	// Nginx is serving sends; the issue's lease keeps two from sending the same
@@ -595,11 +621,43 @@ func run(deps runDeps, conn *sql.DB) error {
 		return fmt.Errorf("graceful shutdown failed: %w", err)
 	}
 
+	stopPurger()
+	select {
+	case <-purgerDone:
+	case <-ctx.Done():
+		slog.Warn("cdn purger did not flush before the shutdown timeout")
+	}
+
 	if err := <-serverErr; err != nil {
 		return fmt.Errorf("https server exited with error: %w", err)
 	}
 
 	return nil
+}
+
+// cdnPurgerFromEnv builds the Cloudflare purger. Neither variable set disables
+// purging (nil purger); exactly one set is a misconfiguration and stops the
+// backend, so a half-edited cms.env fails the deploy instead of silently never
+// purging.
+func cdnPurgerFromEnv() (*cdnpurge.Purger, error) {
+	zone := strings.TrimSpace(os.Getenv(cloudflareZoneIDEnv))
+	token := strings.TrimSpace(os.Getenv(cloudflarePurgeTokenEnv))
+	if zone == "" && token == "" {
+		return nil, nil
+	}
+	if zone == "" || token == "" {
+		return nil, fmt.Errorf("%s and %s must be set together", cloudflareZoneIDEnv, cloudflarePurgeTokenEnv)
+	}
+	site := strings.TrimSpace(os.Getenv(cdnPurgeSiteURLEnv))
+	if site == "" {
+		site = "https://www.thetriangle.org"
+	}
+	return cdnpurge.New(cdnpurge.Config{
+		ZoneID:      zone,
+		APIToken:    token,
+		SiteURL:     site,
+		BeforeFlush: handlers.InvalidateHomepageCaches,
+	})
 }
 
 func getenvOrDefault(key, fallback string) string {
