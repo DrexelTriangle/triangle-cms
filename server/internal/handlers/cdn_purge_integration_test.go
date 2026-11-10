@@ -38,6 +38,7 @@ func installTestPurger(t *testing.T) (*purgeRecorder, func()) {
 		var payload struct {
 			Files    []string `json:"files"`
 			Prefixes []string `json:"prefixes"`
+			Tags     []string `json:"tags"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		rec.mu.Lock()
@@ -45,6 +46,14 @@ func installTestPurger(t *testing.T) (*purgeRecorder, func()) {
 		// Prefixes carry no scheme; record them as the URL they evict.
 		for _, p := range payload.Prefixes {
 			rec.urls = append(rec.urls, "https://"+p)
+		}
+		// The homepage tag evicts the homepage; record it as that URL.
+		for _, tag := range payload.Tags {
+			if tag == cdnpurge.HomepageCacheTag {
+				rec.urls = append(rec.urls, "https://www.thetriangle.org/")
+			} else {
+				rec.urls = append(rec.urls, "tag:"+tag)
+			}
 		}
 		rec.mu.Unlock()
 		_, _ = w.Write([]byte(`{"success":true}`))

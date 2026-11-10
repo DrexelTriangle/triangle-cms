@@ -332,22 +332,24 @@ func retryable(err error) bool {
 // purge-by-URL reports success for an HTML page and evicts nothing, while a
 // prefix purge evicts it (verified in production 2026-11-10 against cached
 // articles, section pages and /about; robots.txt and images purge either way).
-// The root cannot go as a prefix, which would be the whole site. It is sent as
-// a file URL, which today evicts nothing for the same reason, so the homepage
-// in practice catches up on its own 60s s-maxage; the call is kept so the
-// root is purged the day Cloudflare's URL purge starts matching HTML here.
+// The root cannot go as a prefix, which would be the whole site, and a URL
+// purge evicts nothing for the reason above. So it goes as the cache tag the
+// homepage response carries (Scalene index.astro sends "Cache-Tag: homepage"),
+// which evicts that page alone. Scalene caches the homepage for a day on the
+// strength of this purge.
 //
 // Cloudflare takes one purge type per request, so a batch holding the root is
 // two calls.
 func (p *Purger) send(ctx context.Context, batch []string) error {
-	var files, prefixes []string
+	var prefixes []string
+	root := false
 	for _, raw := range batch {
 		u, err := url.Parse(raw)
 		if err != nil {
 			continue
 		}
 		if u.Path == "" || u.Path == "/" {
-			files = append(files, raw)
+			root = true
 			continue
 		}
 		prefixes = append(prefixes, u.Host+u.EscapedPath())
@@ -357,11 +359,15 @@ func (p *Purger) send(ctx context.Context, batch []string) error {
 			return err
 		}
 	}
-	if len(files) > 0 {
-		return p.post(ctx, map[string][]string{"files": files})
+	if root {
+		return p.post(ctx, map[string][]string{"tags": {HomepageCacheTag}})
 	}
 	return nil
 }
+
+// HomepageCacheTag is the Cache-Tag Scalene's homepage response carries. Keep
+// it in step with src/pages/index.astro there.
+const HomepageCacheTag = "homepage"
 
 func (p *Purger) post(ctx context.Context, purge map[string][]string) error {
 	payload, err := json.Marshal(purge)
