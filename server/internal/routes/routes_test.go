@@ -254,6 +254,7 @@ func TestRegister_NewsletterEndpointsGated(t *testing.T) {
 		{http.MethodGet, "/v1/newsletters"},
 		{http.MethodGet, "/v1/newsletters/stats"},
 		{http.MethodGet, "/v1/newsletters/1"},
+		{http.MethodGet, "/v1/newsletters/1/stats"},
 		{http.MethodPost, "/v1/newsletters"},
 		{http.MethodPut, "/v1/newsletters/1"},
 		{http.MethodDelete, "/v1/newsletters/1"},

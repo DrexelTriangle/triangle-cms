@@ -14,8 +14,13 @@ x-backend-base: &backend-base
   image: ${CMS_BACKEND_IMAGE:-ghcr.io/drexeltriangle/triangle-cms-backend}:${CMS_IMAGE_TAG:?CMS_IMAGE_TAG is required}
   restart: unless-stopped
   stop_grace_period: 15s
-  environment:
+  # Each slot merges this and adds its own CMS_SLOT (YAML merges are shallow,
+  # so the services below must restate environment rather than inherit it).
+  environment: &backend-env
     CMS_SERVER_MODE: internal-http
+    # Where the deploy scripts' marker naming the live slot is mounted (see
+    # volumes below). Only that slot sends newsletters.
+    CMS_ACTIVE_SLOT_FILE: /run/triangle-cms-slot/active
     DB_NAME: ${DB_NAME:?DB_NAME is required}
     DB_USER: ${DB_USER:?DB_USER is required}
     DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
@@ -51,6 +56,14 @@ x-backend-base: &backend-base
     NEWSLETTER_SITE_URL: ${NEWSLETTER_SITE_URL:-}
     NEWSLETTER_SEND_RATE: ${NEWSLETTER_SEND_RATE:-}
     NEWSLETTER_DAILY_CAP: ${NEWSLETTER_DAILY_CAP:-}
+    # Cloudflare cache purge (main.go, cdnPurgerFromEnv). After an article or
+    # homepage write the backend evicts the affected public pages from
+    # Cloudflare so edits show at once instead of after the 30-minute article
+    # s-maxage. The token needs only Zone > Cache Purge on thetriangle.org. Both
+    # empty disables purging; one without the other stops the backend.
+    CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
+    CLOUDFLARE_PURGE_TOKEN: ${CLOUDFLARE_PURGE_TOKEN:-}
+    CDN_PURGE_SITE_URL: ${CDN_PURGE_SITE_URL:-}
     # Media: legacy WP uploads migrated to CephFS. The upload endpoint writes new
     # assets under MEDIA_ROOT; MEDIA_BASE_URL is the public host that serves them.
     MEDIA_ROOT: ${MEDIA_ROOT:-/mnt/cephfs/media}
@@ -78,6 +91,17 @@ x-backend-base: &backend-base
     # CephFS media tree (host). rw so the upload endpoint can store new files;
     # host Nginx serves the same tree read-only (that site is in triangle-infrastructure).
     - ${MEDIA_HOST_PATH:-/mnt/cephfs/media}:/mnt/cephfs/media:rw
+    # The live slot, written by deploy.sh and rollback.sh (common.sh,
+    # publish_active_slot). A directory, not the file: the scripts replace the
+    # file by rename, which a single-file bind would never see. Not created
+    # here, since Docker would make it root-owned and the runner couldn't write
+    # it; deploy.sh creates it before starting any slot.
+    - type: bind
+      source: ${CMS_SLOT_STATE_DIR:-/etc/nginx/triangle-cms/slot}
+      target: /run/triangle-cms-slot
+      read_only: true
+      bind:
+        create_host_path: false
   healthcheck:
     test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/v1/health/db || exit 1"]
     interval: 10s
@@ -174,6 +198,9 @@ services:
 
   backend-blue:
     <<: *backend-base
+    environment:
+      <<: *backend-env
+      CMS_SLOT: blue
     ports:
       - "127.0.0.1:8081:8080"
 
@@ -184,6 +211,9 @@ services:
 
   backend-green:
     <<: *backend-base
+    environment:
+      <<: *backend-env
+      CMS_SLOT: green
     ports:
       - "127.0.0.1:8082:8080"
 

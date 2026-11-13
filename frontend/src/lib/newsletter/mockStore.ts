@@ -1,4 +1,5 @@
-import type { Newsletter, NewsletterApi, NewsletterInput, NewsletterSubscriber } from "./types"
+import { rateOf, sentCampaigns } from "./stats"
+import type { Newsletter, NewsletterApi, NewsletterCampaignSummary, NewsletterInput, NewsletterSubscriber } from "./types"
 
 // A browser-only stand-in for /v1/newsletters, so the editor can be built and
 // used before the backend exists. Drafts live in this browser's localStorage
@@ -50,6 +51,35 @@ const SAMPLE_SUBSCRIBERS: NewsletterSubscriber[] = [
 ]
 
 const notFound = (id: number) => new Error(`Newsletter ${id} not found`)
+
+// Sample per-campaign stats, so the Stats tab has something to show. Issues
+// sent from 2026-10-30 on stand in for detailed tracking; earlier ones are
+// partial, as on the real backend.
+const DETAILED_TRACKING_FROM = "2026-10-30"
+
+const sampleIsDetailed = (n: Newsletter) => (n.sent_at ?? "") >= DETAILED_TRACKING_FROM
+
+const sampleSummary = (n: Newsletter): NewsletterCampaignSummary => {
+  const detailed = sampleIsDetailed(n)
+  const failed = detailed ? 1 : 0
+  const unsubscribes = detailed ? Math.round(n.recipient_count / 300) : null
+  return {
+    id: n.id,
+    subject: n.subject,
+    status: n.status,
+    sent_at: n.sent_at,
+    detailed_tracking: detailed,
+    recipients: { queued: n.recipient_count + failed, sent: n.recipient_count, failed, skipped: 0, in_flight: 0 },
+    unique_opens: n.open_count,
+    unique_clickers: n.click_count,
+    total_clicks: Math.round(n.click_count * 1.6),
+    unsubscribes,
+    open_rate: rateOf(n.open_count, n.recipient_count),
+    click_rate: rateOf(n.click_count, n.recipient_count),
+    click_to_open_rate: rateOf(n.click_count, n.open_count),
+    unsubscribe_rate: unsubscribes == null ? null : rateOf(unsubscribes, n.recipient_count),
+  }
+}
 
 export function createMockNewsletterApi(): NewsletterApi {
   const find = (state: StoredState, id: number) => {
@@ -133,6 +163,25 @@ export function createMockNewsletterApi(): NewsletterApi {
         avg_click_rate: withRecipients.length
           ? withRecipients.reduce((sum, n) => sum + n.click_count / n.recipient_count, 0) / withRecipients.length
           : null,
+      }
+    },
+
+    async campaignStats(id) {
+      const state = readState()
+      const issue = find(state, id)
+      if (issue.status !== "sent") throw new Error("This newsletter hasn't been sent yet.")
+      const sent = sentCampaigns(state.newsletters)
+      const recent = sent.filter((n) => (n.sent_at ?? "") <= (issue.sent_at ?? "")).slice(0, 8)
+      const detailed = sampleIsDetailed(issue)
+      const urls = [...new Set([...issue.email_html.matchAll(/href="(https?:\/\/[^"]+)"/g)].map((m) => m[1]))]
+      return {
+        ...sampleSummary(issue),
+        links: urls.map((url, i) => {
+          const total = Math.max(0, Math.round(issue.click_count / (i + 1)))
+          return { id: i + 1, url, total_clicks: total, unique_clickers: detailed ? Math.ceil(total * 0.8) : null }
+        }),
+        errors: detailed ? [{ message: "gmail: 400 Invalid To header", count: 1 }] : [],
+        recent: [issue, ...recent.filter((n) => n.id !== issue.id)].map(sampleSummary),
       }
     },
 

@@ -80,6 +80,7 @@ func PostDevelopingStory(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to save developing stories")
 			return
 		}
+		purgeHomepage()
 		activity.LogRequest(r, "developing_story_added", title)
 		w.WriteHeader(http.StatusCreated)
 	})
@@ -138,6 +139,7 @@ func PutDevelopingStory(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to save developing stories")
 			return
 		}
+		purgeHomepage()
 		activity.LogRequest(r, "developing_story_updated", title)
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -191,6 +193,7 @@ func DeleteDevelopingStory(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to save developing stories")
 			return
 		}
+		purgeHomepage()
 		activity.LogRequest(r, "developing_story_deleted", title)
 		w.WriteHeader(http.StatusNoContent)
 	})

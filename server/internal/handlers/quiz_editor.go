@@ -222,6 +222,7 @@ func PatchQuiz(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to update quiz")
 			return
 		}
+		purgeQuizArticles(conn, id)
 		activity.LogRequest(r, "quiz_updated", fmt.Sprintf("Updated quiz #%d: %s", id, in.Title))
 		writeQuiz(w, r, conn, id, http.StatusOK, warnings)
 	})
@@ -263,6 +264,7 @@ func DeleteQuiz(conn *sql.DB) http.Handler {
 			writeError(w, http.StatusInternalServerError, "Failed to delete quiz")
 			return
 		}
+		purgeQuizArticles(conn, id)
 		activity.LogRequest(r, "quiz_updated", fmt.Sprintf("Deleted quiz #%d", id))
 		w.WriteHeader(http.StatusNoContent)
 	})

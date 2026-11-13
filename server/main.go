@@ -16,6 +16,7 @@ import (
 	"server/internal/activity"
 	"server/internal/akismet"
 	"server/internal/auth"
+	"server/internal/cdnpurge"
 	"server/internal/database"
 	"server/internal/embeddings"
 	"server/internal/handlers"
@@ -62,7 +63,15 @@ const (
 	newsletterSiteURLEnv   = "NEWSLETTER_SITE_URL"
 	newsletterSendRateEnv  = "NEWSLETTER_SEND_RATE"
 	newsletterDailyCapEnv  = "NEWSLETTER_DAILY_CAP"
-	defaultNewsletterFrom  = "The Triangle <notify@thetriangle.org>"
+	// Cloudflare cache purge; see cdnPurgerFromEnv.
+	cloudflareZoneIDEnv     = "CLOUDFLARE_ZONE_ID"
+	cloudflarePurgeTokenEnv = "CLOUDFLARE_PURGE_TOKEN"
+	cdnPurgeSiteURLEnv      = "CDN_PURGE_SITE_URL"
+	// The backend's own slot, and the deploy scripts' marker naming the live
+	// one. Only the live slot sends newsletters; see newsletter.SlotGate.
+	cmsSlotEnv            = "CMS_SLOT"
+	cmsActiveSlotFileEnv  = "CMS_ACTIVE_SLOT_FILE"
+	defaultNewsletterFrom = "The Triangle <notify@thetriangle.org>"
 	// Where WordPress's issues sent replies to the question of the day.
 	defaultNewsletterReply = "newsletter@thetriangle.org"
 	defaultShutdownTimeout = 10 * time.Second
@@ -495,6 +504,15 @@ func run(deps runDeps, conn *sql.DB) error {
 	variantIndex := imaging.NewIndex(conn, os.Getenv("MEDIA_BASE_URL"))
 	handlers.SetImageVariants(variantIndex)
 
+	purger, err := cdnPurgerFromEnv()
+	if err != nil {
+		return err
+	}
+	handlers.SetCDNPurger(purger)
+	if purger.Enabled() {
+		slog.Info("cms startup", "event", "startup", "stage", "cdn_purge", "enabled", true)
+	}
+
 	mux := http.NewServeMux()
 	// Instagram image import. An unset SCRAPER_URL disables the route with a
 	// clear message in the editor; the rest of the embeds keep working.
@@ -507,14 +525,32 @@ func run(deps runDeps, conn *sql.DB) error {
 
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
 	defer stopScheduler()
-	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default())
+	go database.RunScheduler(schedulerCtx, conn, database.DefaultScheduleInterval, slog.Default(),
+		func(ids []int64) { handlers.PurgePublishedArticles(conn, ids) })
 
-	// Scheduled newsletter issues. Every slot runs a sender; a lease on the
-	// issue lets only one of them send it. Shutdown waits for the message in
-	// hand to be sent and recorded, so a deploy can't double-send it.
+	// The purger outlives the scheduler and the HTTP server, so a save that
+	// lands during shutdown is still flushed; Run sends what is queued when its
+	// context ends.
+	purgeCtx, stopPurger := context.WithCancel(context.Background())
+	defer stopPurger()
+	purgerDone := make(chan struct{})
+	go func() {
+		defer close(purgerDone)
+		purger.Run(purgeCtx)
+	}()
+
+	// Scheduled newsletter issues. Every slot runs a sender, but only the one
+	// Nginx is serving sends; the issue's lease keeps two from sending the same
+	// copy across a switch. Shutdown waits for the message in hand to be sent
+	// and recorded, so a deploy can't double-send it.
+	slotGate, err := newsletterSlotGateFromEnv()
+	if err != nil {
+		return err
+	}
 	newsletterDone := make(chan struct{})
 	if m := deps.newsletterMail; m != nil {
-		worker := &newsletter.Worker{Conn: conn, Composer: m.Composer, Sender: m.Sender, Rate: m.SendRate, DailyCap: m.DailyCap}
+		worker := &newsletter.Worker{Conn: conn, Composer: m.Composer, Sender: m.Sender, Rate: m.SendRate, DailyCap: m.DailyCap,
+			Active: slotGate.Active}
 		go func() {
 			defer close(newsletterDone)
 			worker.Run(schedulerCtx)
@@ -585,11 +621,43 @@ func run(deps runDeps, conn *sql.DB) error {
 		return fmt.Errorf("graceful shutdown failed: %w", err)
 	}
 
+	stopPurger()
+	select {
+	case <-purgerDone:
+	case <-ctx.Done():
+		slog.Warn("cdn purger did not flush before the shutdown timeout")
+	}
+
 	if err := <-serverErr; err != nil {
 		return fmt.Errorf("https server exited with error: %w", err)
 	}
 
 	return nil
+}
+
+// cdnPurgerFromEnv builds the Cloudflare purger. Neither variable set disables
+// purging (nil purger); exactly one set is a misconfiguration and stops the
+// backend, so a half-edited cms.env fails the deploy instead of silently never
+// purging.
+func cdnPurgerFromEnv() (*cdnpurge.Purger, error) {
+	zone := strings.TrimSpace(os.Getenv(cloudflareZoneIDEnv))
+	token := strings.TrimSpace(os.Getenv(cloudflarePurgeTokenEnv))
+	if zone == "" && token == "" {
+		return nil, nil
+	}
+	if zone == "" || token == "" {
+		return nil, fmt.Errorf("%s and %s must be set together", cloudflareZoneIDEnv, cloudflarePurgeTokenEnv)
+	}
+	site := strings.TrimSpace(os.Getenv(cdnPurgeSiteURLEnv))
+	if site == "" {
+		site = "https://www.thetriangle.org"
+	}
+	return cdnpurge.New(cdnpurge.Config{
+		ZoneID:      zone,
+		APIToken:    token,
+		SiteURL:     site,
+		BeforeFlush: handlers.InvalidateHomepageCaches,
+	})
 }
 
 func getenvOrDefault(key, fallback string) string {
@@ -689,6 +757,22 @@ func newsletterMailFromEnv() (*handlers.NewsletterMail, error) {
 		SendRate: rate,
 		DailyCap: dailyCap,
 	}, nil
+}
+
+// newsletterSlotGateFromEnv reads which slot this backend is. Unset means a
+// lone backend (development, tests), which always sends; anything but blue or
+// green stops the backend, so a typo fails the deploy instead of silently
+// leaving no slot that sends.
+func newsletterSlotGateFromEnv() (newsletter.SlotGate, error) {
+	slot := strings.TrimSpace(os.Getenv(cmsSlotEnv))
+	if slot != "" && !newsletter.ValidSlot(slot) {
+		return newsletter.SlotGate{}, fmt.Errorf("%s must be blue, green or empty, got %q", cmsSlotEnv, slot)
+	}
+	gate := newsletter.SlotGate{Slot: slot, File: strings.TrimSpace(os.Getenv(cmsActiveSlotFileEnv))}
+	if slot != "" {
+		slog.Info("newsletter sending limited to the live slot", "slot", slot)
+	}
+	return gate, nil
 }
 
 func newsletterSenderFromEnv() (mailer.Sender, error) {

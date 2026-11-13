@@ -46,7 +46,7 @@ const newsletterColumns = "id, subject, preheader, status, sponsor_image_url, sp
 // admin has since renamed alone.
 func EnsureNewsletterTables(ctx context.Context, conn *sql.DB) error {
 	for _, table := range []string{"newsletters", "newsletter_lists", "newsletter_subscribers", "newsletter_subscriber_lists",
-		"newsletter_deliveries", "newsletter_links"} {
+		"newsletter_deliveries", "newsletter_links", "newsletter_delivery_links"} {
 		if _, err := conn.ExecContext(ctx, TableSchema(table)); err != nil {
 			return err
 		}
@@ -60,6 +60,11 @@ func EnsureNewsletterTables(ctx context.Context, conn *sql.DB) error {
 		"ALTER TABLE newsletter_deliveries ADD COLUMN IF NOT EXISTS error VARCHAR(255) NULL AFTER attempts",
 		"ALTER TABLE newsletter_deliveries ADD INDEX IF NOT EXISTS idx_newsletter_deliveries_issue_status (newsletter_id, status)",
 		"ALTER TABLE newsletter_deliveries ADD INDEX IF NOT EXISTS idx_newsletter_deliveries_sent_at (sent_at)",
+		// Detailed campaign stats. Existing rows default to version 0, which
+		// reads as "sent before detailed tracking" (see newsletter_campaign_stats.go).
+		"ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS tracking_version TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER send_lease_until",
+		"ALTER TABLE newsletter_deliveries ADD COLUMN IF NOT EXISTS tracking_version TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER error",
+		"ALTER TABLE newsletter_deliveries ADD COLUMN IF NOT EXISTS unsubscribed_at DATETIME NULL AFTER tracking_version",
 	} {
 		if _, err := conn.ExecContext(ctx, alter); err != nil {
 			return err

@@ -110,6 +110,11 @@ func subscriberLinkQuery(r *http.Request) string {
 	} else {
 		q.Set("nk", r.URL.Query().Get("nk"))
 	}
+	// The delivery token rides along so the button's POST is attributed to
+	// the issue too; a malformed one is dropped, as the POST would drop it.
+	if d := (db.SubscriberKey{}).WithDelivery(r.URL.Query().Get("d")).Delivery; d != "" {
+		q.Set("d", d)
+	}
 	return q.Encode()
 }
 
@@ -142,7 +147,7 @@ func (f unsubscribeFlow) key(w http.ResponseWriter, r *http.Request) (db.Subscri
 		f.notFound(w)
 		return db.SubscriberKey{}, false
 	}
-	return key, true
+	return key.WithDelivery(q.Get("d")), true
 }
 
 func (f unsubscribeFlow) notFound(w http.ResponseWriter) {
@@ -219,6 +224,8 @@ func GetNewsletterUnsubscribe(conn *sql.DB, siteURL string) http.Handler {
 
 // PostNewsletterUnsubscribe unsubscribes the link's subscriber, from the
 // page's button or an inbox's one-click unsubscribe. Repeating it is harmless.
+// With d, the unsubscribe counts towards that copy's issue, once, provided the
+// copy went to the same subscriber.
 //
 // @Summary Unsubscribe from the newsletter
 // @Tags newsletters
@@ -226,6 +233,7 @@ func GetNewsletterUnsubscribe(conn *sql.DB, siteURL string) http.Handler {
 // @Produce html
 // @Param t query string false "Subscriber token"
 // @Param nk query string false "WordPress key, <id>-<token>"
+// @Param d query string false "Delivery token of the copy the link came in"
 // @Success 200 {string} string "HTML page"
 // @Failure 404 {string} string "HTML page"
 // @Router /v1/newsletter/unsubscribe [post]

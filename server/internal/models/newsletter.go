@@ -95,6 +95,67 @@ type NewsletterStats struct {
 	AvgClickRate      *float64 `json:"avg_click_rate"`
 }
 
+// NewsletterCampaignRecipients is where an issue's real (not test) copies
+// ended up. Queued is every copy the send started with; InFlight is pending or
+// mid-send.
+type NewsletterCampaignRecipients struct {
+	Queued   int `json:"queued"`
+	Sent     int `json:"sent"`
+	Failed   int `json:"failed"`
+	Skipped  int `json:"skipped"`
+	InFlight int `json:"in_flight"`
+}
+
+// NewsletterCampaignSummary is one issue's headline numbers. A click counts as
+// an open. Rates are 0..1 and null when their denominator is 0: OpenRate,
+// ClickRate and UnsubscribeRate are over Recipients.Sent, ClickToOpenRate is
+// UniqueClickers / UniqueOpens.
+//
+// DetailedTracking says every copy that went out carried per-link and
+// unsubscribe tracking. Without it Unsubscribes is null: unknown, not zero.
+type NewsletterCampaignSummary struct {
+	ID               int64                        `json:"id"`
+	Subject          string                       `json:"subject"`
+	Status           string                       `json:"status"`
+	SentAt           *time.Time                   `json:"sent_at"`
+	DetailedTracking bool                         `json:"detailed_tracking"`
+	Recipients       NewsletterCampaignRecipients `json:"recipients"`
+	UniqueOpens      int                          `json:"unique_opens"`
+	UniqueClickers   int                          `json:"unique_clickers"`
+	TotalClicks      int                          `json:"total_clicks"`
+	Unsubscribes     *int                         `json:"unsubscribes"`
+	OpenRate         *float64                     `json:"open_rate"`
+	ClickRate        *float64                     `json:"click_rate"`
+	ClickToOpenRate  *float64                     `json:"click_to_open_rate"`
+	UnsubscribeRate  *float64                     `json:"unsubscribe_rate"`
+}
+
+// NewsletterCampaignLink is one tracked link. UniqueClickers is null for an
+// issue without detailed tracking.
+type NewsletterCampaignLink struct {
+	ID             int64  `json:"id"`
+	URL            string `json:"url"`
+	TotalClicks    int    `json:"total_clicks"`
+	UniqueClickers *int   `json:"unique_clickers"`
+}
+
+// NewsletterSendError is a final send error, with any address in it masked,
+// and how many copies ended with it.
+type NewsletterSendError struct {
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}
+
+// NewsletterCampaignStats is GET /v1/newsletters/{id}/stats. Links are most
+// clicked first, errors most frequent first, and Recent is this issue and the
+// sent issues before it, newest first.
+type NewsletterCampaignStats struct {
+	NewsletterCampaignSummary
+	Links  []NewsletterCampaignLink    `json:"links"`
+	Errors []NewsletterSendError       `json:"errors"`
+	Recent []NewsletterCampaignSummary `json:"recent"`
+}
+
 // NewsletterSubscriber is one address on the mailing list. Lists holds the
 // WordPress plugin's list ids (1-7), which the CMS keeps unchanged.
 type NewsletterSubscriber struct {

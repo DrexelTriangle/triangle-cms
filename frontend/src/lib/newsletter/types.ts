@@ -62,6 +62,62 @@ export type NewsletterStats = {
   avg_click_rate: number | null
 }
 
+// Where a campaign's real (not test) copies ended up. queued is every copy the
+// send started with; in_flight is pending or mid-send.
+export type NewsletterCampaignRecipients = {
+  queued: number
+  sent: number
+  failed: number
+  skipped: number
+  in_flight: number
+}
+
+// One campaign's headline numbers, from GET /v1/newsletters/{id}/stats. Rates
+// are 0..1 and null when their denominator is 0 (or, for unsubscribe_rate,
+// when unsubscribes is unknown): open_rate, click_rate and unsubscribe_rate are
+// over recipients.sent, click_to_open_rate is unique_clickers / unique_opens.
+// A click counts as an open. detailed_tracking is false for campaigns sent
+// before per-link and unsubscribe tracking existed: their unsubscribes (and
+// each link's unique_clickers) are null, meaning unknown, never zero.
+export type NewsletterCampaignSummary = {
+  id: number
+  subject: string
+  status: NewsletterStatus
+  sent_at: string | null
+  detailed_tracking: boolean
+  recipients: NewsletterCampaignRecipients
+  unique_opens: number
+  unique_clickers: number
+  total_clicks: number
+  unsubscribes: number | null
+  open_rate: number | null
+  click_rate: number | null
+  click_to_open_rate: number | null
+  unsubscribe_rate: number | null
+}
+
+export type NewsletterCampaignLink = {
+  id: number
+  url: string
+  total_clicks: number
+  unique_clickers: number | null
+}
+
+// A final send error, with addresses masked, and how many copies hit it.
+export type NewsletterSendError = {
+  message: string
+  count: number
+}
+
+export type NewsletterCampaignStats = NewsletterCampaignSummary & {
+  // Most clicked first.
+  links: NewsletterCampaignLink[]
+  // Most frequent first.
+  errors: NewsletterSendError[]
+  // This campaign and the sent campaigns before it, newest first.
+  recent: NewsletterCampaignSummary[]
+}
+
 export type NewsletterApi = {
   // "mock" until the backend lands; the UI uses it to disable sending.
   backend: "live" | "mock"
@@ -74,6 +130,7 @@ export type NewsletterApi = {
   unschedule: (id: number) => Promise<Newsletter>
   sendTest: (id: number, emails: string[]) => Promise<void>
   stats: () => Promise<NewsletterStats>
+  campaignStats: (id: number) => Promise<NewsletterCampaignStats>
   listSubscribers: () => Promise<NewsletterSubscriber[]>
   removeSubscriber: (id: number) => Promise<void>
 }

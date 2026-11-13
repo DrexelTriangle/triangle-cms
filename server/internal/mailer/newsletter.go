@@ -54,13 +54,24 @@ type Issue struct {
 
 // UnsubscribeURL is the one-click target for the List-Unsubscribe header:
 // the CMS itself, so an inbox's POST doesn't depend on the public site.
-func (n *Newsletter) UnsubscribeURL(token string) string {
-	return strings.TrimRight(n.PublicURL, "/") + "/v1/newsletter/unsubscribe?t=" + url.QueryEscape(token)
+// delivery, when not empty, is the copy's delivery token (d=), which lets the
+// unsubscribe be put down to this issue; the subscriber token (t=) is still
+// what authorises it.
+func (n *Newsletter) UnsubscribeURL(token, delivery string) string {
+	return strings.TrimRight(n.PublicURL, "/") + "/v1/newsletter/unsubscribe?" + unsubscribeQuery(token, delivery)
 }
 
 // UnsubscribePageURL is the same page as a link in the email.
-func (n *Newsletter) UnsubscribePageURL(token string) string {
-	return n.linkBase() + "/unsubscribe?t=" + url.QueryEscape(token)
+func (n *Newsletter) UnsubscribePageURL(token, delivery string) string {
+	return n.linkBase() + "/unsubscribe?" + unsubscribeQuery(token, delivery)
+}
+
+func unsubscribeQuery(token, delivery string) string {
+	q := "t=" + url.QueryEscape(token)
+	if delivery != "" {
+		q += "&d=" + url.QueryEscape(delivery)
+	}
+	return q
 }
 
 func (n *Newsletter) ViewOnlineURL(issueID int64) string {
@@ -126,7 +137,13 @@ func (n *Newsletter) track(emailHTML string, t *Tracking) string {
 // subject so nobody mistakes the test for the real issue. tracking may be
 // nil for an untracked copy.
 func (n *Newsletter) Compose(issue Issue, to *mail.Address, token string, tracking *Tracking) *Message {
-	unsubscribe := n.UnsubscribePageURL(token)
+	// A test copy's unsubscribe link changes nothing, so it has nothing to
+	// attribute.
+	delivery := ""
+	if tracking != nil && token != TestToken {
+		delivery = tracking.Delivery
+	}
+	unsubscribe := n.UnsubscribePageURL(token, delivery)
 	viewOnline := n.ViewOnlineURL(issue.ID)
 	emailHTML := issue.EmailHTML
 	if tracking != nil {
@@ -151,6 +168,6 @@ func (n *Newsletter) Compose(issue Issue, to *mail.Address, token string, tracki
 		Subject:        subject,
 		HTML:           body,
 		Text:           issue.Subject + "\n\nRead this issue online: " + viewOnline + "\n\nUnsubscribe: " + unsubscribe + "\n",
-		UnsubscribeURL: n.UnsubscribeURL(token),
+		UnsubscribeURL: n.UnsubscribeURL(token, delivery),
 	}
 }

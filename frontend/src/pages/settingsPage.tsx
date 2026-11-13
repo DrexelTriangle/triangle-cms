@@ -123,6 +123,8 @@ export default function SettingsPage() {
   const [siteTitleMessage, setSiteTitleMessage] = useState<string | null>(null)
   const [taxonomyRebuildRunning, setTaxonomyRebuildRunning] = useState(false)
   const [taxonomyRebuildMessage, setTaxonomyRebuildMessage] = useState<string | null>(null)
+  const [sitePurgeRunning, setSitePurgeRunning] = useState(false)
+  const [sitePurgeMessage, setSitePurgeMessage] = useState<string | null>(null)
   const [breakingEnabled, setBreakingEnabled] = useState(false)
   const [breakingText, setBreakingText] = useState("")
   const [breakingWindowOn, setBreakingWindowOn] = useState(false)
@@ -364,6 +366,35 @@ export default function SettingsPage() {
       setTaxonomyRebuildMessage(err instanceof Error ? err.message : "Could not rebuild taxonomy counts.")
     } finally {
       setTaxonomyRebuildRunning(false)
+    }
+  }
+
+  // Evicts every page, image and asset on the public site from Cloudflare. Saves
+  // already purge what they change, so this is for the case they don't cover:
+  // something wrong is public and has to go now. The confirm is the guard, since
+  // every reader's next request then reaches the origin until the cache refills.
+  async function purgeWholeSite() {
+    if (
+      !window.confirm(
+        "Purge the entire public site from Cloudflare's cache?\n\n" +
+          "Every page and image will be fetched fresh from our servers until the cache refills, " +
+          "which adds load for a few minutes. Article saves already purge what they change; use this " +
+          "only when something wrong is still showing.",
+      )
+    )
+      return
+    setSitePurgeRunning(true)
+    setSitePurgeMessage(null)
+    try {
+      const res = await apiFetch("/v1/settings/cache/purge", { method: "POST" })
+      if (!res.ok) throw new Error(await readErrorMessage(res, `Could not purge the site (${res.status})`))
+      const body = (await res.json()) as { host?: string; purged_at?: string }
+      const at = body.purged_at ? new Date(body.purged_at).toLocaleTimeString() : "just now"
+      setSitePurgeMessage(`Purged ${body.host ?? "the site"} at ${at}. Readers get fresh pages from now on.`)
+    } catch (err) {
+      setSitePurgeMessage(err instanceof Error ? err.message : "Could not purge the site.")
+    } finally {
+      setSitePurgeRunning(false)
     }
   }
 
@@ -846,6 +877,32 @@ export default function SettingsPage() {
               {mediaIndexRunning ? "Reindexing..." : "Reindex media"}
             </button>
             {mediaIndexMessage && <span className="text-sm text-muted-foreground">{mediaIndexMessage}</span>}
+          </div>
+        </SettingsSection>
+      )}
+
+      {isAdmin && (
+        <SettingsSection
+          title="Emergency cache purge"
+          storageKey="emergency-cache-purge"
+          summary={sitePurgeRunning ? "Purging…" : undefined}
+          description="Clear the whole public site from Cloudflare's cache. Saving an article already clears that article and the pages listing it; use this only when something wrong is still showing after a save."
+        >
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void purgeWholeSite()}
+              disabled={sitePurgeRunning}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 disabled:opacity-60"
+            >
+              <RefreshCw className={`w-4 h-4 ${sitePurgeRunning ? "animate-spin" : ""}`} aria-hidden="true" />
+              {sitePurgeRunning ? "Purging…" : "Purge entire site"}
+            </button>
+            {sitePurgeMessage && (
+              <span className="text-sm text-muted-foreground" role="status" aria-live="polite">
+                {sitePurgeMessage}
+              </span>
+            )}
           </div>
         </SettingsSection>
       )}

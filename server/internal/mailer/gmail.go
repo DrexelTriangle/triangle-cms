@@ -126,6 +126,12 @@ func (s *GmailSender) Send(ctx context.Context, m *Message) error {
 		// outage taken as permanent would fail every remaining copy in
 		// seconds, which is far worse than an occasional duplicate.
 		return gerr
+	case resp.StatusCode == http.StatusBadRequest &&
+		(gerr.Reason == "failedPrecondition" || gerr.Reason == "FAILED_PRECONDITION"):
+		// "Precondition check failed." comes back now and then for a valid
+		// recipient, and the same message goes through when sent again.
+		// Gmail sent nothing, so it takes the bounded delivery retries.
+		return gerr
 	default:
 		// 400: a recipient or message Gmail won't take, however often it's
 		// sent.

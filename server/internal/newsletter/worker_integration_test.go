@@ -10,6 +10,7 @@ import (
 	"net/mail"
 	"net/textproto"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -43,7 +44,7 @@ func workerTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { conn.Close() })
 
 	ctx := context.Background()
-	for _, table := range []string{"newsletter_deliveries", "newsletter_links", "newsletter_subscriber_lists", "newsletter_subscribers", "newsletter_lists", "newsletters"} {
+	for _, table := range []string{"newsletter_delivery_links", "newsletter_deliveries", "newsletter_links", "newsletter_subscriber_lists", "newsletter_subscribers", "newsletter_lists", "newsletters"} {
 		if _, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
 			t.Fatalf("drop %s: %v", table, err)
 		}
@@ -207,6 +208,58 @@ func TestWorker_SendsADueIssueToEveryConfirmedSubscriber(t *testing.T) {
 	}
 }
 
+// An issue this code sends is fully tracked: its copies' unsubscribe links
+// name the delivery, and the campaign says its detailed numbers are complete.
+func TestWorker_SendsWithDetailedTracking(t *testing.T) {
+	conn := workerTestDB(t)
+	for i := range 2 {
+		addSubscriber(t, conn, fmt.Sprintf("reader%d@example.org", i), models.SubscriberStatusConfirmed)
+	}
+	id := scheduleIssue(t, conn, time.Minute)
+	sender := &fakeSender{}
+	if err := newWorker(conn, sender, "a").Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	rows, err := conn.Query("SELECT token, tracking_version FROM newsletter_deliveries WHERE newsletter_id = ? AND is_test = 0", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	tokens := map[string]bool{}
+	for rows.Next() {
+		var token string
+		var version int
+		if err := rows.Scan(&token, &version); err != nil {
+			t.Fatal(err)
+		}
+		if version != db.NewsletterTrackingVersion {
+			t.Errorf("delivery %s sent at tracking version %d", token, version)
+		}
+		tokens[token] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.sent) != 2 {
+		t.Fatalf("sent %d", len(sender.sent))
+	}
+	for _, m := range sender.sent {
+		_, delivery, ok := strings.Cut(m.UnsubscribeURL, "&d=")
+		if !ok || !tokens[delivery] || !strings.Contains(m.HTML, "&amp;d="+delivery) {
+			t.Errorf("copy to %s: unsubscribe links don't name its delivery: %s", m.To.Address, m.UnsubscribeURL)
+		}
+	}
+
+	stats, err := db.GetNewsletterCampaignStats(context.Background(), conn, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.DetailedTracking || stats.Recipients.Sent != 2 || stats.Unsubscribes == nil || len(stats.Links) != 1 || stats.Links[0].UniqueClickers == nil {
+		t.Fatalf("campaign stats: %+v links %+v", stats.NewsletterCampaignSummary, stats.Links)
+	}
+}
+
 func TestWorker_TwoSlotsNeverSendTheSameCopy(t *testing.T) {
 	conn := workerTestDB(t)
 	for i := range 20 {
@@ -239,6 +292,75 @@ func TestWorker_TwoSlotsNeverSendTheSameCopy(t *testing.T) {
 	}
 	if status, recipients := issueState(t, conn, id); status != models.NewsletterStatusSent || recipients != 20 {
 		t.Fatalf("expected sent to 20, got %s to %d", status, recipients)
+	}
+}
+
+// Only the live slot sends, and a switch mid-issue hands the rest to the
+// newly live slot without resending anything. On 2026-11-07 the idle slot,
+// still on the previous release, sent a whole issue untracked.
+func TestWorker_OnlyTheLiveSlotSends(t *testing.T) {
+	conn := workerTestDB(t)
+	for i := range 6 {
+		addSubscriber(t, conn, fmt.Sprintf("reader%d@example.org", i), models.SubscriberStatusConfirmed)
+	}
+	id := scheduleIssue(t, conn, time.Minute)
+
+	var mu sync.Mutex
+	live := "green"
+	gate := func(slot string) func() (bool, error) {
+		return func() (bool, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			return live == slot, nil
+		}
+	}
+	blueSender, greenSender := &fakeSender{}, &fakeSender{}
+	blue := newWorker(conn, blueSender, "blue")
+	blue.Active = gate("blue")
+	green := newWorker(conn, greenSender, "green")
+	green.Active = gate("green")
+
+	// Blue is idle: it neither starts the issue nor sends from it.
+	if err := blue.Tick(context.Background()); err != nil {
+		t.Fatalf("blue tick: %v", err)
+	}
+	if status, _ := issueState(t, conn, id); status != models.NewsletterStatusScheduled || len(blueSender.sent) != 0 {
+		t.Fatalf("the idle slot acted on the issue: %s, %d sent", status, len(blueSender.sent))
+	}
+
+	// Green sends two copies, then traffic moves to blue mid-issue.
+	greenSender.fail = func(string) error {
+		if len(greenSender.sent) == 2 {
+			mu.Lock()
+			live = "blue"
+			mu.Unlock()
+		}
+		return nil
+	}
+	if err := green.Tick(context.Background()); err != nil {
+		t.Fatalf("green tick: %v", err)
+	}
+	if n := len(greenSender.sent); n != 3 {
+		t.Fatalf("green should stop after the copy in hand once it is no longer live, sent %d", n)
+	}
+	if err := blue.Tick(context.Background()); err != nil {
+		t.Fatalf("blue tick after the switch: %v", err)
+	}
+
+	got := blueSender.recipients()
+	for addr, n := range greenSender.recipients() {
+		got[addr] += n
+	}
+	if len(got) != 6 {
+		t.Fatalf("expected all 6 readers between the two slots, got %v", got)
+	}
+	for addr, n := range got {
+		if n != 1 {
+			t.Fatalf("%s got %d copies", addr, n)
+		}
+	}
+	if status, recipients := issueState(t, conn, id); status != models.NewsletterStatusSent || recipients != 6 {
+		t.Fatalf("expected sent to 6, got %s to %d", status, recipients)
 	}
 }
 

@@ -194,6 +194,7 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("GET /v1/newsletters", authMW(editorOrAdmin(handlers.GetNewsletters(conn))))
 	mux.Handle("GET /v1/newsletters/stats", authMW(editorOrAdmin(handlers.GetNewsletterStats(conn))))
 	mux.Handle("GET /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.GetNewsletter(conn))))
+	mux.Handle("GET /v1/newsletters/{id}/stats", authMW(editorOrAdmin(handlers.GetNewsletterCampaignStats(conn))))
 	mux.Handle("POST /v1/newsletters", authMW(editorOrAdmin(handlers.PostNewsletter(conn))))
 	mux.Handle("PUT /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.PutNewsletter(conn))))
 	mux.Handle("DELETE /v1/newsletters/{id}", authMW(editorOrAdmin(handlers.DeleteNewsletter(conn))))
@@ -217,6 +218,8 @@ func Register(mux *http.ServeMux, conn *sql.DB, verifier *oidc.IDTokenVerifier, 
 	mux.Handle("PATCH /v1/settings/exhibit-spotlights", authMW(adminOnly(handlers.PatchExhibitSpotlights(conn))))
 	mux.Handle("PATCH /v1/settings/footer", authMW(adminOnly(handlers.PatchFooterSettings(conn))))
 	mux.Handle("POST /v1/settings/taxonomy/rebuild", authMW(adminOnly(handlers.PostRebuildTaxonomyCounts(conn))))
+	// Evicts the whole public site from Cloudflare; admin-only, once a minute.
+	mux.Handle("POST /v1/settings/cache/purge", authMW(adminOnly(handlers.PostEmergencyCachePurge())))
 	mux.Handle("POST /v1/taxonomy", authMW(editorOrAdmin(handlers.PostTaxonomy(conn))))
 	mux.Handle("PUT /v1/taxonomy/{type}/{slug}", authMW(editorOrAdmin(handlers.PutTaxonomyItem(conn))))
 	mux.Handle("DELETE /v1/taxonomy/{type}/{slug}", authMW(editorOrAdmin(handlers.DeleteTaxonomyItem(conn))))

@@ -63,6 +63,44 @@ func GetNewsletterStats(conn *sql.DB) http.Handler {
 	})
 }
 
+// GetNewsletterCampaignStats reports one issue's numbers: where its copies
+// went, opens, clickers, clicks per link, send errors (addresses masked) and
+// unsubscribes, with the sent issues before it for comparison. An issue sent
+// before detailed tracking has detailed_tracking false, and its unsubscribes
+// and per-link unique_clickers are null (unknown), not 0.
+//
+// @Summary Newsletter campaign stats
+// @Tags newsletters
+// @Produce json
+// @Param id path int true "Newsletter ID"
+// @Success 200 {object} models.NewsletterCampaignStats
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 409 {object} models.ErrorResponse "Not sent yet"
+// @Failure 500 {object} models.ErrorResponse
+// @Security BearerAuth
+// @Router /v1/newsletters/{id}/stats [get]
+func GetNewsletterCampaignStats(conn *sql.DB) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := classifiedIDParam(r)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid id")
+			return
+		}
+		stats, err := db.GetNewsletterCampaignStats(r.Context(), conn, id)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			writeError(w, http.StatusNotFound, "newsletter not found")
+		case errors.Is(err, db.ErrNewsletterNotSent):
+			writeError(w, http.StatusConflict, "newsletter has not been sent yet")
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, err.Error())
+		default:
+			writeJSON(w, http.StatusOK, stats)
+		}
+	})
+}
+
 // @Summary Get a newsletter issue
 // @Tags newsletters
 // @Produce json

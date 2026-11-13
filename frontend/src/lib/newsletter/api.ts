@@ -1,7 +1,14 @@
 import { useMemo } from "react"
 import { useApiFetch } from "../../hooks/useApiFetch"
 import { createMockNewsletterApi } from "./mockStore"
-import type { Newsletter, NewsletterApi, NewsletterInput, NewsletterStats, NewsletterSubscriber } from "./types"
+import type {
+  Newsletter,
+  NewsletterApi,
+  NewsletterCampaignStats,
+  NewsletterInput,
+  NewsletterStats,
+  NewsletterSubscriber,
+} from "./types"
 
 // VITE_NEWSLETTER_API=live points the dashboard at /v1/newsletters; without it
 // (local `npm run dev`) it uses the in-browser mock. The frontend Dockerfile
@@ -50,6 +57,8 @@ function createLiveNewsletterApi(apiFetch: ApiFetch): NewsletterApi {
     sendTest: (id, emails) =>
       request<void>(`/v1/newsletters/${id}/test`, json("POST", { emails }), "Could not send the test"),
     stats: () => request<NewsletterStats>("/v1/newsletters/stats", undefined, "Could not load stats"),
+    campaignStats: (id) =>
+      request<NewsletterCampaignStats>(`/v1/newsletters/${id}/stats`, undefined, "Could not load campaign stats"),
     listSubscribers: async () =>
       (
         await request<{ subscribers?: NewsletterSubscriber[] }>(

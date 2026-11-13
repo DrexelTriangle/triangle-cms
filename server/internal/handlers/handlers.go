@@ -1015,6 +1015,7 @@ func PutAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "author not found")
 			return
 		}
+		purgeAuthorPages(conn, slug, nextSlug)
 		activity.LogRequest(r, "author_updated", body.DisplayName, "old_slug", slug, "new_slug", nextSlug)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -1087,6 +1088,9 @@ func PatchAuthor(conn *sql.DB) http.HandlerFunc {
 		if rawSlug, ok := body["slug"].(string); ok && strings.TrimSpace(rawSlug) != "" {
 			target = strings.TrimSpace(rawSlug)
 		}
+		// target is the slug the row has now; it is overwritten with the
+		// display name below only for the activity log.
+		purgeAuthorPages(conn, slug, target)
 		if displayName, ok := body["display_name"].(string); ok && strings.TrimSpace(displayName) != "" {
 			target = strings.TrimSpace(displayName)
 		}
@@ -1125,6 +1129,7 @@ func DeleteAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "author not found")
 			return
 		}
+		purgeAuthorPages(conn, slug)
 		activity.LogRequest(r, "author_deleted", slug)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -1160,6 +1165,7 @@ func RestoreAuthor(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "author not found")
 			return
 		}
+		purgeAuthorPages(conn, slug)
 		activity.LogRequest(r, "author_restored", slug)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -2531,6 +2537,7 @@ func PostArticles(conn *sql.DB) http.HandlerFunc {
 		if body.Status == models.ArticleStatusPublished {
 			action = "article_published"
 		}
+		PurgePublishedArticles(conn, []int64{articleID})
 		activity.LogRequest(r, action, body.Title, "slug", body.Slug, "article_id", articleID)
 		writeJSON(w, http.StatusCreated, models.ArticleCreateResponse{ID: articleID, Slug: body.Slug})
 	}
@@ -2567,6 +2574,7 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		unlock := articleEditLocks.Lock(target.lockKey())
 		defer unlock()
+		purge := beginArticlePurge(r.Context(), conn, target.id)
 		var body models.Article
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -2647,6 +2655,7 @@ func PutArticle(conn *sql.DB) http.HandlerFunc {
 				return
 			}
 		}
+		purge.done()
 		activity.LogRequest(r, "article_updated", body.Title, "slug", body.Slug)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -2682,6 +2691,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		unlock := articleEditLocks.Lock(target.lockKey())
 		defer unlock()
+		purge := beginArticlePurge(r.Context(), conn, target.id)
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -3012,6 +3022,7 @@ func PatchArticle(conn *sql.DB) http.HandlerFunc {
 		if rawTitle, ok := body["title"].(string); ok && strings.TrimSpace(rawTitle) != "" {
 			logTarget = strings.TrimSpace(rawTitle)
 		}
+		purge.done()
 		activity.LogRequest(r, "article_updated", logTarget, "slug", targetSlug)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -3045,6 +3056,7 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		unlock := articleEditLocks.Lock(target.lockKey())
 		defer unlock()
+		purge := beginArticlePurge(r.Context(), conn, target.id)
 		categories, found, err := loadArticleCategoriesByArchiveState(r.Context(), conn, target, false)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -3068,6 +3080,7 @@ func DeleteArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		purge.done()
 		activity.LogRequest(r, "article_deleted", target.slug, "article_id", target.id)
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -3101,6 +3114,7 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 		}
 		unlock := articleEditLocks.Lock(target.lockKey())
 		defer unlock()
+		purge := beginArticlePurge(r.Context(), conn, target.id)
 		categories, found, err := loadArticleCategoriesByArchiveState(r.Context(), conn, target, true)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -3124,6 +3138,7 @@ func RestoreArticle(conn *sql.DB) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		purge.done()
 		activity.LogRequest(r, "article_restored", target.slug, "article_id", target.id)
 		w.WriteHeader(http.StatusNoContent)
 	}
