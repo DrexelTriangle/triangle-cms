@@ -9,9 +9,14 @@ func TestTargetsAreSixLetterDictionaryWords(t *testing.T) {
 	if len(Targets()) < 900 {
 		t.Fatalf("expected the ~1000-word target pool, got %d", len(Targets()))
 	}
+	body, ok := ListFile("allowed-6.txt")
+	if !ok {
+		t.Fatal("published six-letter dictionary is missing")
+	}
+	allowed := toSet(parseWords(string(body)))
 	for _, word := range Targets() {
-		if len(word) != WordLength || !IsWord(word) {
-			t.Fatalf("target %q is not a six-letter dictionary word", word)
+		if len(word) != WordLength || !allowed[word] {
+			t.Errorf("target %q is not in the published six-letter dictionary", word)
 		}
 	}
 }
