@@ -12,7 +12,7 @@ The CMS embeds these files and serves them to the public site at
 committed, so production never downloads anything; rerun this only to
 refresh the lists:
 
-    python3 scripts/build-wordangle-wordlists.py
+    python3 scripts/build_wordangle_wordlists.py
 '''
 
 from __future__ import annotations
