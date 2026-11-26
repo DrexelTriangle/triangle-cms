@@ -3,7 +3,7 @@
 //
 // This directory is the only copy of Wordangle's word lists: the CMS checks
 // and generates answers against them, and serves them to the public site's
-// game through /v1/wordangle/lists/<file>. scripts/build-wordangle-wordlists.py
+// game through /v1/wordangle/lists/<file>. scripts/build_wordangle_wordlists.py
 // rebuilds the allowed-N lists; targets.txt is hand-maintained.
 package wordangle
 
