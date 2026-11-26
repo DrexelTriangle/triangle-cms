@@ -10,6 +10,7 @@ act
 add
 ado
 ads
+adz
 aeq
 aft
 aga
@@ -41,6 +42,7 @@ amu
 ana
 and
 ane
+ani
 ant
 anu
 any
@@ -199,6 +201,7 @@ doc
 dod
 doe
 dog
+doh
 don
 doo
 dop
@@ -345,6 +348,7 @@ gem
 geo
 get
 gey
+ghi
 gib
 gid
 gie
@@ -352,6 +356,7 @@ gif
 gig
 gin
 gio
+gip
 gis
 git
 gju
@@ -383,6 +388,7 @@ gyp
 had
 hae
 hag
+hah
 haj
 ham
 han
@@ -637,12 +643,14 @@ nae
 nag
 nah
 nam
+nan
 nap
 nas
 naw
 nay
 neb
 ned
+nee
 nef
 nek
 nep
@@ -700,6 +708,7 @@ oka
 oke
 oks
 old
+ole
 olm
 oms
 one
@@ -770,6 +779,7 @@ pin
 pip
 pis
 pit
+piu
 pix
 ply
 poa
@@ -908,14 +918,17 @@ sob
 sod
 soe
 sog
+soh
 sol
 som
 son
 sop
+sos
 sot
 sou
 sov
 sow
+sox
 soy
 spa
 spy

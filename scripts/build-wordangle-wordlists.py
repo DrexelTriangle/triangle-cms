@@ -3,7 +3,9 @@
 
 Writes server/internal/wordangle/allowed-{2..6}.txt plus SCOWL's
 copyright notice, which its license requires to travel with the lists.
-targets.txt, the possible answers, is hand-maintained and left alone.
+Includes US/British spellings and accepted level-1/2 variants through size
+80. Accents are folded to ASCII; punctuation and other non-ASCII letters
+are rejected. targets.txt is hand-maintained and left alone.
 
 The CMS embeds these files and serves them to the public site at
 /v1/wordangle/lists/<file>; Scalene keeps no copy. The output is
@@ -19,6 +21,7 @@ import re
 import sys
 import tempfile
 import time
+import unicodedata
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -32,6 +35,7 @@ SCOWL_URL = (
 )
 SCOWL_SPELLINGS = frozenset({
     'english', 'american', 'british', 'british_z',
+    'variant_1', 'variant_2', 'british_variant_1', 'british_variant_2',
 })
 SCOWL_SIZE = 80
 SCOWL_WORDS_RE = re.compile(
@@ -71,6 +75,10 @@ def main() -> None:
 
 def parse_word(line: str) -> str | None:
     word = line.strip().lower()
+    word = ''.join(
+        char for char in unicodedata.normalize('NFD', word)
+        if not unicodedata.combining(char)
+    )
     if word.isascii() and word.isalpha():
         return word
     return None

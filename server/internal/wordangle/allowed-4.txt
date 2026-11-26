@@ -3,6 +3,7 @@ aals
 abac
 abas
 abba
+abbe
 abbs
 abed
 abet
@@ -66,6 +67,7 @@ aids
 ails
 aims
 aina
+aine
 ains
 airn
 airs
@@ -96,6 +98,7 @@ alew
 alfa
 alga
 alif
+alit
 alky
 alls
 ally
@@ -118,6 +121,7 @@ amia
 amid
 amie
 amin
+amir
 amis
 amla
 ammo
@@ -189,6 +193,7 @@ arty
 arum
 arvo
 aryl
+asar
 asci
 asea
 ashy
@@ -224,6 +229,7 @@ awes
 awls
 awns
 awny
+awol
 awry
 axal
 axed
@@ -406,6 +412,7 @@ bloc
 blog
 blot
 blow
+blub
 blue
 blur
 boak
@@ -420,6 +427,7 @@ bods
 body
 boff
 bogs
+bogy
 boho
 bohs
 boil
@@ -560,8 +568,10 @@ caca
 cade
 cadi
 cads
+cafe
 caff
 cage
+cagy
 caid
 cain
 cake
@@ -647,6 +657,7 @@ chew
 chez
 chia
 chic
+chid
 chik
 chin
 chip
@@ -668,6 +679,7 @@ cigs
 cill
 cine
 cion
+cire
 cirl
 cist
 cite
@@ -975,6 +987,7 @@ dirt
 disc
 dish
 disk
+diss
 dita
 dite
 dits
@@ -1001,6 +1014,7 @@ does
 doff
 doge
 dogs
+dohs
 doit
 dojo
 dole
@@ -1023,6 +1037,7 @@ doos
 dopa
 dope
 dops
+dopy
 dora
 dore
 dork
@@ -1162,6 +1177,7 @@ edit
 eeks
 eels
 eely
+eery
 effs
 efts
 egad
@@ -1169,6 +1185,7 @@ egal
 eger
 eggs
 eggy
+egis
 egma
 egos
 egre
@@ -1178,6 +1195,7 @@ eild
 eked
 ekes
 ekka
+elan
 elds
 elhi
 elks
@@ -1210,6 +1228,7 @@ envy
 eoan
 eons
 eorl
+epee
 epha
 epic
 epos
@@ -1231,12 +1250,14 @@ esne
 espy
 esse
 etas
+etat
 etch
 eten
 ethe
 eths
 etic
 etna
+etui
 euge
 euks
 euoi
@@ -1338,6 +1359,7 @@ fern
 fess
 fest
 feta
+fete
 fets
 feud
 feus
@@ -1412,9 +1434,11 @@ flux
 foal
 foam
 fobs
+foci
 foes
 fogs
 fogy
+fohn
 fohs
 foid
 foil
@@ -1431,6 +1455,7 @@ foon
 foos
 foot
 fops
+fora
 forb
 ford
 fore
@@ -1489,6 +1514,7 @@ fuse
 fuss
 fust
 futz
+fuze
 fuzz
 fyce
 fyke
@@ -1503,6 +1529,7 @@ gaen
 gaes
 gaff
 gaga
+gage
 gags
 gaid
 gain
@@ -1522,7 +1549,9 @@ gamy
 gane
 gang
 gant
+gaol
 gape
+gapo
 gaps
 gapy
 garb
@@ -1556,8 +1585,10 @@ geed
 geek
 geep
 gees
+geez
 geld
 gels
+gelt
 gems
 gena
 gene
@@ -1573,6 +1604,7 @@ gets
 geum
 ghat
 ghee
+ghis
 gibe
 gibs
 gids
@@ -1592,6 +1624,7 @@ gink
 ginn
 gins
 gios
+gips
 gird
 giri
 girl
@@ -1744,6 +1777,7 @@ haar
 habu
 hack
 hade
+hadj
 haed
 haem
 haen
@@ -1753,10 +1787,12 @@ haff
 haft
 hags
 haha
+hahs
 haik
 hail
 hain
 hair
+haji
 hajj
 haka
 hake
@@ -1839,6 +1875,7 @@ hest
 hete
 heth
 hets
+hewn
 hews
 heys
 hick
@@ -1894,6 +1931,7 @@ holt
 holy
 home
 homo
+homy
 hond
 hone
 hong
@@ -1981,17 +2019,20 @@ ichs
 icky
 icon
 idea
+idee
 idem
 ides
 idle
 idly
 idol
+idyl
 iffy
 igad
 iggs
 iglu
 iiwi
 ikat
+ikon
 ilea
 ilex
 ilia
@@ -2077,10 +2118,12 @@ jeon
 jerk
 jess
 jest
+jete
 jets
 jeux
 jews
 jiao
+jibb
 jibe
 jibs
 jiff
@@ -2107,6 +2150,7 @@ jogs
 john
 join
 joke
+joky
 jole
 joll
 jolt
@@ -2402,6 +2446,7 @@ leno
 lens
 lent
 leps
+lept
 lere
 lerp
 less
@@ -2514,6 +2559,7 @@ loss
 lost
 lota
 lote
+loth
 loti
 loto
 lots
@@ -2570,6 +2616,7 @@ maar
 maas
 mabe
 mace
+mack
 macs
 made
 mads
@@ -2665,6 +2712,7 @@ meno
 mens
 ment
 menu
+meou
 meow
 merc
 mere
@@ -2706,6 +2754,7 @@ milo
 mils
 milt
 mime
+mina
 mind
 mine
 ming
@@ -2780,6 +2829,7 @@ moos
 moot
 mope
 mops
+mopy
 mora
 more
 morn
@@ -2799,6 +2849,7 @@ moup
 mous
 move
 mowa
+mown
 mows
 moxa
 moya
@@ -2863,6 +2914,7 @@ nala
 name
 nams
 nana
+nans
 naoi
 naos
 napa
@@ -2903,8 +2955,10 @@ ness
 nest
 nete
 nets
+nett
 neuk
 neum
+neve
 nevi
 news
 newt
@@ -2928,6 +2982,7 @@ nipa
 nips
 nirl
 nisi
+nite
 nits
 nixe
 nixy
@@ -3040,7 +3095,9 @@ okeh
 okes
 okra
 okta
+olde
 olds
+oldy
 olea
 oleo
 oles
@@ -3210,6 +3267,7 @@ pees
 pegh
 pegs
 pehs
+pein
 peke
 pela
 pele
@@ -3225,6 +3283,7 @@ pent
 peon
 pepo
 peps
+pere
 peri
 perk
 perm
@@ -3266,11 +3325,13 @@ pill
 pily
 pima
 pimp
+pina
 pine
 ping
 pink
 pins
 pint
+piny
 pion
 pioy
 pipa
@@ -3280,6 +3341,7 @@ pips
 pipy
 pirl
 pirn
+pise
 pish
 piso
 piss
@@ -3288,13 +3350,16 @@ pith
 pits
 pity
 pium
+pixy
 pize
 plan
 plap
 play
 plea
 pleb
+pled
 plew
+plie
 plim
 plod
 plop
@@ -3487,6 +3552,7 @@ rail
 rain
 rais
 rait
+raja
 rake
 raki
 raku
@@ -3497,12 +3563,14 @@ rams
 rana
 rand
 rang
+rani
 rank
 rant
 rape
 raps
 rapt
 rare
+rase
 rash
 rasp
 rata
@@ -3546,6 +3614,7 @@ regs
 rehs
 reif
 rein
+reis
 rely
 rems
 rend
@@ -3656,6 +3725,7 @@ roti
 rotl
 roto
 rots
+roue
 roup
 rout
 roux
@@ -3751,10 +3821,12 @@ sati
 saul
 saut
 save
+sawn
 saws
 says
 scab
 scad
+scag
 scam
 scan
 scar
@@ -3802,6 +3874,7 @@ sele
 self
 sell
 sels
+seme
 semi
 sena
 send
@@ -3810,6 +3883,7 @@ sens
 sent
 seps
 sept
+sera
 sere
 serf
 serk
@@ -3830,6 +3904,7 @@ shag
 shah
 sham
 shan
+shat
 shaw
 shay
 shea
@@ -3855,6 +3930,7 @@ shri
 shul
 shun
 shut
+shwa
 sial
 sibb
 sibs
@@ -3952,6 +4028,7 @@ slut
 smee
 smew
 smir
+smit
 smog
 smug
 smur
@@ -3989,12 +4066,14 @@ sofa
 soft
 sogs
 soho
+sohs
 soil
 soja
 soke
 sola
 sold
 sole
+soli
 solo
 sols
 soma
@@ -4030,6 +4109,7 @@ sowf
 sowl
 sown
 sows
+soya
 soys
 spae
 spam
@@ -4080,6 +4160,7 @@ stub
 stud
 stum
 stun
+stye
 suba
 subs
 such
@@ -4125,6 +4206,7 @@ sway
 swig
 swim
 swiz
+swop
 swot
 swum
 sybo
@@ -4140,6 +4222,7 @@ syph
 taal
 tabi
 tabs
+tabu
 tace
 tach
 tack
@@ -4242,6 +4325,7 @@ terf
 term
 tern
 test
+tete
 teth
 tets
 tews
@@ -4284,6 +4368,7 @@ tift
 tige
 tigs
 tika
+tike
 tiki
 tile
 till
@@ -4297,10 +4382,12 @@ tink
 tins
 tint
 tiny
+tipi
 tips
 tipt
 tire
 tirl
+tiro
 tirr
 tite
 titi
@@ -4352,6 +4439,7 @@ toph
 topi
 topo
 tops
+tora
 torc
 tore
 tori
@@ -4360,10 +4448,12 @@ toro
 torr
 tors
 tort
+tory
 tosa
 tose
 tosh
 toss
+tost
 tote
 tots
 toun
@@ -4383,6 +4473,7 @@ tray
 tree
 tref
 trek
+tres
 tret
 trey
 trez
@@ -4459,6 +4550,7 @@ typy
 tyre
 tyro
 tyyn
+tzar
 udal
 udon
 udos
@@ -4498,6 +4590,7 @@ upon
 upsy
 urao
 urbs
+urde
 urds
 urdy
 urea
@@ -4549,6 +4642,7 @@ veep
 veer
 vees
 vega
+vegs
 veil
 vein
 vela
@@ -4810,6 +4904,7 @@ wynn
 wyns
 wyte
 xyst
+yack
 yaff
 yagi
 yags
@@ -4871,6 +4966,7 @@ yite
 ylem
 ylke
 yobs
+yock
 yode
 yodh
 yods
